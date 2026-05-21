@@ -1,0 +1,54 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Training logs and experiment trackers
+*.log
+wandb/
+runs/
+logs/
+
+# Model checkpoints and weights
+*.ckpt
+*.onnx
+*.pt
+*.pth
+*.safetensors
+checkpoints/
+**/checkpoints/
+**/YOLO_Checkpoints/
+**/work_dir/
+
+# Datasets and generated outputs
+data/*
+!data/segmentation/
+data/segmentation/*
+!data/segmentation/README.md
+!data/segmentation/split_train_val.py
+/external/**/data/
+**/outputs/
+**/outputs_*/
+**/script_gen/
+**/positive_cropped/
+**/results/
+**/train_data/
+**/val_data/
+**/smoke_train/
+external/YOLO_SAM2/polypgen_vid_seq/
+scripts/analysis/
+scripts/eval_outputs/
+
+# External projects not committed here
+external/WTNet/
+external/PraNet/

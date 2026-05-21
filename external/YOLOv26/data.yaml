@@ -1,0 +1,5 @@
+# YOLOv26 data.yaml for Kvasir-SEG dataset
+train: train_data  # path to training images
+val: val_data      # path to validation images
+nc: 1               # number of classes
+names: ["polyp"]   # class names
