@@ -16,7 +16,9 @@ from sam2.build_sam import build_sam2_video_predictor
 # the PNG palette for DAVIS 2017 dataset
 DAVIS_PALETTE = b"\x00\x00\x00\x80\x00\x00\x00\x80\x00\x80\x80\x00\x00\x00\x80\x80\x00\x80\x00\x80\x80\x80\x80\x80@\x00\x00\xc0\x00\x00@\x80\x00\xc0\x80\x00@\x00\x80\xc0\x00\x80@\x80\x80\xc0\x80\x80\x00@\x00\x80@\x00\x00\xc0\x00\x80\xc0\x00\x00@\x80\x80@\x80\x00\xc0\x80\x80\xc0\x80@@\x00\xc0@\x00@\xc0\x00\xc0\xc0\x00@@\x80\xc0@\x80@\xc0\x80\xc0\xc0\x80\x00\x00@\x80\x00@\x00\x80@\x80\x80@\x00\x00\xc0\x80\x00\xc0\x00\x80\xc0\x80\x80\xc0@\x00@\xc0\x00@@\x80@\xc0\x80@@\x00\xc0\xc0\x00\xc0@\x80\xc0\xc0\x80\xc0\x00@@\x80@@\x00\xc0@\x80\xc0@\x00@\xc0\x80@\xc0\x00\xc0\xc0\x80\xc0\xc0@@@\xc0@@@\xc0@\xc0\xc0@@@\xc0\xc0@\xc0@\xc0\xc0\xc0\xc0\xc0 \x00\x00\xa0\x00\x00 \x80\x00\xa0\x80\x00 \x00\x80\xa0\x00\x80 \x80\x80\xa0\x80\x80`\x00\x00\xe0\x00\x00`\x80\x00\xe0\x80\x00`\x00\x80\xe0\x00\x80`\x80\x80\xe0\x80\x80 @\x00\xa0@\x00 \xc0\x00\xa0\xc0\x00 @\x80\xa0@\x80 \xc0\x80\xa0\xc0\x80`@\x00\xe0@\x00`\xc0\x00\xe0\xc0\x00`@\x80\xe0@\x80`\xc0\x80\xe0\xc0\x80 \x00@\xa0\x00@ \x80@\xa0\x80@ \x00\xc0\xa0\x00\xc0 \x80\xc0\xa0\x80\xc0`\x00@\xe0\x00@`\x80@\xe0\x80@`\x00\xc0\xe0\x00\xc0`\x80\xc0\xe0\x80\xc0 @@\xa0@@ \xc0@\xa0\xc0@ @\xc0\xa0@\xc0 \xc0\xc0\xa0\xc0\xc0`@@\xe0@@`\xc0@\xe0\xc0@`@\xc0\xe0@\xc0`\xc0\xc0\xe0\xc0\xc0\x00 \x00\x80 \x00\x00\xa0\x00\x80\xa0\x00\x00 \x80\x80 \x80\x00\xa0\x80\x80\xa0\x80@ \x00\xc0 \x00@\xa0\x00\xc0\xa0\x00@ \x80\xc0 \x80@\xa0\x80\xc0\xa0\x80\x00`\x00\x80`\x00\x00\xe0\x00\x80\xe0\x00\x00`\x80\x80`\x80\x00\xe0\x80\x80\xe0\x80@`\x00\xc0`\x00@\xe0\x00\xc0\xe0\x00@`\x80\xc0`\x80@\xe0\x80\xc0\xe0\x80\x00 @\x80 @\x00\xa0@\x80\xa0@\x00 \xc0\x80 \xc0\x00\xa0\xc0\x80\xa0\xc0@ @\xc0 @@\xa0@\xc0\xa0@@ \xc0\xc0 \xc0@\xa0\xc0\xc0\xa0\xc0\x00`@\x80`@\x00\xe0@\x80\xe0@\x00`\xc0\x80`\xc0\x00\xe0\xc0\x80\xe0\xc0@`@\xc0`@@\xe0@\xc0\xe0@@`\xc0\xc0`\xc0@\xe0\xc0\xc0\xe0\xc0  \x00\xa0 \x00 \xa0\x00\xa0\xa0\x00  \x80\xa0 \x80 \xa0\x80\xa0\xa0\x80` \x00\xe0 \x00`\xa0\x00\xe0\xa0\x00` \x80\xe0 \x80`\xa0\x80\xe0\xa0\x80 `\x00\xa0`\x00 \xe0\x00\xa0\xe0\x00 `\x80\xa0`\x80 \xe0\x80\xa0\xe0\x80``\x00\xe0`\x00`\xe0\x00\xe0\xe0\x00``\x80\xe0`\x80`\xe0\x80\xe0\xe0\x80  @\xa0 @ \xa0@\xa0\xa0@  \xc0\xa0 \xc0 \xa0\xc0\xa0\xa0\xc0` @\xe0 @`\xa0@\xe0\xa0@` \xc0\xe0 \xc0`\xa0\xc0\xe0\xa0\xc0 `@\xa0`@ \xe0@\xa0\xe0@ `\xc0\xa0`\xc0 \xe0\xc0\xa0\xe0\xc0``@\xe0`@`\xe0@\xe0\xe0@``\xc0\xe0`\xc0`\xe0\xc0\xe0\xe0\xc0"
 
-
+# palette-based PNG masks
+# split combined mask into single mask
+# for multiple objects segmentation
 def load_ann_png(path):
     """Load a PNG file as a mask and its palette."""
     mask = Image.open(path)
@@ -52,7 +54,7 @@ def put_per_obj_mask(per_obj_mask, height, width):
         mask[object_mask] = object_id
     return mask
 
-
+# load/save masks in flexible formats
 def load_masks_from_dir(
     input_mask_dir, video_name, frame_name, per_obj_png_file, allow_missing=False
 ):
@@ -77,7 +79,7 @@ def load_masks_from_dir(
             input_mask, input_palette = load_ann_png(input_mask_path)
             per_obj_input_mask[object_id] = input_mask > 0
 
-    return per_obj_input_mask, input_palette
+    return per_obj_input_mask, input_palette # per-object
 
 
 def save_palette_masks_to_dir(
@@ -147,9 +149,10 @@ def save_masks_to_dir(
             assert output_mask.ndim == 2
             output_mask = Image.fromarray(output_mask)
             output_mask.save(output_mask_path)
-
+# =============================================================================
 @torch.inference_mode()
 @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+# standard video object segmentation
 def vos_inference(
     predictor,
     base_video_dir,
@@ -171,11 +174,13 @@ def vos_inference(
     ]
     frame_names = list(sorted(frame_names))
     inference_state = predictor.init_state(
-        video_path=video_dir, async_loading_frames=False
+        video_path=video_dir, async_loading_frames=False # preferred, vid size is manageable enough to load into memory
+        # async = true: frames loaded in the background while inference proceeds
+        # asyng = false: frameds loaded upfront before inference begins => deterministic behaviour
     )
     height = inference_state["video_height"]
     width = inference_state["video_width"]
-    input_palette = None
+    input_palette = None # no masks
 
     # fetch mask inputs from input_mask_dir (either only mask for the first frame, or all available masks)
     if not use_all_masks:
@@ -206,7 +211,7 @@ def vos_inference(
                 f"In {video_name=}, got no input masks in {input_mask_dir=}. "
                 "Please make sure the input masks are available in the correct format."
             )
-        input_frame_inds = sorted(set(input_frame_inds))
+        input_frame_inds = sorted(set(input_frame_inds)) # use masks
 
     # add those input masks to SAM 2 inference state before propagation
     object_ids_set = None
@@ -296,6 +301,7 @@ def vos_inference(
             )
 
 @torch.inference_mode()
+# for videos dont have all objects to track appearing in the first frame
 @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
 def vos_separate_inference_per_object(
     predictor,

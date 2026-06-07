@@ -7,6 +7,7 @@ Pillow
 pyyaml
 scikit-image
 opencv-python
-yaml
 wandb
 scikit-learn
+scipy
+ultralytics

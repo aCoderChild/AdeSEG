@@ -9,7 +9,7 @@ from typing import List, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from efficient_track_anything.modeling.efficienttam_utils import LayerNorm2d
+from sam2.modeling.sam2_utils import LayerNorm2d
 
 
 
@@ -198,5 +198,4 @@ class ViTDetNeck(nn.Module):
         pos[0] = self.position_encoding(x_out).to(x_out.dtype)
 
         return out, pos
-
 
