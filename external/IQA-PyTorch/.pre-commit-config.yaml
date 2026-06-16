@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.11.2
+    hooks:
+      # Run the linter.
+      - id: ruff
+        args: [ --fix, --select=Q, --line-length=88 ] # Added Q for single quotes, line-length to avoid conflicts
+      # Run the formatter.
+      - id: ruff-format
+        args: [ --quote-style=single, --line-length=88 ] # Enforce single quotes and added line-length
+
+  
+  # pre-commit-hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.2.0
+    hooks:
+      - id: ruff
+  #     - id: check-yaml  # Attempt to load all yaml files to verify syntax
+  #     - id: check-merge-conflict  # Check for files that contain merge conflict strings
+  #     - id: double-quote-string-fixer  # Replace double quoted strings with single quoted strings
+      - id: requirements-txt-fixer  # Sort entries in requirements.txt and remove incorrect entry for pkg-resources==0.0.0

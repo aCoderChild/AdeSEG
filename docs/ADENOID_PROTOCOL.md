@@ -24,6 +24,35 @@ Do not merge these labels into one foreground class. The downstream clinical
 measurement depends on the relationship between tissue area and airway/reference
 area.
 
+## Dataset Organization
+
+Keep clinical data separate from the PolypGen proxy benchmark. A future adenoid
+dataset should follow the same sequence-oriented contract so the current runner
+and evaluator can be adapted with minimal changes:
+
+```text
+data/adenoid/
+  patient_<id>/
+    video_<id>/
+      images/
+      masks/
+        adenoid/
+        nasopharynx_airway/
+      metadata.json
+```
+
+Recommended metadata fields:
+
+- patient/session identifier
+- train/validation/test split
+- frame rate and original video filename
+- endoscope type or acquisition site when available
+- clinical grade or obstruction score
+- annotator identifiers and adjudication status
+- notes for blur, secretion, occlusion, incomplete exposure, or unusual anatomy
+
+Split by patient, not by frame or video clip, to avoid leakage.
+
 ## Annotation Protocol
 
 Document these decisions with ENT annotators before labeling:
@@ -48,6 +77,18 @@ Recommended minimum pilot:
 - Two independent ENT annotations on a subset for inter-rater agreement.
 - A small set of hard cases reserved for qualitative failure review.
 
+## Annotation Density
+
+Use two annotation densities:
+
+- Sparse masks: clinically selected keyframes and correction frames. These test
+  realistic prompt burden.
+- Dense masks: every frame or a high-frequency subset for temporal metrics,
+  drift measurement, and correction-burden simulation.
+
+Dense labels are expensive, so reserve them for a representative subset that
+includes easy, typical, and hard videos.
+
 ## Mapping To Current Project Methods
 
 The current PolypGen config tests the same prompt-effort questions needed for
@@ -69,6 +110,23 @@ the adenoid study:
 
 For clinical adenoid experiments, duplicate this structure with label-specific
 method names and output roots rather than overloading the PolypGen method names.
+
+## Implementation Plan
+
+When clinical data is available:
+
+- Add an adenoid experiment config under `experiments/`.
+- Use a separate data root such as `data/adenoid`.
+- Generate oracle boxes per label from clinical masks.
+- Run each method separately for `adenoid` and `nasopharynx_airway`, or update
+  the runner to handle multi-object tracks explicitly.
+- Write outputs under a clinical-specific root such as `outputs_adenoid`.
+- Keep PolypGen outputs and clinical outputs separate.
+- Add ratio/grade metrics after label-specific masks are reliable.
+
+Do not reuse a PolypGen-trained YOLO checkpoint as clinical evidence. For the
+full automatic pipeline, train or validate a detector on adenoid-specific
+annotations.
 
 ## Prompting Experiments
 
@@ -107,6 +165,10 @@ Recommended reporting units:
 - seconds of video between corrections
 - reviewer correction time when available
 
+Use separate correction counts for each label. A clinically useful workflow may
+require very few adenoid corrections but more airway/reference-region
+corrections, or the reverse.
+
 ## Clinical Metrics
 
 Frame-level segmentation metrics are necessary but not sufficient. Add:
@@ -128,6 +190,19 @@ Define the ratio before analysis. Candidate forms include:
 
 Use one primary ratio and keep any alternatives as secondary analyses.
 
+## Inter-Rater Analysis
+
+Before treating one mask set as ground truth, measure annotation variability:
+
+- Dice/IoU between annotators for each label.
+- Boundary disagreement for adenoid and airway regions.
+- Ratio disagreement between annotators.
+- Grade agreement between annotators.
+- Cohen's kappa for categorical grades.
+
+Model performance should be interpreted relative to inter-rater agreement. If
+the model is within annotator variability for a metric, report that explicitly.
+
 ## Temporal Metrics
 
 Report:
@@ -142,6 +217,27 @@ Report:
 These correspond to the current project metrics `pred_area_frac`,
 `temporal_iou_prev`, `area_change_abs_prev`, and
 `centroid_shift_norm_prev` in `scripts/utils/eval_metrics.py`.
+
+## Qualitative Failure Modes
+
+Track failures by category during review:
+
+- secretion, bubbles, or mucus hiding boundaries
+- specular highlights and overexposure
+- blur or fast camera motion
+- instruments or suction in the field
+- partial visibility of adenoid or airway
+- collapsed airway or contact with tissue
+- unusual anatomy or post-surgical cases
+- detector miss versus segmenter drift
+
+Use these categories in failure-analysis summaries so improvements are tied to
+clinical image conditions, not only aggregate Dice.
+
+For proxy-data audits, `scripts/utils/data_quality.py` writes
+`outputs/data_quality_report.csv` with no-reference image quality scores. Treat
+these scores as descriptive covariates for review and downstream segmentation
+analysis, not as final clinical quality labels.
 
 ## Proxy Dataset Scope
 
