@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+import re
 import warnings
 from threading import Thread
 
@@ -12,6 +13,15 @@ import numpy as np
 import torch
 from PIL import Image
 from tqdm import tqdm
+
+
+def _natural_frame_sort_key(filename):
+    """Sort numeric frame stems chronologically (e.g. 2.jpg before 10.jpg)."""
+    stem = os.path.splitext(filename)[0]
+    return tuple(
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", stem)
+    )
 
 
 def get_sdpa_settings():
@@ -245,7 +255,10 @@ def load_video_frames_from_jpg_images(
         for p in os.listdir(jpg_folder)
         if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
     ]
-    frame_names.sort()
+    # Keep this order identical to the prompt/output wrappers. Plain lexical
+    # sorting maps index 2 to 10.jpg for unpadded frame names, which associates
+    # prompts and saved masks with the wrong video frames.
+    frame_names.sort(key=_natural_frame_sort_key)
     num_frames = len(frame_names)
     if num_frames == 0:
         raise RuntimeError(f"no images found in {jpg_folder}")

@@ -111,6 +111,78 @@ bash scripts/run_polypgen_experiment.sh --methods MedSAM2_YOLO_BOX_MASK_STRIDE5
 bash scripts/run_polypgen_experiment.sh --methods MedSAM2_GT_BOX_MASK_STRIDE10
 ```
 
+## Reliability-Gated Output Experiment
+
+`experiments/reliability_gated_memory_experiment.py` is a gated-only inference
+and evaluation entrypoint. It does not run an ungated baseline and it does not
+modify SAM2's internal feature-memory tensors. MedSAM2 first produces candidate
+binary masks; the reliability gate then accepts the current candidate or holds
+the most recent non-empty accepted mask.
+
+Reliability combines a constant confidence proxy, adjacent-mask IoU, mask-area
+consistency, and frame sharpness. The gate threshold is effective, and a forced
+update occurs after `MAX_CONSECUTIVE_REJECTIONS` rejected candidates. Shared
+mask helpers live in `scripts/utils/mask_utils.py`; reliability scoring and gate
+state live in `scripts/utils/reliability_gate.py`; common Dice, IoU, temporal
+IoU, natural sorting, and bbox extraction come from
+`scripts/utils/eval_metrics.py`.
+
+The script supports GT-box or YOLO prompts, prompt stride/limit controls,
+explicit sequence ranges, CPU/MPS/CUDA candidate inference, threshold
+ablations, and a guard that rejects non-Google-Drive output paths. With
+GT-box prompting, each eligible stride frame uses its own frame-specific box;
+frames without a box rely on video propagation.
+
+Run the full 23-sequence stride experiment set directly into the synced Google
+Drive `AdeSEG` folder:
+
+```bash
+cd /Users/maianhpham/Documents/AdeSEG
+set -euo pipefail
+
+DRIVE_ADESEG="$HOME/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG"
+
+for STRIDE in 1 5 10; do
+  RUN_ROOT="$DRIVE_ADESEG/outputs/reliability_gated_stride${STRIDE}"
+  mkdir -p "$RUN_ROOT"
+
+  PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+  caffeinate -dimsu .venv/bin/python \
+    experiments/reliability_gated_memory_experiment.py \
+    --output-root "$RUN_ROOT" \
+    --require-google-drive-output \
+    --sequences 1-23 \
+    --prompt-source gt_bbox \
+    --video-prompt-stride "$STRIDE" \
+    --video-prompt-limit 0 \
+    --candidate-device cpu \
+    --no-generate-bboxes \
+    2>&1 | tee "$RUN_ROOT/run.log"
+done
+```
+
+Each stride uses an isolated output root containing `_candidate/`, `gated/`,
+`metrics.csv`, `summary.csv`, `experiment_notes.json`, and `run.log`. Missing
+predictions are evaluated as blank failures. The first-frame temporal metric is
+excluded as NaN. The experiment never creates `baseline/` or
+`comparison.json` outputs.
+
+### Completed stride results
+
+| Stride | Dice | IoU | Temporal IoU | Prompts | Total time |
+|---:|---:|---:|---:|---:|---:|
+| 1 | **0.6919** | **0.6499** | 0.6750 | 1,710 | 15m 57s |
+| 5 | 0.6419 | 0.5948 | 0.6934 | 349 | 12m 45s |
+| 10 | 0.6255 | 0.5769 | **0.7051** | 174 | **9m 53s** |
+
+Stride 1 has the best spatial accuracy; stride 10 is fastest and has the
+highest temporal IoU. A direct diagnostic of the saved candidate masks shows
+that the current output gate reduces Dice at every stride while increasing
+temporal persistence. See
+[`RESULTS_ANALYSIS_RELIABILITY_GATED_MEMORY.md`](RESULTS_ANALYSIS_RELIABILITY_GATED_MEMORY.md)
+for the complete tables, sequence-level results, calibration audit, diagrams,
+and recommended corrective experiments.
+
 ## Configuration
 
 Edit experiment settings in:

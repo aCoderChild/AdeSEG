@@ -1,5 +1,0 @@
-Warning: failed seq5; details written to /Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/MedSAM2_YOLO_BOX_MASK/logs/seq5.json: MPS backend out of memory (MPS allocated: 2.81 GiB, other allocations: 23.63 GiB, max allowed: 27.20 GiB). Tried to allocate 817.08 MiB on private pool. Use PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 to disable upper limit for memory allocations (may cause system failure).
-  → Wrote 250 blank masks for seq5
-
-Warning: failed seq11; details written to /Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/MedSAM2_YOLO_BOX_MASK/logs/seq11.json: MPS backend out of memory (MPS allocated: 11.41 GiB, other allocations: 15.48 GiB, max allowed: 27.20 GiB). Tried to allocate 518.02 MiB on private pool. Use PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 to disable upper limit for memory allocations (may cause system failure).
-  → Wrote 228 blank masks for seq11

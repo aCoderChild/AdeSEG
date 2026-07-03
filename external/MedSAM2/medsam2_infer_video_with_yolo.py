@@ -15,7 +15,11 @@ import traceback
 import numpy as np
 import torch
 from PIL import Image
-from ultralytics import YOLO
+
+try:
+    from ultralytics import YOLO
+except ImportError:
+    YOLO = None
 
 # Add project root to path for imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -778,7 +782,14 @@ def main():
         )
         image_predictor = SAM2ImagePredictor(sam2_model)
     
-    yolo_model = YOLO(args.yolo_checkpoint) if args.prompt_source == "yolo" else None
+    yolo_model = None
+    if args.prompt_source == "yolo":
+        if YOLO is None:
+            raise RuntimeError(
+                "prompt_source='yolo' requires the 'ultralytics' package, "
+                "but it is not installed in the current environment."
+            )
+        yolo_model = YOLO(args.yolo_checkpoint)
 
     print(
         f"using {args.prompt_source} boxes as MedSAM2 prompts "

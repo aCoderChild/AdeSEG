@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import os
 
 import torch
 from hydra import compose
@@ -52,6 +53,9 @@ def get_best_available_device():
     Get the best available device in the order: CUDA, MPS, CPU
     Returns: device string for torch.device
     """
+    forced_device = os.environ.get("SAM2_DEVICE")
+    if forced_device:
+        return forced_device
     if torch.cuda.is_available():
         return "cuda"
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
