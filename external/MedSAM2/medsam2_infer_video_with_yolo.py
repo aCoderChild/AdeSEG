@@ -200,6 +200,19 @@ def save_masks_to_dir(
             output_mask = Image.fromarray(output_mask)
             output_mask.save(output_mask_path)
 
+def frame_object_confidence(inference_state, frame_idx):
+    """Mean sigmoid(object_score_logits) for a frame already visited by
+    predictor.propagate_in_video(). Returns None if the frame has no stored
+    output (never propagated). Reads state already stored by the predictor;
+    does not change propagate_in_video's generator signature."""
+    output_dict = inference_state["output_dict"]
+    for storage_key in ("cond_frame_outputs", "non_cond_frame_outputs"):
+        entry = output_dict[storage_key].get(frame_idx)
+        if entry is not None:
+            logits = entry["object_score_logits"]
+            return float(torch.sigmoid(logits).mean().item())
+    return None
+
 # box generated from YOLOv8
 def get_yolo_boxes(yolo_model, frame_path, yolo_imgsz, yolo_conf, max_boxes):
     image = Image.open(frame_path).convert("RGB")
@@ -492,6 +505,27 @@ def yolo_vos_inference(
                     }
                 )
 
+    prompt_confidence_dir = os.path.join(
+        os.path.dirname(output_mask_dir), "prompt_confidence"
+    )
+    os.makedirs(prompt_confidence_dir, exist_ok=True)
+    prompt_confidence_csv = os.path.join(
+        prompt_confidence_dir, f"{video_output_name}.csv"
+    )
+    with open(prompt_confidence_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["frame_idx", "frame", "confidence"])
+        writer.writeheader()
+        for entry in run_log["seeded_frames"]:
+            if not entry["box_confidences"]:
+                continue
+            writer.writerow(
+                {
+                    "frame_idx": entry["frame_idx"],
+                    "frame": entry["frame"],
+                    "confidence": max(entry["box_confidences"]),
+                }
+            )
+
     if bbox_output_dir is not None:
         os.makedirs(bbox_output_dir, exist_ok=True)
         bbox_path = os.path.join(bbox_output_dir, f"{video_output_name}.csv")
@@ -527,6 +561,7 @@ def yolo_vos_inference(
         return video_output_name, frame_names
 
     video_segments = {}
+    video_confidence = {}
     first_seeded_frame = min(seeded_frames)
     run_log["first_seeded_frame_idx"] = int(first_seeded_frame)
     # for offline video recording
@@ -544,6 +579,9 @@ def yolo_vos_inference(
                 for i, out_obj_id in enumerate(out_obj_ids)
             }
             video_segments[out_frame_idx] = per_obj_output_mask
+            confidence = frame_object_confidence(inference_state, out_frame_idx)
+            if confidence is not None:
+                video_confidence[out_frame_idx] = confidence
         run_log[f"propagated_frames_{direction}"] = propagated_frames
 
     output_palette = DAVIS_PALETTE
@@ -572,6 +610,24 @@ def yolo_vos_inference(
                 per_obj_png_file=False,
             )
         saved_masks += 1
+
+    confidence_dir = os.path.join(os.path.dirname(output_mask_dir), "confidence")
+    os.makedirs(confidence_dir, exist_ok=True)
+    confidence_csv = os.path.join(confidence_dir, f"{video_output_name}.csv")
+    with open(confidence_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["frame_idx", "frame", "confidence"])
+        writer.writeheader()
+        for out_frame_idx in range(len(frame_names)):
+            confidence = video_confidence.get(out_frame_idx)
+            if confidence is None:
+                continue
+            writer.writerow(
+                {
+                    "frame_idx": out_frame_idx,
+                    "frame": frame_names[out_frame_idx],
+                    "confidence": confidence,
+                }
+            )
 
     run_log["status"] = "success"
     run_log["num_video_segments"] = len(video_segments)

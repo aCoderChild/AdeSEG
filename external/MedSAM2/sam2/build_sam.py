@@ -201,7 +201,29 @@ def build_sam2_video_predictor_hf(model_id, **kwargs):
 def _load_checkpoint(model, ckpt_path):
     if ckpt_path is not None:
         sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
-        missing_keys, unexpected_keys = model.load_state_dict(sd)
+        # A checkpoint trained with memory enabled (num_maskmem>0) carries a
+        # maskmem_tpos_enc sized to that num_maskmem; a model built with
+        # num_maskmem=0 (AdeSEG's no-memory config) has a 0-length version of
+        # the same parameter. It's never read when num_maskmem==0 (memory
+        # fusion is skipped entirely in the forward pass), so skip only keys
+        # whose checkpoint shape doesn't match the current model instead of
+        # failing the whole load.
+        model_sd = model.state_dict()
+        shape_mismatched = [
+            key
+            for key in sd
+            if key in model_sd and sd[key].shape != model_sd[key].shape
+        ]
+        for key in shape_mismatched:
+            del sd[key]
+        if shape_mismatched:
+            logging.warning(
+                "Skipping checkpoint keys with a shape mismatch against the "
+                "current model config: %s",
+                shape_mismatched,
+            )
+        missing_keys, unexpected_keys = model.load_state_dict(sd, strict=False)
+        missing_keys = [key for key in missing_keys if key not in shape_mismatched]
         if missing_keys:
             logging.error(missing_keys)
             raise RuntimeError()

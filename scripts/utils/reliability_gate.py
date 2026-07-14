@@ -15,23 +15,40 @@ except ImportError:
 
 @dataclass(frozen=True)
 class ReliabilityConfig:
+    # confidence_weight: SAM2's own per-frame object-score confidence
+    # (external/MedSAM2/medsam2_infer_video_with_yolo.py persists
+    # sigmoid(object_score_logits) to a confidence CSV per sequence).
+    # prompt_confidence_weight: confidence of the box that *seeded* this
+    # frame (YOLO detection score, or 1.0 for a ground-truth box), persisted
+    # to a separate prompt_confidence CSV. This is independent of
+    # confidence_weight -- one reflects how trustworthy the input prompt
+    # was, the other how confident the decoder is in its output -- and is
+    # 0.5 (neutral) on frames with no prompt at all, e.g. stride>1 gaps
+    # with the memory bank disabled.
+    # No area_weight: comparing the candidate's size against the previous
+    # memory mask is self-referential (previous_mask here is our own
+    # blended output), the same issue that ruled out a temporal term.
     confidence_weight: float = 0.35
-    temporal_weight: float = 0.30
-    area_weight: float = 0.25
+    prompt_confidence_weight: float = 0.25
+    boundary_weight: float = 0.30
     blur_weight: float = 0.10
     use_blur_score: bool = True
     blur_reference: float = 150.0
+    # boundary_reference normalizes mean Sobel-gradient magnitude sampled
+    # along the mask edge; like blur_reference, it's a heuristic starting
+    # point rather than a value calibrated against this dataset.
+    boundary_reference: float = 30.0
     min_mask_area_ratio: float = 0.0005
     max_mask_area_ratio: float = 0.80
-    blank_mask_penalty: float = 0.25 # penalties
-    implausible_area_penalty: float = 0.50 # penalties
-    area_epsilon: float = 1e-6
+    blank_mask_penalty: float = 0.25  # penalties
+    implausible_area_penalty: float = 0.50  # penalties
 
+    # hard coded weights
     def __post_init__(self) -> None:
         weights = (
             self.confidence_weight,
-            self.temporal_weight,
-            self.area_weight,
+            self.prompt_confidence_weight,
+            self.boundary_weight,
             self.blur_weight,
         )
         if any(weight < 0 for weight in weights):
@@ -43,21 +60,14 @@ class ReliabilityConfig:
             raise ValueError("At least one reliability weight must be positive")
         if self.blur_reference <= 0:
             raise ValueError("blur_reference must be positive")
+        if self.boundary_reference <= 0:
+            raise ValueError("boundary_reference must be positive")
         if not 0 <= self.min_mask_area_ratio <= self.max_mask_area_ratio <= 1:
             raise ValueError("Mask area ratios must satisfy 0 <= min <= max <= 1")
 
 
 def clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
-
-
-def mask_iou(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
-    a = mask_a.astype(bool)
-    b = mask_b.astype(bool)
-    union = np.logical_or(a, b).sum()
-    if union == 0:
-        return 1.0
-    return float(np.logical_and(a, b).sum() / union)
 
 
 def area_fraction(mask: np.ndarray) -> float:
@@ -88,7 +98,8 @@ def centroid_shift(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
         return float("nan")
     return float(math.dist(center_a, center_b))
 
-# implementation calculate grayscale Laplacian variance
+
+# grayscale Laplacian variance, normalized by blur_reference
 def blur_score(frame_bgr: np.ndarray | None, blur_reference: float) -> float:
     if frame_bgr is None:
         return 1.0
@@ -101,15 +112,82 @@ def blur_score(frame_bgr: np.ndarray | None, blur_reference: float) -> float:
             if frame_bgr.ndim == 3
             else frame_bgr.astype(np.float32)
         )
+        # Reflect-pad to match cv2's default border handling; np.roll would
+        # wrap pixels across opposite edges and contaminate the variance.
+        padded = np.pad(gray, 1, mode="reflect")
         laplacian = (
             -4.0 * gray
-            + np.roll(gray, 1, axis=0)
-            + np.roll(gray, -1, axis=0)
-            + np.roll(gray, 1, axis=1)
-            + np.roll(gray, -1, axis=1)
+            + padded[:-2, 1:-1]
+            + padded[2:, 1:-1]
+            + padded[1:-1, :-2]
+            + padded[1:-1, 2:]
         )
         value = float(laplacian.var())
     return clamp01(float(value) / blur_reference)
+
+
+def _dilate_once(mask_bool: np.ndarray) -> np.ndarray:
+    padded = np.pad(mask_bool, 1, mode="constant", constant_values=False)
+    return (
+        padded[:-2, 1:-1]
+        | padded[2:, 1:-1]
+        | padded[1:-1, :-2]
+        | padded[1:-1, 2:]
+        | padded[1:-1, 1:-1]
+    )
+
+
+def _erode_once(mask_bool: np.ndarray) -> np.ndarray:
+    padded = np.pad(mask_bool, 1, mode="constant", constant_values=True)
+    return (
+        padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+        & padded[1:-1, 1:-1]
+    )
+
+
+def mask_boundary_ring(mask: np.ndarray, iterations: int = 2) -> np.ndarray:
+    """A thin ring straddling the mask edge, used to sample image gradient."""
+    mask_bool = mask.astype(bool)
+    dilated = mask_bool
+    eroded = mask_bool
+    for _ in range(iterations):
+        dilated = _dilate_once(dilated)
+        eroded = _erode_once(eroded)
+    return dilated & ~eroded
+
+
+# Does the mask edge coincide with a real intensity/color edge in the frame,
+# or is it floating in a visually uniform region (a sign of a spurious mask
+# that is shape-plausible and temporally stable but not anchored to any
+# actual tissue boundary)?
+def boundary_score(
+    frame_bgr: np.ndarray | None, mask: np.ndarray, boundary_reference: float
+) -> float:
+    if frame_bgr is None or mask.sum() == 0:
+        return 0.5
+    if cv2 is not None:
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        grad_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    else:
+        gray = (
+            frame_bgr.mean(axis=2).astype(np.float32)
+            if frame_bgr.ndim == 3
+            else frame_bgr.astype(np.float32)
+        )
+        padded = np.pad(gray, 1, mode="reflect")
+        grad_x = padded[1:-1, 2:] - padded[1:-1, :-2]
+        grad_y = padded[2:, 1:-1] - padded[:-2, 1:-1]
+    gradient = np.hypot(grad_x, grad_y)
+
+    ring = mask_boundary_ring(mask)
+    if ring.sum() == 0:
+        return 0.5
+    value = float(gradient[ring].mean())
+    return clamp01(value / boundary_reference)
 
 
 def compute_reliability(
@@ -117,30 +195,36 @@ def compute_reliability(
     previous_mask: np.ndarray | None,
     frame_bgr: np.ndarray | None,
     mask_confidence: float | None,
+    prompt_confidence: float | None,
     config: ReliabilityConfig,
 ) -> dict[str, float]:
-    """Compute a normalized reliability score and its component signals."""
+    """Compute a normalized reliability score and its component signals.
+
+    Features: SAM2's own decoder confidence, the confidence of the prompt
+    that seeded this frame (YOLO detection score, or 1.0 for a ground-truth
+    box; neutral 0.5 on frames with no prompt), boundary alignment (does the
+    mask edge sit on a real intensity edge in the frame -- the signal here
+    that reads actual image content instead of only mask/model self-
+    reports), and optional blur. There is no area-ratio term: with the
+    memory bank disabled, each candidate is already an independent
+    per-frame prediction, and `previous_mask` here is our own blended
+    output, so comparing size against it would partly measure
+    self-agreement rather than an independent signal. `previous_mask` is
+    still used below for the blank-mask penalty.
+    """
     confidence_score = 0.5 if mask_confidence is None else clamp01(mask_confidence)
-    if previous_mask is None or previous_mask.sum() == 0:
-        temporal_score = 0.5
-        area_score = 0.5
-    else:
-        temporal_score = mask_iou(current_mask, previous_mask)
-        current_area = area_fraction(current_mask)
-        previous_area = area_fraction(previous_mask)
-        eps = config.area_epsilon
-        area_score = math.exp(
-            -abs(math.log((current_area + eps) / (previous_area + eps)))
-        )
+    prompt_confidence_score = (
+        0.5 if prompt_confidence is None else clamp01(prompt_confidence)
+    )
 
-
+    boundary_value = boundary_score(frame_bgr, current_mask, config.boundary_reference)
     blur_value = (
         blur_score(frame_bgr, config.blur_reference) if config.use_blur_score else 0.0
     )
     weighted_terms = [
         (config.confidence_weight, confidence_score),
-        (config.temporal_weight, temporal_score),
-        (config.area_weight, area_score),
+        (config.prompt_confidence_weight, prompt_confidence_score),
+        (config.boundary_weight, boundary_value),
     ]
     if config.use_blur_score:
         weighted_terms.append((config.blur_weight, blur_value))
@@ -163,28 +247,31 @@ def compute_reliability(
     return {
         "reliability": clamp01(reliability),
         "r_conf": confidence_score,
-        "r_temporal": temporal_score,
-        "r_area": area_score,
+        "r_prompt": prompt_confidence_score,
+        "r_boundary": boundary_value,
         "r_blur": blur_value,
     }
 
-# TODO: check this gate apply
-# rejection counter prevents the output from remaining frozen indefinitely
+
 def apply_reliability_gate(
     current_mask: np.ndarray,
-    previous_valid_mask: np.ndarray | None,
+    previous_memory_mask: np.ndarray | None,
     reliability: float,
-    reliability_threshold: float,
-    consecutive_rejections: int,
-    max_consecutive_rejections: int,
-) -> tuple[np.ndarray, bool, int]:
-    """Select current versus prior output using the requested threshold."""
-    if previous_valid_mask is None or reliability >= reliability_threshold:
-        return current_mask.astype(np.uint8), True, 0
-    consecutive_rejections += 1
-    if consecutive_rejections > max_consecutive_rejections:
-        return current_mask.astype(np.uint8), True, 0
-    return previous_valid_mask.copy(), False, consecutive_rejections
+) -> np.ndarray:
+    """Soft memory update: M_t = r_t * Z_t + (1 - r_t) * M_(t-1).
+
+    Z_t is the current frame's candidate mask, M_(t-1) is the previous
+    memory mask (a float array in [0, 1]), and r_t is `reliability`. Every
+    frame updates memory -- there is no accept/reject decision or rejection
+    counter; `reliability` alone controls how much the new candidate
+    contributes versus how much of the prior memory is retained. On the
+    first frame (no memory yet), M_t = Z_t.
+    """
+    current = current_mask.astype(np.float32)
+    if previous_memory_mask is None:
+        return current
+    r = clamp01(reliability)
+    return r * current + (1.0 - r) * previous_memory_mask.astype(np.float32)
 
 
 def safe_nanmean(values) -> float:

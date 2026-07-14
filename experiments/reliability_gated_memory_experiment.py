@@ -8,12 +8,17 @@ defaults, while CLI arguments control run-specific paths and sequence selection:
     python experiments/reliability_gated_memory_experiment.py --help
 
 What it does:
-1. Runs a simple reliability-gated mask-memory variant.
-2. Saves candidates, masks, logs, and metrics under a single output root.
-3. Writes per-frame and aggregate metrics when ground-truth masks exist.
-
-Important: reliability gating is applied to accepted output masks. It does not
-modify SAM2's internal feature-memory tensors.
+1. Runs MedSAM2 candidate inference once per sequence, with SAM2's internal
+   memory bank disabled (SAM2_CFG points at num_maskmem=0) so each frame is
+   an independent per-frame prediction, plus SAM2's own per-frame object-
+   score confidence persisted to disk (see medsam2_infer_video_with_yolo.py).
+2. Blends each frame's candidate mask into a soft memory mask:
+   M_t = r_t * current_mask + (1 - r_t) * M_(t-1), where r_t is a
+   reliability score in [0, 1] (see scripts/utils/reliability_gate.py). This
+   blend is the only cross-frame memory left in the pipeline.
+3. Evaluates both the raw per-frame candidate masks (baseline) and the
+   blended masks (gated) against ground truth, so the blend's effect is
+   directly comparable rather than reported in isolation.
 """
 
 from __future__ import annotations
@@ -22,7 +27,6 @@ import argparse
 import csv
 import gc
 import json
-import math
 import os
 import subprocess
 import sys
@@ -78,35 +82,22 @@ DATA_ROOT = PROJECT_ROOT / "data" / "test" / "polypgen"
 BBOX_ROOT = PROJECT_ROOT / "data" / "test" / "bbox"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "reliability_gated"
 OUTPUT_ROOT = DEFAULT_OUTPUT_ROOT
-SAM2_CFG = "configs/sam2.1_hiera_t512.yaml"
+SAM2_CFG = "configs/sam2.1_hiera_t512_no_memory.yaml"  # num_maskmem=0: no internal memory bank
 SAM2_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "MedSAM2_latest.pt"
 YOLO_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "polypgen_yolov8n.pt"
 
 # gt_bbox, yolo
 PROMPT_SOURCE = "gt_bbox"  # Change to "yolo" to compare fully automatic prompting.
-VIDEO_PROMPT_SOURCE = "mask"
 VIDEO_PROMPT_STRIDE = 1
 VIDEO_PROMPT_LIMIT = 0
-RELIABILITY_THRESHOLD = 0.35
-RELIABILITY_THRESHOLDS = [0.3, 0.5, 0.7]
-MAX_CONSECUTIVE_REJECTIONS = 3
 
 USE_BLUR_SCORE = True
-SAVE_MASK_IMAGES = True
-SAVE_NUMPY_MASKS = False
-SAVE_DEBUG_VISUALIZATIONS = False
-NUM_DEBUG_SAMPLES = 20
-
-RUN_THRESHOLD_ABLATION = False
+SAVE_MASK_IMAGES = True  # also the source evaluate_variant reads predictions from
 
 SEQUENCE_NAMES = None  # None means: scan DATA_ROOT and use every seq* folder.
-NUM_VIDEOS_TO_TEST = 0
 MAX_YOLO_BOXES_PER_FRAME = 1  # only 1 box per frame
 YOLO_CONF = 0.5
 YOLO_IMGSZ = 640
-BLUR_REFERENCE = 150.0
-MIN_MASK_AREA_RATIO = 0.0005
-MAX_MASK_AREA_RATIO = 0.80
 ALLOW_BBOX_GENERATION = True
 CANDIDATE_DEVICE = "cpu"
 
@@ -184,12 +175,6 @@ def parse_args() -> argparse.Namespace:
         help="Maximum number of prompted frames per sequence; 0 means unlimited.",
     )
     parser.add_argument(
-        "--threshold-ablation",
-        action="store_true",
-        default=RUN_THRESHOLD_ABLATION,
-        help="Postprocess the shared candidates at all RELIABILITY_THRESHOLDS.",
-    )
-    parser.add_argument(
         "--no-generate-bboxes",
         action="store_true",
         help="Require existing bbox CSVs; do not write generated bbox files locally.",
@@ -199,7 +184,7 @@ def parse_args() -> argparse.Namespace:
 
 def configure_from_args(args: argparse.Namespace) -> None:
     global OUTPUT_ROOT, SEQUENCE_NAMES, CANDIDATE_DEVICE
-    global PROMPT_SOURCE, RUN_THRESHOLD_ABLATION
+    global PROMPT_SOURCE
     global ALLOW_BBOX_GENERATION, VIDEO_PROMPT_STRIDE, VIDEO_PROMPT_LIMIT
 
     output_root = args.output_root.expanduser().absolute()
@@ -218,7 +203,6 @@ def configure_from_args(args: argparse.Namespace) -> None:
         raise ValueError("--video-prompt-limit cannot be negative")
     VIDEO_PROMPT_STRIDE = args.video_prompt_stride
     VIDEO_PROMPT_LIMIT = args.video_prompt_limit
-    RUN_THRESHOLD_ABLATION = args.threshold_ablation
     ALLOW_BBOX_GENERATION = not args.no_generate_bboxes
 
 
@@ -228,7 +212,7 @@ def list_sequences(data_root: Path) -> list[str]:
         if missing:
             raise RuntimeError(f"Missing requested sequence directories: {missing}")
         return list(SEQUENCE_NAMES)
-    sequence_names = sorted(
+    return sorted(
         [
             path.name
             for path in data_root.iterdir()
@@ -236,9 +220,6 @@ def list_sequences(data_root: Path) -> list[str]:
         ],
         key=get_numeric_sort_key,
     )
-    if NUM_VIDEOS_TO_TEST > 0:
-        return sequence_names[:NUM_VIDEOS_TO_TEST]
-    return sequence_names
 
 
 def ensure_gt_bboxes(sequence_names: list[str]) -> None:
@@ -287,37 +268,6 @@ def ensure_gt_bboxes(sequence_names: list[str]) -> None:
             writer.writerows(rows)
 
 
-def save_debug_panel(
-    output_path: Path,
-    frame_rgb: np.ndarray,
-    current_mask: np.ndarray,
-    previous_mask: np.ndarray | None,
-    final_mask: np.ndarray,
-    gt_mask: np.ndarray | None,
-    reliability: float,
-    accepted_update: bool,
-) -> None:
-    def mask_to_rgb(mask: np.ndarray | None, size_hw):
-        h, w = size_hw
-        if mask is None:
-            return np.zeros((h, w, 3), dtype=np.uint8)
-        binary = resize_binary_mask(mask, size_hw)
-        return np.repeat((binary * 255)[:, :, None], 3, axis=2).astype(np.uint8)
-
-    h, w = frame_rgb.shape[:2]
-    panels = [
-        Image.fromarray(frame_rgb.astype(np.uint8)),
-        Image.fromarray(mask_to_rgb(current_mask, (h, w))),
-        Image.fromarray(mask_to_rgb(final_mask, (h, w))),
-        Image.fromarray(mask_to_rgb(gt_mask, (h, w))),
-    ]
-    canvas = Image.new("RGB", (w * 4, h + 30), color=(0, 0, 0))
-    for idx, panel in enumerate(panels):
-        canvas.paste(panel, (idx * w, 0))
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    canvas.save(output_path)
-
-
 def run_candidate_inference(sequence_names: list[str], candidate_root: Path) -> None:
     """Generate all sequence candidates in one process so models load only once."""
     candidate_logs_root = candidate_root / "logs"
@@ -352,7 +302,7 @@ def run_candidate_inference(sequence_names: list[str], candidate_root: Path) -> 
         "--max_yolo_boxes_per_frame",
         str(MAX_YOLO_BOXES_PER_FRAME),
         "--video_prompt_source",
-        VIDEO_PROMPT_SOURCE,
+        "box",
         "--video_prompt_stride",
         str(VIDEO_PROMPT_STRIDE),
         "--video_prompt_limit",
@@ -395,22 +345,49 @@ def resolve_candidate_mask_path(
     return None
 
 
-def run_gated_variant(
-    sequence_names: list[str],
-    variant_name: str,
-    reliability_threshold: float,
-    candidate_root: Path,
-) -> None:
-    gated_root = OUTPUT_ROOT / variant_name
+def load_candidate_confidence(
+    candidate_root: Path, sequence_name: str
+) -> dict[str, float]:
+    """Read the per-frame sigmoid(object_score_logits) CSV that
+    medsam2_infer_video_with_yolo.py writes next to the candidate masks."""
+    candidates = [
+        candidate_root / "candidate" / "confidence" / f"{sequence_name}.csv",
+        candidate_root / "confidence" / f"{sequence_name}.csv",
+    ]
+    for csv_path in candidates:
+        if csv_path.is_file():
+            with open(csv_path, "r", newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                return {row["frame"]: float(row["confidence"]) for row in reader}
+    return {}
+
+
+def load_prompt_confidence(
+    candidate_root: Path, sequence_name: str
+) -> dict[str, float]:
+    """Read the per-frame prompt-box confidence CSV that
+    medsam2_infer_video_with_yolo.py writes (YOLO detection score, or 1.0
+    for a ground-truth box); frames with no prompt have no entry."""
+    candidates = [
+        candidate_root / "candidate" / "prompt_confidence" / f"{sequence_name}.csv",
+        candidate_root / "prompt_confidence" / f"{sequence_name}.csv",
+    ]
+    for csv_path in candidates:
+        if csv_path.is_file():
+            with open(csv_path, "r", newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                return {row["frame"]: float(row["confidence"]) for row in reader}
+    return {}
+
+
+def run_gated(sequence_names: list[str], candidate_root: Path, gated_root: Path) -> None:
+    """Generate candidates once, then blend them into a soft memory mask per frame."""
+    run_candidate_inference(sequence_names, candidate_root)
+
     masks_root = gated_root / "masks"
     logs_root = gated_root / "logs"
-    debug_root = OUTPUT_ROOT / "debug_visualizations" / variant_name
-    reliability_config = ReliabilityConfig(
-        use_blur_score=USE_BLUR_SCORE,
-        blur_reference=BLUR_REFERENCE,
-        min_mask_area_ratio=MIN_MASK_AREA_RATIO,
-        max_mask_area_ratio=MAX_MASK_AREA_RATIO,
-    )
+    reliability_config = ReliabilityConfig(use_blur_score=USE_BLUR_SCORE)
+
     for index, sequence_name in enumerate(sequence_names, start=1):
         print(f"[gated] {index}/{len(sequence_names)} {sequence_name}", flush=True)
         frame_dir = Path(get_video_frame_dir(str(DATA_ROOT), sequence_name))
@@ -418,10 +395,11 @@ def run_gated_variant(
         first_frame_path = Path(resolve_frame_path(str(frame_dir), frame_names[0]))
         height, width = np.array(Image.open(first_frame_path).convert("RGB")).shape[:2]
 
-        previous_valid_mask = None
-        consecutive_rejections = 0
+        memory_mask = None  # M_(t-1): float mask in [0, 1], None before frame 0
         rows = []
-        debug_budget = NUM_DEBUG_SAMPLES
+        empty_candidate_count = 0
+        candidate_confidence = load_candidate_confidence(candidate_root, sequence_name)
+        prompt_confidence = load_prompt_confidence(candidate_root, sequence_name)
 
         for frame_idx, frame_name in enumerate(frame_names):
             frame_path = Path(resolve_frame_path(str(frame_dir), frame_name))
@@ -436,75 +414,36 @@ def run_gated_variant(
                 else np.zeros((height, width), dtype=np.uint8)
             )
             current_mask = resize_binary_mask(current_mask, (height, width))
-            previous_mask_for_debug = (
-                None if previous_valid_mask is None else previous_valid_mask.copy()
+            if current_mask.sum() == 0:
+                empty_candidate_count += 1
+            previous_binary_mask = (
+                None if memory_mask is None else (memory_mask >= 0.5).astype(np.uint8)
             )
 
             signals = compute_reliability(
                 current_mask=current_mask,
-                previous_mask=previous_valid_mask,
+                previous_mask=previous_binary_mask,
                 frame_bgr=frame_bgr,
-                mask_confidence=0.5,
+                mask_confidence=candidate_confidence.get(frame_name),
+                prompt_confidence=prompt_confidence.get(frame_name),
                 config=reliability_config,
             )
             reliability = signals["reliability"]
 
-            # Output-state gate: direct SAM2/MedSAM2 feature-memory tensors are
-            # not modified; low-reliability candidates hold the prior output.
-            final_mask, accepted_update, consecutive_rejections = (
-                apply_reliability_gate(
-                    current_mask=current_mask,
-                    previous_valid_mask=previous_valid_mask,
-                    reliability=reliability,
-                    reliability_threshold=reliability_threshold,
-                    consecutive_rejections=consecutive_rejections,
-                    max_consecutive_rejections=MAX_CONSECUTIVE_REJECTIONS,
-                )
+            # Soft memory update (no internal SAM2/MedSAM2 tensors touched):
+            # M_t = r_t * current_mask + (1 - r_t) * M_(t-1)
+            memory_mask = apply_reliability_gate(
+                current_mask=current_mask,
+                previous_memory_mask=memory_mask,
+                reliability=reliability,
             )
-
-            if final_mask.sum() > 0:
-                previous_valid_mask = final_mask.astype(np.uint8)
+            final_mask = (memory_mask >= 0.5).astype(np.uint8)
 
             if SAVE_MASK_IMAGES:
                 output_mask_path = (
                     masks_root / sequence_name / "predicted" / f"{frame_name}.png"
                 )
                 save_binary_mask(final_mask, output_mask_path)
-            if SAVE_NUMPY_MASKS:
-                npy_dir = gated_root / "masks_numpy" / sequence_name / "predicted"
-                npy_dir.mkdir(parents=True, exist_ok=True)
-                np.save(npy_dir / f"{frame_name}.npy", final_mask.astype(np.uint8))
-
-            gt_mask = None
-            gt_dir = DATA_ROOT / sequence_name / "masks"
-            gt_candidate = resolve_mask_path(gt_dir, frame_name)
-            if gt_candidate is not None:
-                gt_mask = load_binary_mask(gt_candidate)
-                gt_mask = resize_binary_mask(gt_mask, (height, width))
-
-            if SAVE_DEBUG_VISUALIZATIONS and debug_budget > 0:
-                iou_value = (
-                    float("nan")
-                    if gt_mask is None
-                    else calculate_iou(final_mask, gt_mask)
-                )
-                if (
-                    (accepted_update is False)
-                    or (not math.isnan(iou_value) and iou_value < 0.2)
-                    or reliability < 0.2
-                    or reliability > 0.95
-                ):
-                    save_debug_panel(
-                        debug_root / sequence_name / f"{frame_name}.png",
-                        frame_rgb=frame_rgb,
-                        current_mask=current_mask,
-                        previous_mask=previous_mask_for_debug,
-                        final_mask=final_mask,
-                        gt_mask=gt_mask,
-                        reliability=reliability,
-                        accepted_update=accepted_update,
-                    )
-                    debug_budget -= 1
 
             rows.append(
                 {
@@ -512,13 +451,21 @@ def run_gated_variant(
                     "frame": frame_name,
                     "num_boxes": 1 if current_mask.sum() > 0 else 0,
                     "reliability": reliability,
-                    "accepted_update": bool(accepted_update),
                     "r_conf": signals["r_conf"],
-                    "r_temporal": signals["r_temporal"],
-                    "r_area": signals["r_area"],
+                    "r_prompt": signals["r_prompt"],
+                    "r_boundary": signals["r_boundary"],
                     "r_blur": signals["r_blur"],
-                    "accepted_area_frac": area_fraction(final_mask),
+                    "memory_area_frac": area_fraction(final_mask),
                 }
+            )
+
+        if empty_candidate_count > len(frame_names) / 2:
+            print(
+                f"[gated] {sequence_name}: {empty_candidate_count}/{len(frame_names)} "
+                "frames had no candidate mask (expected if video_prompt_stride>1 "
+                "with the memory bank disabled); relying on the reliability blend "
+                "to carry memory across these gaps.",
+                flush=True,
             )
 
         write_sequence_log(
@@ -531,12 +478,20 @@ def run_gated_variant(
                 "height": int(height),
                 "width": int(width),
                 "prompt_source": PROMPT_SOURCE,
-                "video_prompt_source": VIDEO_PROMPT_SOURCE,
+                "video_prompt_source": "box",
                 "video_prompt_stride": VIDEO_PROMPT_STRIDE,
                 "video_prompt_limit": VIDEO_PROMPT_LIMIT,
-                "reliability_threshold": reliability_threshold,
-                "reliability_formula": "0.35*r_conf + 0.30*r_temporal + 0.25*r_area + 0.10*r_blur with blank/tiny/huge penalties",
-                "state_update": "accept current binary mask when reliability >= threshold; otherwise hold the previous non-empty mask",
+                "reliability_formula": (
+                    "0.35*r_conf (SAM2 object-score confidence) + "
+                    "0.25*r_prompt (prompt-box confidence, neutral 0.5 if no "
+                    "prompt this frame) + 0.30*r_boundary + 0.10*r_blur, with "
+                    "blank/tiny/huge-mask penalties; no temporal or area-ratio "
+                    "term (memory bank disabled, num_maskmem=0)"
+                ),
+                "state_update": (
+                    "soft memory blend: M_t = r_t*current_mask + (1-r_t)*M_(t-1); "
+                    "saved/evaluated mask is M_t thresholded at 0.5"
+                ),
                 "internal_sam2_memory_modified": False,
                 "rows": rows,
             },
@@ -555,55 +510,41 @@ def run_gated_variant(
             torch.mps.empty_cache()
 
 
-def run_gated(sequence_names: list[str]) -> list[str]:
-    candidate_root = OUTPUT_ROOT / "_candidate"
-    run_candidate_inference(sequence_names, candidate_root)
-    variant_names = ["gated"]
-    run_gated_variant(
-        sequence_names=sequence_names,
-        variant_name="gated",
-        reliability_threshold=RELIABILITY_THRESHOLD,
-        candidate_root=candidate_root,
-    )
-    if RUN_THRESHOLD_ABLATION:
-        for threshold in RELIABILITY_THRESHOLDS:
-            variant_name = f"gated_thr_{threshold:.1f}"
-            run_gated_variant(
-                sequence_names=sequence_names,
-                variant_name=variant_name,
-                reliability_threshold=threshold,
-                candidate_root=candidate_root,
-            )
-            variant_names.append(variant_name)
-    return variant_names
+def evaluate_variant(
+    variant_name: str,
+    sequence_names: list[str],
+    masks_root: Path,
+    logs_root: Path | None,
+) -> None:
+    """Score `masks_root/<seq>/predicted/*.png` against ground truth.
 
-
-def evaluate_variant(variant_name: str, sequence_names: list[str]) -> None:
-    variant_root = OUTPUT_ROOT / variant_name
-    eval_root = variant_root / "eval"
+    `logs_root` supplies the per-frame reliability CSVs written by
+    run_gated; pass None for variants with no reliability log (e.g. the raw
+    candidate baseline), and the "reliability" column is left NaN for those.
+    """
+    eval_root = OUTPUT_ROOT / variant_name / "eval"
     eval_root.mkdir(parents=True, exist_ok=True)
 
     aggregate_rows = []
     summary_rows = []
     reliability_by_frame = {}
-    gated_log_csv_dir = variant_root / "logs"
 
-    for sequence_name in sequence_names:
-        log_csv = gated_log_csv_dir / f"{sequence_name}.csv"
-        if not log_csv.is_file():
-            continue
-        with open(log_csv, "r", newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                reliability_by_frame[(sequence_name, row["frame"])] = {
-                    "reliability": float(row["reliability"]),
-                    "accepted_update": row.get("accepted_update", "").lower() == "true",
-                }
+    if logs_root is not None:
+        for sequence_name in sequence_names:
+            log_csv = logs_root / f"{sequence_name}.csv"
+            if not log_csv.is_file():
+                continue
+            with open(log_csv, "r", newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    reliability_by_frame[(sequence_name, row["frame"])] = float(
+                        row["reliability"]
+                    )
 
     for sequence_name in sequence_names:
         gt_dir = DATA_ROOT / sequence_name / "masks"
         frame_dir = Path(get_video_frame_dir(str(DATA_ROOT), sequence_name))
-        pred_dir = variant_root / "masks" / sequence_name / "predicted"
+        pred_dir = masks_root / sequence_name / "predicted"
         # Evaluate the source-frame contract, not merely the predictions that
         # happen to exist. A missing prediction is an explicit blank failure.
         frame_names = get_frame_names(str(frame_dir))
@@ -632,7 +573,6 @@ def evaluate_variant(variant_name: str, sequence_names: list[str]) -> None:
                     )
             if gt_mask is not None and gt_mask.shape != pred_mask.shape:
                 gt_mask = resize_binary_mask(gt_mask, pred_mask.shape)
-            log_info = reliability_by_frame.get((sequence_name, frame_name), {})
             row = {
                 "sequence": sequence_name,
                 "variant": variant_name,
@@ -660,8 +600,9 @@ def evaluate_variant(variant_name: str, sequence_names: list[str]) -> None:
                 "area_change": float("nan")
                 if previous_pred is None
                 else area_change(pred_mask, previous_pred),
-                "reliability": log_info.get("reliability", float("nan")),
-                "accepted_update": log_info.get("accepted_update", True),
+                "reliability": reliability_by_frame.get(
+                    (sequence_name, frame_name), float("nan")
+                ),
             }
             previous_pred = pred_mask
             sequence_rows.append(row)
@@ -698,12 +639,6 @@ def evaluate_variant(variant_name: str, sequence_names: list[str]) -> None:
                 "mean_reliability": safe_nanmean(
                     row["reliability"] for row in sequence_rows
                 ),
-                "num_updates_accepted": int(
-                    sum(1 for row in sequence_rows if row["accepted_update"])
-                ),
-                "num_updates_rejected": int(
-                    sum(1 for row in sequence_rows if not row["accepted_update"])
-                ),
             }
         )
 
@@ -737,85 +672,9 @@ def evaluate_variant(variant_name: str, sequence_names: list[str]) -> None:
             "mean_reliability": safe_nanmean(
                 row["reliability"] for row in aggregate_rows
             ),
-            "num_updates_accepted": int(
-                sum(1 for row in aggregate_rows if row["accepted_update"])
-            ),
-            "num_updates_rejected": int(
-                sum(1 for row in aggregate_rows if not row["accepted_update"])
-            ),
         }
         with open(eval_root / "global_summary.json", "w", encoding="utf-8") as handle:
             json.dump(global_summary, handle, indent=2)
-
-
-def write_project_level_reports(
-    variant_names: list[str], sequence_names: list[str]
-) -> None:
-    all_rows = []
-    summary_rows = []
-
-    for variant_name in variant_names:
-        eval_root = OUTPUT_ROOT / variant_name / "eval"
-        for sequence_name in sequence_names:
-            seq_csv = eval_root / f"{sequence_name}.csv"
-            if not seq_csv.is_file():
-                continue
-            with open(seq_csv, "r", newline="", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle)
-                all_rows.extend(reader)
-
-        global_summary = eval_root / "global_summary.json"
-        if not global_summary.is_file():
-            continue
-        with open(global_summary, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        summary_rows.append(
-            {
-                "variant": data["variant"],
-                "mean_dice": data["mean_dice"],
-                "mean_iou": data["mean_iou"],
-                "mean_temporal_iou": data["mean_temporal_iou"],
-                "mean_centroid_shift": data["mean_centroid_shift"],
-                "mean_area_change": data["mean_area_change"],
-                "mean_reliability": data["mean_reliability"],
-                "num_frames": data["num_frames"],
-                "num_predictions_missing": data["num_predictions_missing"],
-                "num_updates_accepted": data["num_updates_accepted"],
-                "num_updates_rejected": data["num_updates_rejected"],
-            }
-        )
-
-    if all_rows:
-        metrics_path = OUTPUT_ROOT / "metrics.csv"
-        with open(metrics_path, "w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(
-                handle,
-                fieldnames=[
-                    "sequence",
-                    "variant",
-                    "frame",
-                    "frame_idx",
-                    "prediction_missing",
-                    "dice",
-                    "iou",
-                    "pred_area_frac",
-                    "gt_area_frac",
-                    "temporal_iou",
-                    "centroid_shift",
-                    "area_change",
-                    "reliability",
-                    "accepted_update",
-                ],
-            )
-            writer.writeheader()
-            writer.writerows(all_rows)
-
-    if summary_rows:
-        summary_path = OUTPUT_ROOT / "summary.csv"
-        with open(summary_path, "w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(summary_rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(summary_rows)
 
 
 def main(args: argparse.Namespace | None = None) -> None:
@@ -833,10 +692,24 @@ def main(args: argparse.Namespace | None = None) -> None:
     print(f"Sequences: {sequence_names}")
     print(f"Outputs: {OUTPUT_ROOT}")
 
-    variant_names = run_gated(sequence_names)
-    for variant_name in variant_names:
-        evaluate_variant(variant_name, sequence_names)
-    write_project_level_reports(variant_names, sequence_names)
+    candidate_root = OUTPUT_ROOT / "_candidate"
+    gated_root = OUTPUT_ROOT / "gated"
+    run_gated(sequence_names, candidate_root, gated_root)
+
+    # Baseline arm: raw per-frame SAM2 output, no reliability blend. Needed
+    # to tell whether the blend actually helps versus the unblended candidate.
+    evaluate_variant(
+        "candidate",
+        sequence_names,
+        masks_root=candidate_root / "candidate" / "masks",
+        logs_root=None,
+    )
+    evaluate_variant(
+        "gated",
+        sequence_names,
+        masks_root=gated_root / "masks",
+        logs_root=gated_root / "logs",
+    )
 
     notes = {
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -845,19 +718,21 @@ def main(args: argparse.Namespace | None = None) -> None:
         "output_root": str(OUTPUT_ROOT),
         "output_is_google_drive": is_google_drive_path(OUTPUT_ROOT),
         "prompt_source": PROMPT_SOURCE,
-        "video_prompt_source": VIDEO_PROMPT_SOURCE,
+        "video_prompt_source": "box",
         "video_prompt_stride": VIDEO_PROMPT_STRIDE,
         "video_prompt_limit": VIDEO_PROMPT_LIMIT,
-        "reliability_threshold": RELIABILITY_THRESHOLD,
-        "reliability_thresholds": RELIABILITY_THRESHOLDS,
-        "run_threshold_ablation": RUN_THRESHOLD_ABLATION,
-        "num_videos_to_test": NUM_VIDEOS_TO_TEST,
         "sequence_names": sequence_names,
         "candidate_device": CANDIDATE_DEVICE,
         "sam2_cfg": SAM2_CFG,
         "sam2_checkpoint": str(SAM2_CHECKPOINT),
         "yolo_checkpoint": str(YOLO_CHECKPOINT),
-        "fallback_note": "Direct internal SAM2/MedSAM2 memory tensors are not modified. Reliability gating is applied to accepted binary output masks.",
+        "fallback_note": (
+            "SAM2's internal memory bank is disabled (num_maskmem=0); "
+            "each candidate mask is an independent per-frame prediction. "
+            "Reliability gating blends those candidates into the only "
+            "cross-frame memory in the pipeline: "
+            "M_t = r_t*current_mask + (1-r_t)*M_(t-1)."
+        ),
     }
     with open(OUTPUT_ROOT / "experiment_notes.json", "w", encoding="utf-8") as handle:
         json.dump(notes, handle, indent=2)
