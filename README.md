@@ -35,15 +35,15 @@ Sequence-macro averages from the Drive score exports:
 | MedSAM2 + GT mask prompt, every frame | 0.7436 | 0.7069 |
 | MedSAM3 + text `polyp` | 0.6663 | 0.6275 |
 
-Reliability-gated, frame-macro results:
+Reliability-gated, frame-macro results — soft memory blend vs. the un-blended per-frame candidate (MedSAM2 memory bank disabled):
 
-| Prompt stride | Dice | IoU | Temporal IoU | Prompts | Time |
+| Prompt stride | Boxed frames | Candidate Dice | Gated Dice | Gated Temporal IoU | Time |
 |---:|---:|---:|---:|---:|---:|
-| 1 | **0.6919** | **0.6499** | 0.6750 | 1,710 | 15m 57s |
-| 5 | 0.6419 | 0.5948 | 0.6934 | 349 | 12m 45s |
-| 10 | 0.6255 | 0.5769 | **0.7051** | 174 | **9m 53s** |
+| 1 | 1,710 | **0.9287** | 0.7863 | 0.6907 | 9m 18s |
+| 5 | 352 | 0.3750 | 0.6232 | 0.9003 | 6m 17s |
+| 10 | 177 | 0.3044 | 0.5642 | **0.9375** | **5m 41s** |
 
-See [results](docs/RESULTS.md) for all 20 methods and gate diagnostics.
+The gate helps when prompts are sparse (stride 5/10 Dice rises `+0.25–0.26`) and hurts when prompts are already dense (stride 1 Dice falls `-0.14`). See [results](docs/RESULTS.md) for all 20 methods and gate diagnostics.
 
 ## Quick start
 

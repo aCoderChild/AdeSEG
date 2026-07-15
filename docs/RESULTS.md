@@ -144,42 +144,61 @@ flowchart LR
 
 ## 6. Reliability-gated experiment
 
-These runs use GT-derived mask prompts, CPU inference, threshold `0.35`, and all 23 sequences. The gated evaluator records Dice, IoU, temporal IoU, centroid shift, area change, and reliability; it does not record sensitivity or specificity.
+`scripts/utils/reliability_gate.py` was rewritten after the results above were produced. It no
+longer runs a discrete accept/hold gate with a threshold and rejection counter; see
+[Technical §Reliability gate](TECHNICAL.md#reliability-gate) for the current mechanism. In
+short: MedSAM2 runs with its internal memory bank disabled (`num_maskmem=0`), so the raw
+`candidate` mask is an independent per-frame prediction with no memory of its own, and the gate
+is the only cross-frame state left — a continuous reliability-weighted blend
+`M_t = R_t·candidate_t + (1-R_t)·M_(t-1)`, with `R` built from decoder confidence, prompt
+confidence, boundary alignment, and sharpness (no temporal-IoU or area term). The numbers below
+are from that current implementation, GT-derived box prompts, CPU inference, all 23 sequences
+(2,225 frames), frame-macro aggregation. The gated evaluator records Dice, IoU, temporal IoU,
+centroid shift, area change, and reliability; it does not record sensitivity or specificity.
 
 | Metric | Stride 1 | Stride 5 | Stride 10 |
 |---|---:|---:|---:|
 | Frames | 2,225 | 2,225 | 2,225 |
 | Missing predictions | 0 | 0 | 0 |
-| Prompts | 1,710 | 349 | 174 |
-| Dice | **0.6919** | 0.6419 | 0.6255 |
-| IoU | **0.6499** | 0.5948 | 0.5769 |
-| Temporal IoU | 0.6750 | 0.6934 | **0.7051** |
-| Centroid shift, px | 72.54 | 69.25 | **66.23** |
-| Area change | 0.01840 | 0.01918 | **0.01638** |
-| Mean reliability | **0.5619** | 0.5543 | 0.5535 |
-| Accepted updates | 1,934 | 1,894 | 1,885 |
-| Rejected updates | 291 | 331 | 340 |
-| Rejection rate | 13.08% | 14.88% | 15.28% |
-| Total time | 15m 57s | 12m 45s | **9m 53s** |
+| Boxed (prompted) frames | **1,710** | 352 | 177 |
+| Candidate Dice | **0.9287** | 0.3750 | 0.3044 |
+| Candidate IoU | **0.8859** | 0.3664 | 0.3000 |
+| Candidate temporal IoU | 0.6405 | 0.6898 | **0.8447** |
+| Gated Dice | **0.7863** | 0.6232 | 0.5642 |
+| Gated IoU | **0.7434** | 0.5562 | 0.4949 |
+| Gated temporal IoU | 0.6907 | 0.9003 | **0.9375** |
+| Gated centroid shift, px | 78.31 | 26.27 | **16.02** |
+| Gated area change | 0.01928 | 0.00695 | **0.00400** |
+| Mean reliability (blend weight) | **0.7211** | 0.2023 | 0.1442 |
+| Total time | 9m 18s | 6m 17s | **5m 41s** |
 
-The centroid values above are pixels; they are not directly comparable with the normalized centroid values in the main benchmark table.
+Candidate centroid shift is `NaN`/pixels in most sequences at stride 5 and 10 (too many
+consecutive empty candidates to define a shift) and is omitted above; gated centroid shift is
+pixels, not directly comparable with the normalized centroid values in the main benchmark table.
 
-### Gate effect on saved candidates
+### Gate effect: candidate vs. gated, by stride
 
 | Stride | Candidate Dice | Gated Dice | Δ Dice | Candidate temporal IoU | Gated temporal IoU | Δ temporal |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1 | 0.7824 | 0.6919 | **-0.0905** | 0.5759 | 0.6750 | +0.0992 |
-| 5 | 0.7253 | 0.6419 | **-0.0834** | 0.5888 | 0.6934 | +0.1045 |
-| 10 | 0.7060 | 0.6255 | **-0.0805** | 0.6009 | 0.7051 | +0.1042 |
+| 1 | 0.9287 | 0.7863 | **-0.1425** | 0.6405 | 0.6907 | +0.0502 |
+| 5 | 0.3750 | 0.6232 | **+0.2482** | 0.6898 | 0.9003 | +0.2104 |
+| 10 | 0.3044 | 0.5642 | **+0.2598** | 0.8447 | 0.9375 | +0.0928 |
 
-| Empty-GT behavior | Stride 1 | Stride 5 | Stride 10 |
-|---|---:|---:|---:|
-| Candidate correct-empty rate | 0.3709 | 0.4117 | 0.4272 |
-| Gated correct-empty rate | 0.2019 | 0.2252 | 0.2427 |
-| Candidate area on empty GT | 0.0428 | 0.0427 | 0.0403 |
-| Gated area on empty GT | 0.0636 | 0.0728 | 0.0507 |
+The effect flips with prompt density. At stride 1, almost every frame has a fresh GT box
+(1,710/2,225), so the raw per-frame candidate is already strong (Dice `0.9287`); blending in the
+soft memory only pulls it down. At stride 5 and 10, most frames have no candidate at all — a
+per-frame prediction with the memory bank disabled produces nothing without a fresh box, so the
+un-blended candidate Dice collapses to `0.30–0.38`. There, the reliability blend is what carries
+a plausible mask across the un-prompted gap, recovering roughly `0.25–0.26` Dice and `0.09–0.21`
+temporal IoU over the raw candidate. Mean reliability drops sharply as stride grows (`0.72 →
+0.20 → 0.14`): most frames get the neutral `r_prompt = 0.5` and a low-confidence, likely-empty
+candidate, so the blend leans on the previous memory mask rather than the new one — which is the
+intended behavior for un-prompted gaps.
 
-The current gate improves temporal persistence while reducing spatial accuracy and worsening false-positive persistence. It should not be selected as an accuracy improvement.
+At the current implementation, the gate is a compensation mechanism for missing per-frame
+prompts, not an unconditional accuracy improvement: it helps substantially under sparse
+prompting (stride 5, 10) and actively hurts when prompts are already dense (stride 1). Treat it
+as a stride-dependent trade rather than a strict win or loss.
 
 ## 7. Endoscopy-video evaluation framework
 
@@ -243,7 +262,8 @@ Current examples:
 | `YOLO_SAM2_YOLO_BOX_FRAME` | Best fully automatic benchmark; detector gap remains |
 | `MedSAM3_TEXT_POLYP` | High sensitivity with larger masks and lower temporal stability |
 | First-only MedSAM2 | High apparent smoothness with severe spatial drift |
-| Reliability gate | Higher temporal IoU but lower Dice and worse empty-frame behavior |
+| Reliability gate, stride 1 | Higher temporal IoU but lower Dice than the dense-prompt candidate |
+| Reliability gate, stride 5/10 | Higher Dice *and* higher temporal IoU than the sparse-prompt candidate — compensates for missing per-frame candidates |
 
 ## 9. Recommended next metrics
 
@@ -268,6 +288,6 @@ Current examples:
 | Detector-free text baseline | MedSAM3 | Sensitivity `0.9216`, but lower overlap and stability |
 | Best MedSAM2 prompt type | Mask prompt | Better Dice than direct box prompt |
 | Sparse-prompt deployment | Not ready | Large Dice loss and drift |
-| Current reliability gate | Do not use for accuracy | Spatial and empty-frame results worsen |
+| Current reliability gate | Use only under sparse prompting | Recovers Dice `+0.25–0.26` and temporal IoU `+0.09–0.21` at stride 5/10; costs Dice `-0.14` at stride 1 |
 
 No single score is sufficient for endoscopy video. Use spatial correctness first, empty-frame safety second, temporal behavior third, and workflow/clinical impact last.
