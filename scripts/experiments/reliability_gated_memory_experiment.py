@@ -8,17 +8,19 @@ defaults, while CLI arguments control run-specific paths and sequence selection:
     python experiments/reliability_gated_memory_experiment.py --help
 
 What it does:
-1. Runs MedSAM2 candidate inference once per sequence, with SAM2's internal
-   memory bank disabled (SAM2_CFG points at num_maskmem=0) so each frame is
-   an independent per-frame prediction, plus SAM2's own per-frame object-
-   score confidence persisted to disk (see medsam2_infer_video_with_yolo.py).
-2. Blends each frame's candidate mask into a soft memory mask:
+1. Runs MedSAM2 inference once per sequence into a scratch directory, with
+   SAM2's internal memory bank disabled (SAM2_CFG points at num_maskmem=0)
+   so each frame is an independent per-frame prediction, plus SAM2's own
+   per-frame object-score confidence persisted to disk (see
+   medsam2_infer_video_with_yolo.py). The raw per-frame baseline masks
+   themselves are already produced/evaluated separately by
+   scripts/experiments/run_experiment.py, so this script keeps only the
+   confidence/prompt_confidence CSVs from that run and discards the masks.
+2. Blends each frame's raw mask into a soft memory mask:
    M_t = r_t * current_mask + (1 - r_t) * M_(t-1), where r_t is a
    reliability score in [0, 1] (see scripts/utils/reliability_gate.py). This
    blend is the only cross-frame memory left in the pipeline.
-3. Evaluates both the raw per-frame candidate masks (baseline) and the
-   blended masks (gated) against ground truth, so the blend's effect is
-   directly comparable rather than reported in isolation.
+3. Evaluates the blended (gated) masks against ground truth.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import csv
 import gc
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -99,7 +102,7 @@ MAX_YOLO_BOXES_PER_FRAME = 1  # only 1 box per frame
 YOLO_CONF = 0.5
 YOLO_IMGSZ = 640
 ALLOW_BBOX_GENERATION = True
-CANDIDATE_DEVICE = "cpu"
+DEVICE = "cpu"
 
 
 def parse_sequence_specs(specs: list[str] | None) -> list[str] | None:
@@ -139,7 +142,7 @@ def parse_args() -> argparse.Namespace:
         "--output-root",
         type=Path,
         default=Path(os.environ.get("ADESEG_OUTPUT_ROOT", DEFAULT_OUTPUT_ROOT)),
-        help="Root for every generated candidate, mask, log, and metric artifact.",
+        help="Root for every generated mask, confidence CSV, log, and metric artifact.",
     )
     parser.add_argument(
         "--require-google-drive-output",
@@ -152,10 +155,10 @@ def parse_args() -> argparse.Namespace:
         help="Sequence IDs/ranges, e.g. --sequences 1-23 or --sequences 1,3,5.",
     )
     parser.add_argument(
-        "--candidate-device",
+        "--device",
         choices=["auto", "cuda", "mps", "cpu"],
-        default=CANDIDATE_DEVICE,
-        help="Device used by the MedSAM2 candidate subprocess.",
+        default=DEVICE,
+        help="Device used by the MedSAM2 inference subprocess.",
     )
     parser.add_argument(
         "--prompt-source",
@@ -183,7 +186,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def configure_from_args(args: argparse.Namespace) -> None:
-    global OUTPUT_ROOT, SEQUENCE_NAMES, CANDIDATE_DEVICE
+    global OUTPUT_ROOT, SEQUENCE_NAMES, DEVICE
     global PROMPT_SOURCE
     global ALLOW_BBOX_GENERATION, VIDEO_PROMPT_STRIDE, VIDEO_PROMPT_LIMIT
 
@@ -195,7 +198,7 @@ def configure_from_args(args: argparse.Namespace) -> None:
         )
     OUTPUT_ROOT = output_root
     SEQUENCE_NAMES = parse_sequence_specs(args.sequences)
-    CANDIDATE_DEVICE = args.candidate_device
+    DEVICE = args.device
     PROMPT_SOURCE = args.prompt_source
     if args.video_prompt_stride < 1:
         raise ValueError("--video-prompt-stride must be at least 1")
@@ -267,10 +270,14 @@ def ensure_gt_bboxes(sequence_names: list[str]) -> None:
             writer.writeheader()
             writer.writerows(rows)
 
+def run_raw_inference(sequence_names: list[str], work_root: Path) -> None:
+    """Run MedSAM2 for all sequences in one process so models load only once.
 
-def run_candidate_inference(sequence_names: list[str], candidate_root: Path) -> None:
-    """Generate all sequence candidates in one process so models load only once."""
-    candidate_logs_root = candidate_root / "logs"
+    Writes masks/confidence/prompt_confidence under work_root/raw/. The
+    masks are scratch input for the gating blend below and get deleted once
+    consumed; only the confidence/prompt_confidence CSVs are kept.
+    """
+    raw_logs_root = work_root / "logs"
     sequence_numbers = [name.removeprefix("seq") for name in sequence_names]
     cmd = [
         sys.executable,
@@ -280,11 +287,11 @@ def run_candidate_inference(sequence_names: list[str], candidate_root: Path) -> 
         "--seq_nums",
         *sequence_numbers,
         "--output_root",
-        str(candidate_root),
+        str(work_root),
         "--method_name",
-        "candidate",
+        "raw",
         "--log_dir",
-        str(candidate_logs_root),
+        str(raw_logs_root),
         "--sam2_cfg",
         SAM2_CFG,
         "--sam2_checkpoint",
@@ -315,8 +322,8 @@ def run_candidate_inference(sequence_names: list[str], candidate_root: Path) -> 
         path_parts.append(existing_pythonpath)
     env["PYTHONPATH"] = os.pathsep.join(path_parts)
     env.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-    if CANDIDATE_DEVICE != "auto":
-        env["SAM2_DEVICE"] = CANDIDATE_DEVICE
+    if DEVICE != "auto":
+        env["SAM2_DEVICE"] = DEVICE
     else:
         env.pop("SAM2_DEVICE", None)
     subprocess.run(cmd, cwd=PROJECT_ROOT, env=env, check=True)
@@ -327,62 +334,56 @@ def run_candidate_inference(sequence_names: list[str], candidate_root: Path) -> 
         torch.mps.empty_cache()
 
 
-def resolve_candidate_mask_path(
-    candidate_root: Path, sequence_name: str, frame_name: str
+def resolve_raw_mask_path(
+    work_root: Path, sequence_name: str, frame_name: str
 ) -> Path | None:
-    candidates = [
-        candidate_root
-        / "candidate"
-        / "masks"
-        / sequence_name
-        / "predicted"
-        / f"{frame_name}.png",
-        candidate_root / "masks" / sequence_name / "predicted" / f"{frame_name}.png",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    return None
+    mask_path = (
+        work_root / "raw" / "masks" / sequence_name / "predicted" / f"{frame_name}.png"
+    )
+    return mask_path if mask_path.exists() else None
 
 
-def load_candidate_confidence(
-    candidate_root: Path, sequence_name: str
-) -> dict[str, float]:
+def load_confidence(confidence_root: Path, sequence_name: str) -> dict[str, float]:
     """Read the per-frame sigmoid(object_score_logits) CSV that
-    medsam2_infer_video_with_yolo.py writes next to the candidate masks."""
-    candidates = [
-        candidate_root / "candidate" / "confidence" / f"{sequence_name}.csv",
-        candidate_root / "confidence" / f"{sequence_name}.csv",
-    ]
-    for csv_path in candidates:
-        if csv_path.is_file():
-            with open(csv_path, "r", newline="", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle)
-                return {row["frame"]: float(row["confidence"]) for row in reader}
-    return {}
+    medsam2_infer_video_with_yolo.py writes next to the raw masks."""
+    csv_path = confidence_root / f"{sequence_name}.csv"
+    if not csv_path.is_file():
+        return {}
+    with open(csv_path, "r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        return {row["frame"]: float(row["confidence"]) for row in reader}
 
 
 def load_prompt_confidence(
-    candidate_root: Path, sequence_name: str
+    prompt_confidence_root: Path, sequence_name: str
 ) -> dict[str, float]:
     """Read the per-frame prompt-box confidence CSV that
     medsam2_infer_video_with_yolo.py writes (YOLO detection score, or 1.0
     for a ground-truth box); frames with no prompt have no entry."""
-    candidates = [
-        candidate_root / "candidate" / "prompt_confidence" / f"{sequence_name}.csv",
-        candidate_root / "prompt_confidence" / f"{sequence_name}.csv",
-    ]
-    for csv_path in candidates:
-        if csv_path.is_file():
-            with open(csv_path, "r", newline="", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle)
-                return {row["frame"]: float(row["confidence"]) for row in reader}
-    return {}
+    csv_path = prompt_confidence_root / f"{sequence_name}.csv"
+    if not csv_path.is_file():
+        return {}
+    with open(csv_path, "r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        return {row["frame"]: float(row["confidence"]) for row in reader}
 
 
-def run_gated(sequence_names: list[str], candidate_root: Path, gated_root: Path) -> None:
-    """Generate candidates once, then blend them into a soft memory mask per frame."""
-    run_candidate_inference(sequence_names, candidate_root)
+def run_gated(sequence_names: list[str], output_root: Path, gated_root: Path) -> None:
+    """Run raw inference once, then blend the raw masks into a soft memory mask per frame.
+
+    Only the confidence/prompt_confidence CSVs from the raw inference run are
+    kept (under output_root/confidence and output_root/prompt_confidence);
+    the raw mask images are scratch input for the blend below and are
+    deleted once every sequence has been processed.
+    """
+    work_root = output_root / "_work"
+    confidence_root = output_root / "confidence"
+    prompt_confidence_root = output_root / "prompt_confidence"
+    run_raw_inference(sequence_names, work_root)
+    shutil.copytree(work_root / "raw" / "confidence", confidence_root, dirs_exist_ok=True)
+    shutil.copytree(
+        work_root / "raw" / "prompt_confidence", prompt_confidence_root, dirs_exist_ok=True
+    )
 
     masks_root = gated_root / "masks"
     logs_root = gated_root / "logs"
@@ -397,25 +398,23 @@ def run_gated(sequence_names: list[str], candidate_root: Path, gated_root: Path)
 
         memory_mask = None  # M_(t-1): float mask in [0, 1], None before frame 0
         rows = []
-        empty_candidate_count = 0
-        candidate_confidence = load_candidate_confidence(candidate_root, sequence_name)
-        prompt_confidence = load_prompt_confidence(candidate_root, sequence_name)
+        empty_raw_count = 0
+        raw_confidence = load_confidence(confidence_root, sequence_name)
+        prompt_confidence = load_prompt_confidence(prompt_confidence_root, sequence_name)
 
         for frame_idx, frame_name in enumerate(frame_names):
             frame_path = Path(resolve_frame_path(str(frame_dir), frame_name))
             frame_rgb = np.array(Image.open(frame_path).convert("RGB"))
             frame_bgr = frame_rgb[:, :, ::-1]
-            candidate_mask_path = resolve_candidate_mask_path(
-                candidate_root, sequence_name, frame_name
-            )
+            raw_mask_path = resolve_raw_mask_path(work_root, sequence_name, frame_name)
             current_mask = (
-                load_binary_mask(candidate_mask_path)
-                if candidate_mask_path is not None
+                load_binary_mask(raw_mask_path)
+                if raw_mask_path is not None
                 else np.zeros((height, width), dtype=np.uint8)
             )
             current_mask = resize_binary_mask(current_mask, (height, width))
             if current_mask.sum() == 0:
-                empty_candidate_count += 1
+                empty_raw_count += 1
             previous_binary_mask = (
                 None if memory_mask is None else (memory_mask >= 0.5).astype(np.uint8)
             )
@@ -424,7 +423,7 @@ def run_gated(sequence_names: list[str], candidate_root: Path, gated_root: Path)
                 current_mask=current_mask,
                 previous_mask=previous_binary_mask,
                 frame_bgr=frame_bgr,
-                mask_confidence=candidate_confidence.get(frame_name),
+                mask_confidence=raw_confidence.get(frame_name),
                 prompt_confidence=prompt_confidence.get(frame_name),
                 config=reliability_config,
             )
@@ -459,10 +458,10 @@ def run_gated(sequence_names: list[str], candidate_root: Path, gated_root: Path)
                 }
             )
 
-        if empty_candidate_count > len(frame_names) / 2:
+        if empty_raw_count > len(frame_names) / 2:
             print(
-                f"[gated] {sequence_name}: {empty_candidate_count}/{len(frame_names)} "
-                "frames had no candidate mask (expected if video_prompt_stride>1 "
+                f"[gated] {sequence_name}: {empty_raw_count}/{len(frame_names)} "
+                "frames had no raw mask (expected if video_prompt_stride>1 "
                 "with the memory bank disabled); relying on the reliability blend "
                 "to carry memory across these gaps.",
                 flush=True,
@@ -509,6 +508,8 @@ def run_gated(sequence_names: list[str], candidate_root: Path, gated_root: Path)
         elif hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
             torch.mps.empty_cache()
 
+    shutil.rmtree(work_root, ignore_errors=True)
+
 
 def evaluate_variant(
     variant_name: str,
@@ -519,8 +520,8 @@ def evaluate_variant(
     """Score `masks_root/<seq>/predicted/*.png` against ground truth.
 
     `logs_root` supplies the per-frame reliability CSVs written by
-    run_gated; pass None for variants with no reliability log (e.g. the raw
-    candidate baseline), and the "reliability" column is left NaN for those.
+    run_gated; pass None for variants with no reliability log, and the
+    "reliability" column is left NaN for those.
     """
     eval_root = OUTPUT_ROOT / variant_name / "eval"
     eval_root.mkdir(parents=True, exist_ok=True)
@@ -553,9 +554,9 @@ def evaluate_variant(
         for frame_name in frame_names:
             gt_path = None
             pred_path = None
-            candidate_pred = pred_dir / f"{frame_name}.png"
-            if candidate_pred.exists():
-                pred_path = candidate_pred
+            predicted_path = pred_dir / f"{frame_name}.png"
+            if predicted_path.exists():
+                pred_path = predicted_path
             if gt_dir.is_dir():
                 gt_path = resolve_mask_path(gt_dir, frame_name)
 
@@ -685,25 +686,16 @@ def main(args: argparse.Namespace | None = None) -> None:
         raise RuntimeError(f"No seq* folders found under {DATA_ROOT}")
     ensure_gt_bboxes(sequence_names)
 
-    print(f"Candidate device: {CANDIDATE_DEVICE}")
+    print(f"Inference device: {DEVICE}")
     print(f"Video prompt stride: {VIDEO_PROMPT_STRIDE}")
     print(f"Video prompt limit: {VIDEO_PROMPT_LIMIT}")
     print(f"Data root: {DATA_ROOT}")
     print(f"Sequences: {sequence_names}")
     print(f"Outputs: {OUTPUT_ROOT}")
 
-    candidate_root = OUTPUT_ROOT / "_candidate"
     gated_root = OUTPUT_ROOT / "gated"
-    run_gated(sequence_names, candidate_root, gated_root)
+    run_gated(sequence_names, OUTPUT_ROOT, gated_root)
 
-    # Baseline arm: raw per-frame SAM2 output, no reliability blend. Needed
-    # to tell whether the blend actually helps versus the unblended candidate.
-    evaluate_variant(
-        "candidate",
-        sequence_names,
-        masks_root=candidate_root / "candidate" / "masks",
-        logs_root=None,
-    )
     evaluate_variant(
         "gated",
         sequence_names,
@@ -722,14 +714,14 @@ def main(args: argparse.Namespace | None = None) -> None:
         "video_prompt_stride": VIDEO_PROMPT_STRIDE,
         "video_prompt_limit": VIDEO_PROMPT_LIMIT,
         "sequence_names": sequence_names,
-        "candidate_device": CANDIDATE_DEVICE,
+        "device": DEVICE,
         "sam2_cfg": SAM2_CFG,
         "sam2_checkpoint": str(SAM2_CHECKPOINT),
         "yolo_checkpoint": str(YOLO_CHECKPOINT),
         "fallback_note": (
             "SAM2's internal memory bank is disabled (num_maskmem=0); "
-            "each candidate mask is an independent per-frame prediction. "
-            "Reliability gating blends those candidates into the only "
+            "each raw mask is an independent per-frame prediction. "
+            "Reliability gating blends those raw masks into the only "
             "cross-frame memory in the pipeline: "
             "M_t = r_t*current_mask + (1-r_t)*M_(t-1)."
         ),
