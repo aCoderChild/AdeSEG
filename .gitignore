@@ -35,6 +35,7 @@ checkpoints/
 # Datasets and generated outputs
 data/*
 !data/segmentation/
+!data/overlay/
 data/segmentation/*
 !data/segmentation/README.md
 !data/segmentation/split_train_val.py
@@ -54,3 +55,4 @@ scripts/eval_outputs/
 # External projects not committed here
 external/WTNet/
 external/PraNet/
+ReliabilityGated_GT_BOX_BOX_STRIDE10/
