@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 from typing import List, Optional, Tuple, Type
-
 import torch
 from torch import nn
 
@@ -202,7 +201,7 @@ class MaskDecoder(nn.Module):
         else:
             assert image_embeddings.shape[0] == tokens.shape[0]
             src = image_embeddings
-        src = src + dense_prompt_embeddings
+        src = src + dense_prompt_embeddings # only to refine, NOT to attend
         assert (
             image_pe.size(0) == 1
         ), "image_pe should have size 1 in batch dim (from `get_dense_pe()`)"

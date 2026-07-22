@@ -12,19 +12,26 @@ try:
 except ImportError:
     cv2 = None
 
-
 @dataclass(frozen=True)
 class ReliabilityConfig:
-    # confidence_weight: SAM2's own per-frame object-score confidence
-    # (external/MedSAM2/medsam2_infer_video_with_yolo.py persists
-    # sigmoid(object_score_logits) to a confidence CSV per sequence).
+    # confidence_weight: the mask decoder's own IoU/mask-quality head for
+    # the returned mask (SAM2's iou_prediction_head; run_gated passes this
+    # as `mask_confidence`). This estimates "how good is this specific mask
+    # assuming an object was found" -- it is NOT an object-presence signal.
     # prompt_confidence_weight: confidence of the box that *seeded* this
-    # frame (YOLO detection score, or 1.0 for a ground-truth box), persisted
-    # to a separate prompt_confidence CSV. This is independent of
-    # confidence_weight -- one reflects how trustworthy the input prompt
-    # was, the other how confident the decoder is in its output -- and is
-    # 0.5 (neutral) on frames with no prompt at all, e.g. stride>1 gaps
-    # with the memory bank disabled.
+    # frame (YOLO detection score, or 1.0 for a ground-truth box). This is
+    # independent of confidence_weight -- one reflects how trustworthy the
+    # input prompt was, the other how confident the decoder is in its
+    # output -- and is 0.5 (neutral) on frames with no prompt at all, e.g.
+    # stride>1 gaps with the memory bank disabled.
+    # object_score_weight: SAM2's dedicated object-presence head
+    # (pred_obj_score_head / object_score_logits, when pred_obj_scores=true
+    # in SAM2_CFG), passed as `object_score`. Unlike confidence_weight, this
+    # *does* estimate "is an object present at all" -- a confidently-empty
+    # mask backed by a low object_score is a legitimate true negative, not
+    # an implausible read (see the area-ratio/blank-mask penalty logic
+    # below, which is conditioned on this signal rather than blanket-
+    # penalizing every near-empty mask regardless of why it's empty).
     # No area_weight: comparing the candidate's size against the previous
     # memory mask is self-referential (previous_mask here is our own
     # blended output), the same issue that ruled out a temporal term.
@@ -32,6 +39,7 @@ class ReliabilityConfig:
     prompt_confidence_weight: float = 0.25
     boundary_weight: float = 0.30
     blur_weight: float = 0.10
+    object_score_weight: float = 0.20
     use_blur_score: bool = True
     blur_reference: float = 150.0
     # boundary_reference normalizes mean Sobel-gradient magnitude sampled
@@ -42,6 +50,15 @@ class ReliabilityConfig:
     max_mask_area_ratio: float = 0.80
     blank_mask_penalty: float = 0.25  # penalties
     implausible_area_penalty: float = 0.50  # penalties
+    # Applied when a mask is non-empty but has zero evidentiary basis (no
+    # box, no prior memory) -- stronger than blank_mask_penalty since there
+    # is nothing at all backing the prediction, not just a mask that changed.
+    no_evidence_penalty: float = 0.15
+    # Below this, object_score is treated as "confidently no object here" --
+    # exempting an empty/near-empty mask from the blank/tiny-area penalties,
+    # since a dedicated object-presence signal disagreeing with them is
+    # stronger evidence than the mask's own size.
+    object_absence_threshold: float = 0.5
 
     # hard coded weights
     def __post_init__(self) -> None:
@@ -50,11 +67,16 @@ class ReliabilityConfig:
             self.prompt_confidence_weight,
             self.boundary_weight,
             self.blur_weight,
+            self.object_score_weight,
         )
         if any(weight < 0 for weight in weights):
             raise ValueError("Reliability weights must be non-negative")
-        active_weight = sum(weights[:3]) + (
-            self.blur_weight if self.use_blur_score else 0.0
+        active_weight = (
+            self.confidence_weight
+            + self.prompt_confidence_weight
+            + self.boundary_weight
+            + self.object_score_weight
+            + (self.blur_weight if self.use_blur_score else 0.0)
         )
         if active_weight <= 0:
             raise ValueError("At least one reliability weight must be positive")
@@ -64,10 +86,23 @@ class ReliabilityConfig:
             raise ValueError("boundary_reference must be positive")
         if not 0 <= self.min_mask_area_ratio <= self.max_mask_area_ratio <= 1:
             raise ValueError("Mask area ratios must satisfy 0 <= min <= max <= 1")
+        if not 0 <= self.object_absence_threshold <= 1:
+            raise ValueError("object_absence_threshold must be in [0, 1]")
 
 
 def clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
+
+
+def sigmoid(logits: np.ndarray) -> np.ndarray:
+    """Elementwise sigmoid, clipped to avoid overflow in exp()."""
+    return 1.0 / (1.0 + np.exp(-np.clip(logits, -60.0, 60.0)))
+
+
+def logit(probs: np.ndarray, eps: float = 1e-4) -> np.ndarray:
+    """Inverse sigmoid. Clips away from 0/1 first so the result stays finite."""
+    clipped = np.clip(probs, eps, 1.0 - eps)
+    return np.log(clipped / (1.0 - clipped))
 
 
 def area_fraction(mask: np.ndarray) -> float:
@@ -197,25 +232,41 @@ def compute_reliability(
     mask_confidence: float | None,
     prompt_confidence: float | None,
     config: ReliabilityConfig,
+    object_score: float | None = None,
+    has_evidence: bool = True,
 ) -> dict[str, float]:
     """Compute a normalized reliability score and its component signals.
 
-    Features: SAM2's own decoder confidence, the confidence of the prompt
-    that seeded this frame (YOLO detection score, or 1.0 for a ground-truth
-    box; neutral 0.5 on frames with no prompt), boundary alignment (does the
-    mask edge sit on a real intensity edge in the frame -- the signal here
-    that reads actual image content instead of only mask/model self-
-    reports), and optional blur. There is no area-ratio term: with the
-    memory bank disabled, each candidate is already an independent
-    per-frame prediction, and `previous_mask` here is our own blended
-    output, so comparing size against it would partly measure
-    self-agreement rather than an independent signal. `previous_mask` is
-    still used below for the blank-mask penalty.
+    Combines SAM2's mask-quality confidence, the prompt-box confidence
+    (YOLO score, or 1.0 for ground truth), boundary alignment against real
+    image gradients, optional blur, and (if available) SAM2's dedicated
+    object-presence score. `previous_mask` is used below for the blank-mask
+    penalty.
+
+    `object_score` (sigmoid(object_score_logits), in [0, 1]) is a distinct
+    signal from `mask_confidence`: the latter estimates mask *quality*
+    assuming an object was found, the former estimates whether an object is
+    present *at all*. When it confidently says "no object"
+    (< config.object_absence_threshold), an empty/near-empty or
+    just-vanished mask is treated as a legitimate true negative and exempted
+    from the blank-mask/tiny-area penalties below, rather than being
+    blanket-penalized regardless of why it's empty. Pass None if the
+    decoder wasn't configured with pred_obj_scores=true; the penalties then
+    fall back to their original unconditional behavior.
+
+    `has_evidence` should be False only when there is neither a real box
+    prompt nor any prior memory backing this frame (the very first frame of
+    a sequence with no detection yet). A non-empty mask under those
+    conditions is a hallucination with zero support, so it's down-weighted
+    via `config.no_evidence_penalty` rather than trusted or hard-zeroed --
+    the caller still feeds the (unpenalized) mask into the memory update,
+    letting the low reliability itself decide how much of it survives.
     """
     confidence_score = 0.5 if mask_confidence is None else clamp01(mask_confidence)
     prompt_confidence_score = (
         0.5 if prompt_confidence is None else clamp01(prompt_confidence)
     )
+    object_score_value = 0.5 if object_score is None else clamp01(object_score)
 
     boundary_value = boundary_score(frame_bgr, current_mask, config.boundary_reference)
     blur_value = (
@@ -225,24 +276,33 @@ def compute_reliability(
         (config.confidence_weight, confidence_score),
         (config.prompt_confidence_weight, prompt_confidence_score),
         (config.boundary_weight, boundary_value),
+        (config.object_score_weight, object_score_value),
     ]
     if config.use_blur_score:
         weighted_terms.append((config.blur_weight, blur_value))
     total_weight = sum(weight for weight, _ in weighted_terms)
     reliability = sum(weight * value for weight, value in weighted_terms) / total_weight
 
+    object_confidently_absent = (
+        object_score is not None and object_score_value < config.object_absence_threshold
+    )
+
     current_area_ratio = area_fraction(current_mask)
-    if (
+    just_went_blank = (
         previous_mask is not None
         and previous_mask.sum() > 0
         and current_mask.sum() == 0
-    ):
+    )
+    too_small = current_area_ratio < config.min_mask_area_ratio
+    too_large = current_area_ratio > config.max_mask_area_ratio
+
+    no_evidence_hallucination = not has_evidence and current_area_ratio > 0
+    if just_went_blank and not object_confidently_absent:
         reliability *= config.blank_mask_penalty
-    if (
-        current_area_ratio < config.min_mask_area_ratio
-        or current_area_ratio > config.max_mask_area_ratio
-    ):
+    if too_large or (too_small and not object_confidently_absent):
         reliability *= config.implausible_area_penalty
+    if no_evidence_hallucination:
+        reliability *= config.no_evidence_penalty
 
     return {
         "reliability": clamp01(reliability),
@@ -250,6 +310,8 @@ def compute_reliability(
         "r_prompt": prompt_confidence_score,
         "r_boundary": boundary_value,
         "r_blur": blur_value,
+        "r_object": object_score_value,
+        "no_evidence_penalty_applied": no_evidence_hallucination,
     }
 
 
@@ -260,18 +322,29 @@ def apply_reliability_gate(
 ) -> np.ndarray:
     """Soft memory update: M_t = r_t * Z_t + (1 - r_t) * M_(t-1).
 
-    Z_t is the current frame's candidate mask, M_(t-1) is the previous
-    memory mask (a float array in [0, 1]), and r_t is `reliability`. Every
-    frame updates memory -- there is no accept/reject decision or rejection
-    counter; `reliability` alone controls how much the new candidate
-    contributes versus how much of the prior memory is retained. On the
-    first frame (no memory yet), M_t = Z_t.
+    Z_t: current frame's candidate, as a [0, 1] probability (sigmoid of the
+        decoder's low-res logits), not raw logits -- blending in probability
+        space keeps r_t proportional to the outcome. In raw unbounded logit
+        space, a strongly-negative background frame can outweigh a weakly-
+        positive detection regardless of r_t, since the blend is dominated
+        by whichever side has the larger magnitude; bounding both sides to
+        [0, 1] first avoids that.
+    M_(t-1): previous memory, in the same space as Z_t.
+    r_t is `reliability`: how much the new candidate contributes versus how
+        much of the prior memory is retained.
+    On the first frame (no memory yet), M_(t-1) is treated as zero
+    (background), so M_t = r_t * Z_t -- an unreliable first candidate (see
+    `compute_reliability`'s `has_evidence`/`no_evidence_penalty`) is
+    down-weighted instead of being either fully trusted or hard-zeroed.
     """
     current = current_mask.astype(np.float32)
-    if previous_memory_mask is None:
-        return current
+    previous = (
+        np.zeros_like(current)
+        if previous_memory_mask is None
+        else previous_memory_mask.astype(np.float32)
+    )
     r = clamp01(reliability)
-    return r * current + (1.0 - r) * previous_memory_mask.astype(np.float32)
+    return r * current + (1.0 - r) * previous
 
 
 def safe_nanmean(values) -> float:

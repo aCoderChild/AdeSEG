@@ -222,6 +222,18 @@ def calculate_iou(pred, gt):
     return 1.0 if union == 0 else intersection / union
 
 
+def calculate_precision_recall(pred, gt):
+    """Calculate precision and recall. 1.0/1.0 when both pred and gt are empty."""
+    tp = np.sum((pred == 1) & (gt == 1))
+    fp = np.sum((pred == 1) & (gt == 0))
+    fn = np.sum((pred == 0) & (gt == 1))
+    if tp + fp == 0 and tp + fn == 0:
+        return 1.0, 1.0
+    precision = 0.0 if tp + fp == 0 else tp / (tp + fp)
+    recall = 0.0 if tp + fn == 0 else tp / (tp + fn)
+    return precision, recall
+
+
 def calculate_fmeasure(pred, gt, beta=1):
     """Calculate F-measure."""
     tp = np.sum((pred == 1) & (gt == 1))

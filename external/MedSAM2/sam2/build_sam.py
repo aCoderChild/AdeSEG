@@ -216,11 +216,25 @@ def _load_checkpoint(model, ckpt_path):
         ]
         for key in shape_mismatched:
             del sd[key]
-        if shape_mismatched:
+        # maskmem_tpos_enc is expected to mismatch under num_maskmem=0 (see
+        # comment above) -- log it quietly instead of as a warning. Anything
+        # else mismatching is unexpected and still surfaced loudly.
+        expects_maskmem_tpos_enc_mismatch = model.num_maskmem == 0
+        unexpected_mismatch = [
+            key
+            for key in shape_mismatched
+            if not (key == "maskmem_tpos_enc" and expects_maskmem_tpos_enc_mismatch)
+        ]
+        if "maskmem_tpos_enc" in shape_mismatched and expects_maskmem_tpos_enc_mismatch:
+            logging.info(
+                "Skipping maskmem_tpos_enc (unused at num_maskmem=0): shape "
+                "mismatch against the checkpoint is expected here."
+            )
+        if unexpected_mismatch:
             logging.warning(
                 "Skipping checkpoint keys with a shape mismatch against the "
                 "current model config: %s",
-                shape_mismatched,
+                unexpected_mismatch,
             )
         missing_keys, unexpected_keys = model.load_state_dict(sd, strict=False)
         missing_keys = [key for key in missing_keys if key not in shape_mismatched]
