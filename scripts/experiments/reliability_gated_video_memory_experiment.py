@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Reliability-gated SAM2 memory experiment -- single dynamic slot."""
+"""Reliability-gated SAM2 experiment -- dynamic mask memory only.
+
+SAM2's own multi-frame memory bank (num_maskmem=0, see
+sam2.1_hiera_t512_no_memory.yaml) is disabled. The only state carried across
+frames is a reliability-blended mask this script maintains itself, fed back
+each frame as a mask prompt. See infer_frame().
+"""
 
 from __future__ import annotations
 
@@ -50,10 +56,12 @@ from scripts.utils.mask_utils import (
 )
 from scripts.utils.reliability_gate import (
     ReliabilityConfig,
+    apply_reliability_gate,
     area_change,
     area_fraction,
     centroid_shift,
     compute_reliability,
+    logit,
     safe_nanmean,
 )
 
@@ -70,7 +78,7 @@ DATA_ROOT = PROJECT_ROOT / "data" / "test" / "polypgen"
 BBOX_ROOT = PROJECT_ROOT / "data" / "test" / "bbox"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "reliability_gated_video_memory"
 OUTPUT_ROOT = DEFAULT_OUTPUT_ROOT
-SAM2_CFG = "configs/sam2.1_hiera_t512.yaml"
+SAM2_CFG = "configs/sam2.1_hiera_t512_no_memory.yaml"
 SAM2_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "MedSAM2_latest.pt"
 YOLO_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "polypgen_yolov8n.pt"
 
@@ -119,7 +127,7 @@ def parse_seqs(specs: list[str] | None) -> list[str] | None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run reliability-gated SAM2 real-memory-bank inference and evaluation."
+        description="Run reliability-gated SAM2 (dynamic mask memory, no pointer) inference and evaluation."
     )
     parser.add_argument(
         "--output-root",
@@ -222,7 +230,7 @@ def pick_box(
     if VIDEO_PROMPT_STRIDE > 1 and frame_idx % VIDEO_PROMPT_STRIDE != 0:
         return None, None
     if PROMPT_SOURCE == "gt_bbox":
-        boxes = gt_bboxes.get(gt_bbox_key(frame_name), [])
+        boxes = gt_bboxes.get(gt_bbox_key(frame_name), [])  # already [(box, 1.0), ...]
     else:
         boxes = get_yolo_boxes(
             yolo_model=yolo_model,
@@ -237,12 +245,26 @@ def pick_box(
     return box, float(confidence)
 
 
-def decode(
-    predictor, inference_state, output_dict, frame_idx, batch_size, pointer_token=None,
-    is_init_cond_frame=False,
-):
+def box_to_point_inputs(
+    box: np.ndarray, video_height: int, video_width: int, image_size: int, device
+) -> dict:
+    """Convert a box into the point_inputs dict add_new_points_or_box builds."""
+    box_t = torch.as_tensor(box, dtype=torch.float32, device=device).reshape(1, 2, 2)
+    box_t = box_t / torch.tensor([video_width, video_height], device=device)
+    box_t = box_t * image_size
+    labels = torch.tensor([2, 3], dtype=torch.int32, device=device).reshape(1, 2)
+    return {"point_coords": box_t, "point_labels": labels}
+
+
+def decode(predictor, inference_state, frame_idx, batch_size, point_inputs=None, mask_inputs=None):
+    """Run one frame through SAM2's decoder, capturing its own IoU estimate.
+
+    is_init_cond_frame=True and run_mem_encoder=False on every call: no
+    memory bank is ever read from or written to (num_maskmem=0 already
+    disables the read path in sam2_base.py; run_mem_encoder=False skips the
+    write path too).
+    """
     original_forward_sam_heads = predictor._forward_sam_heads
-    original_decoder_forward = predictor.sam_mask_decoder.forward
     captured: dict = {}
 
     def capturing_forward_sam_heads(*args, **kwargs):
@@ -250,54 +272,50 @@ def decode(
         captured["ious"] = result[2]
         return result
 
-    def capturing_decoder_forward(*args, **kwargs):
-        if pointer_token is not None:
-            kwargs["sparse_prompt_embeddings"] = torch.cat(
-                [kwargs["sparse_prompt_embeddings"], pointer_token], dim=1
-            )
-        return original_decoder_forward(*args, **kwargs)
-
     predictor._forward_sam_heads = capturing_forward_sam_heads
-    predictor.sam_mask_decoder.forward = capturing_decoder_forward
     try:
         current_out, pred_masks_gpu = predictor._run_single_frame_inference(
             inference_state=inference_state,
-            output_dict=output_dict,
+            output_dict=inference_state["output_dict"],
             frame_idx=frame_idx,
             batch_size=batch_size,
-            is_init_cond_frame=is_init_cond_frame,
-            point_inputs=None,
-            mask_inputs=None,
+            is_init_cond_frame=True,
+            point_inputs=point_inputs,
+            mask_inputs=mask_inputs,
             reverse=False,
-            run_mem_encoder=True,
+            run_mem_encoder=False,
         )
     finally:
         predictor._forward_sam_heads = original_forward_sam_heads
-        predictor.sam_mask_decoder.forward = original_decoder_forward
 
     mask_confidence = float(captured["ious"].mean().item())
     return current_out, pred_masks_gpu, mask_confidence
 
-# single dynamic slot: exactly one stored frame, always at cond_frame_idx.
-def prune_memory(inference_state: dict, cond_frame_idx: int) -> None:
-    output_dict = inference_state["output_dict"]
-    consolidated = inference_state["consolidated_frame_inds"]
 
-    cond_storage = output_dict["cond_frame_outputs"]
-    for stale_idx in [idx for idx in cond_storage if idx != cond_frame_idx]:
-        del cond_storage[stale_idx]
-    kept_cond = {cond_frame_idx} if cond_frame_idx is not None else set()
-    consolidated["cond_frame_outputs"].intersection_update(kept_cond)
+def save_prediction_outputs(
+    masks_root: Path,
+    overlays_root: Path,
+    gt_mask_dir: Path,
+    sequence_name: str,
+    frame_name: str,
+    frame_rgb: np.ndarray,
+    final_mask: np.ndarray,
+) -> None:
+    save_binary_mask(final_mask, masks_root / sequence_name / "predicted" / f"{frame_name}.png")
+    gt_path = resolve_mask_path(gt_mask_dir, frame_name)
+    gt_mask = load_binary_mask(gt_path) if gt_path is not None else np.zeros_like(final_mask)
+    if gt_mask.shape != final_mask.shape:
+        gt_mask = resize_binary_mask(gt_mask, final_mask.shape)
+    overlay = make_overlay(frame_rgb, gt_mask, final_mask)
+    save_overlay(overlay, overlays_root / sequence_name / f"{frame_name}.png")
 
-    output_dict["non_cond_frame_outputs"].clear()
-    consolidated["non_cond_frame_outputs"].clear()
 
-    for point_inputs_per_frame in inference_state["point_inputs_per_obj"].values():
-        for stale_idx in [idx for idx in point_inputs_per_frame if idx not in kept_cond]:
-            del point_inputs_per_frame[stale_idx]
-    for mask_inputs_per_frame in inference_state["mask_inputs_per_obj"].values():
-        for stale_idx in [idx for idx in mask_inputs_per_frame if idx not in kept_cond]:
-            del mask_inputs_per_frame[stale_idx]
+class MemoryState:
+    """Everything carried across frames -- entirely owned by this script, not SAM2."""
+
+    def __init__(self) -> None:
+        self.mask_probs: np.ndarray | None = None  # blended [0,1] low-res mask, Mt
+        self.previous_binary_mask: np.ndarray | None = None  # last frame's own output, video res
 
 
 def infer_frame(
@@ -306,110 +324,65 @@ def infer_frame(
     frame_idx: int,
     frame_rgb: np.ndarray,
     box: np.ndarray | None,
-    running_memory_features,
-    pointer,
+    box_confidence: float | None,
     batch_size: int,
     config: ReliabilityConfig,
-    memory_frame_idx: int | None,
+    memory: MemoryState,
 ) -> dict:
-    output_dict = inference_state["output_dict"]
+    """Decode one frame and update `memory` in place.
 
+    A box takes the prompt slot when present (SAM2 allows only one of
+    point_inputs / mask_inputs per call); the blended memory mask Mt fills
+    in otherwise. Reliability scoring and the Mt blend run every frame
+    regardless of which prompt was used -- no hard reset on a box.
+    """
+    has_evidence = box is not None or memory.mask_probs is not None
+
+    point_inputs = mask_inputs = None
     if box is not None:
-        predictor.add_new_points_or_box(
-            inference_state=inference_state, frame_idx=frame_idx, obj_id=1, box=box
+        point_inputs = box_to_point_inputs(
+            box,
+            video_height=inference_state["video_height"],
+            video_width=inference_state["video_width"],
+            image_size=predictor.image_size,
+            device=inference_state["device"],
         )
-        predictor.propagate_in_video_preflight(inference_state)
-        batch_size = predictor._get_obj_num(inference_state)
-
-        current_out = output_dict["cond_frame_outputs"][frame_idx]
-        running_memory_features = current_out["maskmem_features"].float()
-        pointer = current_out["obj_ptr"].float()
-        _, video_res_masks = predictor._get_orig_video_res_output(
-            inference_state, current_out["pred_masks"]
-        )
-        final_mask = (video_res_masks[0, 0] > 0).cpu().numpy().astype(np.uint8)
-        return {
-            "mask": final_mask,
-            "reliability": float("nan"),
-            "signals": None,
-            "running_memory_features": running_memory_features,
-            "pointer": pointer,
-            "batch_size": batch_size,
-            "memory_frame_idx": frame_idx,
-        }
-
-    # No box this frame. If the single memory slot doesn't exist yet, this is
-    # genuinely the first frame with no detection anywhere so far -- decode it
-    # with NO prompt at all (is_init_cond_frame=True, no box/points), so we
-    # never inject a box's false-positive "there is definitely something
-    # here" evidence into a frame that may be a true negative. SAM2's own
-    # object-presence head (pred_obj_scores) then gets an unbiased read: if
-    # it says no object, low_res_multimasks is already driven to NO_OBJ_SCORE
-    # by _forward_sam_heads, so the mask comes back genuinely empty.
-    is_first_ever_frame = memory_frame_idx is None
-    has_evidence = not is_first_ever_frame
+    elif memory.mask_probs is not None:
+        mask_logits = logit(memory.mask_probs)
+        mask_inputs = torch.from_numpy(mask_logits).to(inference_state["device"])[None, None].float()
 
     frame_bgr = frame_rgb[:, :, ::-1]
-    pointer_token = None if pointer is None else pointer.unsqueeze(1)
     current_out, pred_masks_gpu, mask_confidence = decode(
-        predictor, inference_state, output_dict, frame_idx, batch_size, pointer_token,
-        is_init_cond_frame=is_first_ever_frame,
+        predictor, inference_state, frame_idx, batch_size,
+        point_inputs=point_inputs, mask_inputs=mask_inputs,
     )
     object_score = float(torch.sigmoid(current_out["object_score_logits"]).mean().item())
     _, video_res_masks = predictor._get_orig_video_res_output(inference_state, pred_masks_gpu)
     current_mask = (video_res_masks[0, 0] > 0).cpu().numpy().astype(np.uint8)
 
-    previous_binary_mask = None
-    if not is_first_ever_frame:
-        # The single dynamic slot still holds *last* frame's blended state
-        # here -- this frame's write into it happens further down.
-        previous_out = output_dict["cond_frame_outputs"].get(memory_frame_idx)
-        if previous_out is not None:
-            _, prev_res = predictor._get_orig_video_res_output(
-                inference_state, previous_out["pred_masks"]
-            )
-            previous_binary_mask = (prev_res[0, 0] > 0).cpu().numpy().astype(np.uint8)
-
     signals = compute_reliability(
         current_mask=current_mask,
-        previous_mask=previous_binary_mask,
+        previous_mask=memory.previous_binary_mask,
         frame_bgr=frame_bgr,
         mask_confidence=mask_confidence,
-        prompt_confidence=None,
+        prompt_confidence=box_confidence,
         config=config,
         object_score=object_score,
         has_evidence=has_evidence,
     )
     reliability = signals["reliability"]
 
-    features = current_out["maskmem_features"]
-    if running_memory_features is None:
-        blended = features
+    # Blend in probability space, not logit space -- logits let confident
+    # values dominate and bleed spatially into ambiguous regions.
+    current_probs = torch.sigmoid(current_out["pred_masks"])[0, 0].float().cpu().numpy()
+    if memory.mask_probs is None:
+        memory.mask_probs = current_probs
     else:
-        blended = (
-            reliability * features.float() + (1.0 - reliability) * running_memory_features
-        ).to(features.dtype)
-    running_memory_features = blended.float()
-    current_out["maskmem_features"] = blended # memory M_t
+        memory.mask_probs = apply_reliability_gate(current_probs, memory.mask_probs, reliability)
 
-    pointer_confidence = signals["r_conf"]
-    current_pointer = current_out["obj_ptr"].float()
-    previous_pointer = torch.zeros_like(current_pointer) if pointer is None else pointer
-    pointer = pointer_confidence * current_pointer + (1 - pointer_confidence) * previous_pointer # object-pointer
-    current_out["obj_ptr"] = pointer.to(current_out["obj_ptr"].dtype)
+    memory.previous_binary_mask = current_mask
 
-    new_memory_frame_idx = frame_idx if is_first_ever_frame else memory_frame_idx
-    output_dict["cond_frame_outputs"][new_memory_frame_idx] = current_out
-
-    return {
-        "mask": current_mask,
-        "reliability": reliability,
-        "signals": signals,
-        "running_memory_features": running_memory_features,
-        "pointer": pointer,
-        "batch_size": batch_size,
-        "memory_frame_idx": new_memory_frame_idx,
-    }
+    return {"mask": current_mask, "reliability": reliability, "signals": signals}
 
 
 def run(predictor, sequence_names: list[str]) -> None:
@@ -441,10 +414,8 @@ def run(predictor, sequence_names: list[str]) -> None:
         width = inference_state["video_width"]
 
         seeded_count = 0
-        last_cond_frame_idx = None
         batch_size = 1
-        running_memory_features = None
-        pointer = None
+        memory = MemoryState()
         rows = []
         unprompted_count = 0
 
@@ -452,14 +423,14 @@ def run(predictor, sequence_names: list[str]) -> None:
             frame_path = Path(resolve_frame_path(str(frame_dir), frame_name))
             frame_rgb = np.array(Image.open(frame_path).convert("RGB"))
 
-            box, _ = pick_box(
+            box, box_confidence = pick_box(
                 frame_idx, frame_name, frame_path, gt_bboxes, yolo_model, seeded_count
             )
             if box is not None:
                 seeded_count += 1
             else:
                 unprompted_count += 1
-                if last_cond_frame_idx is None:
+                if memory.mask_probs is None:
                     print(
                         f"{sequence_name}: no box prompt by frame {frame_name} yet; "
                         "decoding with no prompt at all (letting SAM2's own "
@@ -468,42 +439,27 @@ def run(predictor, sequence_names: list[str]) -> None:
                     )
 
             out = infer_frame(
-                predictor, inference_state, frame_idx, frame_rgb, box,
-                running_memory_features, pointer, batch_size, reliability_config,
-                last_cond_frame_idx,
+                predictor, inference_state, frame_idx, frame_rgb, box, box_confidence,
+                batch_size, reliability_config, memory,
             )
-            running_memory_features = out["running_memory_features"]
-            pointer = out["pointer"]
-            batch_size = out["batch_size"]
             final_mask = out["mask"]
             reliability = out["reliability"]
             signals = out["signals"]
-            last_cond_frame_idx = out["memory_frame_idx"]
-
-            prune_memory(inference_state, last_cond_frame_idx)
-
-            real_box_found = box is not None
 
             if SAVE_MASK_IMAGES:
-                output_mask_path = masks_root / sequence_name / "predicted" / f"{frame_name}.png"
-                save_binary_mask(final_mask, output_mask_path)
-                gt_path = resolve_mask_path(gt_mask_dir, frame_name)
-                gt_mask = (
-                    load_binary_mask(gt_path) if gt_path is not None else np.zeros_like(final_mask)
+                save_prediction_outputs(
+                    masks_root, overlays_root, gt_mask_dir, sequence_name, frame_name,
+                    frame_rgb, final_mask,
                 )
-                if gt_mask.shape != final_mask.shape:
-                    gt_mask = resize_binary_mask(gt_mask, final_mask.shape)
-                overlay = make_overlay(frame_rgb, gt_mask, final_mask)
-                save_overlay(overlay, overlays_root / sequence_name / f"{frame_name}.png")
 
             rows.append(
                 {
                     "frame_idx": frame_idx,
                     "frame": frame_name,
-                    "num_boxes": 1 if real_box_found else 0,
-                    "is_promptless_anchor": not real_box_found and out["memory_frame_idx"] == frame_idx,
+                    "num_boxes": 1 if box is not None else 0,
                     "reliability": reliability,
                     "r_conf": signals["r_conf"] if signals else float("nan"),
+                    "r_prompt": signals["r_prompt"] if signals else float("nan"),
                     "r_boundary": signals["r_boundary"] if signals else float("nan"),
                     "r_blur": signals["r_blur"] if signals else float("nan"),
                     "r_object": signals["r_object"] if signals else float("nan"),
@@ -528,7 +484,7 @@ def run(predictor, sequence_names: list[str]) -> None:
                 "prompt_source": PROMPT_SOURCE,
                 "video_prompt_stride": VIDEO_PROMPT_STRIDE,
                 "video_prompt_limit": VIDEO_PROMPT_LIMIT,
-                "memory_mode": "single_dynamic_slot",
+                "memory_mode": "dynamic_mask_memory_no_sam2_bank_no_pointer",
                 "rows": rows,
             },
         )
@@ -669,7 +625,8 @@ def main(args: argparse.Namespace | None = None) -> None:
         config_file=SAM2_CFG,
         ckpt_path=str(SAM2_CHECKPOINT),
         device=resolve_device(),
-        apply_postprocessing=False,
+        apply_postprocessing=True,
+        hydra_overrides_extra=["++model.use_mask_input_as_output_without_sam=false"],
     )
 
     run(predictor, sequence_names)
@@ -685,7 +642,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         "sequence_names": sequence_names,
         "device": DEVICE,
         "sam2_cfg": SAM2_CFG,
-        "memory_mode": "single_dynamic_slot",
+        "memory_mode": "dynamic_mask_memory_no_sam2_bank_no_pointer",
     }
     with open(OUTPUT_ROOT / "experiment_notes.json", "w", encoding="utf-8") as handle:
         json.dump(notes, handle, indent=2)
