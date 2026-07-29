@@ -259,6 +259,7 @@ class SAM2Base(torch.nn.Module):
         backbone_features,
         point_inputs=None,
         mask_inputs=None,
+        mask_prompt_weight=1.0,
         high_res_features=None,
         multimask_output=False,
     ):
@@ -342,6 +343,14 @@ class SAM2Base(torch.nn.Module):
             boxes=None,
             masks=sam_mask_prompt,
         )
+        if mask_inputs is not None and mask_prompt_weight < 1.0:
+            no_mask_embedding = self.sam_prompt_encoder.no_mask_embed.weight.reshape(
+                1, -1, 1, 1
+            ).expand_as(dense_embeddings)
+            dense_embeddings = (
+                mask_prompt_weight * dense_embeddings
+                + (1.0 - mask_prompt_weight) * no_mask_embedding
+            )
         (
             low_res_multimasks,
             ious,
@@ -736,6 +745,7 @@ class SAM2Base(torch.nn.Module):
         num_frames,
         track_in_reverse,
         prev_sam_mask_logits,
+        mask_prompt_weight,
     ):
         current_out = {"point_inputs": point_inputs, "mask_inputs": mask_inputs}
         # High-resolution feature maps for the SAM head, reshape (HW)BC => BCHW
@@ -778,6 +788,7 @@ class SAM2Base(torch.nn.Module):
                 backbone_features=pix_feat,
                 point_inputs=point_inputs,
                 mask_inputs=mask_inputs,
+                mask_prompt_weight=mask_prompt_weight,
                 high_res_features=high_res_features,
                 multimask_output=multimask_output,
             )
@@ -829,6 +840,7 @@ class SAM2Base(torch.nn.Module):
         run_mem_encoder=True,
         # The previously predicted SAM mask logits (which can be fed together with new clicks in demo).
         prev_sam_mask_logits=None,
+        mask_prompt_weight=1.0,
     ):
         current_out, sam_outputs, _, _ = self._track_step(
             frame_idx,
@@ -842,12 +854,13 @@ class SAM2Base(torch.nn.Module):
             num_frames,
             track_in_reverse,
             prev_sam_mask_logits,
+            mask_prompt_weight,
         )
 
         (
             _,
             _,
-            _,
+            iou_predictions,
             low_res_masks,
             high_res_masks,
             obj_ptr,
@@ -861,6 +874,7 @@ class SAM2Base(torch.nn.Module):
             # Only add this in inference (to avoid unused param in activation checkpointing;
             # it's mainly used in the demo to encode spatial memories w/ consolidated masks)
             current_out["object_score_logits"] = object_score_logits
+            current_out["iou_predictions"] = iou_predictions
 
         # Finally run the memory encoder on the predicted mask to encode
         # it into a new memory feature (that can be used in future frames)

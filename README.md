@@ -90,10 +90,8 @@ Large assets are not tracked by Git.
 
 | Document | Use |
 |---|---|
-| [Experiments](docs/EXPERIMENTS.md) | Commands, methods, outputs |
-| [Results](docs/RESULTS.md) | Benchmark and gated tables |
-| [Technical](docs/TECHNICAL.md) | Architecture and gate logic |
-| [Protocol](docs/PROTOCOL.md) | Clinical study design |
+| [Experiment](docs/EXPERIMENT.md) | Architecture, protocol, ablations, commands, and outputs |
+| [Results](docs/RESULTS.md) | Baselines, evidence status, result tables, and claim audit |
 
 ## Drive
 

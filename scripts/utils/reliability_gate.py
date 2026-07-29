@@ -1,4 +1,4 @@
-"""Reliability scoring and output-state gating for video mask experiments."""
+"""Reliability scoring and temporal metrics for video mask experiments."""
 
 from __future__ import annotations
 
@@ -14,27 +14,6 @@ except ImportError:
 
 @dataclass(frozen=True)
 class ReliabilityConfig:
-    # confidence_weight: the mask decoder's own IoU/mask-quality head for
-    # the returned mask (SAM2's iou_prediction_head; run_gated passes this
-    # as `mask_confidence`). This estimates "how good is this specific mask
-    # assuming an object was found" -- it is NOT an object-presence signal.
-    # prompt_confidence_weight: confidence of the box that *seeded* this
-    # frame (YOLO detection score, or 1.0 for a ground-truth box). This is
-    # independent of confidence_weight -- one reflects how trustworthy the
-    # input prompt was, the other how confident the decoder is in its
-    # output -- and is 0.5 (neutral) on frames with no prompt at all, e.g.
-    # stride>1 gaps with the memory bank disabled.
-    # object_score_weight: SAM2's dedicated object-presence head
-    # (pred_obj_score_head / object_score_logits, when pred_obj_scores=true
-    # in SAM2_CFG), passed as `object_score`. Unlike confidence_weight, this
-    # *does* estimate "is an object present at all" -- a confidently-empty
-    # mask backed by a low object_score is a legitimate true negative, not
-    # an implausible read (see the area-ratio/blank-mask penalty logic
-    # below, which is conditioned on this signal rather than blanket-
-    # penalizing every near-empty mask regardless of why it's empty).
-    # No area_weight: comparing the candidate's size against the previous
-    # memory mask is self-referential (previous_mask here is our own
-    # blended output), the same issue that ruled out a temporal term.
     confidence_weight: float = 0.35
     prompt_confidence_weight: float = 0.25
     boundary_weight: float = 0.30
@@ -42,23 +21,14 @@ class ReliabilityConfig:
     object_score_weight: float = 0.20
     use_blur_score: bool = True
     blur_reference: float = 150.0
-    # boundary_reference normalizes mean Sobel-gradient magnitude sampled
-    # along the mask edge; like blur_reference, it's a heuristic starting
-    # point rather than a value calibrated against this dataset.
     boundary_reference: float = 30.0
     min_mask_area_ratio: float = 0.0005
     max_mask_area_ratio: float = 0.80
     blank_mask_penalty: float = 0.25  # penalties
     implausible_area_penalty: float = 0.50  # penalties
-    # Applied when a mask is non-empty but has zero evidentiary basis (no
-    # box, no prior memory) -- stronger than blank_mask_penalty since there
-    # is nothing at all backing the prediction, not just a mask that changed.
     no_evidence_penalty: float = 0.15
-    # Below this, object_score is treated as "confidently no object here" --
-    # exempting an empty/near-empty mask from the blank/tiny-area penalties,
-    # since a dedicated object-presence signal disagreeing with them is
-    # stronger evidence than the mask's own size.
     object_absence_threshold: float = 0.5
+    memory_prompt_min_peak: float = 0.05
 
     # hard coded weights
     def __post_init__(self) -> None:
@@ -88,21 +58,83 @@ class ReliabilityConfig:
             raise ValueError("Mask area ratios must satisfy 0 <= min <= max <= 1")
         if not 0 <= self.object_absence_threshold <= 1:
             raise ValueError("object_absence_threshold must be in [0, 1]")
+        if not 0 <= self.memory_prompt_min_peak <= 1:
+            raise ValueError("memory_prompt_min_peak must be in [0, 1]")
 
 
 def clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
-def sigmoid(logits: np.ndarray) -> np.ndarray:
-    """Elementwise sigmoid, clipped to avoid overflow in exp()."""
-    return 1.0 / (1.0 + np.exp(-np.clip(logits, -60.0, 60.0)))
-
-
 def logit(probs: np.ndarray, eps: float = 1e-4) -> np.ndarray:
-    """Inverse sigmoid. Clips away from 0/1 first so the result stays finite."""
+    """Convert probabilities to finite logits for MedSAM2 mask prompting."""
     clipped = np.clip(probs, eps, 1.0 - eps)
     return np.log(clipped / (1.0 - clipped))
+
+# TODO
+def memory_prompt_logits(
+    memory_probs: np.ndarray,
+    min_foreground_peak: float = 0.05,
+) -> np.ndarray:
+    """Convert fused memory to a scale-stable dense prompt.
+
+    Reliability fusion can lower the whole probability map even when its
+    spatial shape is correct. Peak normalization preserves that shape for the
+    prompt encoder without changing the stored memory or its update equation.
+    Near-empty memories stay neutral instead of amplifying numerical noise.
+    """
+    peak = float(np.max(memory_probs))
+    if peak < min_foreground_peak:
+        return np.zeros_like(memory_probs, dtype=np.float32)
+    normalized = np.clip(memory_probs / peak, 0.0, 1.0)
+    return logit(normalized).astype(np.float32)
+
+# a frame has no fresh box prompt
+# script still has to reuse the memory mask from previous frame
+# camera/tissue moved between frames => memory could MISALIGN
+def align_memory_to_frame(
+    memory_probs: np.ndarray,
+    previous_frame_bgr: np.ndarray | None,
+    current_frame_bgr: np.ndarray,
+) -> np.ndarray:
+    """shift memory mask to follow camera's motion. 
+    Ex: previous frame has the object but the current frame NOT"""
+    if cv2 is None or previous_frame_bgr is None: # first frame
+        return memory_probs.copy()
+
+    height, width = memory_probs.shape
+    previous_gray = cv2.cvtColor(previous_frame_bgr, cv2.COLOR_BGR2GRAY)
+    current_gray = cv2.cvtColor(current_frame_bgr, cv2.COLOR_BGR2GRAY)
+    previous_gray = cv2.resize(previous_gray, (width, height))
+    current_gray = cv2.resize(current_gray, (width, height))
+
+    # Backward flow maps each current-frame pixel to its source in the
+    # preceding frame, which is the coordinate convention cv2.remap needs.
+    backward_flow = cv2.calcOpticalFlowFarneback( # compute flow from first arg to second
+        current_gray,
+        previous_gray,
+        None,
+        0.5,
+        3,
+        15,
+        3,
+        5,
+        1.2,
+        0,
+    )
+    grid_x, grid_y = np.meshgrid(
+        np.arange(width, dtype=np.float32),
+        np.arange(height, dtype=np.float32),
+    )
+    # warp the memory according to the shift
+    return cv2.remap(
+        memory_probs.astype(np.float32),
+        grid_x + backward_flow[..., 0],
+        grid_y + backward_flow[..., 1],
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0, # "no evidence"
+    )
 
 
 def area_fraction(mask: np.ndarray) -> float:
@@ -235,33 +267,6 @@ def compute_reliability(
     object_score: float | None = None,
     has_evidence: bool = True,
 ) -> dict[str, float]:
-    """Compute a normalized reliability score and its component signals.
-
-    Combines SAM2's mask-quality confidence, the prompt-box confidence
-    (YOLO score, or 1.0 for ground truth), boundary alignment against real
-    image gradients, optional blur, and (if available) SAM2's dedicated
-    object-presence score. `previous_mask` is used below for the blank-mask
-    penalty.
-
-    `object_score` (sigmoid(object_score_logits), in [0, 1]) is a distinct
-    signal from `mask_confidence`: the latter estimates mask *quality*
-    assuming an object was found, the former estimates whether an object is
-    present *at all*. When it confidently says "no object"
-    (< config.object_absence_threshold), an empty/near-empty or
-    just-vanished mask is treated as a legitimate true negative and exempted
-    from the blank-mask/tiny-area penalties below, rather than being
-    blanket-penalized regardless of why it's empty. Pass None if the
-    decoder wasn't configured with pred_obj_scores=true; the penalties then
-    fall back to their original unconditional behavior.
-
-    `has_evidence` should be False only when there is neither a real box
-    prompt nor any prior memory backing this frame (the very first frame of
-    a sequence with no detection yet). A non-empty mask under those
-    conditions is a hallucination with zero support, so it's down-weighted
-    via `config.no_evidence_penalty` rather than trusted or hard-zeroed --
-    the caller still feeds the (unpenalized) mask into the memory update,
-    letting the low reliability itself decide how much of it survives.
-    """
     confidence_score = 0.5 if mask_confidence is None else clamp01(mask_confidence)
     prompt_confidence_score = (
         0.5 if prompt_confidence is None else clamp01(prompt_confidence)
@@ -297,7 +302,9 @@ def compute_reliability(
     too_large = current_area_ratio > config.max_mask_area_ratio
 
     no_evidence_hallucination = not has_evidence and current_area_ratio > 0
-    if just_went_blank and not object_confidently_absent:
+    # Do not let one low object-presence score immediately erase an object
+    # that was visible in the preceding frame.
+    if just_went_blank:
         reliability *= config.blank_mask_penalty
     if too_large or (too_small and not object_confidently_absent):
         reliability *= config.implausible_area_penalty
@@ -315,36 +322,27 @@ def compute_reliability(
     }
 
 
+def select_reliability(
+    signals: dict[str, float], fixed_reliability: float | None = None
+) -> float:
+    """Return the heuristic score, or a fixed value for an ablation."""
+    if fixed_reliability is None:
+        return signals["reliability"]
+    return clamp01(fixed_reliability)
+
+
 def apply_reliability_gate(
     current_mask: np.ndarray,
     previous_memory_mask: np.ndarray | None,
     reliability: float,
 ) -> np.ndarray:
-    """Soft memory update: M_t = r_t * Z_t + (1 - r_t) * M_(t-1).
-
-    Z_t: current frame's candidate, as a [0, 1] probability (sigmoid of the
-        decoder's low-res logits), not raw logits -- blending in probability
-        space keeps r_t proportional to the outcome. In raw unbounded logit
-        space, a strongly-negative background frame can outweigh a weakly-
-        positive detection regardless of r_t, since the blend is dominated
-        by whichever side has the larger magnitude; bounding both sides to
-        [0, 1] first avoids that.
-    M_(t-1): previous memory, in the same space as Z_t.
-    r_t is `reliability`: how much the new candidate contributes versus how
-        much of the prior memory is retained.
-    On the first frame (no memory yet), M_(t-1) is treated as zero
-    (background), so M_t = r_t * Z_t -- an unreliable first candidate (see
-    `compute_reliability`'s `has_evidence`/`no_evidence_penalty`) is
-    down-weighted instead of being either fully trusted or hard-zeroed.
-    """
+    """Fuse the current probability mask into the single memory every frame."""
     current = current_mask.astype(np.float32)
-    previous = (
-        np.zeros_like(current)
-        if previous_memory_mask is None
-        else previous_memory_mask.astype(np.float32)
-    )
-    r = clamp01(reliability)
-    return r * current + (1.0 - r) * previous
+    if previous_memory_mask is None:
+        return current.copy()
+    previous = previous_memory_mask.astype(np.float32)
+    weight = clamp01(reliability)
+    return weight * current + (1.0 - weight) * previous
 
 
 def safe_nanmean(values) -> float:

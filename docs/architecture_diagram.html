@@ -1,0 +1,1103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AdeSEG — Dynamic Memory Architecture and Results</title>
+  <style>
+    :root {
+      --ink: #16242d;
+      --muted: #61717d;
+      --paper: #ffffff;
+      --page: #eef3f6;
+      --line: #d8e1e7;
+      --teal: #20a79f;
+      --teal-soft: #dff5f2;
+      --blue: #4d8fc8;
+      --blue-soft: #e4f0fa;
+      --gold: #d2a600;
+      --gold-soft: #fff4b8;
+      --coral: #d96a56;
+      --coral-soft: #fde8e3;
+      --purple: #8267b4;
+      --purple-soft: #eee8f8;
+      --green: #3f9b72;
+      --green-soft: #e2f3ea;
+      --s1: #168d86;
+      --s5: #d29b00;
+      --s10: #d56852;
+      --baseline: #6e7b85;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--page);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+
+    main {
+      width: min(1500px, calc(100vw - 28px));
+      margin: 14px auto 40px;
+    }
+
+    header, section {
+      margin-bottom: 14px;
+      padding: 24px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 8px 28px rgb(40 60 72 / 7%);
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: end;
+      padding: 28px 30px;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-size: clamp(28px, 4vw, 46px); letter-spacing: -.035em; }
+    h2 { margin-bottom: 18px; font-size: 24px; letter-spacing: -.02em; }
+    h3 { margin-bottom: 12px; font-size: 17px; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 15px; }
+    .kicker { margin-bottom: 7px; color: var(--teal); font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+
+    .badges, .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .badge, .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f8fafb;
+      color: #42525d;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .dot { width: 9px; height: 9px; border-radius: 50%; }
+    .s1 { background: var(--s1); }
+    .s5 { background: var(--s5); }
+    .s10 { background: var(--s10); }
+    .base { background: var(--baseline); }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric-card {
+      position: relative;
+      overflow: hidden;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: #fbfcfd;
+    }
+
+    .metric-card::before {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 5px;
+      content: "";
+      background: var(--accent);
+    }
+
+    .metric-card .schedule { color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .metric-card .scores { display: flex; gap: 22px; margin: 12px 0; }
+    .metric-card strong { display: block; font-size: 31px; line-height: 1; }
+    .metric-card small { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    .metric-card .foot { display: flex; justify-content: space-between; color: #4d5c66; font-size: 12px; }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .chart-card {
+      min-width: 0;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: #fff;
+    }
+
+    .chart-note {
+      margin: -5px 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chart { width: 100%; min-height: 280px; }
+    .chart.tall { min-height: 720px; }
+    svg { display: block; width: 100%; height: auto; overflow: visible; }
+    .axis { stroke: #bec9d0; stroke-width: 1; }
+    .grid { stroke: #e6ecef; stroke-width: 1; }
+    .svg-label { fill: #51616b; font-size: 11px; }
+    .svg-value { fill: #23343e; font-size: 12px; font-weight: 700; }
+
+    .architecture-wrap {
+      overflow-x: auto;
+      padding: 4px;
+    }
+
+    .architecture {
+      min-width: 1180px;
+      border-radius: 14px;
+      background: #fcfdfd;
+    }
+
+    .arch-group { fill: #fbfdfe; stroke: #a9b8c2; stroke-width: 2.5; stroke-dasharray: 9 8; rx: 22; }
+    .arch-group.proposed { fill: #fffdf2; stroke: #d1b22e; }
+    .arch-box { stroke-width: 2.4; rx: 10; }
+    .arch-input { fill: var(--teal-soft); stroke: var(--teal); }
+    .arch-model { fill: var(--blue-soft); stroke: var(--blue); }
+    .arch-new { fill: var(--gold-soft); stroke: var(--gold); }
+    .arch-state { fill: var(--green-soft); stroke: var(--green); }
+    .arch-output { fill: var(--purple-soft); stroke: var(--purple); }
+    .arch-arrow { fill: none; stroke: #94a4ae; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+    .arch-feedback { fill: none; stroke: var(--green); stroke-width: 3; stroke-dasharray: 8 7; marker-end: url(#arrow-green); }
+    .arch-title { fill: var(--ink); font-size: 17px; font-weight: 750; text-anchor: middle; }
+    .arch-copy { fill: #51616b; font-size: 12px; text-anchor: middle; }
+    .arch-group-title { fill: var(--ink); font-size: 16px; font-weight: 800; }
+    .arch-group-copy { fill: var(--muted); font-size: 12px; }
+    .arch-label { fill: #465761; font-size: 11px; font-weight: 700; text-anchor: middle; }
+
+    .equation-grid {
+      display: grid;
+      grid-template-columns: 1.3fr repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .equation-cell {
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fafcfd;
+      text-align: center;
+    }
+
+    .equation-cell strong { display: block; margin-bottom: 5px; font-size: 15px; }
+    .equation-cell span { color: var(--muted); font-size: 12px; }
+    .formula { font-family: Georgia, "Times New Roman", serif; font-size: 19px !important; color: var(--ink) !important; }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      font-size: 12px;
+    }
+
+    th, td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #e4eaee;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f5f8fa;
+      color: #455660;
+      font-size: 10px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    th:first-child, td:first-child { text-align: left; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #f8fbfc; }
+    .best { color: #08766f; font-weight: 800; }
+    .warn { color: #b65343; font-weight: 750; }
+    .neutral { color: var(--muted); }
+
+    .matrix td {
+      border-right: 1px solid #edf1f3;
+      text-align: center;
+    }
+
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .evidence {
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #fbfcfd;
+      text-align: center;
+    }
+
+    .evidence b { display: block; margin-bottom: 5px; font-size: 22px; }
+    .evidence span { color: var(--muted); font-size: 11px; }
+
+    .status {
+      display: inline-block;
+      min-width: 74px;
+      padding: 4px 7px;
+      border-radius: 999px;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .supported { background: #dff3e9; color: #267451; }
+    .partial { background: #fff0bd; color: #876900; }
+    .missing { background: #fde6e1; color: #a74635; }
+
+    footer {
+      padding: 10px 4px;
+      color: var(--muted);
+      font-size: 11px;
+      text-align: center;
+    }
+
+    @media (max-width: 920px) {
+      header { grid-template-columns: 1fr; }
+      .metric-grid, .two-col, .evidence-grid, .equation-grid { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      @page { size: A3 landscape; margin: 8mm; }
+      body { background: white; }
+      main { width: 100%; margin: 0; }
+      header, section { break-inside: avoid; box-shadow: none; }
+      .chart-card, .table-wrap { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="kicker">Modified Architecture · Results Audit</div>
+      <h1>Reliability-Gated Dynamic Mask Memory</h1>
+      <p class="subtitle">MedSAM2 · PolypGen · 23 sequences · 2,225 frames · MPS · 29 July 2026</p>
+    </div>
+    <div class="badges">
+      <span class="badge">1 memory mask</span>
+      <span class="badge">0 trainable parameters</span>
+      <span class="badge">SAM2 stack disabled</span>
+      <span class="badge">0 missing predictions</span>
+      <span class="badge">+ fixed-reliability ablation</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="kicker">Architecture</div>
+    <h2>Inputs → frozen modules → dynamic memory → outputs</h2>
+    <div class="legend" style="margin-bottom:10px">
+      <span><i class="dot" style="background:var(--teal)"></i>Input (per frame)</span>
+      <span><i class="dot" style="background:var(--blue)"></i>Frozen SAM2 module (unchanged)</span>
+      <span><i class="dot" style="background:var(--gold)"></i>This project's added logic</span>
+      <span><i class="dot" style="background:var(--green)"></i>Carried state</span>
+      <span><i class="dot" style="background:var(--purple)"></i>Output</span>
+      <span><i class="dot" style="background:var(--green);border-radius:0;width:12px;height:2px"></i>dashed green = feeds next frame</span>
+    </div>
+    <div class="architecture-wrap">
+      <svg class="architecture" viewBox="0 0 1420 720" role="img" aria-label="Reliability-gated dynamic mask-memory architecture">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto">
+            <path d="M0,0 L9,5 L0,10 Z" fill="#94a4ae"/>
+          </marker>
+          <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto">
+            <path d="M0,0 L9,5 L0,10 Z" fill="#3f9b72"/>
+          </marker>
+        </defs>
+
+        <rect class="arch-group" x="270" y="55" width="705" height="365"/>
+        <text class="arch-group-title" x="294" y="84">Frozen MedSAM2</text>
+        <text class="arch-group-copy" x="294" y="105">num_maskmem = 0 · no FIFO stack · no memory-encoder write</text>
+
+        <rect class="arch-group proposed" x="1010" y="55" width="380" height="560"/>
+        <text class="arch-group-title" x="1034" y="84">Proposed training-free module</text>
+        <text class="arch-group-copy" x="1034" y="105">single external probability-mask state</text>
+
+        <rect class="arch-box arch-input" x="35" y="90" width="175" height="72"/>
+        <text class="arch-title" x="122" y="121">Video frame</text>
+        <text class="arch-copy" x="122" y="143">I<tspan baseline-shift="sub">t</tspan></text>
+
+        <rect class="arch-box arch-input" x="35" y="215" width="175" height="82"/>
+        <text class="arch-title" x="122" y="248">YOLO box</text>
+        <text class="arch-copy" x="122" y="270">optional · confidence c<tspan baseline-shift="sub">t</tspan></text>
+
+        <rect class="arch-box arch-state" x="35" y="350" width="175" height="92"/>
+        <text class="arch-title" x="122" y="382">Dynamic memory</text>
+        <text class="arch-copy" x="122" y="404">always supplied</text>
+        <text class="arch-copy" x="122" y="423">M<tspan baseline-shift="sub">t−1</tspan> → dense logits</text>
+
+        <rect class="arch-box arch-model" x="310" y="125" width="165" height="82"/>
+        <text class="arch-title" x="392" y="158">Image encoder</text>
+        <text class="arch-copy" x="392" y="181">visual features F<tspan baseline-shift="sub">t</tspan></text>
+
+        <rect class="arch-box arch-model" x="310" y="270" width="165" height="82"/>
+        <text class="arch-title" x="392" y="303">Prompt encoder</text>
+        <text class="arch-copy" x="392" y="326">box + memory mask</text>
+
+        <rect class="arch-box arch-new" x="525" y="250" width="180" height="120"/>
+        <text class="arch-title" x="615" y="282">Joint prompt fusion</text>
+        <text class="arch-copy" x="615" y="307">memory: every frame</text>
+        <text class="arch-copy" x="615" y="328">box: when available</text>
+        <text class="arch-copy" x="615" y="349">adaptive memory weight</text>
+
+        <rect class="arch-box arch-model" x="755" y="190" width="175" height="100"/>
+        <text class="arch-title" x="842" y="226">Mask decoder</text>
+        <text class="arch-copy" x="842" y="250">candidate P<tspan baseline-shift="sub">t</tspan></text>
+        <text class="arch-copy" x="842" y="271">IoU + object scores</text>
+
+        <rect class="arch-box arch-output" x="755" y="325" width="175" height="66"/>
+        <text class="arch-title" x="842" y="354">Current mask</text>
+        <text class="arch-copy" x="842" y="376">threshold P<tspan baseline-shift="sub">t</tspan></text>
+
+        <rect class="arch-box arch-new" x="1050" y="135" width="300" height="105"/>
+        <text class="arch-title" x="1200" y="163">Reliability score r<tspan baseline-shift="sub">t</tspan></text>
+        <text class="arch-copy" x="1200" y="185">mask quality · box confidence · boundary</text>
+        <text class="arch-copy" x="1200" y="203">blur · object presence · plausibility</text>
+        <text class="arch-copy" x="1200" y="225" style="font-style:italic">ablation: --fixed-reliability → constant</text>
+
+        <rect class="arch-box arch-new" x="1050" y="285" width="300" height="95"/>
+        <text class="arch-title" x="1200" y="318">Probability fusion</text>
+        <text class="arch-copy" x="1200" y="343">M<tspan baseline-shift="sub">t</tspan> = r<tspan baseline-shift="sub">t</tspan>P<tspan baseline-shift="sub">t</tspan> + (1−r<tspan baseline-shift="sub">t</tspan>)M̃<tspan baseline-shift="sub">t−1</tspan></text>
+        <text class="arch-copy" x="1200" y="363">optical-flow alignment on sparse gaps</text>
+
+        <rect class="arch-box arch-state" x="1050" y="425" width="300" height="72"/>
+        <text class="arch-title" x="1200" y="456">One updated memory M<tspan baseline-shift="sub">t</tspan></text>
+        <text class="arch-copy" x="1200" y="478">constant capacity · next-frame feedback</text>
+
+        <rect class="arch-box arch-output" x="1050" y="535" width="300" height="72"/>
+        <text class="arch-title" x="1200" y="566">Final mask</text>
+        <text class="arch-copy" x="1200" y="588">current: box/stride 1 · fused: sparse gap</text>
+
+        <rect x="270" y="470" width="705" height="128" rx="15" fill="#f8fafb" stroke="#d8e1e7" stroke-width="2"/>
+        <text class="arch-group-title" x="294" y="500">Outputs</text>
+        <text class="arch-copy" x="382" y="540">binary masks</text>
+        <text class="arch-copy" x="542" y="540">overlays</text>
+        <text class="arch-copy" x="687" y="540">reliability logs</text>
+        <text class="arch-copy" x="850" y="540">Dice / IoU</text>
+        <text class="arch-label" x="622" y="575">No training · no calibration fitting · frozen MedSAM2 + heuristic state update</text>
+
+        <path class="arch-arrow" d="M210 126 H310"/>
+        <path class="arch-arrow" d="M210 256 H310"/>
+        <path class="arch-arrow" d="M210 396 H250 V330 H310"/>
+        <path class="arch-arrow" d="M475 311 H525"/>
+        <path class="arch-arrow" d="M705 310 H730 V240 H755"/>
+        <path class="arch-arrow" d="M475 166 H720 V215 H755"/>
+        <path class="arch-arrow" d="M930 240 H1000 V187 H1050"/>
+        <path class="arch-arrow" d="M930 240 H985 V332 H1050"/>
+        <path class="arch-arrow" d="M930 358 H1000 V571 H1050"/>
+        <path class="arch-arrow" d="M1200 240 V285"/>
+        <path class="arch-arrow" d="M1200 380 V425"/>
+        <path class="arch-arrow" d="M1200 497 V535"/>
+        <path class="arch-feedback" d="M1200 497 V660 H122 V442"/>
+
+        <text class="arch-label" x="255" y="318">always</text>
+        <text class="arch-label" x="990" y="320">P<tspan baseline-shift="sub">t</tspan></text>
+        <text class="arch-label" x="963" y="350">dense / box frames</text>
+        <text class="arch-label" x="1235" y="650">frame t+1</text>
+      </svg>
+    </div>
+
+    <div class="equation-grid">
+      <div class="equation-cell"><strong>Memory update</strong><span class="formula">M<sub>t</sub> = r<sub>t</sub>P<sub>t</sub> + (1−r<sub>t</sub>)M̃<sub>t−1</sub></span></div>
+      <div class="equation-cell"><strong>State capacity</strong><span>1 probability mask</span></div>
+      <div class="equation-cell"><strong>SAM2 memory</strong><span>num_maskmem = 0</span></div>
+      <div class="equation-cell"><strong>Trainable modules</strong><span>none</span></div>
+      <div class="equation-cell"><strong>Reliability ablation</strong><span>select_reliability(): --fixed-reliability=0.5 at strides 1/5/10 — needed only once prompting goes sparse</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Zoom in · Mask decoder internals</div>
+    <h2>Inside MaskDecoder.predict_masks: how box, memory, and image features combine</h2>
+    <p class="chart-note" style="margin-bottom:14px">
+      This is what happens inside the single "Mask decoder" box in the architecture diagram above, every frame.
+      The mask memory is fused into the image additively (not attention); the box becomes query tokens that
+      repeatedly cross-attend with the image, in both directions, across the transformer's stacked layers.
+    </p>
+    <div class="architecture-wrap">
+      <svg class="architecture" viewBox="0 0 1300 1320" role="img" aria-label="Mask decoder internal attention flow">
+        <rect class="arch-group" x="20" y="50" width="1260" height="1247" rx="22"/>
+        <text class="arch-group-title" x="44" y="79">MaskDecoder.predict_masks (frozen)</text>
+        <text class="arch-group-copy" x="44" y="100">sam2/modeling/sam/mask_decoder.py + transformer.py · same decode() call as the main diagram, zoomed in</text>
+
+        <rect class="arch-box arch-input" x="44" y="120" width="260" height="72"/>
+        <text class="arch-title" x="174" y="151">backbone_features</text>
+        <text class="arch-copy" x="174" y="173">(1,256,32,32) · image encoder</text>
+
+        <rect class="arch-box arch-input" x="361" y="120" width="260" height="72"/>
+        <text class="arch-title" x="491" y="151">mask_inputs</text>
+        <text class="arch-copy" x="491" y="173">(1,1,128,128) · memory prompt</text>
+
+        <rect class="arch-box arch-input" x="678" y="120" width="260" height="72"/>
+        <text class="arch-title" x="808" y="151">point_inputs</text>
+        <text class="arch-copy" x="808" y="173">2 box-corner points</text>
+
+        <rect class="arch-box arch-input" x="995" y="120" width="260" height="72"/>
+        <text class="arch-title" x="1125" y="151">output tokens</text>
+        <text class="arch-copy" x="1125" y="173">iou · mask×3 · obj-score (learned)</text>
+
+        <rect class="arch-box arch-model" x="361" y="242" width="260" height="70"/>
+        <text class="arch-title" x="491" y="272">Mask conv-downsampler</text>
+        <text class="arch-copy" x="491" y="294">prompt encoder · 128² → 32²</text>
+
+        <rect class="arch-box arch-model" x="678" y="242" width="260" height="70"/>
+        <text class="arch-title" x="808" y="272">Point embed + PE</text>
+        <text class="arch-copy" x="808" y="294">prompt encoder</text>
+
+        <rect class="arch-box arch-state" x="361" y="352" width="260" height="60"/>
+        <text class="arch-title" x="491" y="378">dense_prompt_embeddings</text>
+        <text class="arch-copy" x="491" y="398">(1,256,32,32)</text>
+
+        <rect class="arch-box arch-state" x="678" y="352" width="260" height="60"/>
+        <text class="arch-title" x="808" y="378">sparse_prompt_embeddings</text>
+        <text class="arch-copy" x="808" y="398">(1,2,256)</text>
+
+        <rect class="arch-box arch-state" x="44" y="457" width="577" height="90"/>
+        <text class="arch-title" x="332" y="484">src = backbone_features + dense_prompt_embeddings</text>
+        <text class="arch-copy" x="332" y="507">(1,256,32,32) · element-wise add</text>
+        <text class="arch-copy" x="332" y="527">NOT attention — refinement only</text>
+
+        <rect class="arch-box arch-state" x="650" y="457" width="605" height="90"/>
+        <text class="arch-title" x="952" y="484">tokens = concat(output tokens, sparse_prompt_embeddings)</text>
+        <text class="arch-copy" x="952" y="507">(1, N, 256) — the transformer's queries</text>
+
+        <rect class="arch-box arch-model" x="44" y="587" width="577" height="50"/>
+        <text class="arch-title" x="332" y="617" style="font-size:14px">flatten image 32×32×256 → 1024 tokens (keys / values)</text>
+
+        <rect class="arch-group" x="44" y="677" width="1211" height="240" rx="18"/>
+        <text class="arch-group-title" x="68" y="706">TwoWayAttentionBlock × depth</text>
+        <text class="arch-group-copy" x="68" y="723">repeats depth times (config, e.g. depth=2 in SAM2)</text>
+
+        <rect class="arch-box arch-model" x="68" y="730" width="260" height="70"/>
+        <text class="arch-title" x="198" y="758">① Self-attn</text>
+        <text class="arch-copy" x="198" y="779">queries ↔ queries</text>
+
+        <rect class="arch-box arch-model" x="369" y="730" width="260" height="70"/>
+        <text class="arch-title" x="499" y="758">② Cross-attn</text>
+        <text class="arch-copy" x="499" y="779">tokens → image</text>
+
+        <rect class="arch-box arch-model" x="670" y="730" width="260" height="70"/>
+        <text class="arch-title" x="800" y="758">③ MLP</text>
+        <text class="arch-copy" x="800" y="779">on tokens</text>
+
+        <rect class="arch-box arch-model" x="971" y="730" width="260" height="70"/>
+        <text class="arch-title" x="1101" y="758">④ Cross-attn</text>
+        <text class="arch-copy" x="1101" y="779">image → tokens (updates keys)</text>
+
+        <path class="arch-arrow" d="M328 765 H369"/>
+        <path class="arch-arrow" d="M629 765 H670"/>
+        <path class="arch-arrow" d="M930 765 H971"/>
+        <path class="arch-feedback" d="M1030 800 V850 H198 V800"/>
+        <text class="arch-label" x="614" y="845">repeat × depth</text>
+
+        <rect class="arch-box arch-state" x="44" y="957" width="577" height="70"/>
+        <text class="arch-title" x="332" y="985">Final cross-attn: tokens → image + LayerNorm</text>
+        <text class="arch-copy" x="332" y="1007">→ tokens_final (incl. mask_tokens_out, iou_token_out)</text>
+
+        <rect class="arch-box arch-state" x="650" y="957" width="605" height="70"/>
+        <text class="arch-title" x="952" y="985">keys_final</text>
+        <text class="arch-copy" x="952" y="1007">refined image, 32×32×256 — carries box info back</text>
+
+        <rect class="arch-box arch-model" x="68" y="1067" width="260" height="70"/>
+        <text class="arch-title" x="198" y="1095">Upscale</text>
+        <text class="arch-copy" x="198" y="1117">output_upscaling(keys_final) + high_res_features</text>
+
+        <rect class="arch-box arch-model" x="369" y="1067" width="260" height="70"/>
+        <text class="arch-title" x="499" y="1095">Hypernetwork MLPs</text>
+        <text class="arch-copy" x="499" y="1117">mask_tokens_out → hyper_in</text>
+
+        <rect class="arch-box arch-model" x="670" y="1067" width="260" height="70"/>
+        <text class="arch-title" x="800" y="1095">IoU head</text>
+        <text class="arch-copy" x="800" y="1117">iou_token_out → ious</text>
+
+        <rect class="arch-box arch-model" x="971" y="1067" width="260" height="70"/>
+        <text class="arch-title" x="1101" y="1095">Obj-score head</text>
+        <text class="arch-copy" x="1101" y="1117">obj-score token → object_score_logits</text>
+
+        <rect class="arch-box arch-output" x="68" y="1177" width="561" height="90"/>
+        <text class="arch-title" x="348" y="1205">masks = hyper_in @ upscaled_embedding</text>
+        <text class="arch-copy" x="348" y="1227">low_res_masks: (1, num_mask_tokens, 128, 128) logits</text>
+        <text class="arch-copy" x="348" y="1247">→ upsampled to high_res_masks, thresholded → current_mask</text>
+
+        <rect class="arch-box arch-output" x="800" y="1177" width="431" height="90"/>
+        <text class="arch-title" x="1015" y="1205">ious, object_score_logits</text>
+        <text class="arch-copy" x="1015" y="1227">→ mask_confidence (r_conf) and</text>
+        <text class="arch-copy" x="1015" y="1247">object_score (r_object) in infer_frame</text>
+
+        <path class="arch-arrow" d="M174 192 V430 H332 V457"/>
+        <path class="arch-arrow" d="M491 192 V242"/>
+        <path class="arch-arrow" d="M491 312 V352"/>
+        <path class="arch-arrow" d="M491 412 V457"/>
+        <path class="arch-arrow" d="M808 192 V242"/>
+        <path class="arch-arrow" d="M808 312 V352"/>
+        <path class="arch-arrow" d="M808 412 V457"/>
+        <path class="arch-arrow" d="M1125 192 V457"/>
+        <path class="arch-arrow" d="M332 547 V587"/>
+        <path class="arch-arrow" d="M332 637 V660 H499 V730"/>
+        <path class="arch-arrow" d="M952 547 V660 H198 V730"/>
+        <path class="arch-arrow" d="M332 917 V957"/>
+        <path class="arch-arrow" d="M952 917 V957"/>
+        <path class="arch-arrow" d="M952 1027 V1047 H198 V1067"/>
+        <path class="arch-arrow" d="M332 1027 V1047 H499 V1067"/>
+        <path class="arch-arrow" d="M332 1027 V1047 H800 V1067"/>
+        <path class="arch-arrow" d="M332 1027 V1047 H1101 V1067"/>
+        <path class="arch-arrow" d="M198 1137 V1157 H250 V1177"/>
+        <path class="arch-arrow" d="M499 1137 V1157 H450 V1177"/>
+        <path class="arch-arrow" d="M800 1137 V1157 H900 V1177"/>
+        <path class="arch-arrow" d="M1101 1137 V1157 H1150 V1177"/>
+
+        <text class="arch-label" x="234" y="440">queries</text>
+        <text class="arch-label" x="1140" y="420">tokens</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Global results</div>
+    <h2>Dice and IoU by prompt schedule</h2>
+    <div class="metric-grid">
+      <article class="metric-card" style="--accent:var(--s1)">
+        <div class="schedule">Stride 1</div>
+        <div class="scores"><div><strong>0.8442</strong><small>Dice</small></div><div><strong>0.8026</strong><small>IoU</small></div></div>
+        <div class="foot"><span>1,539 prompts</span><span>69.2% frames</span></div>
+      </article>
+      <article class="metric-card" style="--accent:var(--s5)">
+        <div class="schedule">Stride 5</div>
+        <div class="scores"><div><strong>0.6677</strong><small>Dice</small></div><div><strong>0.6174</strong><small>IoU</small></div></div>
+        <div class="foot"><span>322 prompts</span><span>14.5% frames</span></div>
+      </article>
+      <article class="metric-card" style="--accent:var(--s10)">
+        <div class="schedule">Stride 10</div>
+        <div class="scores"><div><strong>0.5765</strong><small>Dice</small></div><div><strong>0.5335</strong><small>IoU</small></div></div>
+        <div class="foot"><span>167 prompts</span><span>7.5% frames</span></div>
+      </article>
+    </div>
+
+    <div class="two-col" style="margin-top:14px">
+      <div class="chart-card">
+        <h3>Global overlap</h3>
+        <p class="chart-note">Frame-macro mean · supplied YOLO-SAM2 row shown as protocol-unverified reference</p>
+        <div id="global-chart" class="chart"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Prompt count vs Dice</h3>
+        <p class="chart-note">Bubble area ∝ prompt rate</p>
+        <div id="efficiency-chart" class="chart"></div>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Schedule</th><th>Prompts</th><th>Prompt rate</th><th>Dice ↑</th><th>IoU ↑</th><th>Δ Dice vs S1</th><th>Δ IoU vs S1</th><th>Prompt reduction</th></tr></thead>
+        <tbody>
+          <tr><td>Stride 1</td><td>1,539</td><td>69.2%</td><td class="best">0.8442</td><td class="best">0.8026</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td>Stride 5</td><td>322</td><td>14.5%</td><td>0.6677</td><td>0.6174</td><td class="warn">−0.1765</td><td class="warn">−0.1852</td><td>79.1%</td></tr>
+          <tr><td>Stride 10</td><td>167</td><td>7.5%</td><td>0.5765</td><td>0.5335</td><td class="warn">−0.2676</td><td class="warn">−0.2691</td><td>89.1%</td></tr>
+          <tr><td>YOLO-SAM2 image reference</td><td class="neutral">not reported</td><td class="neutral">not reported</td><td>0.8080</td><td>0.6780</td><td class="neutral">protocol differs / unknown</td><td class="neutral">protocol differs / unknown</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Ablation · is the heuristic necessary?</div>
+    <h2>Heuristic reliability r<sub>t</sub> vs a fixed constant (r = 0.5), at every prompt schedule</h2>
+    <p class="chart-note" style="margin-bottom:14px">
+      Same 23 sequences · same 2,225 frames · same YOLO prompt schedule as each heuristic run above — only the
+      memory blend weight changes. <code>select_reliability()</code> either returns the full heuristic (mask
+      quality, box confidence, boundary, blur, object presence, plausibility penalties) or a constant passed
+      via <code>--fixed-reliability 0.5</code>. Now run at all three strides, isolating whether the heuristic's
+      five weighted signals earn their complexity over a naive constant blend — and whether that answer changes
+      with prompt sparsity.
+    </p>
+
+    <div class="evidence-grid" style="grid-template-columns:repeat(3, minmax(0,1fr));margin-bottom:14px">
+      <div class="evidence"><b>≈ tied</b><span>stride 1 (dense) · ΔDice −0.0002</span></div>
+      <div class="evidence"><b>−0.088 Dice</b><span>stride 5 · heuristic wins</span></div>
+      <div class="evidence"><b>−0.066 Dice</b><span>stride 10 · heuristic wins</span></div>
+    </div>
+    <p class="chart-note" style="margin-bottom:14px;font-weight:700">
+      Headline: the heuristic is unnecessary at dense prompting but becomes clearly necessary once prompting
+      goes sparse. The gap is almost entirely on <em>unprompted</em> frames — where memory alone must carry the
+      mask across a gap with no fresh box to anchor it.
+    </p>
+
+    <div class="two-col">
+      <div class="chart-card">
+        <h3>Global Dice — heuristic vs fixed, by schedule</h3>
+        <p class="chart-note">Frame-macro mean</p>
+        <div id="ablation-global-chart" class="chart"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Unprompted-frame Dice — where the gap actually lives</h3>
+        <p class="chart-note">Frames with no fresh YOLO box this step — pure memory propagation</p>
+        <div id="ablation-unprompted-chart" class="chart"></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3, minmax(0,1fr));gap:14px;margin-top:14px">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th colspan="4" style="text-align:center;background:#eef6f5">Stride 1</th></tr>
+                 <tr><th>Metric</th><th>Heur.</th><th>Fixed</th><th>Δ</th></tr></thead>
+          <tbody>
+            <tr><td>Global Dice</td><td>0.8442</td><td>0.8440</td><td class="neutral">−0.0002</td></tr>
+            <tr><td>Global IoU</td><td>0.8026</td><td>0.8027</td><td class="neutral">+0.0001</td></tr>
+            <tr><td>Prompted Dice</td><td>0.8885</td><td>0.8893</td><td class="neutral">+0.0008</td></tr>
+            <tr><td>Unprompted Dice</td><td>0.7446</td><td>0.7422</td><td class="neutral">−0.0024</td></tr>
+            <tr><td>Frame Dice = 0</td><td>7.96%</td><td>8.22%</td><td class="neutral">+0.26pp</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th colspan="4" style="text-align:center;background:#fdf6e3">Stride 5</th></tr>
+                 <tr><th>Metric</th><th>Heur.</th><th>Fixed</th><th>Δ</th></tr></thead>
+          <tbody>
+            <tr><td>Global Dice</td><td class="best">0.6677</td><td>0.5799</td><td class="warn">−0.0878</td></tr>
+            <tr><td>Global IoU</td><td class="best">0.6174</td><td>0.5506</td><td class="warn">−0.0668</td></tr>
+            <tr><td>Prompted Dice</td><td>0.8876</td><td>0.8829</td><td class="neutral">−0.0047</td></tr>
+            <tr><td>Unprompted Dice</td><td class="best">0.6304</td><td>0.5287</td><td class="warn">−0.1017</td></tr>
+            <tr><td>Frame Dice = 0</td><td class="best">19.15%</td><td class="warn">35.91%</td><td class="warn">+16.76pp</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th colspan="4" style="text-align:center;background:#fbeae5">Stride 10</th></tr>
+                 <tr><th>Metric</th><th>Heur.</th><th>Fixed</th><th>Δ</th></tr></thead>
+          <tbody>
+            <tr><td>Global Dice</td><td class="best">0.5765</td><td>0.5102</td><td class="warn">−0.0663</td></tr>
+            <tr><td>Global IoU</td><td class="best">0.5335</td><td>0.4840</td><td class="warn">−0.0495</td></tr>
+            <tr><td>Prompted Dice</td><td>0.8799</td><td>0.8816</td><td class="neutral">+0.0017</td></tr>
+            <tr><td>Unprompted Dice</td><td class="best">0.5519</td><td>0.4801</td><td class="warn">−0.0718</td></tr>
+            <tr><td>Frame Dice = 0</td><td class="best">29.17%</td><td class="warn">43.69%</td><td class="warn">+14.52pp</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="chart-note" style="margin-top:14px">
+      Note the split: on <strong>prompted</strong> frames, heuristic and fixed are within noise at every stride
+      (a fresh YOLO box anchors the mask regardless of blend weight). The entire heuristic-vs-fixed gap lives on
+      <strong>unprompted</strong> frames, and it widens with gap length — exactly where a constant blend can't
+      adapt to whether the carried-over memory still looks trustworthy.
+    </p>
+
+    <p class="chart-note" style="margin-top:10px">
+      <strong>seq12 outlier:</strong> at stride 5, fixed collapses to Dice 0.2260 vs heuristic 0.7514
+      (Δ = −0.5255) on this single 250-frame sequence — the largest single-sequence effect in the whole ablation,
+      and it alone accounts for a large share of the stride-5 aggregate gap. At stride 10 the same sequence drops
+      to 0.1138 (fixed) vs 0.4629 (heuristic), Δ = −0.3490. Worth a closer look at seq12's frames to see what
+      specifically the heuristic is catching there that a constant blend misses.
+    </p>
+
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font-weight:700;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em">Per-sequence detail — Stride 1</summary>
+      <div class="two-col" style="margin-top:10px">
+        <div class="chart-card"><h3>Δ Dice (fixed − heuristic)</h3><div id="ablation-delta-s1" class="chart"></div></div>
+        <div class="table-wrap"><table id="ablation-table-s1">
+          <thead><tr><th>Sequence</th><th>Frames</th><th>Prompts</th><th>Heur. Dice</th><th>Fixed Dice</th><th>Δ Dice</th><th>Heur. IoU</th><th>Fixed IoU</th><th>Δ IoU</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </details>
+
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-weight:700;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em">Per-sequence detail — Stride 5</summary>
+      <div class="two-col" style="margin-top:10px">
+        <div class="chart-card"><h3>Δ Dice (fixed − heuristic)</h3><div id="ablation-delta-s5" class="chart"></div></div>
+        <div class="table-wrap"><table id="ablation-table-s5">
+          <thead><tr><th>Sequence</th><th>Frames</th><th>Prompts</th><th>Heur. Dice</th><th>Fixed Dice</th><th>Δ Dice</th><th>Heur. IoU</th><th>Fixed IoU</th><th>Δ IoU</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </details>
+
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-weight:700;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em">Per-sequence detail — Stride 10</summary>
+      <div class="two-col" style="margin-top:10px">
+        <div class="chart-card"><h3>Δ Dice (fixed − heuristic)</h3><div id="ablation-delta-s10" class="chart"></div></div>
+        <div class="table-wrap"><table id="ablation-table-s10">
+          <thead><tr><th>Sequence</th><th>Frames</th><th>Prompts</th><th>Heur. Dice</th><th>Fixed Dice</th><th>Δ Dice</th><th>Heur. IoU</th><th>Fixed IoU</th><th>Δ IoU</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </details>
+
+    <p class="chart-note" style="margin-top:14px;font-weight:700">
+      Verdict: conditionally supported. Not needed at stride 1 (statistically indistinguishable from a constant,
+      ΔDice = −0.0002 global). Clearly needed at stride 5 (ΔDice = −0.0878) and stride 10 (ΔDice = −0.0663) —
+      in both cases driven almost entirely by unprompted frames, and 12–13 of 23 sequences favor the heuristic
+      by more than 0.01 Dice vs only 6–7 favoring the fixed weight. The heuristic's value scales with how long
+      memory has to survive without a fresh box.
+    </p>
+  </section>
+
+  <section>
+    <div class="kicker">Error localization</div>
+    <h2>Prompted frames remain strong; unprompted propagation degrades</h2>
+    <div class="two-col">
+      <div class="chart-card">
+        <h3>Prompted vs unprompted overlap</h3>
+        <div id="prompted-chart" class="chart"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Frame-level Dice distribution</h3>
+        <div id="threshold-chart" class="chart"></div>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Schedule</th><th>Prompted Dice</th><th>Prompted IoU</th><th>Unprompted Dice</th><th>Unprompted IoU</th><th>Positive-GT Dice</th><th>Blank-GT Dice</th><th>Zero-Dice frames</th></tr></thead>
+        <tbody>
+          <tr><td>Stride 1</td><td class="best">0.8885</td><td class="best">0.8323</td><td class="best">0.7446</td><td class="best">0.7359</td><td class="best">0.8229</td><td class="best">0.9146</td><td>8.0%</td></tr>
+          <tr><td>Stride 5</td><td>0.8876</td><td>0.8319</td><td>0.6304</td><td>0.5811</td><td>0.6483</td><td>0.7320</td><td class="warn">19.1%</td></tr>
+          <tr><td>Stride 10</td><td>0.8799</td><td>0.8254</td><td>0.5519</td><td>0.5098</td><td>0.5022</td><td>0.8233</td><td class="warn">29.2%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Sequence analysis</div>
+    <h2>Per-sequence Dice profile</h2>
+    <div class="legend" style="margin-bottom:12px">
+      <span><i class="dot s1"></i>Stride 1</span>
+      <span><i class="dot s5"></i>Stride 5</span>
+      <span><i class="dot s10"></i>Stride 10</span>
+      <span>seq1 + seq7: 0 positive-GT frames</span>
+    </div>
+    <div id="sequence-chart" class="chart tall"></div>
+
+    <div class="two-col" style="margin-top:14px">
+      <div class="chart-card">
+        <h3>Per-sequence distribution</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Schedule</th><th>Q1 Dice</th><th>Median</th><th>Q3 Dice</th><th>Dice ≥ 0.70</th><th>IoU ≥ 0.70</th></tr></thead>
+            <tbody>
+              <tr><td>Stride 1</td><td>0.7769</td><td class="best">0.9136</td><td>0.9350</td><td>18 / 23</td><td>18 / 23</td></tr>
+              <tr><td>Stride 5</td><td>0.5667</td><td>0.6918</td><td>0.7861</td><td>11 / 23</td><td>9 / 23</td></tr>
+              <tr><td>Stride 10</td><td>0.4331</td><td>0.5935</td><td>0.7534</td><td>10 / 23</td><td>6 / 23</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h3>Largest schedule effects</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Comparison</th><th>Sequence</th><th>Δ Dice</th><th>Δ IoU</th></tr></thead>
+            <tbody>
+              <tr><td>S5 − S1</td><td>seq3</td><td class="best">+0.6048</td><td class="best">+0.5799</td></tr>
+              <tr><td>S5 − S1</td><td>seq23</td><td class="warn">−0.4359</td><td class="warn">−0.4250</td></tr>
+              <tr><td>S10 − S5</td><td>seq10</td><td class="best">+0.0622</td><td class="best">+0.0473</td></tr>
+              <tr><td>S10 − S5</td><td>seq12</td><td class="warn">−0.2886</td><td class="warn">−0.2700</td></tr>
+              <tr><td>S10 − S1</td><td>seq22</td><td class="warn">−0.5494</td><td class="warn">−0.5630</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:14px">
+      <table id="sequence-table" class="matrix">
+        <thead>
+          <tr>
+            <th rowspan="2">Sequence</th><th rowspan="2">Frames</th>
+            <th colspan="3">Stride 1</th><th colspan="3">Stride 5</th><th colspan="3">Stride 10</th>
+            <th rowspan="2">Δ Dice<br>S5−S1</th><th rowspan="2">Δ Dice<br>S10−S1</th>
+          </tr>
+          <tr><th>Prompts</th><th>Dice</th><th>IoU</th><th>Prompts</th><th>Dice</th><th>IoU</th><th>Prompts</th><th>Dice</th><th>IoU</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Evidence matrix</div>
+    <h2>What the folder supports</h2>
+    <div class="evidence-grid">
+      <div class="evidence"><b>0.8442</b><span>dense-prompt Dice</span></div>
+      <div class="evidence"><b>0.6677</b><span>stride-5 Dice</span></div>
+      <div class="evidence"><b>−79.1%</b><span>stride-5 prompt reduction</span></div>
+      <div class="evidence"><b>0</b><span>trained modules</span></div>
+    </div>
+    <div class="table-wrap" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Claim</th><th>Status</th><th>Recorded evidence</th><th>Missing control</th></tr></thead>
+        <tbody>
+          <tr><td>Constant-capacity external memory</td><td><span class="status supported">supported</span></td><td>single_dynamic_mask_memory · num_maskmem=0</td><td>peak-memory benchmark</td></tr>
+          <tr><td>Strong dense-prompt segmentation</td><td><span class="status supported">supported</span></td><td>Dice 0.8442 · IoU 0.8026</td><td>same-protocol MedSAM2-stack rerun</td></tr>
+          <tr><td>Stride-5 Dice near 0.70</td><td><span class="status partial">partial</span></td><td>Dice 0.6677 · IoU 0.6174</td><td>uncertainty intervals · external dataset</td></tr>
+          <tr><td>Stride-10 robustness</td><td><span class="status missing">not supported</span></td><td>Dice 0.5765 · IoU 0.5335</td><td>stronger propagation / sparse calibration</td></tr>
+          <tr><td>Reliability is necessary</td><td><span class="status partial">conditionally supported</span></td><td>tied at stride 1 (ΔDice −0.0002); heuristic wins at stride 5 (ΔDice −0.0878) and stride 10 (ΔDice −0.0663), driven by unprompted frames</td><td>no-gate variant · frame-level statistical test</td></tr>
+          <tr><td>Better than original SAM2 stack</td><td><span class="status missing">not tested</span></td><td>no matched stack result in folder</td><td>same split · prompts · evaluator</td></tr>
+          <tr><td>First-prompt-only performance</td><td><span class="status missing">absent</span></td><td>no result folder</td><td>23-sequence first-prompt run</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Provenance</div>
+    <h2>Recorded experiment configuration</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>S1 heuristic</th><th>S1 fixed 0.5</th><th>S5 heuristic</th><th>S5 fixed 0.5</th><th>S10 heuristic</th><th>S10 fixed 0.5</th></tr></thead>
+        <tbody>
+          <tr><td>Sequences / frames</td><td>23 / 2,225</td><td>23 / 2,225</td><td>23 / 2,225</td><td>23 / 2,225</td><td>23 / 2,225</td><td>23 / 2,225</td></tr>
+          <tr><td>Prompt source</td><td>YOLO</td><td>YOLO</td><td>YOLO</td><td>YOLO</td><td>YOLO</td><td>YOLO</td></tr>
+          <tr><td>Prompt stride / limit</td><td>1 / 0</td><td>1 / 0</td><td>5 / 0</td><td>5 / 0</td><td>10 / 0</td><td>10 / 0</td></tr>
+          <tr><td>Memory mode</td><td>single dynamic mask</td><td>single dynamic mask</td><td>single dynamic mask</td><td>single dynamic mask</td><td>single dynamic mask</td><td>single dynamic mask</td></tr>
+          <tr><td>SAM2 memory stack</td><td>disabled</td><td>disabled</td><td>disabled</td><td>disabled</td><td>disabled</td><td>disabled</td></tr>
+          <tr><td>Prompt calibration</td><td>peak-normalized</td><td>peak-normalized</td><td>peak-normalized</td><td>peak-normalized</td><td>peak-normalized</td><td>peak-normalized</td></tr>
+          <tr><td>Motion alignment</td><td>disabled</td><td>disabled</td><td>Farneback, sparse gaps</td><td>Farneback, sparse gaps</td><td>Farneback, sparse gaps</td><td>Farneback, sparse gaps</td></tr>
+          <tr><td>Fixed reliability</td><td>—</td><td class="best">0.5</td><td>—</td><td class="best">0.5</td><td>—</td><td class="best">0.5</td></tr>
+          <tr><td>Device</td><td>MPS</td><td>MPS</td><td>MPS</td><td>MPS</td><td>MPS</td><td>MPS</td></tr>
+          <tr><td>Missing predictions</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+          <tr><td>Run created</td><td>2026-07-29T00:25:31</td><td>2026-07-29T01:06:32</td><td>2026-07-29T00:32:16</td><td>2026-07-29T12:41:52</td><td>2026-07-29T00:39:21</td><td>2026-07-29T12:48:37</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>Source: Modified Architecture/RELIABILITY_GATED_STRIDE{1,5,10} · Modified Architecture/RELIABILITY_GATED_STRIDE{1,5,10}_REL_0.5 · eval/global_summary.json · eval/summary.csv · eval/seq*.csv · logs/seq*.csv · experiment_notes.json</footer>
+</main>
+
+<script>
+  const colors = { s1: "#168d86", s5: "#d29b00", s10: "#d56852", baseline: "#6e7b85" };
+  const sequenceData = [{"sequence":"seq1","frames":36,"s1":{"dice":1.0,"iou":1.0,"rel":0.2983,"prompts":0},"s5":{"dice":1.0,"iou":1.0,"rel":0.2983,"prompts":0},"s10":{"dice":1.0,"iou":1.0,"rel":0.2983,"prompts":0}},{"sequence":"seq2","frames":63,"s1":{"dice":0.9014,"iou":0.8458,"rel":0.8391,"prompts":60},"s5":{"dice":0.8303,"iou":0.7685,"rel":0.6934,"prompts":12},"s10":{"dice":0.8183,"iou":0.7481,"rel":0.6728,"prompts":7}},{"sequence":"seq3","frames":15,"s1":{"dice":0.203,"iou":0.1478,"rel":0.4668,"prompts":3},"s5":{"dice":0.8078,"iou":0.7278,"rel":0.5653,"prompts":1},"s10":{"dice":0.8078,"iou":0.7278,"rel":0.5653,"prompts":1}},{"sequence":"seq4","frames":48,"s1":{"dice":0.3863,"iou":0.3483,"rel":0.5682,"prompts":18},"s5":{"dice":0.3638,"iou":0.3339,"rel":0.3662,"prompts":5},"s10":{"dice":0.2995,"iou":0.2719,"rel":0.362,"prompts":3}},{"sequence":"seq5","frames":250,"s1":{"dice":0.938,"iou":0.8977,"rel":0.7318,"prompts":198},"s5":{"dice":0.6738,"iou":0.6293,"rel":0.4362,"prompts":39},"s10":{"dice":0.5468,"iou":0.5133,"rel":0.394,"prompts":20}},{"sequence":"seq6","frames":91,"s1":{"dice":0.9233,"iou":0.8888,"rel":0.7727,"prompts":64},"s5":{"dice":0.7747,"iou":0.7268,"rel":0.5024,"prompts":14},"s10":{"dice":0.7236,"iou":0.6837,"rel":0.4947,"prompts":7}},{"sequence":"seq7","frames":48,"s1":{"dice":1.0,"iou":1.0,"rel":0.311,"prompts":0},"s5":{"dice":1.0,"iou":1.0,"rel":0.311,"prompts":0},"s10":{"dice":1.0,"iou":1.0,"rel":0.311,"prompts":0}},{"sequence":"seq8","frames":73,"s1":{"dice":0.9136,"iou":0.8763,"rel":0.7667,"prompts":56},"s5":{"dice":0.6018,"iou":0.5433,"rel":0.3182,"prompts":12},"s10":{"dice":0.536,"iou":0.4849,"rel":0.3094,"prompts":7}},{"sequence":"seq9","frames":51,"s1":{"dice":0.5512,"iou":0.5003,"rel":0.5133,"prompts":18},"s5":{"dice":0.5317,"iou":0.4754,"rel":0.3921,"prompts":5},"s10":{"dice":0.5291,"iou":0.4721,"rel":0.3903,"prompts":4}},{"sequence":"seq10","frames":25,"s1":{"dice":0.9522,"iou":0.9449,"rel":0.4925,"prompts":7},"s5":{"dice":0.7792,"iou":0.7663,"rel":0.3891,"prompts":2},"s10":{"dice":0.8414,"iou":0.8137,"rel":0.3108,"prompts":1}},{"sequence":"seq11","frames":228,"s1":{"dice":0.86,"iou":0.8164,"rel":0.6538,"prompts":124},"s5":{"dice":0.8076,"iou":0.746,"rel":0.5062,"prompts":25},"s10":{"dice":0.7471,"iou":0.6873,"rel":0.4918,"prompts":13}},{"sequence":"seq12","frames":250,"s1":{"dice":0.9336,"iou":0.8859,"rel":0.8768,"prompts":247},"s5":{"dice":0.7514,"iou":0.6808,"rel":0.2815,"prompts":49},"s10":{"dice":0.4629,"iou":0.4108,"rel":0.258,"prompts":24}},{"sequence":"seq13","frames":250,"s1":{"dice":0.8197,"iou":0.7884,"rel":0.7425,"prompts":178},"s5":{"dice":0.638,"iou":0.6014,"rel":0.4709,"prompts":34},"s10":{"dice":0.5935,"iou":0.5539,"rel":0.4489,"prompts":17}},{"sequence":"seq14","frames":249,"s1":{"dice":0.8046,"iou":0.753,"rel":0.7138,"prompts":194},"s5":{"dice":0.5296,"iou":0.4723,"rel":0.3713,"prompts":40},"s10":{"dice":0.4033,"iou":0.363,"rel":0.3384,"prompts":21}},{"sequence":"seq15","frames":116,"s1":{"dice":0.7723,"iou":0.7262,"rel":0.7545,"prompts":78},"s5":{"dice":0.7008,"iou":0.6565,"rel":0.6367,"prompts":17},"s10":{"dice":0.7018,"iou":0.6582,"rel":0.6363,"prompts":9}},{"sequence":"seq16","frames":40,"s1":{"dice":0.9318,"iou":0.9149,"rel":0.8234,"prompts":34},"s5":{"dice":0.7467,"iou":0.7246,"rel":0.6601,"prompts":7},"s10":{"dice":0.7477,"iou":0.7249,"rel":0.6519,"prompts":4}},{"sequence":"seq17","frames":63,"s1":{"dice":0.9365,"iou":0.9077,"rel":0.6994,"prompts":45},"s5":{"dice":0.6554,"iou":0.6055,"rel":0.4542,"prompts":11},"s10":{"dice":0.581,"iou":0.5365,"rel":0.3935,"prompts":7}},{"sequence":"seq18","frames":63,"s1":{"dice":0.5835,"iou":0.4612,"rel":0.6367,"prompts":42},"s5":{"dice":0.4031,"iou":0.2935,"rel":0.3589,"prompts":9},"s10":{"dice":0.2766,"iou":0.2055,"rel":0.3086,"prompts":4}},{"sequence":"seq19","frames":56,"s1":{"dice":0.9419,"iou":0.8962,"rel":0.8537,"prompts":55},"s5":{"dice":0.793,"iou":0.7291,"rel":0.6146,"prompts":12},"s10":{"dice":0.759,"iou":0.6967,"rel":0.5674,"prompts":6}},{"sequence":"seq20","frames":52,"s1":{"dice":0.5738,"iou":0.557,"rel":0.426,"prompts":11},"s5":{"dice":0.3588,"iou":0.3386,"rel":0.2866,"prompts":2},"s10":{"dice":0.2885,"iou":0.2885,"rel":0.2844,"prompts":1}},{"sequence":"seq21","frames":56,"s1":{"dice":0.9326,"iou":0.9016,"rel":0.5233,"prompts":26},"s5":{"dice":0.6918,"iou":0.6538,"rel":0.3704,"prompts":7},"s10":{"dice":0.6466,"iou":0.6049,"rel":0.3566,"prompts":3}},{"sequence":"seq22","frames":46,"s1":{"dice":0.9298,"iou":0.8868,"rel":0.7142,"prompts":43},"s5":{"dice":0.605,"iou":0.5481,"rel":0.4002,"prompts":10},"s10":{"dice":0.3803,"iou":0.3237,"rel":0.3122,"prompts":5}},{"sequence":"seq23","frames":56,"s1":{"dice":0.7816,"iou":0.7386,"rel":0.6206,"prompts":38},"s5":{"dice":0.3457,"iou":0.3136,"rel":0.2647,"prompts":9},"s10":{"dice":0.35,"iou":0.3292,"rel":0.2719,"prompts":3}}];
+
+  const ablationDataS1 = [{"sequence":"seq1","frames":36,"prompts":0,"heurDice":1.0,"heurIou":1.0,"fixDice":1.0,"fixIou":1.0,"dDice":0.0,"dIou":0.0},{"sequence":"seq2","frames":63,"prompts":60,"heurDice":0.9014,"heurIou":0.8458,"fixDice":0.9171,"fixIou":0.8613,"dDice":0.0156,"dIou":0.0155},{"sequence":"seq3","frames":15,"prompts":3,"heurDice":0.203,"heurIou":0.1478,"fixDice":0.2643,"fixIou":0.2078,"dDice":0.0613,"dIou":0.0599},{"sequence":"seq4","frames":48,"prompts":18,"heurDice":0.3863,"heurIou":0.3483,"fixDice":0.367,"fixIou":0.3299,"dDice":-0.0193,"dIou":-0.0184},{"sequence":"seq5","frames":250,"prompts":198,"heurDice":0.938,"heurIou":0.8977,"fixDice":0.937,"fixIou":0.8963,"dDice":-0.0011,"dIou":-0.0013},{"sequence":"seq6","frames":91,"prompts":64,"heurDice":0.9233,"heurIou":0.8888,"fixDice":0.9241,"fixIou":0.8903,"dDice":0.0008,"dIou":0.0015},{"sequence":"seq7","frames":48,"prompts":0,"heurDice":1.0,"heurIou":1.0,"fixDice":1.0,"fixIou":1.0,"dDice":0.0,"dIou":0.0},{"sequence":"seq8","frames":73,"prompts":56,"heurDice":0.9136,"heurIou":0.8763,"fixDice":0.911,"fixIou":0.8719,"dDice":-0.0026,"dIou":-0.0044},{"sequence":"seq9","frames":51,"prompts":18,"heurDice":0.5512,"heurIou":0.5003,"fixDice":0.5402,"fixIou":0.4922,"dDice":-0.0109,"dIou":-0.0081},{"sequence":"seq10","frames":25,"prompts":7,"heurDice":0.9522,"heurIou":0.9449,"fixDice":0.9522,"fixIou":0.9449,"dDice":0.0,"dIou":0.0},{"sequence":"seq11","frames":228,"prompts":124,"heurDice":0.86,"heurIou":0.8164,"fixDice":0.859,"fixIou":0.8149,"dDice":-0.001,"dIou":-0.0015},{"sequence":"seq12","frames":250,"prompts":247,"heurDice":0.9336,"heurIou":0.8859,"fixDice":0.9329,"fixIou":0.8847,"dDice":-0.0007,"dIou":-0.0012},{"sequence":"seq13","frames":250,"prompts":178,"heurDice":0.8197,"heurIou":0.7884,"fixDice":0.8167,"fixIou":0.7861,"dDice":-0.003,"dIou":-0.0023},{"sequence":"seq14","frames":249,"prompts":194,"heurDice":0.8046,"heurIou":0.753,"fixDice":0.8022,"fixIou":0.7526,"dDice":-0.0024,"dIou":-0.0003},{"sequence":"seq15","frames":116,"prompts":78,"heurDice":0.7723,"heurIou":0.7262,"fixDice":0.7647,"fixIou":0.7194,"dDice":-0.0076,"dIou":-0.0068},{"sequence":"seq16","frames":40,"prompts":34,"heurDice":0.9318,"heurIou":0.9149,"fixDice":0.932,"fixIou":0.9152,"dDice":0.0001,"dIou":0.0002},{"sequence":"seq17","frames":63,"prompts":45,"heurDice":0.9365,"heurIou":0.9077,"fixDice":0.9339,"fixIou":0.9032,"dDice":-0.0026,"dIou":-0.0045},{"sequence":"seq18","frames":63,"prompts":42,"heurDice":0.5835,"heurIou":0.4612,"fixDice":0.5983,"fixIou":0.4732,"dDice":0.0148,"dIou":0.012},{"sequence":"seq19","frames":56,"prompts":55,"heurDice":0.9419,"heurIou":0.8962,"fixDice":0.9489,"fixIou":0.9059,"dDice":0.0069,"dIou":0.0098},{"sequence":"seq20","frames":52,"prompts":11,"heurDice":0.5738,"heurIou":0.557,"fixDice":0.5699,"fixIou":0.5559,"dDice":-0.0039,"dIou":-0.0011},{"sequence":"seq21","frames":56,"prompts":26,"heurDice":0.9326,"heurIou":0.9016,"fixDice":0.9278,"fixIou":0.8942,"dDice":-0.0048,"dIou":-0.0074},{"sequence":"seq22","frames":46,"prompts":43,"heurDice":0.9298,"heurIou":0.8868,"fixDice":0.9306,"fixIou":0.8884,"dDice":0.0009,"dIou":0.0016},{"sequence":"seq23","frames":56,"prompts":38,"heurDice":0.7816,"heurIou":0.7386,"fixDice":0.8082,"fixIou":0.769,"dDice":0.0266,"dIou":0.0303}];
+
+  const ablationDataS5 = [{"sequence":"seq1","frames":36,"prompts":0,"heurDice":1.0,"heurIou":1.0,"fixDice":1.0,"fixIou":1.0,"dDice":0.0,"dIou":0.0},{"sequence":"seq2","frames":63,"prompts":12,"heurDice":0.8303,"heurIou":0.7685,"fixDice":0.8746,"fixIou":0.8106,"dDice":0.0443,"dIou":0.0421},{"sequence":"seq3","frames":15,"prompts":1,"heurDice":0.8078,"heurIou":0.7278,"fixDice":0.713,"fixIou":0.6448,"dDice":-0.0948,"dIou":-0.0829},{"sequence":"seq4","frames":48,"prompts":5,"heurDice":0.3638,"heurIou":0.3339,"fixDice":0.2827,"fixIou":0.2627,"dDice":-0.081,"dIou":-0.0712},{"sequence":"seq5","frames":250,"prompts":39,"heurDice":0.6738,"heurIou":0.6293,"fixDice":0.6033,"fixIou":0.5759,"dDice":-0.0705,"dIou":-0.0534},{"sequence":"seq6","frames":91,"prompts":14,"heurDice":0.7747,"heurIou":0.7268,"fixDice":0.6789,"fixIou":0.6589,"dDice":-0.0958,"dIou":-0.0679},{"sequence":"seq7","frames":48,"prompts":0,"heurDice":1.0,"heurIou":1.0,"fixDice":1.0,"fixIou":1.0,"dDice":0.0,"dIou":0.0},{"sequence":"seq8","frames":73,"prompts":12,"heurDice":0.6018,"heurIou":0.5433,"fixDice":0.4669,"fixIou":0.4508,"dDice":-0.1349,"dIou":-0.0925},{"sequence":"seq9","frames":51,"prompts":5,"heurDice":0.5317,"heurIou":0.4754,"fixDice":0.5023,"fixIou":0.4581,"dDice":-0.0293,"dIou":-0.0173},{"sequence":"seq10","frames":25,"prompts":2,"heurDice":0.7792,"heurIou":0.7663,"fixDice":0.9537,"fixIou":0.9478,"dDice":0.1746,"dIou":0.1814},{"sequence":"seq11","frames":228,"prompts":25,"heurDice":0.8076,"heurIou":0.746,"fixDice":0.7143,"fixIou":0.6691,"dDice":-0.0932,"dIou":-0.0769},{"sequence":"seq12","frames":250,"prompts":49,"heurDice":0.7514,"heurIou":0.6808,"fixDice":0.226,"fixIou":0.214,"dDice":-0.5255,"dIou":-0.4668},{"sequence":"seq13","frames":250,"prompts":34,"heurDice":0.638,"heurIou":0.6014,"fixDice":0.5962,"fixIou":0.5701,"dDice":-0.0417,"dIou":-0.0313},{"sequence":"seq14","frames":249,"prompts":40,"heurDice":0.5296,"heurIou":0.4723,"fixDice":0.4448,"fixIou":0.4183,"dDice":-0.0848,"dIou":-0.0541},{"sequence":"seq15","frames":116,"prompts":17,"heurDice":0.7008,"heurIou":0.6565,"fixDice":0.6985,"fixIou":0.6532,"dDice":-0.0023,"dIou":-0.0033},{"sequence":"seq16","frames":40,"prompts":7,"heurDice":0.7467,"heurIou":0.7246,"fixDice":0.7986,"fixIou":0.7763,"dDice":0.052,"dIou":0.0516},{"sequence":"seq17","frames":63,"prompts":11,"heurDice":0.6554,"heurIou":0.6055,"fixDice":0.7284,"fixIou":0.6961,"dDice":0.073,"dIou":0.0906},{"sequence":"seq18","frames":63,"prompts":9,"heurDice":0.4031,"heurIou":0.2935,"fixDice":0.379,"fixIou":0.3055,"dDice":-0.0241,"dIou":0.012},{"sequence":"seq19","frames":56,"prompts":12,"heurDice":0.793,"heurIou":0.7291,"fixDice":0.7334,"fixIou":0.6843,"dDice":-0.0596,"dIou":-0.0448},{"sequence":"seq20","frames":52,"prompts":2,"heurDice":0.3588,"heurIou":0.3386,"fixDice":0.488,"fixIou":0.4782,"dDice":0.1292,"dIou":0.1396},{"sequence":"seq21","frames":56,"prompts":7,"heurDice":0.6918,"heurIou":0.6538,"fixDice":0.83,"fixIou":0.7961,"dDice":0.1382,"dIou":0.1423},{"sequence":"seq22","frames":46,"prompts":10,"heurDice":0.605,"heurIou":0.5481,"fixDice":0.609,"fixIou":0.5728,"dDice":0.004,"dIou":0.0247},{"sequence":"seq23","frames":56,"prompts":9,"heurDice":0.3457,"heurIou":0.3136,"fixDice":0.499,"fixIou":0.4854,"dDice":0.1533,"dIou":0.1717}];
+
+  const ablationDataS10 = [{"sequence":"seq1","frames":36,"prompts":0,"heurDice":1.0,"heurIou":1.0,"fixDice":1.0,"fixIou":1.0,"dDice":0.0,"dIou":0.0},{"sequence":"seq2","frames":63,"prompts":7,"heurDice":0.8183,"heurIou":0.7481,"fixDice":0.8634,"fixIou":0.7915,"dDice":0.0451,"dIou":0.0434},{"sequence":"seq3","frames":15,"prompts":1,"heurDice":0.8078,"heurIou":0.7278,"fixDice":0.713,"fixIou":0.6448,"dDice":-0.0948,"dIou":-0.0829},{"sequence":"seq4","frames":48,"prompts":3,"heurDice":0.2995,"heurIou":0.2719,"fixDice":0.2231,"fixIou":0.2057,"dDice":-0.0764,"dIou":-0.0662},{"sequence":"seq5","frames":250,"prompts":20,"heurDice":0.5468,"heurIou":0.5133,"fixDice":0.497,"fixIou":0.4761,"dDice":-0.0498,"dIou":-0.0372},{"sequence":"seq6","frames":91,"prompts":7,"heurDice":0.7236,"heurIou":0.6837,"fixDice":0.6026,"fixIou":0.5838,"dDice":-0.1211,"dIou":-0.0998},{"sequence":"seq7","frames":48,"prompts":0,"heurDice":1.0,"heurIou":1.0,"fixDice":1.0,"fixIou":1.0,"dDice":0.0,"dIou":0.0},{"sequence":"seq8","frames":73,"prompts":7,"heurDice":0.536,"heurIou":0.4849,"fixDice":0.3907,"fixIou":0.3784,"dDice":-0.1453,"dIou":-0.1065},{"sequence":"seq9","frames":51,"prompts":4,"heurDice":0.5291,"heurIou":0.4721,"fixDice":0.4996,"fixIou":0.4543,"dDice":-0.0295,"dIou":-0.0177},{"sequence":"seq10","frames":25,"prompts":1,"heurDice":0.8414,"heurIou":0.8137,"fixDice":0.7583,"fixIou":0.7568,"dDice":-0.083,"dIou":-0.0568},{"sequence":"seq11","frames":228,"prompts":13,"heurDice":0.7471,"heurIou":0.6873,"fixDice":0.6778,"fixIou":0.6305,"dDice":-0.0692,"dIou":-0.0568},{"sequence":"seq12","frames":250,"prompts":24,"heurDice":0.4629,"heurIou":0.4108,"fixDice":0.1138,"fixIou":0.1084,"dDice":-0.349,"dIou":-0.3024},{"sequence":"seq13","frames":250,"prompts":17,"heurDice":0.5935,"heurIou":0.5539,"fixDice":0.5168,"fixIou":0.4875,"dDice":-0.0766,"dIou":-0.0663},{"sequence":"seq14","frames":249,"prompts":21,"heurDice":0.4033,"heurIou":0.363,"fixDice":0.3784,"fixIou":0.3592,"dDice":-0.0248,"dIou":-0.0037},{"sequence":"seq15","frames":116,"prompts":9,"heurDice":0.7018,"heurIou":0.6582,"fixDice":0.6995,"fixIou":0.655,"dDice":-0.0023,"dIou":-0.0032},{"sequence":"seq16","frames":40,"prompts":4,"heurDice":0.7477,"heurIou":0.7249,"fixDice":0.7952,"fixIou":0.7709,"dDice":0.0475,"dIou":0.046},{"sequence":"seq17","frames":63,"prompts":7,"heurDice":0.581,"heurIou":0.5365,"fixDice":0.6485,"fixIou":0.6214,"dDice":0.0675,"dIou":0.0848},{"sequence":"seq18","frames":63,"prompts":4,"heurDice":0.2766,"heurIou":0.2055,"fixDice":0.2515,"fixIou":0.2144,"dDice":-0.0252,"dIou":0.0089},{"sequence":"seq19","frames":56,"prompts":6,"heurDice":0.759,"heurIou":0.6967,"fixDice":0.7025,"fixIou":0.6531,"dDice":-0.0565,"dIou":-0.0436},{"sequence":"seq20","frames":52,"prompts":1,"heurDice":0.2885,"heurIou":0.2885,"fixDice":0.4038,"fixIou":0.4038,"dDice":0.1154,"dIou":0.1154},{"sequence":"seq21","frames":56,"prompts":3,"heurDice":0.6466,"heurIou":0.6049,"fixDice":0.8009,"fixIou":0.7667,"dDice":0.1543,"dIou":0.1619},{"sequence":"seq22","frames":46,"prompts":5,"heurDice":0.3803,"heurIou":0.3237,"fixDice":0.4817,"fixIou":0.426,"dDice":0.1014,"dIou":0.1023},{"sequence":"seq23","frames":56,"prompts":3,"heurDice":0.35,"heurIou":0.3292,"fixDice":0.3574,"fixIou":0.3538,"dDice":0.0074,"dIou":0.0246}];
+
+  const svgEl = (tag, attrs = {}, text = "") => {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.entries(attrs).forEach(([key, value]) => el.setAttribute(key, value));
+    if (text) el.textContent = text;
+    return el;
+  };
+
+  function groupedBars(target, groups, series) {
+    const width = 650, height = 300, m = { l: 48, r: 18, t: 20, b: 48 };
+    const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, role: "img" });
+    const plotH = height - m.t - m.b, plotW = width - m.l - m.r;
+    [0, .2, .4, .6, .8, 1].forEach(v => {
+      const y = m.t + plotH * (1 - v);
+      svg.append(svgEl("line", { x1: m.l, y1: y, x2: width - m.r, y2: y, class: "grid" }));
+      svg.append(svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end", class: "svg-label" }, v.toFixed(1)));
+    });
+    const groupW = plotW / groups.length, barW = Math.min(38, groupW / (series.length + 1));
+    groups.forEach((g, gi) => {
+      const cx = m.l + groupW * (gi + .5);
+      svg.append(svgEl("text", { x: cx, y: height - 15, "text-anchor": "middle", class: "svg-label" }, g.label));
+      series.forEach((s, si) => {
+        const value = g[s.key], x = cx + (si - (series.length - 1) / 2) * (barW + 5) - barW / 2;
+        const y = m.t + plotH * (1 - value), h = plotH * value;
+        svg.append(svgEl("rect", { x, y, width: barW, height: h, rx: 4, fill: s.color }));
+        svg.append(svgEl("text", { x: x + barW / 2, y: y - 6, "text-anchor": "middle", class: "svg-value" }, value.toFixed(3)));
+      });
+    });
+    series.forEach((s, i) => {
+      const x = m.l + i * 90;
+      svg.append(svgEl("circle", { cx: x, cy: 10, r: 5, fill: s.color }));
+      svg.append(svgEl("text", { x: x + 10, y: 14, class: "svg-label" }, s.label));
+    });
+    document.getElementById(target).append(svg);
+  }
+
+  groupedBars("global-chart", [
+    { label: "YOLO-SAM2*", dice: .808, iou: .678 },
+    { label: "Stride 1", dice: .8441501861, iou: .8025693648 },
+    { label: "Stride 5", dice: .6676547243, iou: .6174178325 },
+    { label: "Stride 10", dice: .5765014081, iou: .5334863821 }
+  ], [{ key: "dice", label: "Dice", color: colors.s1 }, { key: "iou", label: "IoU", color: "#8267b4" }]);
+
+  groupedBars("prompted-chart", [
+    { label: "S1 prompted", dice: .8885, iou: .8323 },
+    { label: "S1 gap", dice: .7446, iou: .7359 },
+    { label: "S5 prompted", dice: .8876, iou: .8319 },
+    { label: "S5 gap", dice: .6304, iou: .5811 },
+    { label: "S10 prompted", dice: .8799, iou: .8254 },
+    { label: "S10 gap", dice: .5519, iou: .5098 }
+  ], [{ key: "dice", label: "Dice", color: colors.s1 }, { key: "iou", label: "IoU", color: "#8267b4" }]);
+
+  groupedBars("threshold-chart", [
+    { label: "Stride 1", ge07: .8683, ge09: .7429, zero: .0796 },
+    { label: "Stride 5", ge07: .6661, ge09: .4872, zero: .1915 },
+    { label: "Stride 10", ge07: .5676, ge09: .4162, zero: .2917 }
+  ], [
+    { key: "ge07", label: "Dice ≥ .70", color: colors.s1 },
+    { key: "ge09", label: "Dice ≥ .90", color: colors.s5 },
+    { key: "zero", label: "Dice = 0", color: colors.s10 }
+  ]);
+
+  (function efficiencyChart() {
+    const data = [
+      { name: "Stride 1", prompts: 1539, dice: .8442, rate: .692, color: colors.s1 },
+      { name: "Stride 5", prompts: 322, dice: .6677, rate: .145, color: colors.s5 },
+      { name: "Stride 10", prompts: 167, dice: .5765, rate: .075, color: colors.s10 }
+    ];
+    const width = 650, height = 300, m = { l: 55, r: 25, t: 20, b: 48 };
+    const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}` });
+    const x = v => m.l + (width - m.l - m.r) * v / 1600;
+    const y = v => m.t + (height - m.t - m.b) * (1 - (v - .5) / .4);
+    [0, 400, 800, 1200, 1600].forEach(v => {
+      svg.append(svgEl("line", { x1: x(v), y1: m.t, x2: x(v), y2: height - m.b, class: "grid" }));
+      svg.append(svgEl("text", { x: x(v), y: height - 18, "text-anchor": "middle", class: "svg-label" }, v));
+    });
+    [.5, .6, .7, .8, .9].forEach(v => {
+      svg.append(svgEl("line", { x1: m.l, y1: y(v), x2: width - m.r, y2: y(v), class: "grid" }));
+      svg.append(svgEl("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end", class: "svg-label" }, v.toFixed(1)));
+    });
+    data.forEach(d => {
+      svg.append(svgEl("circle", { cx: x(d.prompts), cy: y(d.dice), r: 8 + d.rate * 14, fill: d.color, opacity: .85, stroke: "#fff", "stroke-width": 2 }));
+      svg.append(svgEl("text", { x: x(d.prompts), y: y(d.dice) - 19 - d.rate * 8, "text-anchor": "middle", class: "svg-value" }, `${d.name} · ${d.dice.toFixed(3)}`));
+    });
+    svg.append(svgEl("text", { x: width / 2, y: height - 2, "text-anchor": "middle", class: "svg-label" }, "YOLO-prompted frames"));
+    svg.append(svgEl("text", { x: 13, y: height / 2, transform: `rotate(-90 13 ${height / 2})`, "text-anchor": "middle", class: "svg-label" }, "Dice"));
+    document.getElementById("efficiency-chart").append(svg);
+  })();
+
+  (function sequenceChart() {
+    const width = 1200, rowH = 29, m = { l: 75, r: 38, t: 35, b: 35 }, height = m.t + m.b + sequenceData.length * rowH;
+    const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}` });
+    const x = v => m.l + (width - m.l - m.r) * v;
+    [0, .2, .4, .6, .7, .8, 1].forEach(v => {
+      svg.append(svgEl("line", { x1: x(v), y1: m.t - 12, x2: x(v), y2: height - m.b + 4, class: v === .7 ? "axis" : "grid", "stroke-dasharray": v === .7 ? "5 4" : "0" }));
+      svg.append(svgEl("text", { x: x(v), y: 15, "text-anchor": "middle", class: "svg-label" }, v.toFixed(1)));
+    });
+    sequenceData.forEach((d, i) => {
+      const cy = m.t + i * rowH + rowH / 2;
+      if (i % 2 === 0) svg.append(svgEl("rect", { x: 0, y: cy - rowH / 2, width, height: rowH, fill: "#f8fafb" }));
+      svg.append(svgEl("text", { x: m.l - 12, y: cy + 4, "text-anchor": "end", class: "svg-label" }, d.sequence));
+      const values = ["s1", "s5", "s10"].map(k => d[k].dice);
+      svg.append(svgEl("line", { x1: x(Math.min(...values)), y1: cy, x2: x(Math.max(...values)), y2: cy, stroke: "#cbd5db", "stroke-width": 2 }));
+      [["s1", -5], ["s5", 0], ["s10", 5]].forEach(([k, dy]) => {
+        svg.append(svgEl("circle", { cx: x(d[k].dice), cy: cy + dy, r: 4.8, fill: colors[k], stroke: "#fff", "stroke-width": 1.5 }));
+      });
+    });
+    svg.append(svgEl("text", { x: x(.7) + 6, y: height - 8, class: "svg-label" }, "0.70 target"));
+    document.getElementById("sequence-chart").append(svg);
+  })();
+
+  groupedBars("ablation-global-chart", [
+    { label: "Stride 1", heur: .8442, fix: .8440 },
+    { label: "Stride 5", heur: .6677, fix: .5799 },
+    { label: "Stride 10", heur: .5765, fix: .5102 }
+  ], [{ key: "heur", label: "Heuristic", color: colors.s1 }, { key: "fix", label: "Fixed r=0.5", color: colors.baseline }]);
+
+  groupedBars("ablation-unprompted-chart", [
+    { label: "Stride 1", heur: .7446, fix: .7422 },
+    { label: "Stride 5", heur: .6304, fix: .5287 },
+    { label: "Stride 10", heur: .5519, fix: .4801 }
+  ], [{ key: "heur", label: "Heuristic", color: colors.s1 }, { key: "fix", label: "Fixed r=0.5", color: colors.baseline }]);
+
+  function ablationDeltaChart(target, data) {
+    const sorted = [...data].sort((a, b) => a.dDice - b.dDice);
+    const width = 650, rowH = 22, m = { l: 55, r: 55, t: 10, b: 26 };
+    const height = m.t + m.b + sorted.length * rowH;
+    const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}` });
+    const plotW = width - m.l - m.r;
+    const maxAbs = Math.max(...sorted.map(d => Math.abs(d.dDice)), 0.02);
+    const xScale = v => m.l + plotW / 2 + (plotW / 2) * (v / maxAbs);
+    const xZero = xScale(0);
+    svg.append(svgEl("line", { x1: xZero, y1: m.t, x2: xZero, y2: height - m.b, class: "axis" }));
+    sorted.forEach((d, i) => {
+      const cy = m.t + i * rowH + rowH / 2;
+      if (i % 2 === 0) svg.append(svgEl("rect", { x: 0, y: cy - rowH / 2, width, height: rowH, fill: "#f8fafb" }));
+      const x = xScale(d.dDice);
+      const good = d.dDice >= 0;
+      svg.append(svgEl("rect", {
+        x: Math.min(x, xZero), y: cy - 6, width: Math.max(Math.abs(x - xZero), 1), height: 12, rx: 3,
+        fill: good ? "#3f9b72" : "#d96a56"
+      }));
+      svg.append(svgEl("text", { x: m.l - 8, y: cy + 4, "text-anchor": "end", class: "svg-label" }, d.sequence));
+      svg.append(svgEl("text", {
+        x: good ? x + 6 : x - 6, y: cy + 4, "text-anchor": good ? "start" : "end", class: "svg-label"
+      }, `${d.dDice >= 0 ? "+" : ""}${d.dDice.toFixed(4)}`));
+    });
+    svg.append(svgEl("text", { x: m.l, y: height - 6, class: "svg-label" }, "heuristic wins"));
+    svg.append(svgEl("text", { x: width - m.r, y: height - 6, "text-anchor": "end", class: "svg-label" }, "fixed wins"));
+    document.getElementById(target).append(svg);
+  }
+
+  function ablationTable(target, data) {
+    const tbody = document.querySelector(`#${target} tbody`);
+    const scoreClass = value => value >= .7 ? "best" : value < .5 ? "warn" : "";
+    data.forEach(d => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${d.sequence}</td><td>${d.frames}</td><td>${d.prompts}</td>
+        <td class="${scoreClass(d.heurDice)}">${d.heurDice.toFixed(4)}</td>
+        <td class="${scoreClass(d.fixDice)}">${d.fixDice.toFixed(4)}</td>
+        <td class="${Math.abs(d.dDice) > .01 ? (d.dDice > 0 ? "best" : "warn") : "neutral"}">${d.dDice >= 0 ? "+" : ""}${d.dDice.toFixed(4)}</td>
+        <td class="${scoreClass(d.heurIou)}">${d.heurIou.toFixed(4)}</td>
+        <td class="${scoreClass(d.fixIou)}">${d.fixIou.toFixed(4)}</td>
+        <td class="${Math.abs(d.dIou) > .01 ? (d.dIou > 0 ? "best" : "warn") : "neutral"}">${d.dIou >= 0 ? "+" : ""}${d.dIou.toFixed(4)}</td>`;
+      tbody.append(tr);
+    });
+  }
+
+  ablationDeltaChart("ablation-delta-s1", ablationDataS1);
+  ablationDeltaChart("ablation-delta-s5", ablationDataS5);
+  ablationDeltaChart("ablation-delta-s10", ablationDataS10);
+  ablationTable("ablation-table-s1", ablationDataS1);
+  ablationTable("ablation-table-s5", ablationDataS5);
+  ablationTable("ablation-table-s10", ablationDataS10);
+
+  (function sequenceTable() {
+    const tbody = document.querySelector("#sequence-table tbody");
+    const scoreClass = value => value >= .7 ? "best" : value < .5 ? "warn" : "";
+    sequenceData.forEach(d => {
+      const tr = document.createElement("tr");
+      const delta5 = d.s5.dice - d.s1.dice, delta10 = d.s10.dice - d.s1.dice;
+      tr.innerHTML = `
+        <td>${d.sequence}</td><td>${d.frames}</td>
+        <td>${d.s1.prompts}</td><td class="${scoreClass(d.s1.dice)}">${d.s1.dice.toFixed(4)}</td><td class="${scoreClass(d.s1.iou)}">${d.s1.iou.toFixed(4)}</td>
+        <td>${d.s5.prompts}</td><td class="${scoreClass(d.s5.dice)}">${d.s5.dice.toFixed(4)}</td><td class="${scoreClass(d.s5.iou)}">${d.s5.iou.toFixed(4)}</td>
+        <td>${d.s10.prompts}</td><td class="${scoreClass(d.s10.dice)}">${d.s10.dice.toFixed(4)}</td><td class="${scoreClass(d.s10.iou)}">${d.s10.iou.toFixed(4)}</td>
+        <td class="${delta5 < -.2 ? "warn" : delta5 > 0 ? "best" : ""}">${delta5 >= 0 ? "+" : ""}${delta5.toFixed(4)}</td>
+        <td class="${delta10 < -.2 ? "warn" : delta10 > 0 ? "best" : ""}">${delta10 >= 0 ? "+" : ""}${delta10.toFixed(4)}</td>`;
+      tbody.append(tr);
+    });
+  })();
+</script>
+</body>
+</html>

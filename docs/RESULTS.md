@@ -1,293 +1,118 @@
 # Results
 
-## 1. Scope and sources
+## Evidence
 
-| Item | Value |
-|---|---|
-| Dataset | PolypGen proxy benchmark |
-| Sequences | 23 |
-| Main methods | 20 |
-| Main aggregation | Mean of 23 sequence-level means |
-| Gated aggregation | Mean over 2,225 frames |
-| Project | [Drive](https://drive.google.com/drive/folders/1NMiVWai1_8xgT5qZ6Hb8v52xPYA_f48d) |
-| Logs | [Drive](https://drive.google.com/drive/folders/1-oTZ4h7_47qXIjZOw6e0C3itfvgU8cnr) |
-| Outputs | [Drive](https://drive.google.com/drive/folders/11q_daWX4jO5XbvZ-PY9KWbIkx3XM7O2o) |
+| Folder | Sequences | Frames | Missing | Prompt source | Memory |
+|---|---:|---:|---:|---|---|
+| `RELIABILITY_GATED_STRIDE1` | 23 | 2,225 | 0 | YOLO | Single dynamic mask |
+| `RELIABILITY_GATED_STRIDE5` | 23 | 2,225 | 0 | YOLO | Single dynamic mask |
+| `RELIABILITY_GATED_STRIDE10` | 23 | 2,225 | 0 | YOLO | Single dynamic mask |
 
-The main tables use the full Drive metric exports. `seq1` and `seq7` are all-empty sequences. Empty prediction against empty ground truth scores `1.0` for Dice, IoU, sensitivity, and temporal IoU; positive-frame reporting is therefore also required.
+## Global Dice and IoU
 
-> PolypGen measures pipeline behavior. It does not validate adenoid segmentation clinically.
+| Schedule | Prompts | Prompt rate | Dice ↑ | IoU ↑ | Δ Dice vs S1 | Δ IoU vs S1 |
+|---|---:|---:|---:|---:|---:|---:|
+| Stride 1 | 1,539 | 69.2% | **0.8442** | **0.8026** | — | — |
+| Stride 5 | 322 | 14.5% | 0.6677 | 0.6174 | −0.1765 | −0.1852 |
+| Stride 10 | 167 | 7.5% | 0.5765 | 0.5335 | −0.2676 | −0.2691 |
+| YOLO-SAM2 supplied-image reference | — | — | 0.8080 | 0.6780 | protocol unknown | protocol unknown |
 
-## 2. Metric guide
+```mermaid
+xychart-beta
+    title "Global overlap"
+    x-axis ["YOLO-SAM2*", "Stride 1", "Stride 5", "Stride 10"]
+    y-axis "Score" 0 --> 1
+    bar [0.8080, 0.8442, 0.6677, 0.5765]
+    bar [0.6780, 0.8026, 0.6174, 0.5335]
+```
 
-### Spatial metrics
+## Prompted vs unprompted frames
 
-| Metric | Direction | Measures | Endoscopy warning |
-|---|---:|---|---|
-| Dice / F1 | ↑ | Foreground overlap | Small boundary errors strongly affect small objects |
-| IoU | ↑ | Stricter foreground overlap | Best primary overlap metric with Dice |
-| Sensitivity | ↑ | Fraction of target pixels recovered | Can be high with severe over-segmentation |
-| Specificity | ↑ | Fraction of background pixels rejected | Often inflated by large background regions |
-| S-measure | ↑ | Object and regional structure | Useful for gross shape, not a boundary metric |
-| E-measure | ↑ | Local and global alignment | Can remain high when foreground overlap is moderate |
-| Predicted area | Match GT | Foreground fraction | Exposes under- and over-segmentation |
-
-`F-measure` uses `β=1`, so it is numerically equal to Dice for these binary masks. It is retained for compatibility but is not independent evidence.
-
-### Temporal metrics
-
-| Metric | Direction | Measures | Endoscopy warning |
-|---|---:|---|---|
-| Temporal IoU | ↑ | Overlap of adjacent predictions | Frozen or empty masks can score highly |
-| Area change | ↓ | Absolute foreground-area change | Real camera/object motion can cause valid change |
-| Centroid shift | ↓ | Motion of mask center, normalized by image diagonal | Low shift may mean stable error |
-| Missing predictions | ↓ | Output completeness | Missing frames must count as failures |
-
-Temporal metrics describe smoothness, not correctness. Interpret them only beside Dice/IoU and the ground-truth motion pattern.
-
-## 3. Main spatial results
-
-Sequence-macro averages. Higher is better.
-
-| Rank | Method | Dice / F1 | IoU | Sensitivity | Specificity | S-measure | E-measure |
-|---:|---|---:|---:|---:|---:|---:|---:|
-| 1 | `SAM2_LARGE_GT_BOX_FRAME` | **0.9457** | **0.9071** | 0.9446 | 0.9949 | **0.9471** | **0.9818** |
-| 2 | `YOLO_SAM2_GT_BOX_FRAME` | 0.9415 | 0.9027 | 0.9444 | 0.9922 | 0.9439 | 0.9808 |
-| 3 | `YOLO_SAM2_YOLO_BOX_FRAME` | 0.7851 | 0.7511 | 0.7860 | 0.9873 | 0.8675 | 0.8648 |
-| 4 | `MedSAM2_GT_BOX_MASK` | 0.7436 | 0.7069 | 0.9050 | 0.9694 | 0.9037 | 0.9320 |
-| 5 | `MedSAM3_TEXT_POLYP` | 0.6663 | 0.6275 | 0.9216 | 0.9524 | 0.8959 | 0.9284 |
-| 6 | `MedSAM2_YOLO_BOX_MASK` | 0.6219 | 0.5823 | 0.7746 | 0.9492 | 0.8206 | 0.8473 |
-| 7 | `MedSAM2_GT_BOX_BOX` | 0.5629 | 0.4777 | 0.7079 | 0.9592 | 0.7652 | 0.8396 |
-| 8 | `MedSAM2_YOLO_BOX_BOX` | 0.5135 | 0.4296 | 0.6589 | 0.9483 | 0.7370 | 0.8239 |
-| 9 | `MedSAM2_GT_BOX_MASK_STRIDE5` | 0.4500 | 0.3978 | 0.6170 | 0.9464 | 0.7146 | 0.7961 |
-| 10 | `MedSAM2_YOLO_BOX_MASK_STRIDE5` | 0.4260 | 0.3732 | 0.5845 | 0.9475 | 0.7011 | 0.7627 |
-| 11 | `MedSAM2_GT_BOX_MASK_STRIDE10` | 0.4247 | 0.3721 | 0.5523 | 0.9622 | 0.6935 | 0.7786 |
-| 12 | `MedSAM2_YOLO_BOX_MASK_STRIDE10` | 0.4175 | 0.3662 | 0.5320 | 0.9640 | 0.6874 | 0.7472 |
-| 13 | `MedSAM2_GT_BOX_BOX_STRIDE5` | 0.4083 | 0.3442 | 0.5741 | 0.9429 | 0.6829 | 0.7793 |
-| 14 | `MedSAM2_GT_BOX_BOX_STRIDE10` | 0.4022 | 0.3440 | 0.5341 | 0.9603 | 0.6784 | 0.7775 |
-| 15 | `MedSAM2_YOLO_BOX_BOX_STRIDE10` | 0.3971 | 0.3418 | 0.5142 | 0.9637 | 0.6747 | 0.7399 |
-| 16 | `MedSAM2_YOLO_BOX_BOX_STRIDE5` | 0.3858 | 0.3237 | 0.5489 | 0.9421 | 0.6739 | 0.7469 |
-| 17 | `MedSAM2_GT_BOX_BOX_FIRST` | 0.3467 | 0.2985 | 0.4929 | 0.9523 | 0.6513 | 0.7375 |
-| 18 | `MedSAM2_GT_BOX_MASK_FIRST` | 0.3412 | 0.2941 | 0.4966 | 0.9457 | 0.6494 | 0.7339 |
-| 19 | `MedSAM2_YOLO_BOX_BOX_FIRST` | 0.3285 | 0.2827 | 0.4821 | 0.9397 | 0.6390 | 0.7247 |
-| 20 | `MedSAM2_YOLO_BOX_MASK_FIRST` | 0.3243 | 0.2791 | 0.4902 | 0.9333 | 0.6364 | 0.7104 |
-
-### Spatial interpretation
-
-| Finding | Evidence | Meaning |
-|---|---|---|
-| Frame SAM2 is strongest | Dice `0.9457–0.9415` with GT boxes | Segmentation is accurate when the prompt is correct |
-| Detector error is important | GT box → YOLO box Dice: `0.9415 → 0.7851` | Prompt localization is a major automatic-pipeline bottleneck |
-| Specificity hides failures | First-only methods keep specificity `0.9333–0.9523` with Dice `0.3243–0.3467` | Background dominance makes specificity unsuitable as a primary ranker |
-| Mask prompts help MedSAM2 | GT mask vs GT box Dice: `0.7436 vs 0.5629` | Box-to-mask conversion gives a stronger video seed |
-| MedSAM3 favors recall | Sensitivity `0.9216`, Dice `0.6663`, specificity `0.9524` | It often finds target pixels but includes excess foreground |
-| Sparse prompts lose overlap | GT-mask Dice: `0.7436 → 0.4500 → 0.4247` | Propagation drifts as prompt distance grows |
-
-The automatic frame method loses `0.1564` Dice but only `0.0049` specificity relative to the same SAM2 model with GT boxes. This is the clearest example of why specificity alone can miss clinically visible segmentation failure.
-
-## 4. Main temporal and mask-behavior results
-
-Sequence-macro averages. Predicted area is an image fraction. Centroid shift is normalized by image diagonal.
-
-| Method | Pred. area | Temporal IoU ↑ | Area change ↓ | Centroid shift ↓ |
-|---|---:|---:|---:|---:|
-| `SAM2_LARGE_GT_BOX_FRAME` | 0.0831 | 0.6465 | 0.0304 | 0.0516 |
-| `YOLO_SAM2_GT_BOX_FRAME` | 0.0858 | 0.6499 | 0.0304 | **0.0497** |
-| `YOLO_SAM2_YOLO_BOX_FRAME` | 0.0763 | **0.6698** | 0.0407 | 0.0626 |
-| `MedSAM2_GT_BOX_MASK` | 0.1061 | 0.5998 | 0.0316 | 0.0621 |
-| `MedSAM3_TEXT_POLYP` | 0.1247 | 0.5044 | 0.0601 | 0.0963 |
-| `MedSAM2_YOLO_BOX_MASK` | 0.1139 | 0.6123 | 0.0385 | 0.0656 |
-| `MedSAM2_GT_BOX_BOX` | 0.0889 | 0.4777 | 0.0383 | 0.0773 |
-| `MedSAM2_YOLO_BOX_BOX` | 0.0936 | 0.4536 | 0.0458 | 0.0891 |
-| `MedSAM2_GT_BOX_MASK_STRIDE5` | 0.0977 | 0.4813 | 0.0398 | 0.0947 |
-| `MedSAM2_YOLO_BOX_MASK_STRIDE5` | 0.0926 | 0.5341 | 0.0371 | 0.0785 |
-| `MedSAM2_GT_BOX_MASK_STRIDE10` | 0.0712 | 0.5204 | 0.0308 | 0.0795 |
-| `MedSAM2_YOLO_BOX_MASK_STRIDE10` | 0.0672 | 0.5816 | 0.0299 | 0.0659 |
-| `MedSAM2_GT_BOX_BOX_STRIDE5` | 0.0937 | 0.4622 | 0.0400 | 0.0977 |
-| `MedSAM2_GT_BOX_BOX_STRIDE10` | 0.0705 | 0.5048 | 0.0327 | 0.0826 |
-| `MedSAM2_YOLO_BOX_BOX_STRIDE10` | 0.0653 | 0.5680 | 0.0313 | 0.0680 |
-| `MedSAM2_YOLO_BOX_BOX_STRIDE5` | 0.0919 | 0.5047 | 0.0390 | 0.0808 |
-| `MedSAM2_GT_BOX_BOX_FIRST` | 0.0750 | 0.6098 | 0.0275 | 0.0570 |
-| `MedSAM2_GT_BOX_MASK_FIRST` | 0.0831 | 0.6284 | **0.0271** | 0.0623 |
-| `MedSAM2_YOLO_BOX_BOX_FIRST` | 0.0859 | 0.6036 | 0.0323 | 0.0552 |
-| `MedSAM2_YOLO_BOX_MASK_FIRST` | 0.0927 | 0.6301 | 0.0281 | 0.0614 |
-
-### Temporal interpretation
-
-| Observation | Interpretation |
-|---|---|
-| Automatic frame SAM2 has temporal IoU `0.6698` and Dice `0.7851` | Good overall automatic baseline |
-| First-only MedSAM2 reaches temporal IoU `0.6036–0.6301` but Dice `0.3243–0.3467` | Smooth propagation can be spatially wrong |
-| MedSAM3 has high sensitivity but temporal IoU `0.5044` and area change `0.0601` | Broad detection with unstable masks |
-| Low area change in first-only variants accompanies poor Dice | A nearly frozen mask is not a successful tracker |
-| Temporal IoU can rise as prompt frequency falls | Persistence must not be interpreted as accuracy |
-
-## 5. Prompt strategy analysis
-
-| Comparison | Dice | Sensitivity | Specificity | Temporal IoU |
-|---|---:|---:|---:|---:|
-| SAM2, GT box, frame | **0.9415** | **0.9444** | **0.9922** | 0.6499 |
-| SAM2, YOLO box, frame | 0.7851 | 0.7860 | 0.9873 | **0.6698** |
-| MedSAM2, GT mask, every frame | 0.7436 | 0.9050 | 0.9694 | 0.5998 |
-| MedSAM2, GT mask, stride 5 | 0.4500 | 0.6170 | 0.9464 | 0.4813 |
-| MedSAM2, GT mask, stride 10 | 0.4247 | 0.5523 | 0.9622 | 0.5204 |
-| MedSAM2, GT mask, first only | 0.3412 | 0.4966 | 0.9457 | 0.6284 |
+| Schedule | Prompted Dice | Prompted IoU | Unprompted Dice | Unprompted IoU | Gap: Dice | Gap: IoU |
+|---|---:|---:|---:|---:|---:|---:|
+| Stride 1 | **0.8885** | **0.8323** | **0.7446** | **0.7359** | −0.1439 | −0.0964 |
+| Stride 5 | 0.8876 | 0.8319 | 0.6304 | 0.5811 | −0.2571 | −0.2508 |
+| Stride 10 | 0.8799 | 0.8254 | 0.5519 | 0.5098 | −0.3281 | −0.3156 |
 
 ```mermaid
 flowchart LR
-    A[Correct prompt] --> B[High spatial overlap]
-    C[Detector error] --> D[Missed target pixels]
-    E[Sparse prompt] --> F[Propagation drift]
-    F --> G[Low Dice]
-    F --> H[Possibly high temporal IoU]
-    H --> I[Stable error]
+    P1["Prompted<br/>Dice ≈ 0.88<br/>IoU ≈ 0.83"]
+    M["Prompt interval ↑"]
+    U1["S1 gap<br/>0.7446 / 0.7359"]
+    U5["S5 gap<br/>0.6304 / 0.5811"]
+    U10["S10 gap<br/>0.5519 / 0.5098"]
+    P1 --> M
+    M --> U1 --> U5 --> U10
 ```
 
-## 6. Reliability-gated experiment
+## Frame-level distribution
 
-`scripts/utils/reliability_gate.py` was rewritten after the results above were produced. It no
-longer runs a discrete accept/hold gate with a threshold and rejection counter; see
-[Technical §Reliability gate](TECHNICAL.md#reliability-gate) for the current mechanism. In
-short: MedSAM2 runs with its internal memory bank disabled (`num_maskmem=0`), so the raw
-`candidate` mask is an independent per-frame prediction with no memory of its own, and the gate
-is the only cross-frame state left — a continuous reliability-weighted blend
-`M_t = R_t·candidate_t + (1-R_t)·M_(t-1)`, with `R` built from decoder confidence, prompt
-confidence, boundary alignment, and sharpness (no temporal-IoU or area term). The numbers below
-are from that current implementation, GT-derived box prompts, CPU inference, all 23 sequences
-(2,225 frames), frame-macro aggregation. The gated evaluator records Dice, IoU, temporal IoU,
-centroid shift, area change, and reliability; it does not record sensitivity or specificity.
+| Schedule | Dice = 0 | Dice ≥ 0.50 | Dice ≥ 0.70 | Dice ≥ 0.90 | Positive-GT Dice | Blank-GT Dice |
+|---|---:|---:|---:|---:|---:|---:|
+| Stride 1 | 8.0% | 89.0% | **86.8%** | **74.3%** | **0.8229** | **0.9146** |
+| Stride 5 | 19.1% | 71.7% | 66.6% | 48.7% | 0.6483 | 0.7320 |
+| Stride 10 | 29.2% | 61.6% | 56.8% | 41.6% | 0.5022 | 0.8233 |
 
-| Metric | Stride 1 | Stride 5 | Stride 10 |
-|---|---:|---:|---:|
-| Frames | 2,225 | 2,225 | 2,225 |
-| Missing predictions | 0 | 0 | 0 |
-| Boxed (prompted) frames | **1,710** | 352 | 177 |
-| Candidate Dice | **0.9287** | 0.3750 | 0.3044 |
-| Candidate IoU | **0.8859** | 0.3664 | 0.3000 |
-| Candidate temporal IoU | 0.6405 | 0.6898 | **0.8447** |
-| Gated Dice | **0.7863** | 0.6232 | 0.5642 |
-| Gated IoU | **0.7434** | 0.5562 | 0.4949 |
-| Gated temporal IoU | 0.6907 | 0.9003 | **0.9375** |
-| Gated centroid shift, px | 78.31 | 26.27 | **16.02** |
-| Gated area change | 0.01928 | 0.00695 | **0.00400** |
-| Mean reliability (blend weight) | **0.7211** | 0.2023 | 0.1442 |
-| Total time | 9m 18s | 6m 17s | **5m 41s** |
+## Per-sequence distribution
 
-Candidate centroid shift is `NaN`/pixels in most sequences at stride 5 and 10 (too many
-consecutive empty candidates to define a shift) and is omitted above; gated centroid shift is
-pixels, not directly comparable with the normalized centroid values in the main benchmark table.
+| Schedule | Q1 Dice | Median Dice | Q3 Dice | Dice ≥ 0.70 | IoU ≥ 0.70 | Minimum Dice |
+|---|---:|---:|---:|---:|---:|---:|
+| Stride 1 | 0.7769 | **0.9136** | 0.9350 | 18 / 23 | 18 / 23 | 0.2030 |
+| Stride 5 | 0.5667 | 0.6918 | 0.7861 | 11 / 23 | 9 / 23 | 0.3457 |
+| Stride 10 | 0.4331 | 0.5935 | 0.7534 | 10 / 23 | 6 / 23 | 0.2766 |
 
-### Gate effect: candidate vs. gated, by stride
+## Per-sequence Dice and IoU
 
-| Stride | Candidate Dice | Gated Dice | Δ Dice | Candidate temporal IoU | Gated temporal IoU | Δ temporal |
-|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 0.9287 | 0.7863 | **-0.1425** | 0.6405 | 0.6907 | +0.0502 |
-| 5 | 0.3750 | 0.6232 | **+0.2482** | 0.6898 | 0.9003 | +0.2104 |
-| 10 | 0.3044 | 0.5642 | **+0.2598** | 0.8447 | 0.9375 | +0.0928 |
+| Seq | Frames | S1 Dice | S1 IoU | S5 Dice | S5 IoU | S10 Dice | S10 IoU |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1† | 36 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| 2 | 63 | 0.9014 | 0.8458 | 0.8303 | 0.7685 | 0.8183 | 0.7481 |
+| 3 | 15 | 0.2030 | 0.1478 | 0.8078 | 0.7278 | 0.8078 | 0.7278 |
+| 4 | 48 | 0.3863 | 0.3483 | 0.3638 | 0.3339 | 0.2995 | 0.2719 |
+| 5 | 250 | 0.9380 | 0.8977 | 0.6738 | 0.6293 | 0.5468 | 0.5133 |
+| 6 | 91 | 0.9233 | 0.8888 | 0.7747 | 0.7268 | 0.7236 | 0.6837 |
+| 7† | 48 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| 8 | 73 | 0.9136 | 0.8763 | 0.6018 | 0.5433 | 0.5360 | 0.4849 |
+| 9 | 51 | 0.5512 | 0.5003 | 0.5317 | 0.4754 | 0.5291 | 0.4721 |
+| 10 | 25 | 0.9522 | 0.9449 | 0.7792 | 0.7663 | 0.8414 | 0.8137 |
+| 11 | 228 | 0.8600 | 0.8164 | 0.8076 | 0.7460 | 0.7471 | 0.6873 |
+| 12 | 250 | 0.9336 | 0.8859 | 0.7514 | 0.6808 | 0.4629 | 0.4108 |
+| 13 | 250 | 0.8197 | 0.7884 | 0.6380 | 0.6014 | 0.5935 | 0.5539 |
+| 14 | 249 | 0.8046 | 0.7530 | 0.5296 | 0.4723 | 0.4033 | 0.3630 |
+| 15 | 116 | 0.7723 | 0.7262 | 0.7008 | 0.6565 | 0.7018 | 0.6582 |
+| 16 | 40 | 0.9318 | 0.9149 | 0.7467 | 0.7246 | 0.7477 | 0.7249 |
+| 17 | 63 | 0.9365 | 0.9077 | 0.6554 | 0.6055 | 0.5810 | 0.5365 |
+| 18 | 63 | 0.5835 | 0.4612 | 0.4031 | 0.2935 | 0.2766 | 0.2055 |
+| 19 | 56 | 0.9419 | 0.8962 | 0.7930 | 0.7291 | 0.7590 | 0.6967 |
+| 20 | 52 | 0.5738 | 0.5570 | 0.3588 | 0.3386 | 0.2885 | 0.2885 |
+| 21 | 56 | 0.9326 | 0.9016 | 0.6918 | 0.6538 | 0.6466 | 0.6049 |
+| 22 | 46 | 0.9298 | 0.8868 | 0.6050 | 0.5481 | 0.3803 | 0.3237 |
+| 23 | 56 | 0.7816 | 0.7386 | 0.3457 | 0.3136 | 0.3500 | 0.3292 |
 
-The effect flips with prompt density. At stride 1, almost every frame has a fresh GT box
-(1,710/2,225), so the raw per-frame candidate is already strong (Dice `0.9287`); blending in the
-soft memory only pulls it down. At stride 5 and 10, most frames have no candidate at all — a
-per-frame prediction with the memory bank disabled produces nothing without a fresh box, so the
-un-blended candidate Dice collapses to `0.30–0.38`. There, the reliability blend is what carries
-a plausible mask across the un-prompted gap, recovering roughly `0.25–0.26` Dice and `0.09–0.21`
-temporal IoU over the raw candidate. Mean reliability drops sharply as stride grows (`0.72 →
-0.20 → 0.14`): most frames get the neutral `r_prompt = 0.5` and a low-confidence, likely-empty
-candidate, so the blend leans on the previous memory mask rather than the new one — which is the
-intended behavior for un-prompted gaps.
+† No positive-GT frames.
 
-At the current implementation, the gate is a compensation mechanism for missing per-frame
-prompts, not an unconditional accuracy improvement: it helps substantially under sparse
-prompting (stride 5, 10) and actively hurts when prompts are already dense (stride 1). Treat it
-as a stride-dependent trade rather than a strict win or loss.
+## Largest schedule effects
 
-## 7. Endoscopy-video evaluation framework
+| Comparison | Best / worst | Sequence | Δ Dice | Δ IoU |
+|---|---|---|---:|---:|
+| S5 − S1 | Best | seq3 | +0.6048 | +0.5799 |
+| S5 − S1 | Worst | seq23 | −0.4359 | −0.4250 |
+| S10 − S5 | Best | seq10 | +0.0622 | +0.0473 |
+| S10 − S5 | Worst | seq12 | −0.2886 | −0.2700 |
+| S10 − S1 | Worst | seq22 | −0.5494 | −0.5630 |
 
-Endoscopy contains camera motion, blur, glare, mucus, temporary disappearance, deformation, and large background regions. A useful evaluation must answer five different questions.
+## Evidence matrix
 
-| Question | Required metrics | Failure exposed |
-|---|---|---|
-| Is the visible target segmented correctly? | Positive-frame Dice, IoU, boundary score | Poor overlap or boundary |
-| Is target tissue missed? | Sensitivity, false-negative area | Under-segmentation |
-| Does foreground persist after disappearance? | Empty-frame false-positive rate, specificity, predicted area | Ghost masks |
-| Is tracking temporally plausible? | Temporal IoU, area change, centroid shift, failure duration | Flicker, jumps, freeze |
-| Is the workflow practical? | Prompts/video, correction count, runtime | Excess clinician effort |
+| Claim | Status | Evidence | Missing |
+|---|---|---|---|
+| Constant-capacity external memory | Supported | Single dynamic mask; `num_maskmem=0` | Peak-memory benchmark |
+| Strong stride-1 overlap | Supported | Dice 0.8442; IoU 0.8026 | Matched original-stack run |
+| Stride-5 Dice near 0.70 | Partial | Dice 0.6677; IoU 0.6174 | Confidence intervals; external dataset |
+| Stride-10 robustness | Not supported | Dice 0.5765; IoU 0.5335 | Stronger sparse propagation |
+| Reliability is necessary | Not tested | Heuristic only | Fixed EMA; no gate; calibrated gate |
+| Better than SAM2 stack | Not tested | No matched result | Same evaluator and prompt schedule |
+| First-prompt-only result | Absent | No folder | 23-sequence run |
 
-### Recommended reporting units
+## Visual report
 
-| Level | Primary report | Why |
-|---|---|---|
-| Frame | Positive, empty, transition, degraded-quality subsets | Separates clinical situations |
-| Sequence | Mean, median, worst sequence, failure duration | Prevents easy frames hiding collapse |
-| Patient | Patient-macro mean with confidence interval | Correct clinical unit |
-| Acquisition site/device | Stratified scores | Detects domain shift |
-| Prompt strategy | Accuracy vs prompts and corrections | Measures usable efficiency |
-
-### Required frame subsets
-
-| Subset | Report |
-|---|---|
-| Target visible | Dice, IoU, sensitivity, boundary error |
-| Target absent | Correct-empty rate, false-positive area, specificity |
-| Entry/exit transition | Disappearance and recovery delay |
-| Blur/glare/mucus | Accuracy drop and recovery time |
-| Fast camera motion | Centroid and overlap change relative to GT |
-| Partial visibility | Visible-only overlap and failure flags |
-
-### Model-selection order
-
-1. Verify one prediction per input frame.
-2. Rank positive-frame Dice/IoU at patient or sequence level.
-3. Reject persistent false positives on empty frames.
-4. Compare sensitivity and predicted area to distinguish misses from over-segmentation.
-5. Use temporal metrics only among models with comparable spatial accuracy.
-6. Compare prompt burden, correction burden, and runtime.
-7. Validate downstream clinical measurements separately.
-
-## 8. What the current metrics imply
-
-| Model behavior | Metric pattern | Interpretation |
-|---|---|---|
-| Accurate segmentation | High Dice/IoU, balanced sensitivity/specificity | Preferred |
-| Over-segmentation | High sensitivity, lower Dice/specificity, large predicted area | Includes non-target tissue |
-| Under-segmentation | High specificity, low sensitivity/Dice, small predicted area | Misses target tissue |
-| Flicker | Moderate Dice, low temporal IoU, high area/centroid change | Unstable video output |
-| Frozen drift | Low Dice, high temporal IoU, low area/centroid change | Stable but wrong |
-| Disappearance failure | Good positive Dice, poor empty-frame correctness | Mask persists after target leaves |
-
-Current examples:
-
-| Example | Pattern |
-|---|---|
-| `SAM2_LARGE_GT_BOX_FRAME` | Best spatial upper bound; balanced sensitivity and specificity |
-| `YOLO_SAM2_YOLO_BOX_FRAME` | Best fully automatic benchmark; detector gap remains |
-| `MedSAM3_TEXT_POLYP` | High sensitivity with larger masks and lower temporal stability |
-| First-only MedSAM2 | High apparent smoothness with severe spatial drift |
-| Reliability gate, stride 1 | Higher temporal IoU but lower Dice than the dense-prompt candidate |
-| Reliability gate, stride 5/10 | Higher Dice *and* higher temporal IoU than the sparse-prompt candidate — compensates for missing per-frame candidates |
-
-## 9. Recommended next metrics
-
-| Add | Purpose |
-|---|---|
-| Precision / false-positive rate | Complete sensitivity-specificity interpretation |
-| Boundary F-score or HD95 | Assess anatomical boundary accuracy |
-| GT-normalized temporal error | Separate real motion from prediction instability |
-| Failure episode count/duration | Measure sustained tracking collapse |
-| Recovery latency | Measure recovery after occlusion or blur |
-| Prompt/correction burden | Measure clinician effort |
-| Adenoid-to-airway ratio error | Measure downstream clinical impact |
-| Grade agreement and Cohen's kappa | Measure clinical decision agreement |
-| Patient bootstrap confidence intervals | Quantify uncertainty |
-
-## 10. Decision summary
-
-| Goal | Current choice | Reason |
-|---|---|---|
-| Segmentation upper bound | SAM2 Large + GT box, frame | Dice `0.9457`, IoU `0.9071` |
-| Fully automatic proxy baseline | SAM2 + YOLO box, frame | Dice `0.7851`, best automatic overlap |
-| Detector-free text baseline | MedSAM3 | Sensitivity `0.9216`, but lower overlap and stability |
-| Best MedSAM2 prompt type | Mask prompt | Better Dice than direct box prompt |
-| Sparse-prompt deployment | Not ready | Large Dice loss and drift |
-| Current reliability gate | Use only under sparse prompting | Recovers Dice `+0.25–0.26` and temporal IoU `+0.09–0.21` at stride 5/10; costs Dice `-0.14` at stride 1 |
-
-No single score is sufficient for endoscopy video. Use spatial correctness first, empty-frame safety second, temporal behavior third, and workflow/clinical impact last.
+[Architecture and results dashboard](architecture_diagram.html)

@@ -170,6 +170,50 @@ class SAM2VideoPredictor(SAM2Base):
         return len(inference_state["obj_idx_to_id"])
 
     @torch.inference_mode()
+    def prepare_point_inputs(
+        self,
+        inference_state,
+        points=None,
+        labels=None,
+        box=None,
+        normalize_coords=True,
+    ):
+        """Convert user point/box prompts to the model's internal coordinates."""
+        if (points is not None) != (labels is not None):
+            raise ValueError("points and labels must be provided together")
+        if points is None and box is None:
+            raise ValueError("at least one of points or box must be provided as input")
+
+        if points is None:
+            points = torch.zeros(0, 2, dtype=torch.float32)
+        elif not isinstance(points, torch.Tensor):
+            points = torch.tensor(points, dtype=torch.float32)
+        if labels is None:
+            labels = torch.zeros(0, dtype=torch.int32)
+        elif not isinstance(labels, torch.Tensor):
+            labels = torch.tensor(labels, dtype=torch.int32)
+        if points.dim() == 2:
+            points = points.unsqueeze(0)
+        if labels.dim() == 1:
+            labels = labels.unsqueeze(0)
+
+        if box is not None:
+            if not isinstance(box, torch.Tensor):
+                box = torch.tensor(box, dtype=torch.float32, device=points.device)
+            box_coords = box.reshape(1, 2, 2)
+            box_labels = torch.tensor([2, 3], dtype=torch.int32, device=labels.device)
+            points = torch.cat([box_coords, points], dim=1)
+            labels = torch.cat([box_labels.reshape(1, 2), labels], dim=1)
+
+        if normalize_coords:
+            video_height = inference_state["video_height"]
+            video_width = inference_state["video_width"]
+            points = points / torch.tensor([video_width, video_height]).to(points.device)
+        points = (points * self.image_size).to(inference_state["device"])
+        labels = labels.to(inference_state["device"])
+        return {"point_coords": points, "point_labels": labels}
+
+    @torch.inference_mode()
     def add_new_points_or_box(
         self,
         inference_state,
@@ -185,24 +229,6 @@ class SAM2VideoPredictor(SAM2Base):
         obj_idx = self._obj_id_to_idx(inference_state, obj_id)
         point_inputs_per_frame = inference_state["point_inputs_per_obj"][obj_idx]
         mask_inputs_per_frame = inference_state["mask_inputs_per_obj"][obj_idx]
-
-        if (points is not None) != (labels is not None):
-            raise ValueError("points and labels must be provided together")
-        if points is None and box is None:
-            raise ValueError("at least one of points or box must be provided as input")
-
-        if points is None:
-            points = torch.zeros(0, 2, dtype=torch.float32)
-        elif not isinstance(points, torch.Tensor):
-            points = torch.tensor(points, dtype=torch.float32)
-        if labels is None:
-            labels = torch.zeros(0, dtype=torch.int32)
-        elif not isinstance(labels, torch.Tensor):
-            labels = torch.tensor(labels, dtype=torch.int32)
-        if points.dim() == 2:
-            points = points.unsqueeze(0)  # add batch dimension
-        if labels.dim() == 1:
-            labels = labels.unsqueeze(0)  # add batch dimension
 
         # If `box` is provided, we add it as the first two points with labels 2 and 3
         # along with the user-provided points (consistent with how SAM 2 is trained).
@@ -222,28 +248,23 @@ class SAM2VideoPredictor(SAM2Base):
                     category=UserWarning,
                     stacklevel=2,
                 )
-            if not isinstance(box, torch.Tensor):
-                box = torch.tensor(box, dtype=torch.float32, device=points.device)
-            box_coords = box.reshape(1, 2, 2)
-            box_labels = torch.tensor([2, 3], dtype=torch.int32, device=labels.device)
-            box_labels = box_labels.reshape(1, 2)
-            points = torch.cat([box_coords, points], dim=1)
-            labels = torch.cat([box_labels, labels], dim=1)
-
-        if normalize_coords:
-            video_H = inference_state["video_height"]
-            video_W = inference_state["video_width"]
-            points = points / torch.tensor([video_W, video_H]).to(points.device)
-        # scale the (normalized) coordinates by the model's internal image size
-        points = points * self.image_size
-        points = points.to(inference_state["device"])
-        labels = labels.to(inference_state["device"])
+        new_point_inputs = self.prepare_point_inputs(
+            inference_state=inference_state,
+            points=points,
+            labels=labels,
+            box=box,
+            normalize_coords=normalize_coords,
+        )
 
         if not clear_old_points:
             point_inputs = point_inputs_per_frame.get(frame_idx, None)
         else:
             point_inputs = None
-        point_inputs = concat_points(point_inputs, points, labels)
+        point_inputs = concat_points(
+            point_inputs,
+            new_point_inputs["point_coords"],
+            new_point_inputs["point_labels"],
+        )
 
         point_inputs_per_frame[frame_idx] = point_inputs
         mask_inputs_per_frame.pop(frame_idx, None)
@@ -921,6 +942,7 @@ class SAM2VideoPredictor(SAM2Base):
         reverse,
         run_mem_encoder,
         prev_sam_mask_logits=None,
+        mask_prompt_weight=1.0,
     ):
         """Run tracking on a single frame based on current inputs and previous memory."""
         # Retrieve correct image features
@@ -932,8 +954,8 @@ class SAM2VideoPredictor(SAM2Base):
             feat_sizes,
         ) = self._get_image_feature(inference_state, frame_idx, batch_size)
 
-        # point and mask should not appear as input simultaneously on the same frame
-        assert point_inputs is None or mask_inputs is None
+        # Joint sparse (point/box) and dense mask prompts are supported by
+        # SAM2Base._forward_sam_heads and used by custom prompt policies.
         current_out = self.track_step(
             frame_idx=frame_idx,
             is_init_cond_frame=is_init_cond_frame,
@@ -947,6 +969,7 @@ class SAM2VideoPredictor(SAM2Base):
             track_in_reverse=reverse,
             run_mem_encoder=run_mem_encoder,
             prev_sam_mask_logits=prev_sam_mask_logits,
+            mask_prompt_weight=mask_prompt_weight,
         )
 
         # optionally offload the output to CPU memory to save GPU space
@@ -974,8 +997,14 @@ class SAM2VideoPredictor(SAM2Base):
             "pred_masks": pred_masks,
             "obj_ptr": obj_ptr,
             "object_score_logits": object_score_logits,
+            "iou_predictions": current_out["iou_predictions"],
         }
         return compact_current_out, pred_masks_gpu
+
+    @torch.inference_mode()
+    def run_single_frame_inference(self, **kwargs):
+        """Public single-frame inference API for custom memory policies."""
+        return self._run_single_frame_inference(**kwargs)
 
     def _run_memory_encoder(
         self,

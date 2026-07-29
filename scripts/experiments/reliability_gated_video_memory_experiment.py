@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Reliability-gated SAM2 experiment -- dynamic mask memory only.
-
-SAM2's own multi-frame memory bank (num_maskmem=0, see
-sam2.1_hiera_t512_no_memory.yaml) is disabled. The only state carried across
-frames is a reliability-blended mask this script maintains itself, fed back
-each frame as a mask prompt. See infer_frame().
-"""
+"""Run MedSAM2 with one reliability-gated dynamic mask memory and no memory stack."""
 
 from __future__ import annotations
 
@@ -56,13 +50,16 @@ from scripts.utils.mask_utils import (
 )
 from scripts.utils.reliability_gate import (
     ReliabilityConfig,
+    align_memory_to_frame,
     apply_reliability_gate,
     area_change,
     area_fraction,
     centroid_shift,
     compute_reliability,
     logit,
+    memory_prompt_logits,
     safe_nanmean,
+    select_reliability, # ablation
 )
 
 from external.MedSAM2.medsam2_infer_video_with_yolo import (
@@ -90,6 +87,7 @@ USE_BLUR_SCORE = True
 SAVE_MASK_IMAGES = True
 
 SEQUENCE_NAMES = None
+FIXED_RELIABILITY = None
 MAX_YOLO_BOXES_PER_FRAME = 1
 YOLO_CONF = 0.5
 YOLO_IMGSZ = 640
@@ -145,12 +143,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--video-prompt-stride", type=int, default=VIDEO_PROMPT_STRIDE)
     parser.add_argument("--video-prompt-limit", type=int, default=VIDEO_PROMPT_LIMIT)
     parser.add_argument("--no-generate-bboxes", action="store_true")
+    parser.add_argument(
+        "--fixed-reliability",
+        type=float,
+        default=None,
+        help=(
+            "Ablation: bypass the heuristic reliability score and use this "
+            "constant [0,1] as the memory blend weight every frame instead."
+        ),
+    )
     return parser.parse_args()
 
 
 def apply_args(args: argparse.Namespace) -> None:
     global OUTPUT_ROOT, SEQUENCE_NAMES, DEVICE, PROMPT_SOURCE
-    global ALLOW_BBOX_GENERATION, VIDEO_PROMPT_STRIDE, VIDEO_PROMPT_LIMIT
+    global ALLOW_BBOX_GENERATION, VIDEO_PROMPT_STRIDE, VIDEO_PROMPT_LIMIT, FIXED_RELIABILITY
 
     output_root = args.output_root.expanduser().absolute()
     if args.require_google_drive_output and not is_google_drive_path(output_root):
@@ -169,6 +176,9 @@ def apply_args(args: argparse.Namespace) -> None:
     VIDEO_PROMPT_STRIDE = args.video_prompt_stride
     VIDEO_PROMPT_LIMIT = args.video_prompt_limit
     ALLOW_BBOX_GENERATION = not args.no_generate_bboxes
+    if args.fixed_reliability is not None and not 0.0 <= args.fixed_reliability <= 1.0:
+        raise ValueError("--fixed-reliability must be in [0, 1]")
+    FIXED_RELIABILITY = args.fixed_reliability
 
 
 def list_sequences(data_root: Path) -> list[str]:
@@ -223,11 +233,18 @@ def gt_bbox_key(frame_name: str) -> str:
 
 
 def pick_box(
-    frame_idx: int, frame_name: str, frame_path: Path, gt_bboxes: dict, yolo_model, seeded_count: int
+    frame_idx: int,
+    frame_name: str,
+    frame_path: Path,
+    gt_bboxes: dict,
+    yolo_model,
+    seeded_count: int,
 ) -> tuple[np.ndarray | None, float | None]:
     if VIDEO_PROMPT_LIMIT > 0 and seeded_count >= VIDEO_PROMPT_LIMIT:
         return None, None
-    if VIDEO_PROMPT_STRIDE > 1 and frame_idx % VIDEO_PROMPT_STRIDE != 0:
+    # Retry detection until the dynamic memory has been seeded.
+    should_skip = VIDEO_PROMPT_STRIDE > 1 and frame_idx % VIDEO_PROMPT_STRIDE != 0
+    if seeded_count > 0 and should_skip:
         return None, None
     if PROMPT_SOURCE == "gt_bbox":
         boxes = gt_bboxes.get(gt_bbox_key(frame_name), [])  # already [(box, 1.0), ...]
@@ -245,50 +262,29 @@ def pick_box(
     return box, float(confidence)
 
 
-def box_to_point_inputs(
-    box: np.ndarray, video_height: int, video_width: int, image_size: int, device
-) -> dict:
-    """Convert a box into the point_inputs dict add_new_points_or_box builds."""
-    box_t = torch.as_tensor(box, dtype=torch.float32, device=device).reshape(1, 2, 2)
-    box_t = box_t / torch.tensor([video_width, video_height], device=device)
-    box_t = box_t * image_size
-    labels = torch.tensor([2, 3], dtype=torch.int32, device=device).reshape(1, 2)
-    return {"point_coords": box_t, "point_labels": labels}
-
-
-def decode(predictor, inference_state, frame_idx, batch_size, point_inputs=None, mask_inputs=None):
-    """Run one frame through SAM2's decoder, capturing its own IoU estimate.
-
-    is_init_cond_frame=True and run_mem_encoder=False on every call: no
-    memory bank is ever read from or written to (num_maskmem=0 already
-    disables the read path in sam2_base.py; run_mem_encoder=False skips the
-    write path too).
-    """
-    original_forward_sam_heads = predictor._forward_sam_heads
-    captured: dict = {}
-
-    def capturing_forward_sam_heads(*args, **kwargs):
-        result = original_forward_sam_heads(*args, **kwargs)
-        captured["ious"] = result[2]
-        return result
-
-    predictor._forward_sam_heads = capturing_forward_sam_heads
-    try:
-        current_out, pred_masks_gpu = predictor._run_single_frame_inference(
-            inference_state=inference_state,
-            output_dict=inference_state["output_dict"],
-            frame_idx=frame_idx,
-            batch_size=batch_size,
-            is_init_cond_frame=True,
-            point_inputs=point_inputs,
-            mask_inputs=mask_inputs,
-            reverse=False,
-            run_mem_encoder=False,
-        )
-    finally:
-        predictor._forward_sam_heads = original_forward_sam_heads
-
-    mask_confidence = float(captured["ious"].mean().item())
+def decode(
+    predictor,
+    inference_state,
+    frame_idx,
+    batch_size,
+    point_inputs=None,
+    mask_inputs=None,
+    mask_prompt_weight=1.0,
+):
+    """Decode one frame without reading or writing SAM2's memory bank."""
+    current_out, pred_masks_gpu = predictor.run_single_frame_inference(
+        inference_state=inference_state,
+        output_dict=inference_state["output_dict"],
+        frame_idx=frame_idx,
+        batch_size=batch_size,
+        is_init_cond_frame=True,
+        point_inputs=point_inputs,
+        mask_inputs=mask_inputs,
+        reverse=False,
+        run_mem_encoder=False,
+        mask_prompt_weight=mask_prompt_weight,
+    )
+    mask_confidence = float(current_out["iou_predictions"].mean().item())
     return current_out, pred_masks_gpu, mask_confidence
 
 
@@ -315,7 +311,9 @@ class MemoryState:
 
     def __init__(self) -> None:
         self.mask_probs: np.ndarray | None = None  # blended [0,1] low-res mask, Mt
-        self.previous_binary_mask: np.ndarray | None = None  # last frame's own output, video res
+        self.reliability = 0.0
+        self.previous_binary_mask: np.ndarray | None = None  # last frame's own output, video res - check in compute_reliability
+        self.previous_frame_bgr: np.ndarray | None = None # for misalignment task
 
 
 def infer_frame(
@@ -329,32 +327,63 @@ def infer_frame(
     config: ReliabilityConfig,
     memory: MemoryState,
 ) -> dict:
-    """Decode one frame and update `memory` in place.
-
-    A box takes the prompt slot when present (SAM2 allows only one of
-    point_inputs / mask_inputs per call); the blended memory mask Mt fills
-    in otherwise. Reliability scoring and the Mt blend run every frame
-    regardless of which prompt was used -- no hard reset on a box.
-    """
+    """Decode one frame and update the single dynamic memory."""
+    # check if there is any reason to expect a foreground object
     has_evidence = box is not None or memory.mask_probs is not None
+    frame_bgr = frame_rgb[:, :, ::-1].copy() # current frame
 
-    point_inputs = mask_inputs = None
-    if box is not None:
-        point_inputs = box_to_point_inputs(
-            box,
-            video_height=inference_state["video_height"],
-            video_width=inference_state["video_width"],
-            image_size=predictor.image_size,
-            device=inference_state["device"],
+    # Align memory only between sparse external prompts.
+    sparse_prompt_mode = VIDEO_PROMPT_STRIDE > 1 or VIDEO_PROMPT_LIMIT > 0
+    memory_for_frame = memory.mask_probs
+    if sparse_prompt_mode and box is None and memory_for_frame is not None:
+        memory_for_frame = align_memory_to_frame(
+            memory_for_frame,
+            memory.previous_frame_bgr,
+            frame_bgr,
         )
-    elif memory.mask_probs is not None:
-        mask_logits = logit(memory.mask_probs)
-        mask_inputs = torch.from_numpy(mask_logits).to(inference_state["device"])[None, None].float()
 
-    frame_bgr = frame_rgb[:, :, ::-1]
+    # box prompt
+    point_inputs = None
+    if box is not None:
+        point_inputs = predictor.prepare_point_inputs(
+            inference_state=inference_state,
+            box=box,
+        )
+
+    # mask_inputs
+    if memory_for_frame is None:
+        prompt_size = predictor.image_size // 4
+        mask_logits = np.zeros((prompt_size, prompt_size), dtype=np.float32)
+    else:
+        mask_logits = memory_prompt_logits(
+            memory_for_frame,
+            min_foreground_peak=config.memory_prompt_min_peak,
+        )
+    mask_inputs = torch.from_numpy(mask_logits)[None, None].to(
+        inference_state["device"], dtype=torch.float32
+    )
+
+    # used for sparse prompts
+    # memory_weight * memory + prompt_weight * prompt
+    memory_read_weight = 1.0
+    if memory.mask_probs is None:
+        memory_read_weight = 0.0
+    elif box is not None:
+        prompt_reliability = 1.0 if box_confidence is None else box_confidence
+        total_reliability = memory.reliability + prompt_reliability
+        memory_read_weight = (
+            memory.reliability / total_reliability
+            if total_reliability > 0
+            else 0.0
+        )
+
     current_out, pred_masks_gpu, mask_confidence = decode(
-        predictor, inference_state, frame_idx, batch_size,
+        predictor,
+        inference_state,
+        frame_idx,
+        batch_size,
         point_inputs=point_inputs, mask_inputs=mask_inputs,
+        mask_prompt_weight=memory_read_weight,
     )
     object_score = float(torch.sigmoid(current_out["object_score_logits"]).mean().item())
     _, video_res_masks = predictor._get_orig_video_res_output(inference_state, pred_masks_gpu)
@@ -370,19 +399,36 @@ def infer_frame(
         object_score=object_score,
         has_evidence=has_evidence,
     )
-    reliability = signals["reliability"]
+    reliability = select_reliability(signals, FIXED_RELIABILITY)
 
-    # Blend in probability space, not logit space -- logits let confident
-    # values dominate and bleed spatially into ambiguous regions.
+    # Fuse bounded probabilities so reliability remains the true blend weight.
     current_probs = torch.sigmoid(current_out["pred_masks"])[0, 0].float().cpu().numpy()
-    if memory.mask_probs is None:
-        memory.mask_probs = current_probs
-    else:
-        memory.mask_probs = apply_reliability_gate(current_probs, memory.mask_probs, reliability)
+    memory.mask_probs = apply_reliability_gate(
+        current_probs,
+        memory_for_frame,
+        reliability,
+    )
+    memory.reliability = reliability
 
-    memory.previous_binary_mask = current_mask
+    memory_logits = torch.from_numpy(logit(memory.mask_probs))[None, None].to(
+        inference_state["device"], dtype=torch.float32
+    )
+    _, video_res_memory = predictor._get_orig_video_res_output(
+        inference_state, memory_logits
+    )
+    fused_mask = (video_res_memory[0, 0] > 0).cpu().numpy().astype(np.uint8)
+    use_fused_output = sparse_prompt_mode and box is None
+    final_mask = fused_mask if use_fused_output else current_mask
 
-    return {"mask": current_mask, "reliability": reliability, "signals": signals}
+    memory.previous_binary_mask = final_mask
+    memory.previous_frame_bgr = frame_bgr
+
+    return {
+        "mask": final_mask,
+        "reliability": reliability,
+        "memory_read_weight": memory_read_weight,
+        "signals": signals,
+    }
 
 
 def run(predictor, sequence_names: list[str]) -> None:
@@ -433,8 +479,7 @@ def run(predictor, sequence_names: list[str]) -> None:
                 if memory.mask_probs is None:
                     print(
                         f"{sequence_name}: no box prompt by frame {frame_name} yet; "
-                        "decoding with no prompt at all (letting SAM2's own "
-                        "object-presence head decide, unbiased by a fake box).",
+                        "decoding with the neutral zero-logit memory prompt.",
                         flush=True,
                     )
 
@@ -444,6 +489,7 @@ def run(predictor, sequence_names: list[str]) -> None:
             )
             final_mask = out["mask"]
             reliability = out["reliability"]
+            memory_read_weight = out["memory_read_weight"]
             signals = out["signals"]
 
             if SAVE_MASK_IMAGES:
@@ -458,6 +504,7 @@ def run(predictor, sequence_names: list[str]) -> None:
                     "frame": frame_name,
                     "num_boxes": 1 if box is not None else 0,
                     "reliability": reliability,
+                    "memory_read_weight": memory_read_weight,
                     "r_conf": signals["r_conf"] if signals else float("nan"),
                     "r_prompt": signals["r_prompt"] if signals else float("nan"),
                     "r_boundary": signals["r_boundary"] if signals else float("nan"),
@@ -484,7 +531,17 @@ def run(predictor, sequence_names: list[str]) -> None:
                 "prompt_source": PROMPT_SOURCE,
                 "video_prompt_stride": VIDEO_PROMPT_STRIDE,
                 "video_prompt_limit": VIDEO_PROMPT_LIMIT,
-                "memory_mode": "dynamic_mask_memory_no_sam2_bank_no_pointer",
+                "fixed_reliability": FIXED_RELIABILITY,
+                "prompt_mode": "memory_always_box_optional_joint",
+                "memory_prompt_calibration": "peak_normalized",
+                "memory_read": "reliability_adaptive_dense_embedding",
+                "memory_prompt_min_peak": reliability_config.memory_prompt_min_peak,
+                "motion_alignment": "farneback_sparse_unboxed_frames",
+                "motion_alignment_disabled_for_dense_stride1": True,
+                "retry_detector_until_first_box": True,
+                "memory_mode": "single_dynamic_mask_memory",
+                "sam2_memory_stack": "disabled",
+                "prediction_output": "fused_memory_on_sparse_unboxed_frames",
                 "rows": rows,
             },
         )
@@ -618,6 +675,8 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     print(f"Inference device: {DEVICE}")
     print(f"Video prompt stride: {VIDEO_PROMPT_STRIDE}")
+    if FIXED_RELIABILITY is not None:
+        print(f"Fixed reliability ablation: {FIXED_RELIABILITY}")
     print(f"Sequences: {sequence_names}")
     print(f"Outputs: {OUTPUT_ROOT}")
 
@@ -628,7 +687,11 @@ def main(args: argparse.Namespace | None = None) -> None:
         apply_postprocessing=True,
         hydra_overrides_extra=["++model.use_mask_input_as_output_without_sam=false"],
     )
-
+    if predictor.num_maskmem != 0:
+        raise RuntimeError(
+            "This experiment requires SAM2's memory stack to be disabled "
+            "(model.num_maskmem must be 0)."
+        )
     run(predictor, sequence_names)
     evaluate(sequence_names, masks_root=OUTPUT_ROOT / "masks", logs_root=OUTPUT_ROOT / "logs")
 
@@ -639,10 +702,20 @@ def main(args: argparse.Namespace | None = None) -> None:
         "prompt_source": PROMPT_SOURCE,
         "video_prompt_stride": VIDEO_PROMPT_STRIDE,
         "video_prompt_limit": VIDEO_PROMPT_LIMIT,
+        "fixed_reliability": FIXED_RELIABILITY,
+        "prompt_mode": "memory_always_box_optional_joint",
+        "memory_prompt_calibration": "peak_normalized",
+        "memory_read": "reliability_adaptive_dense_embedding",
+        "memory_prompt_min_peak": ReliabilityConfig().memory_prompt_min_peak,
+        "motion_alignment": "farneback_sparse_unboxed_frames",
+        "motion_alignment_disabled_for_dense_stride1": True,
+        "retry_detector_until_first_box": True,
         "sequence_names": sequence_names,
         "device": DEVICE,
         "sam2_cfg": SAM2_CFG,
-        "memory_mode": "dynamic_mask_memory_no_sam2_bank_no_pointer",
+        "memory_mode": "single_dynamic_mask_memory",
+        "sam2_memory_stack": "disabled",
+        "prediction_output": "fused_memory_on_sparse_unboxed_frames",
     }
     with open(OUTPUT_ROOT / "experiment_notes.json", "w", encoding="utf-8") as handle:
         json.dump(notes, handle, indent=2)

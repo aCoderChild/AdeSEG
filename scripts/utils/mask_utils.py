@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 from PIL import Image
@@ -48,12 +47,6 @@ def save_binary_mask(mask: np.ndarray, mask_path: Path) -> None:
     Image.fromarray((mask > 0).astype(np.uint8) * 255).save(mask_path)
 
 
-def save_soft_mask(mask: np.ndarray, mask_path: Path) -> None:
-    """Save a [0, 1] probability mask as an 8-bit grayscale PNG, no threshold."""
-    mask_path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray((np.clip(mask, 0, 1) * 255).astype(np.uint8)).save(mask_path)
-
-
 def make_overlay(
     frame_rgb: np.ndarray,
     gt_mask: np.ndarray,
@@ -81,15 +74,3 @@ def save_overlay(overlay_rgb: np.ndarray, overlay_path: Path) -> None:
     """Save an RGB overlay image (see `make_overlay`) as a PNG."""
     overlay_path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(overlay_rgb).save(overlay_path)
-
-
-def list_mask_frame_names(
-    mask_dir: Path,
-    sort_key,
-    extensions: Iterable[str] = MASK_EXTENSIONS,
-) -> list[str]:
-    """List unique frame stems in a mask directory using a supplied sort key."""
-    frame_names = []
-    for extension in extensions:
-        frame_names.extend(path.stem for path in mask_dir.glob(f"*{extension}"))
-    return sorted(set(frame_names), key=sort_key)
