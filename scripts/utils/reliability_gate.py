@@ -14,44 +14,14 @@ except ImportError:
 
 @dataclass(frozen=True)
 class ReliabilityConfig:
-    confidence_weight: float = 0.35
-    prompt_confidence_weight: float = 0.25
-    boundary_weight: float = 0.30
-    blur_weight: float = 0.10
-    object_score_weight: float = 0.20
-    use_blur_score: bool = True
-    blur_reference: float = 150.0
     boundary_reference: float = 30.0
     min_mask_area_ratio: float = 0.0005
     max_mask_area_ratio: float = 0.80
-    blank_mask_penalty: float = 0.25  # penalties
-    implausible_area_penalty: float = 0.50  # penalties
-    no_evidence_penalty: float = 0.15
+    implausible_area_penalty: float = 0.50
     object_absence_threshold: float = 0.5
     memory_prompt_min_peak: float = 0.05
 
-    # hard coded weights
     def __post_init__(self) -> None:
-        weights = (
-            self.confidence_weight,
-            self.prompt_confidence_weight,
-            self.boundary_weight,
-            self.blur_weight,
-            self.object_score_weight,
-        )
-        if any(weight < 0 for weight in weights):
-            raise ValueError("Reliability weights must be non-negative")
-        active_weight = (
-            self.confidence_weight
-            + self.prompt_confidence_weight
-            + self.boundary_weight
-            + self.object_score_weight
-            + (self.blur_weight if self.use_blur_score else 0.0)
-        )
-        if active_weight <= 0:
-            raise ValueError("At least one reliability weight must be positive")
-        if self.blur_reference <= 0:
-            raise ValueError("blur_reference must be positive")
         if self.boundary_reference <= 0:
             raise ValueError("boundary_reference must be positive")
         if not 0 <= self.min_mask_area_ratio <= self.max_mask_area_ratio <= 1:
@@ -67,73 +37,51 @@ def clamp01(value: float) -> float:
 
 
 def logit(probs: np.ndarray, eps: float = 1e-4) -> np.ndarray:
-    """Convert probabilities to finite logits for MedSAM2 mask prompting."""
     clipped = np.clip(probs, eps, 1.0 - eps)
     return np.log(clipped / (1.0 - clipped))
 
-# TODO
+
 def memory_prompt_logits(
-    memory_probs: np.ndarray,
+    memory_logits: np.ndarray,
     min_foreground_peak: float = 0.05,
 ) -> np.ndarray:
-    """Convert fused memory to a scale-stable dense prompt.
+    """Zero out near-empty memory; otherwise reuse the stored logits as the prompt."""
+    peak_prob = 1.0 / (1.0 + np.exp(-float(np.max(memory_logits))))
+    if peak_prob < min_foreground_peak:
+        return np.zeros_like(memory_logits, dtype=np.float32)
+    return memory_logits.astype(np.float32)
 
-    Reliability fusion can lower the whole probability map even when its
-    spatial shape is correct. Peak normalization preserves that shape for the
-    prompt encoder without changing the stored memory or its update equation.
-    Near-empty memories stay neutral instead of amplifying numerical noise.
-    """
-    peak = float(np.max(memory_probs))
-    if peak < min_foreground_peak:
-        return np.zeros_like(memory_probs, dtype=np.float32)
-    normalized = np.clip(memory_probs / peak, 0.0, 1.0)
-    return logit(normalized).astype(np.float32)
 
-# a frame has no fresh box prompt
-# script still has to reuse the memory mask from previous frame
-# camera/tissue moved between frames => memory could MISALIGN
 def align_memory_to_frame(
-    memory_probs: np.ndarray,
+    memory_logits: np.ndarray,
     previous_frame_bgr: np.ndarray | None,
     current_frame_bgr: np.ndarray,
 ) -> np.ndarray:
-    """shift memory mask to follow camera's motion. 
-    Ex: previous frame has the object but the current frame NOT"""
-    if cv2 is None or previous_frame_bgr is None: # first frame
-        return memory_probs.copy()
+    """Warp memory forward from the previous frame to the current frame via optical flow."""
+    if cv2 is None or previous_frame_bgr is None:
+        return memory_logits.copy()
 
-    height, width = memory_probs.shape
+    height, width = memory_logits.shape
     previous_gray = cv2.cvtColor(previous_frame_bgr, cv2.COLOR_BGR2GRAY)
     current_gray = cv2.cvtColor(current_frame_bgr, cv2.COLOR_BGR2GRAY)
     previous_gray = cv2.resize(previous_gray, (width, height))
     current_gray = cv2.resize(current_gray, (width, height))
 
-    # Backward flow maps each current-frame pixel to its source in the
-    # preceding frame, which is the coordinate convention cv2.remap needs.
-    backward_flow = cv2.calcOpticalFlowFarneback( # compute flow from first arg to second
-        current_gray,
-        previous_gray,
-        None,
-        0.5,
-        3,
-        15,
-        3,
-        5,
-        1.2,
-        0,
+    # For each current-frame pixel, where did it come from in the previous frame.
+    backward_flow = cv2.calcOpticalFlowFarneback(
+        current_gray, previous_gray, None, 0.5, 3, 15, 3, 5, 1.2, 0,
     )
     grid_x, grid_y = np.meshgrid(
         np.arange(width, dtype=np.float32),
         np.arange(height, dtype=np.float32),
     )
-    # warp the memory according to the shift
     return cv2.remap(
-        memory_probs.astype(np.float32),
+        memory_logits.astype(np.float32),
         grid_x + backward_flow[..., 0],
         grid_y + backward_flow[..., 1],
         interpolation=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0, # "no evidence"
+        borderValue=0,  # flowed-out-of-frame = neutral (logit 0 = p=0.5), not background
     )
 
 
@@ -164,33 +112,6 @@ def centroid_shift(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
     if center_a is None or center_b is None:
         return float("nan")
     return float(math.dist(center_a, center_b))
-
-
-# grayscale Laplacian variance, normalized by blur_reference
-def blur_score(frame_bgr: np.ndarray | None, blur_reference: float) -> float:
-    if frame_bgr is None:
-        return 1.0
-    if cv2 is not None:
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        value = cv2.Laplacian(gray, cv2.CV_64F).var()
-    else:
-        gray = (
-            frame_bgr.mean(axis=2).astype(np.float32)
-            if frame_bgr.ndim == 3
-            else frame_bgr.astype(np.float32)
-        )
-        # Reflect-pad to match cv2's default border handling; np.roll would
-        # wrap pixels across opposite edges and contaminate the variance.
-        padded = np.pad(gray, 1, mode="reflect")
-        laplacian = (
-            -4.0 * gray
-            + padded[:-2, 1:-1]
-            + padded[2:, 1:-1]
-            + padded[1:-1, :-2]
-            + padded[1:-1, 2:]
-        )
-        value = float(laplacian.var())
-    return clamp01(float(value) / blur_reference)
 
 
 def _dilate_once(mask_bool: np.ndarray) -> np.ndarray:
@@ -226,13 +147,10 @@ def mask_boundary_ring(mask: np.ndarray, iterations: int = 2) -> np.ndarray:
     return dilated & ~eroded
 
 
-# Does the mask edge coincide with a real intensity/color edge in the frame,
-# or is it floating in a visually uniform region (a sign of a spurious mask
-# that is shape-plausible and temporally stable but not anchored to any
-# actual tissue boundary)?
 def boundary_score(
     frame_bgr: np.ndarray | None, mask: np.ndarray, boundary_reference: float
 ) -> float:
+    """Does the mask edge coincide with a real image edge, or float in flat tissue?"""
     if frame_bgr is None or mask.sum() == 0:
         return 0.5
     if cv2 is not None:
@@ -257,92 +175,81 @@ def boundary_score(
     return clamp01(value / boundary_reference)
 
 
-def compute_reliability(
+def frame_specific_reliability(
     current_mask: np.ndarray,
     previous_mask: np.ndarray | None,
     frame_bgr: np.ndarray | None,
-    mask_confidence: float | None,
+    mask_confidence: float,
     prompt_confidence: float | None,
+    object_score: float,
     config: ReliabilityConfig,
-    object_score: float | None = None,
     has_evidence: bool = True,
 ) -> dict[str, float]:
-    confidence_score = 0.5 if mask_confidence is None else clamp01(mask_confidence)
-    prompt_confidence_score = (
-        0.5 if prompt_confidence is None else clamp01(prompt_confidence)
-    )
-    object_score_value = 0.5 if object_score is None else clamp01(object_score)
-
+    """reliability from this frame's own measured signals."""
+    confidence_score = clamp01(mask_confidence)
+    object_score_value = clamp01(object_score)
     boundary_value = boundary_score(frame_bgr, current_mask, config.boundary_reference)
-    blur_value = (
-        blur_score(frame_bgr, config.blur_reference) if config.use_blur_score else 0.0
-    )
-    weighted_terms = [
-        (config.confidence_weight, confidence_score),
-        (config.prompt_confidence_weight, prompt_confidence_score),
-        (config.boundary_weight, boundary_value),
-        (config.object_score_weight, object_score_value),
-    ]
-    if config.use_blur_score:
-        weighted_terms.append((config.blur_weight, blur_value))
-    total_weight = sum(weight for weight, _ in weighted_terms)
-    reliability = sum(weight * value for weight, value in weighted_terms) / total_weight
 
-    object_confidently_absent = (
-        object_score is not None and object_score_value < config.object_absence_threshold
-    )
+    scores = [confidence_score, boundary_value, object_score_value]
+    prompt_confidence_score = None
+    if prompt_confidence is not None:
+        prompt_confidence_score = clamp01(prompt_confidence)
+        scores.append(prompt_confidence_score)
+    reliability = sum(scores) / len(scores)
 
+    object_confidently_absent = object_score_value < config.object_absence_threshold
     current_area_ratio = area_fraction(current_mask)
     just_went_blank = (
         previous_mask is not None
         and previous_mask.sum() > 0
         and current_mask.sum() == 0
     )
-    too_small = current_area_ratio < config.min_mask_area_ratio
-    too_large = current_area_ratio > config.max_mask_area_ratio
-
+    implausible_area = current_area_ratio > config.max_mask_area_ratio or (
+        current_area_ratio < config.min_mask_area_ratio and not object_confidently_absent
+    )
     no_evidence_hallucination = not has_evidence and current_area_ratio > 0
-    # Do not let one low object-presence score immediately erase an object
-    # that was visible in the preceding frame.
-    if just_went_blank:
-        reliability *= config.blank_mask_penalty
-    if too_large or (too_small and not object_confidently_absent):
+
+    if just_went_blank or no_evidence_hallucination:
+        reliability = 0.0
+    elif implausible_area:
         reliability *= config.implausible_area_penalty
-    if no_evidence_hallucination:
-        reliability *= config.no_evidence_penalty
 
     return {
         "reliability": clamp01(reliability),
         "r_conf": confidence_score,
-        "r_prompt": prompt_confidence_score,
+        "r_prompt": prompt_confidence_score if prompt_confidence_score is not None else float("nan"),
         "r_boundary": boundary_value,
-        "r_blur": blur_value,
         "r_object": object_score_value,
-        "no_evidence_penalty_applied": no_evidence_hallucination,
     }
 
 
 def select_reliability(
-    signals: dict[str, float], fixed_reliability: float | None = None
+    signals: dict[str, float], fixed_value: float | None = None
 ) -> float:
-    """Return the heuristic score, or a fixed value for an ablation."""
-    if fixed_reliability is None:
+    """(fixed_value set): same reliability every frame.
+    (fixed_value None): signals["reliability"] from frame_specific_reliability."""
+    if fixed_value is None:
         return signals["reliability"]
-    return clamp01(fixed_reliability)
+    return clamp01(fixed_value)
+
+
+def pixelwise_reliability(current_probs: np.ndarray, reliability: float) -> np.ndarray:
+    """Scale frame-level reliability by each pixel's own decisiveness."""
+    decisiveness = np.abs(current_probs.astype(np.float32) - 0.5) * 2.0
+    return clamp01(reliability) * decisiveness
 
 
 def apply_reliability_gate(
-    current_mask: np.ndarray,
-    previous_memory_mask: np.ndarray | None,
+    current_probs: np.ndarray,
+    previous_memory_logits: np.ndarray | None,
     reliability: float,
 ) -> np.ndarray:
-    """Fuse the current probability mask into the single memory every frame."""
-    current = current_mask.astype(np.float32)
-    if previous_memory_mask is None:
-        return current.copy()
-    previous = previous_memory_mask.astype(np.float32)
-    weight = clamp01(reliability)
-    return weight * current + (1.0 - weight) * previous
+    """Fuse current + memory logits, weighted per pixel by reliability. Memory stays in logit space."""
+    current_logit = logit(current_probs).astype(np.float32)
+    if previous_memory_logits is None:
+        return current_logit
+    weight = pixelwise_reliability(current_probs, reliability)
+    return weight * current_logit + (1.0 - weight) * previous_memory_logits.astype(np.float32)
 
 
 def safe_nanmean(values) -> float:

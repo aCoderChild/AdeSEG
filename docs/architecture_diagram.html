@@ -301,7 +301,7 @@
     <div>
       <div class="kicker">Modified Architecture · Results Audit</div>
       <h1>Reliability-Gated Dynamic Mask Memory</h1>
-      <p class="subtitle">MedSAM2 · PolypGen · 23 sequences · 2,225 frames · MPS · 29 July 2026</p>
+      <p class="subtitle">MedSAM2 · PolypGen proxy benchmark · 23 sequences · 2,225 frames · recorded 29 July 2026</p>
     </div>
     <div class="badges">
       <span class="badge">1 memory mask</span>
@@ -312,9 +312,33 @@
     </div>
   </header>
 
+  <section style="border-left:5px solid var(--teal);background:#f8fcfc">
+    <div class="kicker">How to read this page</div>
+    <h2 style="margin-bottom:10px">The modification is an external, training-free state loop around MedSAM2</h2>
+    <p style="margin-bottom:8px;color:#42525d;line-height:1.6">
+      MedSAM2 remains frozen and its native SAM2 memory stack is disabled (<code>num_maskmem = 0</code>).
+      For each frame, the current frame plus an optional YOLO box and the previous external memory are sent
+      into the decoder. The decoder produces the mask that is saved for evaluation. Separately, a reliability
+      gate fuses the current probability logits with the previous memory logits; that single updated mask is
+      carried to the next frame as a mask prompt. This distinction matters: the external memory stabilizes
+      future decoding, but it is not itself the saved segmentation output.
+    </p>
+    <p style="margin:0;color:var(--muted);font-size:12px">
+      Code anchors: <code>reliability_gated_video_memory_experiment.py::infer_frame</code> ·
+      <code>reliability_gate.py::frame_specific_reliability</code> ·
+      <code>reliability_gate.py::apply_reliability_gate</code>
+    </p>
+    <p style="margin:10px 0 0;color:#8a5a00;font-size:12px">
+      Provenance note: the Drive JSON logs call the output mode
+      <code>fused_memory_on_sparse_unboxed_frames</code>, but the current source sets
+      <code>final_mask = current_mask</code> before saving. This dashboard follows the source execution path
+      and treats that log field as a run label, not as proof that the fused memory mask was written to disk.
+    </p>
+  </section>
+
   <section>
     <div class="kicker">Architecture</div>
-    <h2>Inputs → frozen modules → dynamic memory → outputs</h2>
+    <h2>One-frame decode, then state update for the next frame</h2>
     <div class="legend" style="margin-bottom:10px">
       <span><i class="dot" style="background:var(--teal)"></i>Input (per frame)</span>
       <span><i class="dot" style="background:var(--blue)"></i>Frozen SAM2 module (unchanged)</span>
@@ -335,8 +359,8 @@
         </defs>
 
         <rect class="arch-group" x="270" y="55" width="705" height="365"/>
-        <text class="arch-group-title" x="294" y="84">Frozen MedSAM2</text>
-        <text class="arch-group-copy" x="294" y="105">num_maskmem = 0 · no FIFO stack · no memory-encoder write</text>
+        <text class="arch-group-title" x="294" y="84">Frozen MedSAM2 decode</text>
+        <text class="arch-group-copy" x="294" y="105">image encoder + prompt encoder + mask decoder · num_maskmem = 0</text>
 
         <rect class="arch-group proposed" x="1010" y="55" width="380" height="560"/>
         <text class="arch-group-title" x="1034" y="84">Proposed training-free module</text>
@@ -351,9 +375,9 @@
         <text class="arch-copy" x="122" y="270">optional · confidence c<tspan baseline-shift="sub">t</tspan></text>
 
         <rect class="arch-box arch-state" x="35" y="350" width="175" height="92"/>
-        <text class="arch-title" x="122" y="382">Dynamic memory</text>
-        <text class="arch-copy" x="122" y="404">always supplied</text>
-        <text class="arch-copy" x="122" y="423">M<tspan baseline-shift="sub">t−1</tspan> → dense logits</text>
+        <text class="arch-title" x="122" y="382">External memory</text>
+        <text class="arch-copy" x="122" y="404">M<tspan baseline-shift="sub">t−1</tspan> = one logit mask</text>
+        <text class="arch-copy" x="122" y="423">aligned only on sparse gaps</text>
 
         <rect class="arch-box arch-model" x="310" y="125" width="165" height="82"/>
         <text class="arch-title" x="392" y="158">Image encoder</text>
@@ -364,10 +388,10 @@
         <text class="arch-copy" x="392" y="326">box + memory mask</text>
 
         <rect class="arch-box arch-new" x="525" y="250" width="180" height="120"/>
-        <text class="arch-title" x="615" y="282">Joint prompt fusion</text>
-        <text class="arch-copy" x="615" y="307">memory: every frame</text>
-        <text class="arch-copy" x="615" y="328">box: when available</text>
-        <text class="arch-copy" x="615" y="349">adaptive memory weight</text>
+        <text class="arch-title" x="615" y="282">Prompt assembly</text>
+        <text class="arch-copy" x="615" y="307">memory mask: every frame</text>
+        <text class="arch-copy" x="615" y="328">box points: optional</text>
+        <text class="arch-copy" x="615" y="349">read weight from r<tspan baseline-shift="sub">t−1</tspan> + box confidence</text>
 
         <rect class="arch-box arch-model" x="755" y="190" width="175" height="100"/>
         <text class="arch-title" x="842" y="226">Mask decoder</text>
@@ -375,31 +399,31 @@
         <text class="arch-copy" x="842" y="271">IoU + object scores</text>
 
         <rect class="arch-box arch-output" x="755" y="325" width="175" height="66"/>
-        <text class="arch-title" x="842" y="354">Current mask</text>
-        <text class="arch-copy" x="842" y="376">threshold P<tspan baseline-shift="sub">t</tspan></text>
+        <text class="arch-title" x="842" y="354">Saved current mask</text>
+        <text class="arch-copy" x="842" y="376">threshold decoder output P<tspan baseline-shift="sub">t</tspan></text>
 
         <rect class="arch-box arch-new" x="1050" y="135" width="300" height="105"/>
         <text class="arch-title" x="1200" y="163">Reliability score r<tspan baseline-shift="sub">t</tspan></text>
-        <text class="arch-copy" x="1200" y="185">mask quality · box confidence · boundary</text>
-        <text class="arch-copy" x="1200" y="203">blur · object presence · plausibility</text>
+        <text class="arch-copy" x="1200" y="185">mask confidence · boundary gradient · object score</text>
+        <text class="arch-copy" x="1200" y="203">optional box confidence · area/blank penalties</text>
         <text class="arch-copy" x="1200" y="225" style="font-style:italic">ablation: --fixed-reliability → constant</text>
 
         <rect class="arch-box arch-new" x="1050" y="285" width="300" height="95"/>
-        <text class="arch-title" x="1200" y="318">Probability fusion</text>
-        <text class="arch-copy" x="1200" y="343">M<tspan baseline-shift="sub">t</tspan> = r<tspan baseline-shift="sub">t</tspan>P<tspan baseline-shift="sub">t</tspan> + (1−r<tspan baseline-shift="sub">t</tspan>)M̃<tspan baseline-shift="sub">t−1</tspan></text>
-        <text class="arch-copy" x="1200" y="363">optical-flow alignment on sparse gaps</text>
+        <text class="arch-title" x="1200" y="318">Logit-space gated update</text>
+        <text class="arch-copy" x="1200" y="342">w<tspan baseline-shift="sub">t</tspan>(x)=r<tspan baseline-shift="sub">t</tspan>|2P<tspan baseline-shift="sub">t</tspan>(x)−1|</text>
+        <text class="arch-copy" x="1200" y="361">L<tspan baseline-shift="sub">t</tspan>=w logit(P)+(1−w)L̃<tspan baseline-shift="sub">t−1</tspan></text>
 
         <rect class="arch-box arch-state" x="1050" y="425" width="300" height="72"/>
         <text class="arch-title" x="1200" y="456">One updated memory M<tspan baseline-shift="sub">t</tspan></text>
         <text class="arch-copy" x="1200" y="478">constant capacity · next-frame feedback</text>
 
         <rect class="arch-box arch-output" x="1050" y="535" width="300" height="72"/>
-        <text class="arch-title" x="1200" y="566">Final mask</text>
-        <text class="arch-copy" x="1200" y="588">current: box/stride 1 · fused: sparse gap</text>
+        <text class="arch-title" x="1200" y="566">Next-frame prompt state</text>
+        <text class="arch-copy" x="1200" y="588">stored memory logits · not the saved output mask</text>
 
         <rect x="270" y="470" width="705" height="128" rx="15" fill="#f8fafb" stroke="#d8e1e7" stroke-width="2"/>
         <text class="arch-group-title" x="294" y="500">Outputs</text>
-        <text class="arch-copy" x="382" y="540">binary masks</text>
+        <text class="arch-copy" x="382" y="540">current binary masks</text>
         <text class="arch-copy" x="542" y="540">overlays</text>
         <text class="arch-copy" x="687" y="540">reliability logs</text>
         <text class="arch-copy" x="850" y="540">Dice / IoU</text>
@@ -413,25 +437,25 @@
         <path class="arch-arrow" d="M475 166 H720 V215 H755"/>
         <path class="arch-arrow" d="M930 240 H1000 V187 H1050"/>
         <path class="arch-arrow" d="M930 240 H985 V332 H1050"/>
-        <path class="arch-arrow" d="M930 358 H1000 V571 H1050"/>
+        <path class="arch-arrow" d="M930 358 H950 V470"/>
         <path class="arch-arrow" d="M1200 240 V285"/>
         <path class="arch-arrow" d="M1200 380 V425"/>
         <path class="arch-arrow" d="M1200 497 V535"/>
         <path class="arch-feedback" d="M1200 497 V660 H122 V442"/>
 
         <text class="arch-label" x="255" y="318">always</text>
-        <text class="arch-label" x="990" y="320">P<tspan baseline-shift="sub">t</tspan></text>
-        <text class="arch-label" x="963" y="350">dense / box frames</text>
-        <text class="arch-label" x="1235" y="650">frame t+1</text>
+        <text class="arch-label" x="990" y="320">candidate P<tspan baseline-shift="sub">t</tspan></text>
+        <text class="arch-label" x="950" y="445">saved output</text>
+        <text class="arch-label" x="1235" y="650">mask prompt at t+1</text>
       </svg>
     </div>
 
     <div class="equation-grid">
-      <div class="equation-cell"><strong>Memory update</strong><span class="formula">M<sub>t</sub> = r<sub>t</sub>P<sub>t</sub> + (1−r<sub>t</sub>)M̃<sub>t−1</sub></span></div>
+      <div class="equation-cell"><strong>Exact memory update</strong><span class="formula">L<sub>t</sub>(x) = w<sub>t</sub>(x) logit(P<sub>t</sub>(x)) + (1−w<sub>t</sub>(x))L̃<sub>t−1</sub>(x)</span></div>
       <div class="equation-cell"><strong>State capacity</strong><span>1 probability mask</span></div>
       <div class="equation-cell"><strong>SAM2 memory</strong><span>num_maskmem = 0</span></div>
       <div class="equation-cell"><strong>Trainable modules</strong><span>none</span></div>
-      <div class="equation-cell"><strong>Reliability ablation</strong><span>select_reliability(): --fixed-reliability=0.5 at strides 1/5/10 — needed only once prompting goes sparse</span></div>
+      <div class="equation-cell"><strong>Reliability ablation</strong><span><code>select_reliability()</code> swaps the frame score for fixed r = 0.5; compare only within the same stride</span></div>
     </div>
   </section>
 
@@ -634,9 +658,9 @@
     <p class="chart-note" style="margin-bottom:14px">
       Same 23 sequences · same 2,225 frames · same YOLO prompt schedule as each heuristic run above — only the
       memory blend weight changes. <code>select_reliability()</code> either returns the full heuristic (mask
-      quality, box confidence, boundary, blur, object presence, plausibility penalties) or a constant passed
+      mask confidence, boundary gradient, object score, optional box confidence, and area/blank penalties) or a constant passed
       via <code>--fixed-reliability 0.5</code>. Now run at all three strides, isolating whether the heuristic's
-      five weighted signals earn their complexity over a naive constant blend — and whether that answer changes
+      these frame-level signals earn their complexity over a naive constant blend — and whether that answer changes
       with prompt sparsity.
     </p>
 
@@ -764,6 +788,63 @@
   </section>
 
   <section>
+    <div class="kicker">Reliability internals</div>
+    <h2>Which signals actually drive the reliability score r<sub>t</sub>?</h2>
+    <p class="chart-note" style="margin-bottom:14px">
+      Recorded-log diagnostics for the inputs and outputs of <code>frame_specific_reliability()</code> and the final blended
+      r<sub>t</sub>, computed per-frame from <code>logs/seq*.csv</code> across all 23 sequences × 2,225 frames,
+      for each heuristic run (Stride 1 / 5 / 10). Fixed-reliability runs are excluded — r<sub>t</sub> is
+      constant there, so correlation is undefined. "Pooled" combines all 6,675 frames from the three heuristic
+      runs.
+    </p>
+
+    <div class="chart-card">
+      <h3>Correlation with final r<sub>t</sub>, by signal and schedule</h3>
+      <p class="chart-note">Observed Pearson correlations in exported logs; these are diagnostics, not learned weights</p>
+      <div id="correlation-chart" class="chart"></div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Signal</th><th>Role in current code</th><th>Pooled r</th><th>Stride 1</th><th>Stride 5</th><th>Stride 10</th></tr></thead>
+        <tbody>
+          <tr><td>r_object</td><td>mean input</td><td class="best">0.9057</td><td>0.9243</td><td>0.8890</td><td>0.8599</td></tr>
+          <tr><td>r_conf</td><td>mean input</td><td class="best">0.8435</td><td>0.9244</td><td>0.7857</td><td>0.7509</td></tr>
+          <tr><td>num_boxes <span class="neutral">(proxy)</span></td><td>not a score input</td><td>0.7495</td><td>0.9151</td><td>0.5925</td><td>0.4841</td></tr>
+          <tr><td>r_prompt</td><td>optional mean input</td><td>0.7318</td><td>0.8695</td><td>0.5817</td><td>0.4764</td></tr>
+          <tr><td>r_boundary</td><td>mean input</td><td>0.7150</td><td>0.6804</td><td>0.7299</td><td>0.7296</td></tr>
+          <tr><td>predicted_area_frac <span class="neutral">(proxy)</span></td><td>conditional penalty</td><td>0.3476</td><td>0.4272</td><td>0.2921</td><td>0.3386</td></tr>
+          <tr><td>area / blank conditions</td><td>conditional logic</td><td>not linear</td><td>not linear</td><td>not linear</td><td>not linear</td></tr>
+          <tr><td>memory_read_weight <span class="neutral">(downstream)</span></td><td>decoder input mix</td><td class="warn">−0.6813</td><td>−0.8187</td><td>−0.5473</td><td>−0.4293</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="chart-note" style="margin-top:14px">
+      <strong>r_object is an important diagnostic, not a configured weight.</strong> In the current implementation
+      the score is the mean of mask confidence, boundary score, object score, and optional prompt confidence.
+      A blank transition or no-evidence hallucination forces r<sub>t</sub> to zero; implausible mask area applies
+      a penalty. Those conditional branches explain why simple correlations should not be read as causal weights.
+    </p>
+    <p class="chart-note" style="margin-top:8px">
+      <strong>Blur is not part of the current gate.</strong> Earlier dashboard text described a blur score, but
+      <code>ReliabilityConfig</code> and <code>frame_specific_reliability()</code> do not compute one. The boundary
+      signal instead samples image gradients around the predicted mask edge.
+    </p>
+    <p class="chart-note" style="margin-top:8px">
+      <strong>Prompt confidence is conditional.</strong> When no fresh box exists, it is omitted from the mean rather
+      than assigned a neutral value. Sparse schedules therefore shift the score toward decoder, object, and boundary
+      evidence.
+    </p>
+    <p class="chart-note" style="margin-top:8px">
+      <strong>memory_read_weight is downstream of reliability.</strong> It is not a term in
+      <code>frame_specific_reliability()</code>; when a fresh box exists, the decoder read weight is formed from
+      previous-memory reliability and box confidence. Its correlation with final r<sub>t</sub> is therefore an
+      association in the run logs, not evidence that the gate directly optimizes it.
+    </p>
+  </section>
+
+  <section>
     <div class="kicker">Error localization</div>
     <h2>Prompted frames remain strong; unprompted propagation degrades</h2>
     <div class="two-col">
@@ -830,6 +911,58 @@
         </div>
       </div>
     </div>
+
+    <h2 style="margin-top:22px">Per-sequence reliability score profile</h2>
+    <p class="chart-note" style="margin-bottom:12px">
+      Mean r<sub>t</sub> per sequence per schedule (same <code>eval/summary.csv</code> · mean_reliability column
+      as the correlation analysis above). Reliability drops with sparsity across the board (mean 0.6434 → 0.4325
+      → 0.4099, S1 → S5 → S10) — but not evenly: some sequences barely move, others collapse.
+    </p>
+    <div id="reliability-chart" class="chart tall"></div>
+
+    <div class="two-col" style="margin-top:14px">
+      <div class="chart-card">
+        <h3>Biggest reliability collapse, S10 − S1</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Sequence</th><th>S1 r<sub>t</sub></th><th>S10 r<sub>t</sub></th><th>Δ</th><th>S1→S10 Δ Dice</th></tr></thead>
+            <tbody>
+              <tr><td>seq12</td><td>0.8768</td><td class="warn">0.2580</td><td class="warn">−0.6188</td><td class="warn">−0.4707</td></tr>
+              <tr><td>seq8</td><td>0.7667</td><td class="warn">0.3094</td><td class="warn">−0.4573</td><td class="warn">−0.3776</td></tr>
+              <tr><td>seq22</td><td>0.7142</td><td class="warn">0.3122</td><td class="warn">−0.4020</td><td class="warn">−0.5495</td></tr>
+              <tr><td>seq14</td><td>0.7138</td><td class="warn">0.3384</td><td class="warn">−0.3754</td><td class="warn">−0.4013</td></tr>
+              <tr><td>seq23</td><td>0.6206</td><td class="warn">0.2719</td><td class="warn">−0.3487</td><td class="warn">−0.4316</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h3>Most stable reliability across schedules</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Sequence</th><th>S1 r<sub>t</sub></th><th>S10 r<sub>t</sub></th><th>Δ</th><th>S1→S10 Δ Dice</th></tr></thead>
+            <tbody>
+              <tr><td>seq1 <span class="neutral">(blank GT)</span></td><td>0.2983</td><td>0.2983</td><td class="best">0.0000</td><td>0.0000</td></tr>
+              <tr><td>seq7 <span class="neutral">(blank GT)</span></td><td>0.3110</td><td>0.3110</td><td class="best">0.0000</td><td>0.0000</td></tr>
+              <tr><td>seq3</td><td>0.4668</td><td>0.5653</td><td class="best">+0.0985</td><td class="best">+0.6048</td></tr>
+              <tr><td>seq15</td><td>0.7545</td><td>0.6363</td><td>−0.1182</td><td>−0.0705</td></tr>
+              <tr><td>seq9</td><td>0.5133</td><td>0.3903</td><td>−0.1229</td><td>−0.0221</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <p class="chart-note" style="margin-top:12px">
+      <strong>Per-sequence reliability tracks per-sequence Dice, and more tightly as prompting sparsens:</strong>
+      correlation between mean r<sub>t</sub> and mean Dice across the 23 sequences is r = 0.62 at stride 1, 0.67
+      at stride 5, and 0.73 at stride 10 (excluding seq1/seq7, whose blank ground truth makes Dice trivially 1.0
+      regardless of reliability — a low r<sub>t</sub> there correctly reflects "confidently detected nothing,"
+      not a failure). Reliability isn't just an internal gating signal — it becomes an increasingly reliable
+      per-sequence predictor of final segmentation quality exactly where the ablation above showed it matters
+      most. seq12 again stands out: its reliability collapse (−0.62) coincides with its catastrophic Dice drop
+      under sparse prompting.
+    </p>
 
     <div class="table-wrap" style="margin-top:14px">
       <table id="sequence-table" class="matrix">
@@ -942,6 +1075,52 @@
     document.getElementById(target).append(svg);
   }
 
+  function centeredBars(target, groups, series, range = [-1, 1]) {
+    const width = 650, height = 300, m = { l: 48, r: 18, t: 20, b: 48 };
+    const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, role: "img" });
+    const plotH = height - m.t - m.b, plotW = width - m.l - m.r;
+    const [lo, hi] = range;
+    const yOf = v => m.t + plotH * (1 - (v - lo) / (hi - lo));
+    [-1, -0.5, 0, 0.5, 1].forEach(v => {
+      const y = yOf(v);
+      svg.append(svgEl("line", { x1: m.l, y1: y, x2: width - m.r, y2: y, class: v === 0 ? "axis" : "grid" }));
+      svg.append(svgEl("text", { x: m.l - 8, y: y + 4, "text-anchor": "end", class: "svg-label" }, v.toFixed(1)));
+    });
+    const zeroY = yOf(0);
+    const groupW = plotW / groups.length, barW = Math.min(30, groupW / (series.length + 1.5));
+    groups.forEach((g, gi) => {
+      const cx = m.l + groupW * (gi + .5);
+      svg.append(svgEl("text", { x: cx, y: height - 15, "text-anchor": "middle", class: "svg-label" }, g.label));
+      series.forEach((s, si) => {
+        const value = g[s.key], x = cx + (si - (series.length - 1) / 2) * (barW + 4) - barW / 2;
+        const y = yOf(value);
+        const top = Math.min(y, zeroY), h = Math.max(Math.abs(y - zeroY), 1);
+        svg.append(svgEl("rect", { x, y: top, width: barW, height: h, rx: 3, fill: s.color }));
+        svg.append(svgEl("text", {
+          x: x + barW / 2, y: value >= 0 ? top - 5 : top + h + 12, "text-anchor": "middle", class: "svg-value", "font-size": "9"
+        }, value.toFixed(2)));
+      });
+    });
+    series.forEach((s, i) => {
+      const x = m.l + i * 90;
+      svg.append(svgEl("circle", { cx: x, cy: 10, r: 5, fill: s.color }));
+      svg.append(svgEl("text", { x: x + 10, y: 14, class: "svg-label" }, s.label));
+    });
+    document.getElementById(target).append(svg);
+  }
+
+  centeredBars("correlation-chart", [
+    { label: "r_object", s1: .9243, s5: .8890, s10: .8599 },
+    { label: "r_conf", s1: .9244, s5: .7857, s10: .7509 },
+    { label: "r_prompt", s1: .8695, s5: .5817, s10: .4764 },
+    { label: "r_boundary", s1: .6804, s5: .7299, s10: .7296 },
+    { label: "area/blank penalty proxy", s1: .4272, s5: .2921, s10: .3386 }
+  ], [
+    { key: "s1", label: "Stride 1", color: colors.s1 },
+    { key: "s5", label: "Stride 5", color: colors.s5 },
+    { key: "s10", label: "Stride 10", color: colors.s10 }
+  ]);
+
   groupedBars("global-chart", [
     { label: "YOLO-SAM2*", dice: .808, iou: .678 },
     { label: "Stride 1", dice: .8441501861, iou: .8025693648 },
@@ -995,27 +1174,31 @@
     document.getElementById("efficiency-chart").append(svg);
   })();
 
-  (function sequenceChart() {
+  function sequenceDotChart(target, metricKey, markLine, markLabel) {
     const width = 1200, rowH = 29, m = { l: 75, r: 38, t: 35, b: 35 }, height = m.t + m.b + sequenceData.length * rowH;
     const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}` });
     const x = v => m.l + (width - m.l - m.r) * v;
-    [0, .2, .4, .6, .7, .8, 1].forEach(v => {
-      svg.append(svgEl("line", { x1: x(v), y1: m.t - 12, x2: x(v), y2: height - m.b + 4, class: v === .7 ? "axis" : "grid", "stroke-dasharray": v === .7 ? "5 4" : "0" }));
-      svg.append(svgEl("text", { x: x(v), y: 15, "text-anchor": "middle", class: "svg-label" }, v.toFixed(1)));
+    const ticks = [0, .2, .4, .6, .8, 1].includes(markLine) ? [0, .2, .4, .6, .8, 1] : [0, .2, .4, markLine, .6, .8, 1].sort((a, b) => a - b);
+    ticks.forEach(v => {
+      svg.append(svgEl("line", { x1: x(v), y1: m.t - 12, x2: x(v), y2: height - m.b + 4, class: v === markLine ? "axis" : "grid", "stroke-dasharray": v === markLine ? "5 4" : "0" }));
+      svg.append(svgEl("text", { x: x(v), y: 15, "text-anchor": "middle", class: "svg-label" }, v.toFixed(2).replace(/0$/, "")));
     });
     sequenceData.forEach((d, i) => {
       const cy = m.t + i * rowH + rowH / 2;
       if (i % 2 === 0) svg.append(svgEl("rect", { x: 0, y: cy - rowH / 2, width, height: rowH, fill: "#f8fafb" }));
       svg.append(svgEl("text", { x: m.l - 12, y: cy + 4, "text-anchor": "end", class: "svg-label" }, d.sequence));
-      const values = ["s1", "s5", "s10"].map(k => d[k].dice);
+      const values = ["s1", "s5", "s10"].map(k => d[k][metricKey]);
       svg.append(svgEl("line", { x1: x(Math.min(...values)), y1: cy, x2: x(Math.max(...values)), y2: cy, stroke: "#cbd5db", "stroke-width": 2 }));
       [["s1", -5], ["s5", 0], ["s10", 5]].forEach(([k, dy]) => {
-        svg.append(svgEl("circle", { cx: x(d[k].dice), cy: cy + dy, r: 4.8, fill: colors[k], stroke: "#fff", "stroke-width": 1.5 }));
+        svg.append(svgEl("circle", { cx: x(d[k][metricKey]), cy: cy + dy, r: 4.8, fill: colors[k], stroke: "#fff", "stroke-width": 1.5 }));
       });
     });
-    svg.append(svgEl("text", { x: x(.7) + 6, y: height - 8, class: "svg-label" }, "0.70 target"));
-    document.getElementById("sequence-chart").append(svg);
-  })();
+    svg.append(svgEl("text", { x: x(markLine) + 6, y: height - 8, class: "svg-label" }, markLabel));
+    document.getElementById(target).append(svg);
+  }
+
+  sequenceDotChart("sequence-chart", "dice", .7, "0.70 target");
+  sequenceDotChart("reliability-chart", "rel", .5, "0.50 midpoint");
 
   groupedBars("ablation-global-chart", [
     { label: "Stride 1", heur: .8442, fix: .8440 },

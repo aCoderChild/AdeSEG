@@ -1,9 +1,0 @@
-tensorboard
-argparse
-opencv-python
-progressbar2
-gdown
-gitPython
-pynvml
-pillow
-git+https://github.com/cheind/py-thin-plate-spline

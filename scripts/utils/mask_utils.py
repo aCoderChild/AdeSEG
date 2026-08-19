@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 MASK_EXTENSIONS = (".png", ".jpg", ".jpeg", ".JPG", ".JPEG")
@@ -68,6 +68,20 @@ def make_overlay(
         overlay[covered] * (1 - alpha) + color_layer[covered] * alpha
     )
     return overlay.astype(np.uint8)
+
+
+def draw_box(
+    overlay_rgb: np.ndarray,
+    box: np.ndarray | None,
+    color: tuple[int, int, int] = (0, 255, 255),
+    width: int = 2,
+) -> np.ndarray:
+    """Draw the predicted (x1, y1, x2, y2) box outline onto an overlay image."""
+    if box is None:
+        return overlay_rgb
+    image = Image.fromarray(overlay_rgb)
+    ImageDraw.Draw(image).rectangle([float(v) for v in box], outline=color, width=width)
+    return np.array(image)
 
 
 def save_overlay(overlay_rgb: np.ndarray, overlay_path: Path) -> None:
