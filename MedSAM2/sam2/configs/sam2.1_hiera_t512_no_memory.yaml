@@ -4,8 +4,8 @@
 # disabled (num_maskmem: 0, per sam2_base.py:515 "reproducing SAM on images")
 # and object-pointer cross-attention disabled (use_obj_ptrs_in_encoder: false).
 # SAM2 becomes a per-frame promptable segmenter with no memory of its own;
-# the only cross-frame memory in the pipeline is the reliability-weighted
-# blend in scripts/utils/reliability_gate.py.
+# any cross-frame information must be supplied by an external policy (for
+# example, AdeSEG's learned implicit temporal state).
 
 # Model
 model:

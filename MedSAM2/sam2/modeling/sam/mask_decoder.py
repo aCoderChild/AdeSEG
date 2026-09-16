@@ -201,7 +201,7 @@ class MaskDecoder(nn.Module):
         else:
             assert image_embeddings.shape[0] == tokens.shape[0]
             src = image_embeddings
-        src = src + dense_prompt_embeddings # only to refine, NOT to attend
+        src = src + dense_prompt_embeddings # TODO: mask-prompt - addition
         assert (
             image_pe.size(0) == 1
         ), "image_pe should have size 1 in batch dim (from `get_dense_pe()`)"
@@ -243,6 +243,8 @@ class MaskDecoder(nn.Module):
 
         return masks, iou_pred, mask_tokens_out, object_score_logits
 
+    # threshold -sensitivity ratio computed directly from mask logits 
+    # decide whether to replace an unstable single-mask ioutput with the better alternative multimask output
     def _get_stability_scores(self, mask_logits):
         """
         Compute stability scores of the mask logits based on the IoU between upper and

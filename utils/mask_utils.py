@@ -48,6 +48,83 @@ def save_binary_mask(mask: np.ndarray, mask_path: Path) -> None:
     Image.fromarray((mask > 0).astype(np.uint8) * 255).save(mask_path)
 
 
+def save_ann_png(path: str | Path, mask: np.ndarray, palette: bytes) -> None:
+    """Save an indexed uint8 mask with the supplied PNG palette."""
+    assert mask.dtype == np.uint8
+    assert mask.ndim == 2
+    output_mask = Image.fromarray(mask)
+    output_mask.putpalette(palette)
+    output_mask.save(path)
+
+
+def put_per_obj_mask(
+    per_obj_mask: dict[int, np.ndarray], height: int, width: int
+) -> np.ndarray:
+    """Combine per-object masks into one indexed uint8 mask.
+
+    Object IDs are applied in descending order, preserving the conflict
+    resolution previously used by the video-inference experiments.
+    """
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for object_id in sorted(per_obj_mask)[::-1]:
+        object_mask = np.asarray(per_obj_mask[object_id], dtype=bool).reshape(height, width)
+        mask[object_mask] = object_id
+    return mask
+
+
+def save_palette_masks_to_dir(
+    output_mask_dir: str | Path,
+    video_name: str,
+    frame_name: str,
+    per_obj_output_mask: dict[int, np.ndarray],
+    height: int,
+    width: int,
+    per_obj_png_file: bool,
+    output_palette: bytes,
+) -> None:
+    """Save combined or per-object indexed masks beneath a video directory."""
+    video_output_dir = Path(output_mask_dir) / video_name
+    video_output_dir.mkdir(parents=True, exist_ok=True)
+    if not per_obj_png_file:
+        output_mask = put_per_obj_mask(per_obj_output_mask, height, width)
+        save_ann_png(video_output_dir / f"{frame_name}.png", output_mask, output_palette)
+        return
+
+    for object_id, object_mask in per_obj_output_mask.items():
+        object_output_dir = video_output_dir / f"{object_id:03d}"
+        object_output_dir.mkdir(parents=True, exist_ok=True)
+        output_mask = object_mask.reshape(height, width).astype(np.uint8)
+        save_ann_png(object_output_dir / f"{frame_name}.png", output_mask, output_palette)
+
+
+def save_masks_to_dir(
+    output_mask_dir: str | Path,
+    video_name: str,
+    frame_name: str,
+    per_obj_output_mask: dict[int, np.ndarray],
+    height: int,
+    width: int,
+    per_obj_png_file: bool,
+) -> None:
+    """Save combined or per-object grayscale masks beneath a video directory."""
+    video_output_dir = Path(output_mask_dir) / video_name
+    video_output_dir.mkdir(parents=True, exist_ok=True)
+    if not per_obj_png_file:
+        output_mask = put_per_obj_mask(per_obj_output_mask, height, width)
+        assert output_mask.dtype == np.uint8
+        assert output_mask.ndim == 2
+        Image.fromarray(output_mask).save(video_output_dir / f"{frame_name}.png")
+        return
+
+    for object_id, object_mask in per_obj_output_mask.items():
+        object_output_dir = video_output_dir / f"{object_id:03d}"
+        object_output_dir.mkdir(parents=True, exist_ok=True)
+        output_mask = object_mask.reshape(height, width).astype(np.uint8)
+        assert output_mask.dtype == np.uint8
+        assert output_mask.ndim == 2
+        Image.fromarray(output_mask).save(object_output_dir / f"{frame_name}.png")
+
+
 def make_overlay(
     frame_rgb: np.ndarray,
     gt_mask: np.ndarray,
