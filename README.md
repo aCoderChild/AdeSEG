@@ -1,10 +1,12 @@
 # AdeSEG
 
-AdeSEG is a research codebase for **video polyp segmentation with frozen MedSAM2**.
+**Training-free dynamic temporal memory for frozen MedSAM2 video segmentation.**
 
-The main goal is to test whether a lightweight **dynamic temporal state** can improve segmentation under sparse prompting without fine-tuning MedSAM2.
+AdeSEG investigates whether a compact recurrent spatial state can improve **video polyp segmentation** with a frozen MedSAM2 model.
 
-The main method is training-free and does **not** modify MedSAM2 weights.
+Instead of keeping the full native spatial-memory queue, AdeSEG maintains a single evolving **dynamic token state**. The state is initialized from one YOLO box prompt, optionally aligned between frames with optical flow, and updated after each prediction.
+
+No MedSAM2 weights are fine-tuned.
 
 ---
 
@@ -12,91 +14,183 @@ The main method is training-free and does **not** modify MedSAM2 weights.
 
 ```mermaid
 flowchart LR
-    A[Video Frames] --> B[YOLO Prompt]
-    B --> C[Frozen MedSAM2]
+    A[Video Frames] --> B[YOLOv8]
+    B -->|Single Box Prompt| C[Frozen MedSAM2]
 
     C --> D[Predicted Mask]
-    C --> E[Decoder Probability State]
+    C --> E[Current Memory Features]
 
     E --> F{State Update}
-
-    F -->|Direct| G[Updated State]
+    F -->|Direct| G[Dynamic Token State]
     F -->|Fixed Blend| G
-    F -->|Adaptive Baseline| G
+    F -->|Adaptive| G
 
-    G --> H[Optional Optical Flow Alignment]
-    H --> C
+    G --> H[Optional Optical Flow]
+    H --> I[Memory Attention]
+    I --> C
 
-    D --> I[Evaluation]
-    I --> J[Dice / IoU / Temporal Metrics]
+    D --> J[Saved Masks]
+    J --> K[Evaluation]
+    K --> L[Dice / IoU / Temporal IoU / Other Metrics]
 ```
 
-Simplified pipeline:
+For each video:
 
-```text
-Video
-  ↓
-YOLO prompt
-  ↓
-Frozen MedSAM2
-  ↓
-Prediction + temporal state
-  ↓
-Optional optical-flow alignment
-  ↓
-Next frame
-  ↓
-Predicted masks
-  ↓
-Evaluation
-```
+1. YOLO searches for the first valid polyp detection and provides **one box prompt**.
+2. The prompted frame initializes the dynamic token state.
+3. For each following frame:
+   - the previous state can be aligned using optical flow;
+   - the state is passed through MedSAM2 memory attention;
+   - MedSAM2 predicts the current mask;
+   - the new memory features update the recurrent state.
+4. Predicted masks are saved and evaluated against PolypGen ground truth.
 
 ---
 
-## Repository structure
+## Dynamic State
+
+AdeSEG supports three state-update strategies.
+
+| Mode | Description |
+|---|---|
+| `direct` | Replace the previous state with the current memory features. |
+| `fixed` | Blend old and new states using a fixed weight. |
+| `adaptive` | Adjust the update weight using prediction reliability and temporal/foreground consistency. |
+
+The state can also be spatially aligned using Farnebäck optical flow:
+
+```bash
+--motion_alignment flow
+```
+
+or used without alignment:
+
+```bash
+--motion_alignment none
+```
+
+The implementation is currently designed for **forward, single-object video segmentation with one initial prompt**.
+
+---
+
+## Repository Structure
 
 ```text
 AdeSEG/
 ├── infer.py
-├── utils/
-│   └── eval.py
-├── reliability_method/
-│   └── reliability_gated_video_memory_experiment.py
-├── experiments/
-│   ├── summarize_state_ablation.py
-│   ├── native_single_state_memory.py
-│   ├── summarize_native_single_state.py
-│   └── train_causal_prompt_adapter.py
+│
 ├── modeling/
-│   └── causal_prompt_adapter.py
-├── research/
-├── results/
-├── tests/
-└── data/
+│   ├── fusion.py
+│   └── reliability_gate.py
+│
+├── utils/
+│   ├── eval.py
+│   ├── eval_metrics.py
+│   ├── mask_utils.py
+│   ├── model_defaults.py
+│   └── create_polypgen_anchor_masks.py
+│
+├── MedSAM2/
+│   ├── sam2/
+│   ├── medsam2_infer_video.py
+│   ├── medsam2_infer_video_adenoid.py
+│   └── ...
+│
+├── requirements.txt
+└── README.md
 ```
 
 ### Main components
 
-- `infer.py` — main video inference pipeline.
-- `utils/eval.py` — evaluates predicted masks.
-- `reliability_method/` — dynamic-state experiments.
-- `experiments/` — ablations and comparison experiments.
-- `modeling/` — learned causal prompt adapter.
-- `research/` — research decisions and verification plans.
-- `results/` — saved experiment results.
+- **`infer.py`** — main dynamic-token video inference pipeline.
+- **`modeling/fusion.py`** — recurrent spatial state, optical-flow alignment, memory attention, and state fusion.
+- **`modeling/reliability_gate.py`** — reliability calculation used by the adaptive update.
+- **`utils/eval.py`** — PolypGen evaluation and visualization.
+- **`utils/eval_metrics.py`** — segmentation metrics.
+- **`MedSAM2/`** — MedSAM2/SAM2 implementation used by the pipeline.
 
 ---
 
-## Main inference
+## Installation
 
-Activate the environment:
+Clone the repository:
 
 ```bash
-cd /Users/maianhpham/Documents/AdeSEG
+git clone https://github.com/aCoderChild/AdeSEG.git
+cd AdeSEG
+```
+
+Create a virtual environment:
+
+```bash
+python -m venv .venv
 source .venv/bin/activate
 ```
 
-Run inference:
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+AdeSEG supports:
+
+```text
+cuda    NVIDIA GPU
+mps     Apple Silicon
+cpu     CPU inference
+```
+
+---
+
+## Checkpoints
+
+By default, `infer.py` expects:
+
+```text
+checkpoints/
+├── MedSAM2_latest.pt
+└── polypgen_yolov8n.pt
+```
+
+Custom checkpoints can be provided using:
+
+```bash
+--sam2_checkpoint /path/to/MedSAM2.pt
+--yolo_checkpoint /path/to/yolo.pt
+```
+
+Model weights are not tracked by Git.
+
+---
+
+## Dataset
+
+The default evaluation dataset is **PolypGen2021**.
+
+Expected structure:
+
+```text
+data/
+└── PolypGen2021_MultiCenterData_v3/
+    └── sequenceData/
+        └── positive/
+            ├── seq1/
+            │   ├── images_seq1/
+            │   └── masks_seq1/
+            ├── seq2/
+            │   ├── images_seq2/
+            │   └── masks_seq2/
+            └── ...
+```
+
+Dataset files are not included in the repository.
+
+---
+
+## Inference
+
+### Basic
 
 ```bash
 python infer.py \
@@ -105,15 +199,88 @@ python infer.py \
   --device mps
 ```
 
-On NVIDIA GPUs, use:
+Use `cuda` on an NVIDIA machine:
 
 ```bash
 --device cuda
 ```
 
+### Run selected sequences
+
+```bash
+python infer.py \
+  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  -o outputs/DynamicToken_YOLO/masks \
+  --seq_nums 1 2 3 4 5 \
+  --device mps
+```
+
+### Direct state + optical flow
+
+```bash
+python infer.py \
+  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  -o outputs/direct_flow/masks \
+  --memory_update direct \
+  --motion_alignment flow \
+  --device mps
+```
+
+### Fixed state blending
+
+```bash
+python infer.py \
+  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  -o outputs/fixed_flow/masks \
+  --memory_update fixed \
+  --fixed_memory_weight 0.5 \
+  --motion_alignment flow \
+  --device mps
+```
+
+### Adaptive state update
+
+```bash
+python infer.py \
+  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  -o outputs/adaptive_flow/masks \
+  --memory_update adaptive \
+  --motion_alignment flow \
+  --device mps
+```
+
+---
+
+## Important Arguments
+
+| Argument | Description |
+|---|---|
+| `-i`, `--base_video_dir` | Input video-sequence directory |
+| `-o`, `--output_mask_dir` | Output directory for predicted masks |
+| `--seq_nums` | Run only selected sequence numbers |
+| `--device` | `cuda`, `mps`, or `cpu` |
+| `--yolo_conf` | YOLO confidence threshold |
+| `--yolo_imgsz` | YOLO inference resolution |
+| `--video_prompt_stride` | Interval between candidate frames searched for the initial YOLO prompt |
+| `--memory_update` | `direct`, `fixed`, or `adaptive` |
+| `--motion_alignment` | `flow` or `none` |
+| `--fixed_memory_weight` | State blending weight for `fixed` mode |
+| `--token_write_rate` | Minimum state update rate for adaptive mode |
+| `--fixed_reliability` | Optional fixed reliability value for controlled experiments |
+
+Run:
+
+```bash
+python infer.py --help
+```
+
+for the full list.
+
 ---
 
 ## Evaluation
+
+After inference:
 
 ```bash
 python utils/eval.py \
@@ -122,160 +289,98 @@ python utils/eval.py \
   --output_eval_dir outputs/DynamicToken_YOLO/evaluation
 ```
 
-Output structure:
+You can evaluate selected sequences only:
+
+```bash
+python utils/eval.py \
+  --output_mask_dir outputs/DynamicToken_YOLO/masks \
+  --data_root data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  --output_eval_dir outputs/DynamicToken_YOLO/evaluation \
+  --sequences seq1 seq2 seq3
+```
+
+The evaluator reports:
+
+- Dice
+- IoU
+- F1 / F-measure
+- F2
+- Precision
+- Recall
+- Sensitivity
+- Specificity
+- Accuracy
+- MAE
+- Temporal IoU
+
+It generates both **frame-level** and **sequence-level** statistics.
+
+---
+
+## Output
+
+A typical experiment produces:
 
 ```text
 outputs/
 └── DynamicToken_YOLO/
     ├── masks/
+    │   ├── seq1/
+    │   ├── seq2/
+    │   ├── ...
+    │   ├── diagnostics/
+    │   └── run_manifest.json
+    │
     └── evaluation/
+        ├── metrics_per_frame.csv
+        ├── metrics_per_sequence.csv
+        ├── metrics_stats.csv
+        └── overlays/
 ```
+
+`run_manifest.json` records the inference configuration and source hashes for experiment reproducibility.
+
+Per-frame diagnostics also record quantities such as predicted IoU, object probability, reliability, state write weight, temporal consistency, and optical-flow validity.
 
 ---
 
-## Dynamic state settings
-
-### Direct update
+## End-to-End Example
 
 ```bash
---memory_update direct
-```
+OUTPUT="outputs/DynamicToken_YOLO"
+DATA="data/PolypGen2021_MultiCenterData_v3/sequenceData/positive"
 
-Uses the newest decoder state directly.
-
-### Fixed blending
-
-```bash
---memory_update fixed
---fixed_memory_weight 0.5
-```
-
-Blends the previous and current state using a fixed weight.
-
-### Adaptive baseline
-
-```bash
---memory_update adaptive
-```
-
-Legacy reliability-based state update.
-
-### Optical-flow alignment
-
-```bash
---motion_alignment flow
-```
-
-Aligns the previous state with the current frame before reuse.
-
-Example:
-
-```bash
 python infer.py \
-  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  -o outputs/direct_flow/masks \
-  --device mps \
-  --memory_update direct \
+  -i "$DATA" \
+  -o "$OUTPUT/masks" \
+  --memory_update adaptive \
   --motion_alignment flow \
-  --video_prompt_stride 5
-```
-
----
-
-## Current evidence
-
-The main controlled experiment covers **23 PolypGen sequences**.
-
-The best reliability-free setting so far is:
-
-```text
-Direct state + optical flow
-```
-
-Observed Dice gains:
-
-```text
-Stride 5:   +0.006
-Stride 10:  +0.011
-```
-
-However, the paired 95% bootstrap intervals include zero.
-
-These results should therefore be treated as an **early ablation**, not yet as evidence of a statistically reliable improvement.
-
-Results:
-
-```text
-results/state_ablation/comparison.json
-```
-
-Summarize them with:
-
-```bash
-python experiments/summarize_state_ablation.py
-```
-
----
-
-## Additional experiments
-
-### Single-state native memory
-
-Tests whether full MedSAM2 memory can be replaced by one mutable state.
-
-```bash
-python experiments/native_single_state_memory.py \
-  --variant single_state_flow \
-  --prompt-stride 5
-
-python experiments/summarize_native_single_state.py
-```
-
-Current results do **not** support replacing the full native memory bank.
-
-### Learned causal prompt adapter
-
-A separate experiment disables native memory and learns a causal-state adapter while keeping MedSAM2 frozen.
-
-```bash
-python experiments/train_causal_prompt_adapter.py \
-  train \
   --device mps \
-  --epochs 10
+&& \
+python utils/eval.py \
+  --output_mask_dir "$OUTPUT/masks" \
+  --data_root "$DATA" \
+  --output_eval_dir "$OUTPUT/evaluation"
 ```
 
-This is experimental and is separate from the main training-free method.
+Using `&&` ensures evaluation only starts after inference completes successfully.
 
 ---
 
-## Evaluation protocol
+## Research Scope
 
-Reported Dice and IoU are averaged **per video**, not per frame:
+AdeSEG is an **experimental research codebase**, not a clinical system.
 
-\[
-\text{Mean Dice}
-=
-\frac{1}{N}
-\sum_{i=1}^{N}
-\text{Dice}_i
-\]
+The main research question is:
 
-This gives each sequence equal weight regardless of video length.
+> Can a single recurrent spatial state provide useful temporal memory for frozen MedSAM2 video segmentation without additional model training?
+
+The current implementation is intended for controlled experimentation with dynamic memory updates, motion alignment, and temporal segmentation behavior.
 
 ---
 
-## Tests
+## Acknowledgements
 
-```bash
-python -m pytest tests -q
-```
+AdeSEG builds on **MedSAM2 / SAM2** and uses **Ultralytics YOLO** for automatic box prompting.
 
----
-
-## Research goal
-
-The central question is:
-
-> Can a lightweight causal decoder state improve sparse-prompt frozen MedSAM2 video segmentation without fine-tuning the model or using a hand-designed reliability score?
-
-Current results are promising as an ablation, but stronger validation is still required before making a model-level claim.
+Please refer to the corresponding projects and the license included under `MedSAM2/` when using their components.
