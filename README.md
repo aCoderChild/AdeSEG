@@ -1,73 +1,281 @@
-# Frozen MedSAM2 with a training-free dynamic probability state
+# AdeSEG
 
-This repository evaluates a narrow, training-free hypothesis: whether a
-single causal decoder-logit state, optionally transported by optical flow, can
-help a frozen MedSAM2 video segmenter without a hand-designed reliability
-score. This is **not** proxy tuning and does not modify MedSAM2 weights.
+AdeSEG is a research codebase for **video polyp segmentation with frozen MedSAM2**.
 
-All reported `Dice` and `IoU` values are averages over video-level scores, so
-each sequence contributes equally regardless of its number of frames.
+The main goal is to test whether a lightweight **dynamic temporal state** can improve segmentation under sparse prompting without fine-tuning MedSAM2.
 
-## Structure
+The main method is training-free and does **not** modify MedSAM2 weights.
 
-- `reliability_method/reliability_gated_video_memory_experiment.py` runs the
-  frozen MedSAM2 state conditions: direct, fixed blending, and the legacy
-  adaptive-reliability baseline.
-- `experiments/summarize_state_ablation.py` calculates equal-weighted
-  per-sequence Dice/IoU and paired bootstrap intervals.
-- `experiments/native_single_state_memory.py` tests full native memory against
-  an initial anchor plus one frozen-encoded mutable memory item.
-- `experiments/summarize_native_single_state.py` compares those conditions to
-  full native memory with paired bootstrap intervals.
-- `modeling/causal_prompt_adapter.py` contains the separate *trained* single
-  causal-state adapter. It disables MedSAM2 native memory and turns the single
-  state into a standard dense prompt; `experiments/train_causal_prompt_adapter.py`
-  trains and evaluates it against stateless and neutral-prompt controls.
-- `research/loop.py` applies fixed evidence gates and generates the paper
-  draft and verification plan from the saved result.
-- `tests/` covers the state-update and research-decision logic.
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Video Frames] --> B[YOLO Prompt]
+    B --> C[Frozen MedSAM2]
+
+    C --> D[Predicted Mask]
+    C --> E[Decoder Probability State]
+
+    E --> F{State Update}
+
+    F -->|Direct| G[Updated State]
+    F -->|Fixed Blend| G
+    F -->|Adaptive Baseline| G
+
+    G --> H[Optional Optical Flow Alignment]
+    H --> C
+
+    D --> I[Evaluation]
+    I --> J[Dice / IoU / Temporal Metrics]
+```
+
+Simplified pipeline:
+
+```text
+Video
+  ↓
+YOLO prompt
+  ↓
+Frozen MedSAM2
+  ↓
+Prediction + temporal state
+  ↓
+Optional optical-flow alignment
+  ↓
+Next frame
+  ↓
+Predicted masks
+  ↓
+Evaluation
+```
+
+---
+
+## Repository structure
+
+```text
+AdeSEG/
+├── infer.py
+├── utils/
+│   └── eval.py
+├── reliability_method/
+│   └── reliability_gated_video_memory_experiment.py
+├── experiments/
+│   ├── summarize_state_ablation.py
+│   ├── native_single_state_memory.py
+│   ├── summarize_native_single_state.py
+│   └── train_causal_prompt_adapter.py
+├── modeling/
+│   └── causal_prompt_adapter.py
+├── research/
+├── results/
+├── tests/
+└── data/
+```
+
+### Main components
+
+- `infer.py` — main video inference pipeline.
+- `utils/eval.py` — evaluates predicted masks.
+- `reliability_method/` — dynamic-state experiments.
+- `experiments/` — ablations and comparison experiments.
+- `modeling/` — learned causal prompt adapter.
+- `research/` — research decisions and verification plans.
+- `results/` — saved experiment results.
+
+---
+
+## Main inference
+
+Activate the environment:
+
+```bash
+cd /Users/maianhpham/Documents/AdeSEG
+source .venv/bin/activate
+```
+
+Run inference:
+
+```bash
+python infer.py \
+  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  -o outputs/DynamicToken_YOLO/masks \
+  --device mps
+```
+
+On NVIDIA GPUs, use:
+
+```bash
+--device cuda
+```
+
+---
+
+## Evaluation
+
+```bash
+python utils/eval.py \
+  --output_mask_dir outputs/DynamicToken_YOLO/masks \
+  --data_root data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  --output_eval_dir outputs/DynamicToken_YOLO/evaluation
+```
+
+Output structure:
+
+```text
+outputs/
+└── DynamicToken_YOLO/
+    ├── masks/
+    └── evaluation/
+```
+
+---
+
+## Dynamic state settings
+
+### Direct update
+
+```bash
+--memory_update direct
+```
+
+Uses the newest decoder state directly.
+
+### Fixed blending
+
+```bash
+--memory_update fixed
+--fixed_memory_weight 0.5
+```
+
+Blends the previous and current state using a fixed weight.
+
+### Adaptive baseline
+
+```bash
+--memory_update adaptive
+```
+
+Legacy reliability-based state update.
+
+### Optical-flow alignment
+
+```bash
+--motion_alignment flow
+```
+
+Aligns the previous state with the current frame before reuse.
+
+Example:
+
+```bash
+python infer.py \
+  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  -o outputs/direct_flow/masks \
+  --device mps \
+  --memory_update direct \
+  --motion_alignment flow \
+  --video_prompt_stride 5
+```
+
+---
 
 ## Current evidence
 
-The completed controlled 23-sequence ablation is in
-`results/state_ablation/comparison.json`. Direct state plus flow is the best
-reliability-free candidate at sparse prompts, but its Dice improvements are
-+0.006 (stride 5) and +0.011 (stride 10), with 95% paired bootstrap intervals
-that include zero. It is therefore a useful negative/early ablation, not a
-paper-quality result. Run `python research/loop.py` to regenerate the full,
-evidence-gated decision and editable research draft.
+The main controlled experiment covers **23 PolypGen sequences**.
 
-The separate native-memory single-state experiment is in
-`results/native_single_state/comparison.json`. It rejects replacing the full
-native memory bank with one mutable state for this frozen checkpoint and
-PolypGen protocol; see `research/native_single_state_verdict.md`.
+The best reliability-free setting so far is:
 
-The newer learned no-native-memory adapter is implemented for the stricter
-ablation, but is not yet a viable seed-only method: the frozen object-presence
-gate can suppress the first unprompted frame and eliminate its learning signal.
-See `research/causal_prompt_adapter_method.md`.
+```text
+Direct state + optical flow
+```
 
-## Paper-grade protocol before a new model claim
+Observed Dice gains:
 
-1. Repeat the direct-state condition with native MedSAM2 memory enabled.
-2. Separate foreground-positive sequences from all-sequence results and use
-   the same prompt policy across every method.
-3. Validate on an external dataset without tuning on its test labels and with a
-   prompt source not trained on PolypGen.
-4. Report paired per-sequence Dice/IoU intervals, failure cases, runtime, and
-   memory use. Advance only when the predefined gates in
-   `research/verification_plan.md` pass.
+```text
+Stride 5:   +0.006
+Stride 10:  +0.011
+```
 
-## Commands
+However, the paired 95% bootstrap intervals include zero.
+
+These results should therefore be treated as an **early ablation**, not yet as evidence of a statistically reliable improvement.
+
+Results:
+
+```text
+results/state_ablation/comparison.json
+```
+
+Summarize them with:
 
 ```bash
 python experiments/summarize_state_ablation.py
-python research/loop.py --comparison results/state_ablation/comparison.json
+```
+
+---
+
+## Additional experiments
+
+### Single-state native memory
+
+Tests whether full MedSAM2 memory can be replaced by one mutable state.
+
+```bash
 python experiments/native_single_state_memory.py \
-  --variant single_state_flow --prompt-stride 5
+  --variant single_state_flow \
+  --prompt-stride 5
+
 python experiments/summarize_native_single_state.py
-python experiments/train_causal_prompt_adapter.py train --device mps --epochs 10
-python research/loop.py --comparison results/state_ablation/comparison.json \
-  --native-comparison results/native_single_state/comparison.json
+```
+
+Current results do **not** support replacing the full native memory bank.
+
+### Learned causal prompt adapter
+
+A separate experiment disables native memory and learns a causal-state adapter while keeping MedSAM2 frozen.
+
+```bash
+python experiments/train_causal_prompt_adapter.py \
+  train \
+  --device mps \
+  --epochs 10
+```
+
+This is experimental and is separate from the main training-free method.
+
+---
+
+## Evaluation protocol
+
+Reported Dice and IoU are averaged **per video**, not per frame:
+
+\[
+\text{Mean Dice}
+=
+\frac{1}{N}
+\sum_{i=1}^{N}
+\text{Dice}_i
+\]
+
+This gives each sequence equal weight regardless of video length.
+
+---
+
+## Tests
+
+```bash
 python -m pytest tests -q
 ```
+
+---
+
+## Research goal
+
+The central question is:
+
+> Can a lightweight causal decoder state improve sparse-prompt frozen MedSAM2 video segmentation without fine-tuning the model or using a hand-designed reliability score?
+
+Current results are promising as an ablation, but stronger validation is still required before making a model-level claim.
