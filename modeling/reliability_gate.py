@@ -1,4 +1,7 @@
-"""Write reliability for recurrent dynamic-token memory."""
+"""Write reliability for recurrent dynamic-token memory.
+
+Runtime hyperparameters are supplied by the inference config, not this gate.
+"""
 
 from __future__ import annotations
 
@@ -12,8 +15,10 @@ def token_write_reliability(
     identity_similarity: float, # foreground-pooled feature consistency proxy
     area_plausibility: float,
     temporal_consistency: float,
+    background_confirmed: bool = False,
+    unconfirmed_absence_scale: float = 0.25,
 ) -> float:
-    """Score foreground quality or empty-mask absence; this is not calibrated IoU."""
+    """Return a continuous write score from segmentation and external evidence."""
     if not all(
         math.isfinite(value) and 0.0 <= value <= 1.0
         for value in (
@@ -28,7 +33,10 @@ def token_write_reliability(
             "Token reliability inputs must be finite in [0, 1]."
         )
     if not has_foreground:
-        return 1.0 - object_score
+        if not 0.0 <= unconfirmed_absence_scale <= 1.0:
+            raise ValueError("unconfirmed_absence_scale must be in [0, 1].")
+        absence_scale = 1.0 if background_confirmed else unconfirmed_absence_scale
+        return (1.0 - object_score) * absence_scale
     signals = (
         mask_confidence,
         object_score,

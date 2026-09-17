@@ -1,10 +1,4 @@
-"""Training-free recurrent spatial memory for this repository's SAM2 predictor.
-
-One evolving BCHW memory grid replaces the native spatial queue. It is seeded
-from the prompted frame, then becomes a lossy exponential summary of history.
-Only pointers from propagated frames are read. No new learned parameters are
-introduced; compatibility with the frozen attention is empirical.
-"""
+"""Training-free recurrent spatial memory for SAM2 video predictor."""
 
 import cv2
 import numpy as np
@@ -16,17 +10,8 @@ from sam2.modeling.sam2_utils import get_1d_sine_pe
 from modeling.reliability_gate import token_write_reliability
 
 
-MAX_SMOOTH_WRITE = 0.70
-SMOOTH_RELIABILITY_POWER = 2.0
-
-
 def warp_token_grid(features, previous_bgr, current_bgr):
-    """Backward optical flow resamples old features into current coordinates.
-
-    Flow is estimated at 128x128, then scaled to the memory grid. Position
-    embeddings are NOT warped or averaged: the result lives on the current grid.
-    Returns the resampled features and validity of their source coordinates.
-    """
+    """Backward optical flow resamples old features into current coordinates."""
     # moves previous token-state feature map -> coordinates of the current video frame before fusion
     # TODO: ablation: --motion-alignment none vs flow
     if previous_bgr is None:
@@ -95,51 +80,90 @@ def foreground_consistency_map(current_foreground, reference_foreground):
     return 1.0 - (current_foreground - reference_foreground).abs()
 
 
-def smooth_write_weight(reliability, minimum_weight):
+def smooth_write_weight(reliability, minimum_weight, maximum_weight, reliability_power):
     """Map reliability to a continuous recurrent-state update rate."""
     if not 0.0 <= reliability <= 1.0:
         raise ValueError("reliability must be in [0, 1].")
-    if not 0.0 <= minimum_weight <= MAX_SMOOTH_WRITE:
-        raise ValueError("minimum_weight must be in [0, MAX_SMOOTH_WRITE].")
-    return minimum_weight + (MAX_SMOOTH_WRITE - minimum_weight) * (
-        reliability ** SMOOTH_RELIABILITY_POWER
-    )
+    if not 0.0 <= minimum_weight <= maximum_weight <= 1.0:
+        raise ValueError("Smoothing weights must satisfy 0 <= minimum <= maximum <= 1.")
+    if reliability_power <= 0.0:
+        raise ValueError("reliability_power must be positive.")
+    return minimum_weight + (maximum_weight - minimum_weight) * (reliability ** reliability_power)
 
 
 class DynamicTokenState:
-    """Sequence-local state. Update AFTER decoding; read only past observations."""
+    """Short, reliable-long, and uncertain-long summaries read as one grid."""
 
-    def __init__(self, seed_frame_idx, output, frame_bgr):
+    def __init__(self, seed_frame_idx, output, frame_bgr, short_read_weight, reliable_read_weight):
+        if not 0.0 <= short_read_weight <= 1.0 or not 0.0 <= reliable_read_weight <= 1.0:
+            raise ValueError("Read weights must be in [0, 1].")
+        if short_read_weight + reliable_read_weight > 1.0:
+            raise ValueError("short_read_weight + reliable_read_weight must not exceed 1.")
         self.seed_frame_idx = seed_frame_idx
         # The prompted frame initializes the state, but is not kept as a
         # separate spatial-memory slot.
         device = output["obj_ptr"].device
         initial_features = output["maskmem_features"].detach().to(device=device, dtype=torch.float32)
         self.position = output["maskmem_pos_enc"][-1].detach().to(device=device, dtype=torch.float32).clone()
-        self.features = initial_features.clone()
+        self.short_features = initial_features.clone()
+        self.reliable_features = initial_features.clone()
+        self.unreliable_features = initial_features.clone()
+        self.short_read_weight = short_read_weight
+        self.reliable_read_weight = reliable_read_weight
         self.previous_frame_bgr = frame_bgr
-        self.valid = torch.ones_like(self.features[:, :1])
+        self.valid = torch.ones_like(self.short_features[:, :1])
         foreground_probabilities = foreground_token_probabilities(
-            output["pred_masks"], self.features.shape[-2:], device
+            output["pred_masks"], self.short_features.shape[-2:], device
         )
-        self.identity_prototype = pool_foreground_features(
-            self.features, foreground_probabilities
-        )
-        self.foreground_probabilities = foreground_probabilities
+        self.identity_prototype = pool_foreground_features(self.reliable_features, foreground_probabilities)
+        self.short_foreground_probabilities = foreground_probabilities.clone()
+        self.reliable_foreground_probabilities = foreground_probabilities.clone()
+        self.unreliable_foreground_probabilities = foreground_probabilities.clone()
         self.pointer = None
         self.pointer_frame_idx = None
         self.updates = 0
         self.last_frame_idx = seed_frame_idx
+        self.detector_absence_streak = 0
+
+    @property
+    def features(self):
+        return (
+            self.short_read_weight * self.short_features
+            + self.reliable_read_weight * self.reliable_features
+            + (1.0 - self.short_read_weight - self.reliable_read_weight) * self.unreliable_features
+        )
+
+    @property
+    def foreground_probabilities(self):
+        return (
+            self.short_read_weight * self.short_foreground_probabilities
+            + self.reliable_read_weight * self.reliable_foreground_probabilities
+            + (1.0 - self.short_read_weight - self.reliable_read_weight)
+            * self.unreliable_foreground_probabilities
+        )
 
     def align(self, frame_bgr, use_flow):
         if use_flow:
             aligned, self.valid = warp_token_grid(
-                torch.cat((self.features, self.foreground_probabilities), dim=1),
+                torch.cat((
+                    self.short_features,
+                    self.reliable_features,
+                    self.unreliable_features,
+                    self.short_foreground_probabilities,
+                    self.reliable_foreground_probabilities,
+                    self.unreliable_foreground_probabilities,
+                ), dim=1),
                 self.previous_frame_bgr, frame_bgr,
             )
-            self.features, self.foreground_probabilities = aligned[:, :-1], aligned[:, -1:]
+            channels = self.short_features.size(1)
+            self.short_features = aligned[:, :channels]
+            self.reliable_features = aligned[:, channels:2 * channels]
+            self.unreliable_features = aligned[:, 2 * channels:3 * channels]
+            self.short_foreground_probabilities = aligned[:, 3 * channels:3 * channels + 1]
+            self.reliable_foreground_probabilities = aligned[:, 3 * channels + 1:3 * channels + 2]
+            self.unreliable_foreground_probabilities = aligned[:, 3 * channels + 2:]
         else:
-            self.valid = torch.ones_like(self.features[:, :1])
+            self.valid = torch.ones_like(self.short_features[:, :1])
 
     def update(
         self,
@@ -153,47 +177,93 @@ class DynamicTokenState:
         foreground_feature,
         local_consistency,
         update_mode="adaptive",
+        reliable_write_rate=0.08,
+        unreliable_write_rate=0.02,
+        long_term_split_power=1.5,
     ):
         if frame_idx != self.last_frame_idx + 1:
             raise ValueError("Token state requires consecutive, forward frame updates.")
         if not np.isfinite(write_weight) or not 0 <= write_weight <= 1:
             raise ValueError("write_weight must be finite in [0, 1].")
-        candidate = output["maskmem_features"].detach().to(self.features)
-        if candidate.shape != self.features.shape:
+        if not 0.0 <= reliable_write_rate <= 1.0:
+            raise ValueError("reliable_write_rate must be in [0, 1].")
+        if not 0.0 <= unreliable_write_rate <= 1.0:
+            raise ValueError("unreliable_write_rate must be in [0, 1].")
+        if long_term_split_power <= 0.0:
+            raise ValueError("long_term_split_power must be positive.")
+        candidate = output["maskmem_features"].detach().to(self.short_features)
+        if candidate.shape != self.short_features.shape:
             raise ValueError("Memory encoder feature shape changed within the sequence.")
-        probabilities = foreground_probabilities.to(self.features)
+        probabilities = foreground_probabilities.to(self.short_features)
         if update_mode == "adaptive":
             # Confident background must also clear stale foreground memory.
             token_weight = (
                 write_weight * (2.0 * probabilities - 1.0).abs()
-                * (reliability + (1.0 - reliability) * local_consistency.to(self.features))
+                * (reliability + (1.0 - reliability) * local_consistency.to(self.short_features))
             )
         elif update_mode in ("direct", "fixed"):
             token_weight = torch.full_like(probabilities, write_weight)
         else:
             raise ValueError(f"Unknown dynamic-token update mode: {update_mode}")
-        # Where flow has no source coordinate, only the current feature is usable.
-        weight = token_weight * self.valid + (1.0 - self.valid)
-        self.features = (1.0 - weight) * self.features + weight * candidate
-        self.foreground_probabilities = (
-            (1.0 - weight) * self.foreground_probabilities
-            + weight * probabilities
+        # Where flow has no source coordinate, use the current candidate as the base.
+        short_weight = token_weight
+        reliable_score = reliability ** long_term_split_power
+        unreliable_score = (1.0 - reliability) ** long_term_split_power
+        score_sum = max(reliable_score + unreliable_score, 1e-12)
+        reliable_fraction = reliable_score / score_sum
+        unreliable_fraction = unreliable_score / score_sum
+        reliable_weight = (short_weight * reliable_fraction).clamp(max=reliable_write_rate)
+        unreliable_weight = (short_weight * unreliable_fraction).clamp(max=unreliable_write_rate)
+        short_base = self.short_features * self.valid + candidate * (1.0 - self.valid)
+        reliable_base = self.reliable_features * self.valid + candidate * (1.0 - self.valid)
+        unreliable_base = self.unreliable_features * self.valid + candidate * (1.0 - self.valid)
+        short_probability_base = (
+            self.short_foreground_probabilities * self.valid
+            + probabilities * (1.0 - self.valid)
         )
-        if has_foreground and write_weight > 0.0:
-            pointer = output["obj_ptr"].detach().to(self.features.device)
+        reliable_probability_base = (
+            self.reliable_foreground_probabilities * self.valid
+            + probabilities * (1.0 - self.valid)
+        )
+        unreliable_probability_base = (
+            self.unreliable_foreground_probabilities * self.valid
+            + probabilities * (1.0 - self.valid)
+        )
+        self.short_features = (1.0 - short_weight) * short_base + short_weight * candidate
+        self.reliable_features = (
+            (1.0 - reliable_weight) * reliable_base + reliable_weight * candidate
+        )
+        self.unreliable_features = (
+            (1.0 - unreliable_weight) * unreliable_base + unreliable_weight * candidate
+        )
+        self.short_foreground_probabilities = (
+            (1.0 - short_weight) * short_probability_base
+            + short_weight * probabilities
+        )
+        self.reliable_foreground_probabilities = (
+            (1.0 - reliable_weight) * reliable_probability_base
+            + reliable_weight * probabilities
+        )
+        self.unreliable_foreground_probabilities = (
+            (1.0 - unreliable_weight) * unreliable_probability_base
+            + unreliable_weight * probabilities
+        )
+        identity_weight = float(reliable_weight.mean().item())
+        if has_foreground and identity_weight > 0.0:
+            pointer = output["obj_ptr"].detach().to(self.short_features.device)
             if self.pointer is None:
                 self.pointer = pointer.clone()
             else:
-                self.pointer = (1.0 - write_weight) * self.pointer + write_weight * pointer
+                self.pointer = (1.0 - identity_weight) * self.pointer + identity_weight * pointer
             self.pointer_frame_idx = frame_idx
             self.identity_prototype = (
-                (1.0 - write_weight) * self.identity_prototype
-                + write_weight * foreground_feature.to(self.identity_prototype)
+                (1.0 - identity_weight) * self.identity_prototype
+                + identity_weight * foreground_feature.to(self.identity_prototype)
             )
         self.previous_frame_bgr = frame_bgr
         self.last_frame_idx = frame_idx
         self.updates += 1
-        return weight
+        return short_weight, reliable_weight, unreliable_weight
 
 
 class DynamicTokenVideoPredictor(SAM2VideoPredictor):
@@ -223,6 +293,8 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
             frame_idx,
             prompted_output,
             frames_bgr[frame_idx],
+            inference_state["dynamic_token_short_read_weight"],
+            inference_state["dynamic_token_reliable_read_weight"],
         )
 
     def _reset_tracking_results(self, inference_state):
@@ -248,6 +320,20 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
         mask_confidence = float(current_out["iou_predictions"].max(dim=-1).values.item())
         object_probability = float(current_out["object_score_logits"].sigmoid().item())
         has_foreground = bool((pred_masks > 0).any().item())
+        detector_present = inference_state["dynamic_token_detector_present"][frame_idx]
+        if detector_present is False:
+            token_state.detector_absence_streak += 1
+        elif detector_present is True:
+            token_state.detector_absence_streak = 0
+        background_confirmed = (
+            not has_foreground
+            and detector_present is False
+            and token_state.detector_absence_streak
+            >= inference_state["dynamic_token_absence_confirmation_frames"]
+        )
+        detector_conflict = (
+            detector_present is not None and detector_present != has_foreground
+        )
         foreground_probabilities = foreground_token_probabilities(
             pred_masks, token_state.features.shape[-2:], token_state.features.device
         )
@@ -276,6 +362,8 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
                 identity_similarity,
                 area_score,
                 temporal_score,
+                background_confirmed,
+                inference_state["dynamic_token_unconfirmed_absence_scale"],
             )
         mode = inference_state["dynamic_token_update_mode"]
         if mode == "direct":
@@ -284,11 +372,16 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
             write_weight = inference_state["dynamic_token_fixed_weight"]
         elif mode == "adaptive":
             write_weight = smooth_write_weight(
-                reliability, inference_state["dynamic_token_write_rate"]
+                reliability,
+                inference_state["dynamic_token_write_rate"],
+                inference_state["dynamic_token_max_smooth_write"],
+                inference_state["dynamic_token_reliability_power"],
             )
         else:
             raise ValueError(f"Unknown dynamic-token update mode: {mode}")
-        weights = token_state.update(
+        if detector_conflict:
+            write_weight *= inference_state["dynamic_token_detector_conflict_scale"]
+        short_weights, reliable_weights, unreliable_weights = token_state.update(
             frame_idx,
             current_out,
             frame_bgr,
@@ -299,6 +392,9 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
             foreground_feature,
             local_consistency,
             mode,
+            reliable_write_rate=inference_state["dynamic_token_reliable_write_rate"],
+            unreliable_write_rate=inference_state["dynamic_token_unreliable_write_rate"],
+            long_term_split_power=inference_state["dynamic_token_long_term_split_power"],
         )
         current_out["dynamic_token_trace"] = {
             "predicted_iou": mask_confidence,
@@ -310,9 +406,15 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
             "reliability": reliability,
             "write_weight": write_weight,
             "has_foreground": has_foreground,
-            "mean_token_weight": float(weights.mean().item()),
-            "min_token_weight": float(weights.min().item()),
-            "max_token_weight": float(weights.max().item()),
+            "detector_present": detector_present,
+            "detector_conflict": detector_conflict,
+            "background_confirmed": background_confirmed,
+            "detector_absence_streak": token_state.detector_absence_streak,
+            "mean_short_token_weight": float(short_weights.mean().item()),
+            "mean_reliable_token_weight": float(reliable_weights.mean().item()),
+            "mean_unreliable_token_weight": float(unreliable_weights.mean().item()),
+            "min_short_token_weight": float(short_weights.min().item()),
+            "max_short_token_weight": float(short_weights.max().item()),
             "flow_invalid_fraction": float((1.0 - token_state.valid).mean().item()),
             "state_shape": list(token_state.features.shape),
             "updates": token_state.updates,

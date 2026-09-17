@@ -1,0 +1,11 @@
+{
+  "sam2_cfg": "configs/sam2.1_hiera_t512.yaml",
+  "sam2_checkpoint": "checkpoints/MedSAM2_latest.pt",
+  "yolo_checkpoint": "checkpoints/polypgen_yolov8n.pt",
+  "device": "mps",
+  "apply_postprocessing": false,
+  "box_source": "yolo",
+  "yolo_conf": 0.5,
+  "yolo_imgsz": 640,
+  "max_yolo_boxes_per_frame": 1
+}

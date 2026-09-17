@@ -1,0 +1,36 @@
+{
+  "data_root": "data/PolypGen2021_MultiCenterData_v3/sequenceData/positive",
+  "model": {
+    "sam2_cfg": "configs/sam2.1_hiera_t512.yaml",
+    "sam2_checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "yolo_checkpoint": "checkpoints/polypgen_yolov8n.pt",
+    "device": "mps",
+    "apply_postprocessing": false
+  },
+  "prompt": {
+    "box_source": "yolo",
+    "yolo_conf": 0.5,
+    "yolo_imgsz": 640,
+    "max_boxes_per_frame": 1,
+    "yolo_iou_match_thresh": 0.3,
+    "video_prompt_stride": 1
+  },
+  "video": {
+    "score_thresh": 0.0,
+    "use_all_boxes": false,
+    "track_object_appearing_later_in_video": false,
+    "select_memory_by_iou": false,
+    "save_palette_png": false,
+    "use_vos_optimized_video_predictor": false
+  },
+  "dynamic_token": {
+    "predictor_target": "modeling.fusion.DynamicTokenVideoPredictor",
+    "memory_update": "adaptive",
+    "motion_alignment": "flow",
+    "fixed_memory_weight": 0.5,
+    "token_write_rate": 0.02,
+    "fixed_reliability": null,
+    "max_smooth_write": 0.7,
+    "reliability_power": 2.0
+  }
+}
