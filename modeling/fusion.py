@@ -1,4 +1,6 @@
-"""Training-free recurrent spatial memory for SAM2 video predictor."""
+"""Training-free recurrent spatial memory for SAM2 video predictor.
+   How the recurrent memory is represented, read, aligned, updated
+"""
 
 import cv2
 import numpy as np
@@ -136,7 +138,7 @@ def foreground_consistency_map(current_foreground, reference_foreground):
 
 
 class DynamicTokenState:
-    """A single-state or three-timescale recurrent spatial-memory summary."""
+    """A recurrent spatial-memory summary with native-style raw pointer history."""
 
     def __init__(
         self,
@@ -180,8 +182,11 @@ class DynamicTokenState:
             self.short_foreground_probabilities = foreground_probabilities.clone()
             self.reliable_foreground_probabilities = foreground_probabilities.clone()
             self.unreliable_foreground_probabilities = foreground_probabilities.clone()
-        self.pointer = output["obj_ptr"].detach().to(device=device).clone()
-        self.pointer_frame_idx = seed_frame_idx
+        # Keep object pointers separate from the recurrent spatial summary.  The
+        # seed is the sole conditioning pointer; later decoder pointers are raw
+        # non-conditioning history, selected at read time like native SAM2.
+        self.conditioning_pointer = output["obj_ptr"].detach().to(device=device).clone()
+        self.pointer_history = {}
         self.updates = 0
         self.last_frame_idx = seed_frame_idx
         self.detector_absence_streak = 0
@@ -206,6 +211,18 @@ class DynamicTokenState:
             + (1.0 - self.short_read_weight - self.reliable_read_weight)
             * self.unreliable_foreground_probabilities
         )
+
+    def pointer_entries_for_read(self, frame_idx, max_pointers):
+        """Return the conditioning pointer plus recent raw non-conditioning pointers."""
+        if max_pointers < 1 or frame_idx <= self.seed_frame_idx:
+            return []
+        entries = [(self.seed_frame_idx, self.conditioning_pointer)]
+        for time_difference in range(1, max_pointers):
+            pointer_frame_idx = frame_idx - time_difference
+            pointer = self.pointer_history.get(pointer_frame_idx)
+            if pointer is not None:
+                entries.append((pointer_frame_idx, pointer))
+        return entries
 
     def align(self, frame_bgr, use_flow):
         if use_flow:
@@ -266,6 +283,12 @@ class DynamicTokenState:
             raise ValueError("unreliable_write_rate must be in [0, 1].")
         if long_term_split_power <= 0.0:
             raise ValueError("long_term_split_power must be positive.")
+        # Native SAM2 retains raw decoder pointers independently of the spatial
+        # memory write policy.  Keep every non-conditioning frame available for
+        # the native-equivalent recent-pointer selection at read time.
+        self.pointer_history[frame_idx] = output["obj_ptr"].detach().to(
+            device=self.features.device
+        ).clone()
         candidate = output["maskmem_features"].detach().to(self.features)
         if candidate.shape != self.features.shape:
             raise ValueError("Memory encoder feature shape changed within the sequence.")
@@ -341,12 +364,6 @@ class DynamicTokenState:
             )
             identity_weight = float(reliable_weight.mean().item())
         if has_foreground and identity_weight > 0.0:
-            pointer = output["obj_ptr"].detach().to(self.features.device)
-            if self.pointer is None:
-                self.pointer = pointer.clone()
-            else:
-                self.pointer = (1.0 - identity_weight) * self.pointer + identity_weight * pointer
-            self.pointer_frame_idx = frame_idx
             self.identity_prototype = (
                 (1.0 - identity_weight) * self.identity_prototype
                 + identity_weight * foreground_feature.to(self.identity_prototype)
@@ -613,20 +630,24 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
         position = [x.to(dtype).flatten(2).permute(2, 0, 1) for x in positions]
         pointer_indices = []
         pointer_token_count = 0
-        if self.use_obj_ptrs_in_encoder and state.pointer is not None:
+        if self.use_obj_ptrs_in_encoder:
             limit = min(num_frames, self.max_obj_ptrs_in_encoder)
-            pointer_age = frame_idx - state.pointer_frame_idx
-            if 0 < pointer_age < limit:
-                pointer_indices = [state.pointer_frame_idx]
-                pointers = state.pointer.unsqueeze(0).to(dtype)
+            pointer_entries = state.pointer_entries_for_read(frame_idx, limit)
+            if pointer_entries:
+                pointer_indices, pointer_values = zip(*pointer_entries)
+                pointer_indices = list(pointer_indices)
+                pointers = torch.stack(pointer_values, dim=0).to(dtype)
                 if self.add_tpos_enc_to_obj_ptrs:
-                    distances = torch.tensor([pointer_age],
-                                             device=pointers.device, dtype=torch.float32)
+                    distances = torch.tensor(
+                        [frame_idx - pointer_idx for pointer_idx in pointer_indices],
+                        device=pointers.device,
+                        dtype=torch.float32,
+                    )
                     dim = self.hidden_dim if self.proj_tpos_enc_in_obj_ptrs else self.mem_dim
                     pointer_pos = get_1d_sine_pe(distances / max(limit - 1, 1), dim=dim)
                     pointer_pos = self.obj_ptr_tpos_proj(pointer_pos.to(dtype)).unsqueeze(1)
                 else:
-                    pointer_pos = pointers.new_zeros(1, 1, self.mem_dim)
+                    pointer_pos = pointers.new_zeros(len(pointer_entries), 1, self.mem_dim)
                 if self.mem_dim < self.hidden_dim:
                     splits = self.hidden_dim // self.mem_dim
                     pointers = pointers.reshape(-1, 1, splits, self.mem_dim).permute(0, 2, 1, 3).flatten(0, 1)

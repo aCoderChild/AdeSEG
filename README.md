@@ -68,6 +68,12 @@ The `direct`, `fixed`, and `adaptive` modes do not allocate, update, or read
 the reliable/unreliable long-term states. `three_timescale` is the separate
 representation ablation.
 
+All recurrent modes use the same object-pointer policy as native MedSAM2: the
+prompted-frame conditioning pointer plus raw decoder pointers from up to the
+previous 15 propagated frames. Pointer history is independent of the spatial
+state's write policy, so `current_only` and EMA conditions differ in spatial
+memory construction rather than pointer smoothing.
+
 When YOLO detects an object but MedSAM2 predicts an empty mask, AdeSEG
 re-prompts that frame with the YOLO box and re-initializes the recurrent state.
 The opposite disagreement (YOLO absent, MedSAM2 foreground) does not reset the
@@ -280,7 +286,9 @@ python infer.py \
 
 `infer.py` exposes the required progression directly: `native`,
 `current_only`, `ema`, `ema_flow`, and `three_timescale`. Each preset disables
-detector recovery so that memory construction is the only changing mechanism.
+detector recovery. The recurrent modes use the same 16-token raw
+object-pointer history policy as native MedSAM2, so their controlled difference
+is spatial-memory construction.
 
 Run a recurrent condition first; it writes `prompt_records.json`. Replay that
 file into the native condition to use the exact same prompt frame and box.
