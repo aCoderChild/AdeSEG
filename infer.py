@@ -63,6 +63,16 @@ ABLATION_SETTINGS = {
     "ema_flow": ("recurrent", "fixed", "flow", False),
     "three_timescale": ("recurrent", "three_timescale", "none", False),
 }
+EMA_ABLATION_WEIGHTS = {
+    "current_only": 1.0,
+    "ema": 0.1,
+    "ema_flow": 0.1,
+    "ema_0_5": 0.5,
+    "ema_0_2": 0.2,
+    "ema_0_1": 0.1,
+    "ema_0_05": 0.05,
+    "ema_0_02": 0.02,
+}
 
 
 def load_prompt_records(path):
@@ -102,6 +112,7 @@ def vos_inference(
     detector_recovery=True,
     detector_recovery_confidence=0.8,
     detector_recovery_iou=0.1,
+    max_background_write=0.02,
     prompt_records=None,
 ):
     """Initialize from YOLO, with detector-guided recovery during propagation."""
@@ -118,6 +129,8 @@ def vos_inference(
         raise ValueError("detector_stride must be at least 1")
     if absence_confirmation_frames < 3:
         raise ValueError("absence_confirmation_frames must be at least 3")
+    if not 0.0 <= max_background_write <= 1.0:
+        raise ValueError("max_background_write must be in [0, 1]")
     frames_bgr, detector_present, detector_boxes, detector_confidences = [], [], [], []
     diagnostic_rows = []
     prompt_frame_idx, prompt_box, prompt_confidence = None, None, None
@@ -190,6 +203,7 @@ def vos_inference(
             "dynamic_token_enable_detector_recovery": detector_recovery,
             "dynamic_token_detector_recovery_confidence": detector_recovery_confidence,
             "dynamic_token_detector_recovery_iou": detector_recovery_iou,
+            "dynamic_token_max_background_write": max_background_write,
         })
     predictor.add_new_points_or_box(
         inference_state=inference_state,
@@ -266,7 +280,11 @@ def parse_args():
     )
     parser.add_argument("--motion_alignment", choices=["none", "flow"], default=model_config["motion_alignment"])
     parser.add_argument("--memory_backend", choices=["native", "recurrent"], default="recurrent")
-    parser.add_argument("--ablation", choices=list(ABLATION_SETTINGS), default=None)
+    parser.add_argument(
+        "--ablation",
+        choices=list(dict.fromkeys((*ABLATION_SETTINGS, *EMA_ABLATION_WEIGHTS))),
+        default=None,
+    )
     parser.add_argument("--prompt_records", type=Path, default=None)
     parser.add_argument(
         "--detector_recovery", action=argparse.BooleanOptionalAction,
@@ -289,12 +307,19 @@ def parse_args():
 def main():
     args, dynamic = parse_args()
     if args.ablation is not None:
-        (
-            args.memory_backend,
-            args.memory_update,
-            args.motion_alignment,
-            args.detector_recovery,
-        ) = ABLATION_SETTINGS[args.ablation]
+        if args.ablation in EMA_ABLATION_WEIGHTS:
+            args.memory_backend = "recurrent"
+            args.memory_update = "direct" if args.ablation == "current_only" else "fixed"
+            args.motion_alignment = "flow" if args.ablation == "ema_flow" else "none"
+            args.detector_recovery = False
+            args.fixed_memory_weight = EMA_ABLATION_WEIGHTS[args.ablation]
+        else:
+            (
+                args.memory_backend,
+                args.memory_update,
+                args.motion_alignment,
+                args.detector_recovery,
+            ) = ABLATION_SETTINGS[args.ablation]
     if args.video_prompt_stride < 1:
         raise ValueError("--video_prompt_stride must be at least 1")
     if not 0.0 <= args.fixed_memory_weight <= 1.0:
@@ -312,6 +337,7 @@ def main():
         "unreliable_write_rate",
         "unconfirmed_absence_scale",
         "detector_conflict_scale",
+        "max_background_write",
     ):
         if not 0.0 <= dynamic[key] <= 1.0:
             raise ValueError(f"{key} in the model config must be in [0, 1]")
@@ -410,6 +436,7 @@ def main():
             detector_recovery=args.detector_recovery,
             detector_recovery_confidence=args.detector_recovery_confidence,
             detector_recovery_iou=args.detector_recovery_iou,
+            max_background_write=dynamic["max_background_write"],
             prompt_records=prompt_records,
         )
         if prompt_record is not None:

@@ -4,7 +4,11 @@
 
 AdeSEG investigates whether a compact recurrent spatial state can improve **video polyp segmentation** with a frozen MedSAM2 model.
 
-Instead of keeping the full native spatial-memory queue, AdeSEG maintains a single evolving **dynamic token state**. The state is initialized from a YOLO box prompt, optionally aligned between frames with optical flow, and updated after each prediction.
+Instead of keeping the full native spatial-memory queue, AdeSEG maintains a
+compressed recurrent representation of past observations. The state is
+initialized from a YOLO box prompt, optionally aligned between frames with
+optical flow, and updated after each prediction; EMA updates progressively
+forget older observations rather than retaining every historical frame.
 
 No MedSAM2 weights are fine-tuned.
 
@@ -37,7 +41,7 @@ flowchart LR
 
 For each video:
 
-1. YOLO searches for the first valid polyp detection and provides the initial box prompt. A later YOLO detection can re-prompt a frame when MedSAM2 predicts it empty.
+1. YOLO searches for the first valid polyp detection and provides the initial box prompt. Optional detector recovery can later re-prompt an inconsistent frame.
 2. The prompted frame initializes the dynamic token state.
 3. For each following frame:
    - the previous state can be aligned using optical flow;
@@ -81,7 +85,7 @@ or used without alignment:
 --motion_alignment none
 ```
 
-The implementation is currently designed for **forward, single-object video segmentation with one initial prompt**.
+The implementation is currently designed for **forward, single-object video segmentation**. It preloads each video and runs detector preprocessing before propagation, so it is causal but not a streaming or real-time VOS implementation.
 
 ---
 
@@ -291,6 +295,11 @@ Compare `current_only` to `ema`, then `ema` to `ema_flow`, before interpreting
 the `three_timescale` condition. If Farnebäck does not improve matched runs,
 use the `ema` condition rather than `ema_flow`.
 
+For the EMA retention sweep, run the same sequences with `--ablation`
+`current_only`, `ema_0_5`, `ema_0_2`, `ema_0_1`, `ema_0_05`, and `ema_0_02`.
+The default EMA condition is `ema_0_1`. Treat `adaptive` and detector recovery
+as separate follow-up experiments, not evidence for the core memory hypothesis.
+
 ---
 
 ## Important Arguments
@@ -305,11 +314,12 @@ use the `ema` condition rather than `ema_flow`.
 | `--yolo_imgsz` | YOLO inference resolution |
 | `--video_prompt_stride` | Interval between candidate frames searched for the initial YOLO prompt |
 | `--memory_update` | `direct`, `fixed`, `adaptive`, or `three_timescale` |
-| `--ablation` | `native`, `current_only`, `ema`, `ema_flow`, or `three_timescale` |
+| `--ablation` | Core presets plus `ema_0_5`, `ema_0_2`, `ema_0_1`, `ema_0_05`, and `ema_0_02` |
 | `--memory_backend` | Native MedSAM2 queue or the recurrent state implementation |
 | `--prompt_records` | Saved prompt boxes to replay exactly in a comparison run |
 | `--motion_alignment` | `flow` or `none` |
 | `--fixed_memory_weight` | State blending weight for `fixed` mode |
+| `--detector_recovery` | Optional operational recovery; disabled by every memory-ablation preset |
 | `--token_write_rate` | Minimum state update rate for adaptive mode |
 | `--fixed_reliability` | Optional fixed reliability value for controlled experiments |
 
@@ -358,7 +368,10 @@ The evaluator reports:
 - MAE
 - Temporal IoU
 
-It generates both **frame-level** and **sequence-level** statistics.
+Temporal IoU is an unregistered prediction-to-prediction stability diagnostic;
+it does not establish temporal correctness because consistently wrong masks can
+also have high overlap. It generates both **frame-level** and **sequence-level**
+statistics.
 
 ---
 

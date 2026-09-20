@@ -518,6 +518,13 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
                 inference_state["dynamic_token_max_smooth_write"],
                 inference_state["dynamic_token_reliability_power"],
             )
+        background_write_capped = False
+        if not has_foreground and write_policy == "reliability_gated_ema":
+            capped_weight = min(
+                write_weight, inference_state["dynamic_token_max_background_write"]
+            )
+            background_write_capped = capped_weight < write_weight
+            write_weight = capped_weight
         if detector_recovery:
             write_weight = 1.0
             short_weights = torch.ones_like(foreground_probabilities)
@@ -545,6 +552,7 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
                 unreliable_write_rate=inference_state["dynamic_token_unreliable_write_rate"],
                 long_term_split_power=inference_state["dynamic_token_long_term_split_power"],
             )
+        # for savings
         current_out["dynamic_token_trace"] = {
             "predicted_iou": mask_confidence,
             "object_probability": object_probability,
@@ -564,6 +572,7 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
             "detector_geometry_agreement": detector_geometry_agreement,
             "detector_geometry_conflict": detector_geometry_conflict,
             "background_confirmed": background_confirmed,
+            "background_write_capped": background_write_capped,
             "detector_absence_streak": token_state.detector_absence_streak,
             "mean_short_token_weight": float(short_weights.mean().item()),
             "mean_reliable_token_weight": (
