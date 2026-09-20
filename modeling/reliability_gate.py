@@ -17,6 +17,7 @@ def token_write_reliability(
     temporal_consistency: float,
     background_confirmed: bool = False,
     unconfirmed_absence_scale: float = 0.25,
+    detector_geometry_agreement: float | None = None,
 ) -> float:
     """Return a continuous write score from segmentation and external evidence."""
     if not all(
@@ -44,4 +45,26 @@ def token_write_reliability(
         area_plausibility,
         temporal_consistency,
     )
+    if detector_geometry_agreement is not None:
+        if not math.isfinite(detector_geometry_agreement) or not 0.0 <= detector_geometry_agreement <= 1.0:
+            raise ValueError("detector_geometry_agreement must be finite in [0, 1].")
+        signals = (*signals, detector_geometry_agreement)
     return math.prod(signals) ** (1.0 / len(signals))
+
+
+def reliability_gated_ema_weight(
+    reliability: float,
+    minimum_weight: float,
+    maximum_weight: float,
+    reliability_power: float,
+) -> float:
+    """Map a reliability score to the EMA coefficient for a gated write."""
+    if not 0.0 <= reliability <= 1.0:
+        raise ValueError("reliability must be in [0, 1].")
+    if not 0.0 <= minimum_weight <= maximum_weight <= 1.0:
+        raise ValueError("EMA weights must satisfy 0 <= minimum <= maximum <= 1.")
+    if reliability_power <= 0.0:
+        raise ValueError("reliability_power must be positive.")
+    return minimum_weight + (maximum_weight - minimum_weight) * (
+        reliability ** reliability_power
+    )

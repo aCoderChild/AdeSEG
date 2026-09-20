@@ -4,7 +4,7 @@
 
 AdeSEG investigates whether a compact recurrent spatial state can improve **video polyp segmentation** with a frozen MedSAM2 model.
 
-Instead of keeping the full native spatial-memory queue, AdeSEG maintains a single evolving **dynamic token state**. The state is initialized from one YOLO box prompt, optionally aligned between frames with optical flow, and updated after each prediction.
+Instead of keeping the full native spatial-memory queue, AdeSEG maintains a single evolving **dynamic token state**. The state is initialized from a YOLO box prompt, optionally aligned between frames with optical flow, and updated after each prediction.
 
 No MedSAM2 weights are fine-tuned.
 
@@ -15,15 +15,16 @@ No MedSAM2 weights are fine-tuned.
 ```mermaid
 flowchart LR
     A[Video Frames] --> B[YOLOv8]
-    B -->|Single Box Prompt| C[Frozen MedSAM2]
+    B -->|Box Prompt / Recovery| C[Frozen MedSAM2]
 
     C --> D[Predicted Mask]
     C --> E[Current Memory Features]
 
     E --> F{State Update}
-    F -->|Direct| G[Dynamic Token State]
-    F -->|Fixed Blend| G
-    F -->|Adaptive| G
+    F -->|Single + Replace| G[Dynamic Token State]
+    F -->|Single + EMA| G
+    F -->|Single + Gated EMA| G
+    F -->|Three-Timescale + Gated EMA| G
 
     G --> H[Optional Optical Flow]
     H --> I[Memory Attention]
@@ -36,7 +37,7 @@ flowchart LR
 
 For each video:
 
-1. YOLO searches for the first valid polyp detection and provides **one box prompt**.
+1. YOLO searches for the first valid polyp detection and provides the initial box prompt. A later YOLO detection can re-prompt a frame when MedSAM2 predicts it empty.
 2. The prompted frame initializes the dynamic token state.
 3. For each following frame:
    - the previous state can be aligned using optical flow;
@@ -49,13 +50,24 @@ For each video:
 
 ## Dynamic State
 
-AdeSEG supports three state-update strategies.
+AdeSEG separates the memory representation from its write policy through four
+ablation modes.
 
 | Mode | Description |
 |---|---|
-| `direct` | Replace the previous state with the current memory features. |
-| `fixed` | Blend old and new states using a fixed weight. |
-| `adaptive` | Adjust the update weight using prediction reliability and temporal/foreground consistency. |
+| `direct` | One state; replace it with the current memory features. |
+| `fixed` | One state; update it with a fixed-weight EMA. |
+| `adaptive` | One state; update it with a reliability-gated EMA. |
+| `three_timescale` | Short-, reliable-, and unreliable-term states, read as a weighted fusion and updated by a reliability-gated EMA. |
+
+The `direct`, `fixed`, and `adaptive` modes do not allocate, update, or read
+the reliable/unreliable long-term states. `three_timescale` is the separate
+representation ablation.
+
+When YOLO detects an object but MedSAM2 predicts an empty mask, AdeSEG
+re-prompts that frame with the YOLO box and re-initializes the recurrent state.
+The opposite disagreement (YOLO absent, MedSAM2 foreground) does not reset the
+state; it only reduces reliability-gated writes through `detector_conflict_scale`.
 
 The state can also be spatially aligned using Farnebäck optical flow:
 
@@ -249,6 +261,36 @@ python infer.py \
   --device mps
 ```
 
+### Three-timescale state
+
+```bash
+python infer.py \
+  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
+  -o outputs/three_timescale_flow/masks \
+  --memory_update three_timescale \
+  --motion_alignment flow \
+  --device mps
+```
+
+### Controlled memory ablations
+
+`infer.py` exposes the required progression directly: `native`,
+`current_only`, `ema`, `ema_flow`, and `three_timescale`. Each preset disables
+detector recovery so that memory construction is the only changing mechanism.
+
+Run a recurrent condition first; it writes `prompt_records.json`. Replay that
+file into the native condition to use the exact same prompt frame and box.
+
+```bash
+python infer.py -i "$DATA" -o outputs/ema --ablation ema --device mps
+python infer.py -i "$DATA" -o outputs/native --ablation native \
+  --prompt_records outputs/ema/prompt_records.json --device mps
+```
+
+Compare `current_only` to `ema`, then `ema` to `ema_flow`, before interpreting
+the `three_timescale` condition. If Farnebäck does not improve matched runs,
+use the `ema` condition rather than `ema_flow`.
+
 ---
 
 ## Important Arguments
@@ -262,7 +304,10 @@ python infer.py \
 | `--yolo_conf` | YOLO confidence threshold |
 | `--yolo_imgsz` | YOLO inference resolution |
 | `--video_prompt_stride` | Interval between candidate frames searched for the initial YOLO prompt |
-| `--memory_update` | `direct`, `fixed`, or `adaptive` |
+| `--memory_update` | `direct`, `fixed`, `adaptive`, or `three_timescale` |
+| `--ablation` | `native`, `current_only`, `ema`, `ema_flow`, or `three_timescale` |
+| `--memory_backend` | Native MedSAM2 queue or the recurrent state implementation |
+| `--prompt_records` | Saved prompt boxes to replay exactly in a comparison run |
 | `--motion_alignment` | `flow` or `none` |
 | `--fixed_memory_weight` | State blending weight for `fixed` mode |
 | `--token_write_rate` | Minimum state update rate for adaptive mode |
