@@ -8,7 +8,7 @@ trainer:
   model:
     _target_: training.model.dynamic_state.ReliabilityGatedSAM2Train
     reliability_gate_hidden_dim: 32
-    mask_corruption_probability: 0.15
+    freeze_base_model: true
     # The first prompt frame seeds the recurrent state.  Every later frame
     # reads and updates that single state in chronological order.
     num_frames_to_correct_for_train: 1
@@ -16,6 +16,10 @@ trainer:
     add_all_frames_to_correct_as_cond: False
     num_init_cond_frames_for_train: 1
     rand_init_cond_frames_for_train: False
+    prob_to_use_pt_input_for_train: 1.0
+    prob_to_use_box_input_for_train: 1.0
+    prob_to_use_pt_input_for_eval: 1.0
+    prob_to_use_box_input_for_eval: 1.0
 
   loss:
     all:
@@ -26,8 +30,6 @@ trainer:
         loss_iou: 1
         loss_class: 1
         loss_reliability: 1
-        loss_corrupt_consistency: 0.1
-        loss_state_guidance: 0.1
 
   checkpoint:
     model_weight_initializer:

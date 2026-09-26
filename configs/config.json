@@ -23,14 +23,7 @@
     "save_palette_png": false,
     "use_vos_optimized_video_predictor": false
   },
-  "dynamic_token": {
-    "predictor_target": "modeling.fusion.DynamicTokenVideoPredictor",
-    "memory_update": "adaptive",
-    "motion_alignment": "flow",
-    "fixed_memory_weight": 0.5,
-    "token_write_rate": 0.02,
-    "fixed_reliability": null,
-    "max_smooth_write": 0.7,
-    "reliability_power": 2.0
+  "learned_state": {
+    "predictor_target": "modeling.fusion.LearnedStateVideoPredictor"
   }
 }

@@ -42,54 +42,30 @@ flowchart LR
 For each video:
 
 1. YOLO searches for the first valid polyp detection and provides the initial box prompt. Optional detector recovery can later re-prompt an inconsistent frame.
-2. The prompted frame initializes the dynamic token state.
+2. The prompted frame initializes one recurrent memory state.
 3. For each following frame:
-   - the previous state can be aligned using optical flow;
    - the state is passed through MedSAM2 memory attention;
    - MedSAM2 predicts the current mask;
-   - the new memory features update the recurrent state.
+   - the memory encoder produces the current candidate memory;
+   - a learned gate uses predicted IoU, object probability, and state similarity;
+   - the state is updated as `(1 - gate) * state + gate * candidate`.
 4. Predicted masks are saved and evaluated against PolypGen ground truth.
 
 ---
 
-## Dynamic State
+## Learned Dynamic State
 
-AdeSEG separates the memory representation from its write policy through four
-ablation modes.
+The main method has one recurrent spatial state. For each propagated frame,
+MedSAM2 encodes a candidate memory feature and a small MLP predicts a scalar
+update gate from predicted IoU, object probability, and state similarity:
 
-| Mode | Description |
-|---|---|
-| `direct` | One state; replace it with the current memory features. |
-| `fixed` | One state; update it with a fixed-weight EMA. |
-| `adaptive` | One state; update it with a reliability-gated EMA. |
-| `three_timescale` | Short-, reliable-, and unreliable-term states, read as a weighted fusion and updated by a reliability-gated EMA. |
-
-The `direct`, `fixed`, and `adaptive` modes do not allocate, update, or read
-the reliable/unreliable long-term states. `three_timescale` is the separate
-representation ablation.
-
-All recurrent modes use the same object-pointer policy as native MedSAM2: the
-prompted-frame conditioning pointer plus raw decoder pointers from up to the
-previous 15 propagated frames. Pointer history is independent of the spatial
-state's write policy, so `current_only` and EMA conditions differ in spatial
-memory construction rather than pointer smoothing.
-
-When YOLO detects an object but MedSAM2 predicts an empty mask, AdeSEG
-re-prompts that frame with the YOLO box and re-initializes the recurrent state.
-The opposite disagreement (YOLO absent, MedSAM2 foreground) does not reset the
-state; it only reduces reliability-gated writes through `detector_conflict_scale`.
-
-The state can also be spatially aligned using Farnebäck optical flow:
-
-```bash
---motion_alignment flow
+```text
+state = (1 - gate) * state + gate * candidate
 ```
 
-or used without alignment:
-
-```bash
---motion_alignment none
-```
+The gate and state are trained together. Inference uses the same gate and
+update equation. The learned path requires a checkpoint produced by the
+dynamic-state training configuration.
 
 The implementation is currently designed for **forward, single-object video segmentation**. It preloads each video and runs detector preprocessing before propagation, so it is causal but not a streaming or real-time VOS implementation.
 
@@ -217,7 +193,7 @@ Dataset files are not included in the repository.
 ```bash
 python infer.py \
   -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  -o outputs/DynamicToken_YOLO/masks \
+  -o outputs/LearnedState_YOLO/masks \
   --device mps
 ```
 
@@ -232,81 +208,21 @@ Use `cuda` on an NVIDIA machine:
 ```bash
 python infer.py \
   -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  -o outputs/DynamicToken_YOLO/masks \
+  -o outputs/LearnedState_YOLO/masks \
   --seq_nums 1 2 3 4 5 \
   --device mps
 ```
 
-### Direct state + optical flow
+### Compare native and learned memory
+
+Run the learned model first; it writes `prompt_records.json`. Replay that file
+with the native backend to use the same prompt frame and box.
 
 ```bash
-python infer.py \
-  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  -o outputs/direct_flow/masks \
-  --memory_update direct \
-  --motion_alignment flow \
-  --device mps
+python infer.py -i "$DATA" -o outputs/learned --device mps
+python infer.py -i "$DATA" -o outputs/native --memory_backend native \
+  --prompt_records outputs/learned/prompt_records.json --device mps
 ```
-
-### Fixed state blending
-
-```bash
-python infer.py \
-  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  -o outputs/fixed_flow/masks \
-  --memory_update fixed \
-  --fixed_memory_weight 0.5 \
-  --motion_alignment flow \
-  --device mps
-```
-
-### Adaptive state update
-
-```bash
-python infer.py \
-  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  -o outputs/adaptive_flow/masks \
-  --memory_update adaptive \
-  --motion_alignment flow \
-  --device mps
-```
-
-### Three-timescale state
-
-```bash
-python infer.py \
-  -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  -o outputs/three_timescale_flow/masks \
-  --memory_update three_timescale \
-  --motion_alignment flow \
-  --device mps
-```
-
-### Controlled memory ablations
-
-`infer.py` exposes the required progression directly: `native`,
-`current_only`, `ema`, `ema_flow`, and `three_timescale`. Each preset disables
-detector recovery. The recurrent modes use the same 16-token raw
-object-pointer history policy as native MedSAM2, so their controlled difference
-is spatial-memory construction.
-
-Run a recurrent condition first; it writes `prompt_records.json`. Replay that
-file into the native condition to use the exact same prompt frame and box.
-
-```bash
-python infer.py -i "$DATA" -o outputs/ema --ablation ema --device mps
-python infer.py -i "$DATA" -o outputs/native --ablation native \
-  --prompt_records outputs/ema/prompt_records.json --device mps
-```
-
-Compare `current_only` to `ema`, then `ema` to `ema_flow`, before interpreting
-the `three_timescale` condition. If Farnebäck does not improve matched runs,
-use the `ema` condition rather than `ema_flow`.
-
-For the EMA retention sweep, run the same sequences with `--ablation`
-`current_only`, `ema_0_5`, `ema_0_2`, `ema_0_1`, `ema_0_05`, and `ema_0_02`.
-The default EMA condition is `ema_0_1`. Treat `adaptive` and detector recovery
-as separate follow-up experiments, not evidence for the core memory hypothesis.
 
 ---
 
@@ -321,15 +237,8 @@ as separate follow-up experiments, not evidence for the core memory hypothesis.
 | `--yolo_conf` | YOLO confidence threshold |
 | `--yolo_imgsz` | YOLO inference resolution |
 | `--video_prompt_stride` | Interval between candidate frames searched for the initial YOLO prompt |
-| `--memory_update` | `direct`, `fixed`, `adaptive`, or `three_timescale` |
-| `--ablation` | Core presets plus `ema_0_5`, `ema_0_2`, `ema_0_1`, `ema_0_05`, and `ema_0_02` |
-| `--memory_backend` | Native MedSAM2 queue or the recurrent state implementation |
+| `--memory_backend` | Native MedSAM2 memory bank or learned recurrent state |
 | `--prompt_records` | Saved prompt boxes to replay exactly in a comparison run |
-| `--motion_alignment` | `flow` or `none` |
-| `--fixed_memory_weight` | State blending weight for `fixed` mode |
-| `--detector_recovery` | Optional operational recovery; disabled by every memory-ablation preset |
-| `--token_write_rate` | Minimum state update rate for adaptive mode |
-| `--fixed_reliability` | Optional fixed reliability value for controlled experiments |
 
 Run:
 
@@ -347,18 +256,18 @@ After inference:
 
 ```bash
 python utils/eval.py \
-  --output_mask_dir outputs/DynamicToken_YOLO/masks \
+  --output_mask_dir outputs/LearnedState_YOLO/masks \
   --data_root data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  --output_eval_dir outputs/DynamicToken_YOLO/evaluation
+  --output_eval_dir outputs/LearnedState_YOLO/evaluation
 ```
 
 You can evaluate selected sequences only:
 
 ```bash
 python utils/eval.py \
-  --output_mask_dir outputs/DynamicToken_YOLO/masks \
+  --output_mask_dir outputs/LearnedState_YOLO/masks \
   --data_root data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
-  --output_eval_dir outputs/DynamicToken_YOLO/evaluation \
+  --output_eval_dir outputs/LearnedState_YOLO/evaluation \
   --sequences seq1 seq2 seq3
 ```
 
@@ -389,7 +298,7 @@ A typical experiment produces:
 
 ```text
 outputs/
-└── DynamicToken_YOLO/
+└── LearnedState_YOLO/
     ├── masks/
     │   ├── seq1/
     │   ├── seq2/
@@ -406,21 +315,19 @@ outputs/
 
 `run_manifest.json` records the inference configuration and source hashes for experiment reproducibility.
 
-Per-frame diagnostics also record quantities such as predicted IoU, object probability, reliability, state write weight, temporal consistency, and optical-flow validity.
+Per-frame diagnostics record predicted IoU, object probability, state similarity, and the learned update weight.
 
 ---
 
 ## End-to-End Example
 
 ```bash
-OUTPUT="outputs/DynamicToken_YOLO"
+OUTPUT="outputs/LearnedState_YOLO"
 DATA="data/PolypGen2021_MultiCenterData_v3/sequenceData/positive"
 
 python infer.py \
   -i "$DATA" \
   -o "$OUTPUT/masks" \
-  --memory_update adaptive \
-  --motion_alignment flow \
   --device mps \
 && \
 python utils/eval.py \

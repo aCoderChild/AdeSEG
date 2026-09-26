@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Foreground-aware dynamic-token MedSAM2 VOS with one YOLO box prompt."""
+"""Learned-state MedSAM2 VOS with one YOLO box prompt."""
 
 from __future__ import annotations
 
@@ -31,7 +31,6 @@ from inference.data import (
     get_video_frame_dir,
     get_video_name,
     get_yolo_boxes,
-    load_bgr_image,
     resolve_frame_path,
     select_video_names,
 )
@@ -56,25 +55,6 @@ def get_first_yolo_box(yolo_model, frame_path, yolo_imgsz, yolo_conf):
     return boxes[0] if boxes else (None, None)
 
 
-ABLATION_SETTINGS = {
-    "native": ("native", "direct", "none"),
-    "current_only": ("recurrent", "direct", "none"),
-    "ema": ("recurrent", "fixed", "none"),
-    "ema_flow": ("recurrent", "fixed", "flow"),
-    "three_timescale": ("recurrent", "three_timescale", "none"),
-}
-EMA_ABLATION_WEIGHTS = {
-    "current_only": 1.0,
-    "ema": 0.1,
-    "ema_flow": 0.1,
-    "ema_0_5": 0.5,
-    "ema_0_2": 0.2,
-    "ema_0_1": 0.1,
-    "ema_0_05": 0.05,
-    "ema_0_02": 0.02,
-}
-
-
 def load_prompt_records(path):
     if path is None:
         return {}
@@ -92,21 +72,7 @@ def vos_inference(
     yolo_imgsz=640,
     yolo_conf=0.5,
     video_prompt_stride=1,
-    memory_update="fixed",
-    motion_alignment="none",
-    fixed_memory_weight=0.5,
-    token_write_rate=0.02,
-    fixed_reliability=None,
-    max_smooth_write=0.7,
-    reliability_power=2.0,
-    short_read_weight=0.5,
-    reliable_read_weight=0.3,
-    reliable_write_rate=0.08,
-    unreliable_write_rate=0.02,
-    long_term_split_power=1.5,
-    unconfirmed_absence_scale=0.25,
-    memory_backend="recurrent",
-    max_background_write=0.02,
+    memory_backend="learned",
     prompt_records=None,
 ):
     """Initialize from a YOLO box prompt and propagate through the video."""
@@ -119,9 +85,6 @@ def vos_inference(
     inference_state = predictor.init_state(video_path=video_dir, offload_video_to_cpu=True)
     height = inference_state["video_height"]
     width = inference_state["video_width"]
-    if not 0.0 <= max_background_write <= 1.0:
-        raise ValueError("max_background_write must be in [0, 1]")
-    frames_bgr = []
     diagnostic_rows = []
     prompt_frame_idx, prompt_box, prompt_confidence = None, None, None
 
@@ -137,7 +100,6 @@ def vos_inference(
 
     for frame_idx, frame_name in enumerate(frame_names):
         frame_path = resolve_frame_path(video_dir, frame_name)
-        frames_bgr.append(load_bgr_image(frame_path))
         if prompt_box is None and frame_idx % video_prompt_stride == 0:
             box, confidence = get_first_yolo_box(
                 yolo_model, frame_path, yolo_imgsz, yolo_conf
@@ -158,25 +120,10 @@ def vos_inference(
         f"{video_output_name}: adding YOLO box prompt on frame {prompt_frame_idx} "
         f"({frame_names[prompt_frame_idx]}), confidence={prompt_confidence:.4f}"
     )
-    if memory_backend == "recurrent":
+    if memory_backend == "learned":
         inference_state.update({
-            "dynamic_token_enabled": True,
-            "dynamic_token_anchor_frame_idx": prompt_frame_idx,
-            "dynamic_token_frames_bgr": frames_bgr,
-            "dynamic_token_use_flow": motion_alignment == "flow",
-            "dynamic_token_update_mode": memory_update,
-            "dynamic_token_write_rate": token_write_rate,
-            "dynamic_token_fixed_weight": fixed_memory_weight,
-            "dynamic_token_fixed_reliability": fixed_reliability,
-            "dynamic_token_max_smooth_write": max_smooth_write,
-            "dynamic_token_reliability_power": reliability_power,
-            "dynamic_token_short_read_weight": short_read_weight,
-            "dynamic_token_reliable_read_weight": reliable_read_weight,
-            "dynamic_token_reliable_write_rate": reliable_write_rate,
-            "dynamic_token_unreliable_write_rate": unreliable_write_rate,
-            "dynamic_token_long_term_split_power": long_term_split_power,
-            "dynamic_token_unconfirmed_absence_scale": unconfirmed_absence_scale,
-            "dynamic_token_max_background_write": max_background_write,
+            "learned_state_enabled": True,
+            "learned_state_anchor_frame_idx": prompt_frame_idx,
         })
     predictor.add_new_points_or_box(
         inference_state=inference_state,
@@ -213,7 +160,7 @@ def vos_inference(
                 "status": "prompt" if frame_idx == prompt_frame_idx else "propagated",
                 "prompt_confidence": prompt_confidence if frame_idx == prompt_frame_idx else "",
                 "prompt_box": json.dumps(prompt_box.tolist()) if frame_idx == prompt_frame_idx else "",
-                **output.get("dynamic_token_trace", {}),
+                **output.get("learned_state_trace", {}),
             }
         )
     save_diagnostics(output_mask_dir, video_output_name, diagnostic_rows)
@@ -233,7 +180,7 @@ def parse_args():
     model_config = load_json_config(config_paths.model_config)
 
     parser = argparse.ArgumentParser(
-        description="Foreground-aware dynamic-token MedSAM2 VOS with a YOLO box prompt.",
+        description="Learned-state MedSAM2 VOS with a YOLO box prompt.",
         parents=[config_parser],
     )
     parser.add_argument("--sam2_cfg", default=model_config["sam2_cfg"])
@@ -246,68 +193,20 @@ def parse_args():
     parser.add_argument("--yolo_conf", type=float, default=model_config["yolo_conf"])
     parser.add_argument("--yolo_imgsz", type=int, default=model_config["yolo_imgsz"])
     parser.add_argument("--video_prompt_stride", type=int, default=model_config["video_prompt_stride"])
-    parser.add_argument(
-        "--memory_update",
-        choices=["direct", "fixed", "adaptive", "three_timescale"],
-        default=model_config["memory_update"],
-    )
-    parser.add_argument("--motion_alignment", choices=["none", "flow"], default=model_config["motion_alignment"])
-    parser.add_argument("--memory_backend", choices=["native", "recurrent"], default="recurrent")
-    parser.add_argument(
-        "--ablation",
-        choices=list(dict.fromkeys((*ABLATION_SETTINGS, *EMA_ABLATION_WEIGHTS))),
-        default=None,
-    )
+    parser.add_argument("--memory_backend", choices=["native", "learned"], default="learned")
     parser.add_argument("--prompt_records", type=Path, default=None)
-    parser.add_argument("--fixed_memory_weight", type=float, default=model_config["fixed_memory_weight"])
-    parser.add_argument("--token_write_rate", type=float, default=model_config["token_write_rate"])
-    parser.add_argument("--fixed_reliability", type=float, default=model_config["fixed_reliability"])
     return parser.parse_args(), model_config
 
 
 def main():
-    args, dynamic = parse_args()
-    if args.ablation is not None:
-        if args.ablation in EMA_ABLATION_WEIGHTS:
-            args.memory_backend = "recurrent"
-            args.memory_update = "direct" if args.ablation == "current_only" else "fixed"
-            args.motion_alignment = "flow" if args.ablation == "ema_flow" else "none"
-            args.fixed_memory_weight = EMA_ABLATION_WEIGHTS[args.ablation]
-        else:
-            (
-                args.memory_backend,
-                args.memory_update,
-                args.motion_alignment,
-            ) = ABLATION_SETTINGS[args.ablation]
+    args, model_config = parse_args()
     if args.video_prompt_stride < 1:
         raise ValueError("--video_prompt_stride must be at least 1")
-    if not 0.0 <= args.fixed_memory_weight <= 1.0:
-        raise ValueError("--fixed_memory_weight must be in [0, 1]")
-    if not 0.0 <= args.token_write_rate <= dynamic["max_smooth_write"]:
-        raise ValueError(
-            f"--token_write_rate must be in [0, {dynamic['max_smooth_write']}]"
-        )
-    if args.fixed_reliability is not None and not 0.0 <= args.fixed_reliability <= 1.0:
-        raise ValueError("--fixed_reliability must be in [0, 1]")
-    for key in (
-        "short_read_weight",
-        "reliable_read_weight",
-        "reliable_write_rate",
-        "unreliable_write_rate",
-        "unconfirmed_absence_scale",
-        "max_background_write",
-    ):
-        if not 0.0 <= dynamic[key] <= 1.0:
-            raise ValueError(f"{key} in the model config must be in [0, 1]")
-    if dynamic["short_read_weight"] + dynamic["reliable_read_weight"] > 1.0:
-        raise ValueError("short_read_weight + reliable_read_weight must not exceed 1")
-    if dynamic["long_term_split_power"] <= 0.0:
-        raise ValueError("long_term_split_power must be positive")
     prompt_records = load_prompt_records(args.prompt_records)
 
     overrides = ["++model.select_memory_by_iou=false"]
-    if args.memory_backend == "recurrent":
-        overrides.insert(0, f"++model._target_={dynamic['predictor_target']}")
+    if args.memory_backend == "learned":
+        overrides.insert(0, f"++model._target_={model_config['predictor_target']}")
     predictor = build_video_predictor(
         args.sam2_cfg,
         args.sam2_checkpoint,
@@ -315,10 +214,8 @@ def main():
         apply_postprocessing=False,
         hydra_overrides_extra=overrides,
     )
-    if args.memory_backend == "recurrent" and (
-        predictor.num_maskmem < 2 or not predictor.use_obj_ptrs_in_encoder
-    ):
-        raise RuntimeError("Dynamic-token inference requires native memory modules and object pointers.")
+    if args.memory_backend == "learned" and predictor.num_maskmem < 1:
+        raise RuntimeError("Learned-state inference requires MedSAM2 memory features.")
     yolo_model = load_yolo_model(args.yolo_checkpoint)
 
     video_names = [
@@ -343,8 +240,6 @@ def main():
         "model_config": str(args.model_config),
         "arguments": {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
         "sequences": video_names,
-        "max_smooth_write": dynamic["max_smooth_write"],
-        "reliability_power": dynamic["reliability_power"],
         "source_sha256": {
             str(path.relative_to(PROJECT_ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sources
@@ -368,21 +263,7 @@ def main():
             yolo_imgsz=args.yolo_imgsz,
             yolo_conf=args.yolo_conf,
             video_prompt_stride=args.video_prompt_stride,
-            memory_update=args.memory_update,
-            motion_alignment=args.motion_alignment,
-            fixed_memory_weight=args.fixed_memory_weight,
-            token_write_rate=args.token_write_rate,
-            fixed_reliability=args.fixed_reliability,
-            max_smooth_write=dynamic["max_smooth_write"],
-            reliability_power=dynamic["reliability_power"],
-            short_read_weight=dynamic["short_read_weight"],
-            reliable_read_weight=dynamic["reliable_read_weight"],
-            reliable_write_rate=dynamic["reliable_write_rate"],
-            unreliable_write_rate=dynamic["unreliable_write_rate"],
-            long_term_split_power=dynamic["long_term_split_power"],
-            unconfirmed_absence_scale=dynamic["unconfirmed_absence_scale"],
             memory_backend=args.memory_backend,
-            max_background_write=dynamic["max_background_write"],
             prompt_records=prompt_records,
         )
         if prompt_record is not None:

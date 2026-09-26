@@ -6,19 +6,5 @@
   "yolo_conf": 0.5,
   "yolo_imgsz": 640,
   "video_prompt_stride": 1,
-  "predictor_target": "modeling.fusion.DynamicTokenVideoPredictor",
-  "memory_update": "fixed",
-  "motion_alignment": "none",
-  "fixed_memory_weight": 0.1,
-  "token_write_rate": 0.02,
-  "fixed_reliability": null,
-  "max_smooth_write": 0.7,
-  "reliability_power": 2.0,
-  "short_read_weight": 0.5,
-  "reliable_read_weight": 0.3,
-  "reliable_write_rate": 0.08,
-  "unreliable_write_rate": 0.02,
-  "long_term_split_power": 1.5,
-  "unconfirmed_absence_scale": 0.25,
-  "max_background_write": 0.02
+  "predictor_target": "modeling.fusion.LearnedStateVideoPredictor"
 }

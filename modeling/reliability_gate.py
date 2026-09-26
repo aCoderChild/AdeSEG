@@ -1,57 +1,26 @@
-"""Write reliability for recurrent dynamic-token memory.
-
-Runtime hyperparameters are supplied by the inference config, not this gate.
-"""
+"""Learned reliability gate shared by training and inference."""
 
 from __future__ import annotations
 
-import math
+import torch
+import torch.nn as nn
 
 
-def token_write_reliability(
-    mask_confidence: float, # SAM2 predicted IoU for the selected mask
-    object_score: float, # SAM2 probability that the object is present
-    has_foreground: bool, # whether the decoded mask contains any foreground pixel
-    identity_similarity: float, # foreground-pooled feature consistency proxy
-    unconfirmed_absence_scale: float = 0.25,
-) -> float:
-    """Return a continuous write score from segmentation signals."""
-    if not all(
-        math.isfinite(value) and 0.0 <= value <= 1.0
-        for value in (
-            mask_confidence,
-            object_score,
-            identity_similarity,
+class LearnedReliabilityGate(nn.Module):
+    """Predict the scalar recurrent-state update weight for each object."""
+
+    def __init__(self, hidden_dim=32):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(3, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, 1),
         )
-    ):
-        raise ValueError(
-            "Token reliability inputs must be finite in [0, 1]."
+        nn.init.zeros_(self.network[-1].weight)
+        nn.init.zeros_(self.network[-1].bias)
+
+    def forward(self, predicted_iou, object_score, state_similarity):
+        signals = torch.stack(
+            (predicted_iou, object_score, state_similarity), dim=-1
         )
-    if not has_foreground:
-        if not 0.0 <= unconfirmed_absence_scale <= 1.0:
-            raise ValueError("unconfirmed_absence_scale must be in [0, 1].")
-        return (1.0 - object_score) * unconfirmed_absence_scale
-    signals = (
-        mask_confidence,
-        object_score,
-        identity_similarity,
-    )
-    return math.prod(signals) ** (1.0 / len(signals))
-
-
-def reliability_gated_ema_weight(
-    reliability: float,
-    minimum_weight: float,
-    maximum_weight: float,
-    reliability_power: float,
-) -> float:
-    """Map a reliability score to the EMA coefficient for a gated write."""
-    if not 0.0 <= reliability <= 1.0:
-        raise ValueError("reliability must be in [0, 1].")
-    if not 0.0 <= minimum_weight <= maximum_weight <= 1.0:
-        raise ValueError("EMA weights must satisfy 0 <= minimum <= maximum <= 1.")
-    if reliability_power <= 0.0:
-        raise ValueError("reliability_power must be positive.")
-    return minimum_weight + (maximum_weight - minimum_weight) * (
-        reliability ** reliability_power
-    )
+        return self.network(signals).squeeze(-1)
