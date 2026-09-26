@@ -149,6 +149,39 @@ class PalettisedPNGSegmentLoader:
         return
 
 
+class BinaryImageSegmentLoader:
+    """Load one binary object from image masks paired with video frames."""
+
+    def __init__(
+        self,
+        frame_paths,
+        mask_root,
+        mask_suffix="_mask",
+        mask_extension=".jpg",
+        threshold=128,
+    ):
+        if not frame_paths:
+            raise ValueError("BinaryImageSegmentLoader requires at least one frame.")
+        self.mask_paths = {
+            frame_idx: os.path.join(
+                mask_root,
+                f"{os.path.splitext(os.path.basename(frame_path))[0]}{mask_suffix}{mask_extension}",
+            )
+            for frame_idx, frame_path in enumerate(frame_paths)
+        }
+        width, height = PILImage.open(frame_paths[0]).size
+        self.empty_mask_shape = (height, width)
+        self.threshold = threshold
+
+    def load(self, frame_idx):
+        mask_path = self.mask_paths[frame_idx]
+        if os.path.isfile(mask_path):
+            mask = np.asarray(PILImage.open(mask_path).convert("L")) >= self.threshold
+        else:
+            mask = np.zeros(self.empty_mask_shape, dtype=bool)
+        return {1: torch.from_numpy(mask)}
+
+
 class MultiplePNGSegmentLoader:
     def __init__(self, video_png_root, single_object_mode=False):
         """

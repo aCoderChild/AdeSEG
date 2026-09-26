@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 
 from modeling.reliability_gate import LearnedReliabilityGate
+from modeling.state_memory import append_native_object_pointers
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
 
@@ -36,11 +37,26 @@ class LearnedState:
 
 
 class LearnedStateVideoPredictor(SAM2VideoPredictor):
-    """Predict masks with one state updated by the trained reliability gate."""
+    """Predict masks with one state and a selected simple update rule."""
 
-    def __init__(self, reliability_gate_hidden_dim=32, **kwargs):
+    def __init__(
+        self,
+        reliability_gate_hidden_dim=32,
+        state_update_mode="learned",
+        fixed_ema_alpha=None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
+        if state_update_mode not in {"learned", "current", "fixed_ema"}:
+            raise ValueError(f"Unknown state update mode: {state_update_mode}")
+        if state_update_mode == "fixed_ema" and (
+            fixed_ema_alpha is None or not 0.0 <= fixed_ema_alpha <= 1.0
+        ):
+            raise ValueError("fixed_ema_alpha must be in [0, 1] for fixed_ema.")
         self.reliability_gate = LearnedReliabilityGate(reliability_gate_hidden_dim)
+        self.state_update_mode = state_update_mode
+        self.fixed_ema_alpha = fixed_ema_alpha
+        self.allow_missing_reliability_gate = state_update_mode != "learned"
 
     @staticmethod
     def _state_similarity(state, candidate):
@@ -81,15 +97,27 @@ class LearnedStateVideoPredictor(SAM2VideoPredictor):
 
         current_out, pred_masks = super()._run_single_frame_inference(*args, **kwargs)
         candidate = current_out["maskmem_features"]
+        if candidate is None:
+            raise RuntimeError("State-update inference requires memory features.")
         predicted_iou = current_out["iou_predictions"].max(dim=-1).values
         object_score = current_out["object_score_logits"].sigmoid().flatten(1).mean(dim=1)
         similarity = self._state_similarity(state.features, candidate.to(state.features))
-        gate = self.reliability_gate(predicted_iou, object_score, similarity).sigmoid()
+        if self.state_update_mode == "learned":
+            quality = self.reliability_gate(predicted_iou, similarity).sigmoid()
+            gate = quality * object_score
+        elif self.state_update_mode == "current":
+            quality = torch.ones_like(predicted_iou)
+            gate = torch.ones_like(predicted_iou)
+        else:
+            quality = torch.full_like(predicted_iou, self.fixed_ema_alpha)
+            gate = torch.full_like(predicted_iou, self.fixed_ema_alpha)
         state.update(frame_idx, candidate, gate)
         current_out["learned_state_trace"] = {
+            "state_update_mode": self.state_update_mode,
             "predicted_iou": float(predicted_iou.mean().item()),
             "object_probability": float(object_score.mean().item()),
             "state_similarity": float(similarity.mean().item()),
+            "quality": float(quality.mean().item()),
             "update_weight": float(gate.mean().item()),
             "updates": state.updates,
         }
@@ -127,12 +155,25 @@ class LearnedStateVideoPredictor(SAM2VideoPredictor):
         memory_position = (
             state.position + self.maskmem_tpos_enc[0].view(1, -1, 1, 1)
         ).to(dtype).flatten(2).permute(2, 0, 1)
+        memory_chunks = [memory]
+        position_chunks = [memory_position]
+        num_obj_ptr_tokens = append_native_object_pointers(
+            self,
+            frame_idx,
+            output_dict,
+            num_frames,
+            track_in_reverse,
+            current_vision_feats[-1].device,
+            current_vision_feats[-1].size(1),
+            memory_chunks,
+            position_chunks,
+        )
         fused = self.memory_attention(
             curr=current_vision_feats,
             curr_pos=current_vision_pos_embeds,
-            memory=memory,
-            memory_pos=memory_position,
-            num_obj_ptr_tokens=0,
+            memory=torch.cat(memory_chunks, dim=0),
+            memory_pos=torch.cat(position_chunks, dim=0),
+            num_obj_ptr_tokens=num_obj_ptr_tokens,
         )
         batch_size = current_vision_feats[-1].size(1)
         return fused.permute(1, 2, 0).reshape(

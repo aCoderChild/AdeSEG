@@ -160,6 +160,16 @@ def evaluate_sequence(
 
     overlay_dir = evaluation_dir / "overlays" / sequence_name
     overlay_dir.mkdir(parents=True, exist_ok=True)
+    diagnostic_rows = load_diagnostic_rows(output_mask_dir, sequence_name)
+    diagnostics_by_stem = {
+        Path(str(row.get("frame", ""))).stem: row for row in diagnostic_rows
+    }
+    prompt_indices = [
+        int(row["frame_idx"])
+        for row in diagnostic_rows
+        if row.get("status") == "prompt" and row.get("frame_idx", "").isdigit()
+    ]
+    prompt_index = prompt_indices[0] if prompt_indices else None
     rows: list[dict[str, object]] = []
     missing_predictions = 0
 
@@ -182,7 +192,21 @@ def evaluate_sequence(
         save_overlay(create_overlay(frame_bgr, prediction, ground_truth), overlay_path)
 
         scores = segmentation_scores(prediction, ground_truth)
-        rows.append({"sequence": sequence_name, "frame": stem, "prediction_missing": prediction_missing, **scores})
+        diagnostic = diagnostics_by_stem.get(stem, {})
+        frame_index = diagnostic.get("frame_idx")
+        try:
+            frames_after_prompt = int(frame_index) - prompt_index
+        except (TypeError, ValueError):
+            frames_after_prompt = None
+        rows.append(
+            {
+                "sequence": sequence_name,
+                "frame": stem,
+                "prediction_missing": prediction_missing,
+                "frames_after_prompt": frames_after_prompt,
+                **scores,
+            }
+        )
 
     sequence_row: dict[str, object] = {
         "sequence": sequence_name,
@@ -191,6 +215,28 @@ def evaluate_sequence(
     }
     sequence_row.update({metric: mean_metric(rows, metric) for metric in METRIC_NAMES})
     return sequence_row, rows
+
+
+def load_diagnostic_rows(output_mask_dir: Path, sequence_name: str) -> list[dict[str, str]]:
+    """Load optional inference diagnostics for one sequence."""
+    path = output_mask_dir / "diagnostics" / f"{sequence_name}.csv"
+    if not path.is_file():
+        return []
+    with path.open(newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def drift_window(frames_after_prompt: int | None) -> str | None:
+    """Group propagated frames by their distance from the initial prompt."""
+    if frames_after_prompt is None or frames_after_prompt < 1:
+        return None
+    if frames_after_prompt <= 5:
+        return "1-5"
+    if frames_after_prompt <= 10:
+        return "6-10"
+    if frames_after_prompt <= 20:
+        return "11-20"
+    return ">20"
 
 
 def write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, object]]) -> None:
@@ -273,6 +319,101 @@ def write_memory_confidence_statistics(
     )
 
 
+def write_drift_statistics(evaluation_dir: Path, frame_rows: list[dict[str, object]]) -> None:
+    """Write Dice and IoU grouped by frames elapsed after the prompt."""
+    propagated_rows = [
+        row for row in frame_rows if isinstance(row.get("frames_after_prompt"), int)
+        and row["frames_after_prompt"] >= 1
+    ]
+    by_offset: dict[int, list[dict[str, object]]] = {}
+    by_window: dict[str, list[dict[str, object]]] = {}
+    for row in propagated_rows:
+        offset = row["frames_after_prompt"]
+        by_offset.setdefault(offset, []).append(row)
+        window = drift_window(offset)
+        if window is not None:
+            by_window.setdefault(window, []).append(row)
+
+    def summarize(label, rows):
+        return {
+            "frames_after_prompt": label,
+            "frames": len(rows),
+            "dice": mean_metric(rows, "dice"),
+            "iou": mean_metric(rows, "iou"),
+        }
+
+    write_csv(
+        evaluation_dir / "drift_by_offset.csv",
+        ["frames_after_prompt", "frames", "dice", "iou"],
+        [summarize(offset, rows) for offset, rows in sorted(by_offset.items())],
+    )
+    window_order = ("1-5", "6-10", "11-20", ">20")
+    write_csv(
+        evaluation_dir / "drift_by_window.csv",
+        ["frames_after_prompt", "frames", "dice", "iou"],
+        [summarize(window, by_window[window]) for window in window_order if window in by_window],
+    )
+
+
+def write_quality_statistics(
+    output_mask_dir: Path,
+    evaluation_dir: Path,
+    frame_rows: list[dict[str, object]],
+    sequence_names: list[str],
+) -> None:
+    """Compare predicted segmentation quality with actual mask IoU."""
+    iou_by_frame = {(row["sequence"], row["frame"]): row["iou"] for row in frame_rows}
+    joined_rows = []
+    for sequence_name in sequence_names:
+        for record in load_diagnostic_rows(output_mask_dir, sequence_name):
+            if record.get("status") != "propagated":
+                continue
+            quality_value = record.get("quality", record.get("update_weight"))
+            if not quality_value:
+                continue
+            frame = Path(record.get("frame", "")).stem
+            actual_iou = iou_by_frame.get((sequence_name, frame))
+            if actual_iou is None:
+                continue
+            try:
+                quality = float(quality_value)
+            except ValueError:
+                continue
+            joined_rows.append(
+                {
+                    "sequence": sequence_name,
+                    "frame": frame,
+                    "quality": quality,
+                    "actual_iou": actual_iou,
+                    "absolute_quality_iou_error": abs(quality - actual_iou),
+                }
+            )
+    if not joined_rows:
+        return
+    write_csv(
+        evaluation_dir / "quality_per_frame.csv",
+        ["sequence", "frame", "quality", "actual_iou", "absolute_quality_iou_error"],
+        joined_rows,
+    )
+    qualities = np.asarray([row["quality"] for row in joined_rows], dtype=float)
+    actual_ious = np.asarray([row["actual_iou"] for row in joined_rows], dtype=float)
+    correlation = (
+        float(np.corrcoef(qualities, actual_ious)[0, 1])
+        if qualities.size > 1 and qualities.std() > 0 and actual_ious.std() > 0
+        else float("nan")
+    )
+    write_csv(
+        evaluation_dir / "quality_summary.csv",
+        ["frames", "mean_absolute_quality_iou_error", "quality_iou_correlation"],
+        [{
+            "frames": len(joined_rows),
+            "mean_absolute_quality_iou_error": float(
+                np.mean([row["absolute_quality_iou_error"] for row in joined_rows])
+            ),
+            "quality_iou_correlation": correlation,
+        }],
+    )
+
 def evaluate_masks(
     output_mask_dir: Path,
     data_root: Path = DEFAULT_DATA_ROOT,
@@ -312,7 +453,7 @@ def evaluate_masks(
     )
     write_csv(
         evaluation_dir / "metrics_per_frame.csv",
-        ["sequence", "frame", "prediction_missing", *METRIC_NAMES],
+        ["sequence", "frame", "prediction_missing", "frames_after_prompt", *METRIC_NAMES],
         frame_rows,
     )
     stats_rows = []
@@ -330,6 +471,8 @@ def evaluate_masks(
             })
     write_csv(evaluation_dir / "metrics_stats.csv", ["aggregation", "metric", "mean", "std", "min", "max"], stats_rows)
     write_memory_confidence_statistics(output_mask_dir, evaluation_dir, sequence_names)
+    write_drift_statistics(evaluation_dir, frame_rows)
+    write_quality_statistics(output_mask_dir, evaluation_dir, frame_rows, sequence_names)
     for obsolete_path in (evaluation_dir / "metrics_avg.csv", evaluation_dir / "metrics_coverage.json"):
         obsolete_path.unlink(missing_ok=True)
     return summary

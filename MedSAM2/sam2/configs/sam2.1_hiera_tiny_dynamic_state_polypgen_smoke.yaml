@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - sam2.1_hiera_tiny_dynamic_state_polypgen_overfit
+  - _self_
+
+scratch:
+  num_epochs: 1
+
+trainer:
+  checkpoint:
+    save_dir: outputs/polypgen_smoke/checkpoints
+
+launcher:
+  experiment_log_dir: outputs/polypgen_smoke

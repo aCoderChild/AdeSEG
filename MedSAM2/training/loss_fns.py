@@ -169,7 +169,7 @@ class MultiStepMultiMasksAndIous(nn.Module):
         num_objects = torch.tensor(
             (targets_batch.shape[1]), device=targets_batch.device, dtype=torch.float
         )  # Number of objects is fixed within a batch
-        if is_dist_avail_and_initialized():
+        if is_dist_avail_and_initialized() and get_world_size() > 1:
             torch.distributed.all_reduce(num_objects)
         num_objects = torch.clamp(num_objects / get_world_size(), min=1).item()
 

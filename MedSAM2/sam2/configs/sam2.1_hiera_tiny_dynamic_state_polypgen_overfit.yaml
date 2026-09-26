@@ -1,0 +1,36 @@
+# @package _global_
+
+defaults:
+  - sam2.1_hiera_tiny_dynamic_state_polypgen
+  - _self_
+
+polypgen:
+  train_split: MedSAM2/training/assets/polypgen/overfit.txt
+
+scratch:
+  num_frames: 8
+  train_video_batch_size: 1
+  num_train_workers: 0
+  num_epochs: 20
+  base_lr: 1.0e-3
+
+vos:
+  train_transforms: ${vos.eval_transforms}
+
+trainer:
+  mode: train_only
+  accelerator: auto
+  distributed:
+    backend: null
+  optim:
+    amp:
+      enabled: false
+  data:
+    train:
+      pin_memory: false
+  checkpoint:
+    save_dir: outputs/polypgen_overfit/checkpoints
+    save_freq: 1
+
+launcher:
+  experiment_log_dir: outputs/polypgen_overfit

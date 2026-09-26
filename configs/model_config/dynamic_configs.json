@@ -3,7 +3,7 @@
   "sam2_checkpoint": "checkpoints/MedSAM2_latest.pt",
   "learned_checkpoint": null,
   "yolo_checkpoint": "checkpoints/polypgen_yolov8n.pt",
-  "device": "mps",
+  "device": "auto",
   "yolo_conf": 0.5,
   "yolo_imgsz": 640,
   "video_prompt_stride": 1,

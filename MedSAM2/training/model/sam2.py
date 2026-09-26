@@ -366,6 +366,7 @@ class SAM2Train(SAM2Base):
         prev_sam_mask_logits=None,  # The previously predicted SAM mask logits.
         frames_to_add_correction_pt=None,
         gt_masks=None,
+        mask_prompt_weight=1.0,
     ):
         if frames_to_add_correction_pt is None:
             frames_to_add_correction_pt = []
@@ -381,6 +382,7 @@ class SAM2Train(SAM2Base):
             num_frames,
             track_in_reverse,
             prev_sam_mask_logits,
+            mask_prompt_weight,
         )
 
         (

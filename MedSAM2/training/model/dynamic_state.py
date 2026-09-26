@@ -7,6 +7,7 @@ from MedSAM2.training.loss_fns import MultiStepMultiMasksAndIous
 from MedSAM2.training.model.sam2 import SAM2Train
 from MedSAM2.training.trainer import CORE_LOSS_KEY
 from modeling.reliability_gate import LearnedReliabilityGate
+from modeling.state_memory import append_native_object_pointers
 
 
 class ReliabilityGatedSAM2Train(SAM2Train):
@@ -83,12 +84,25 @@ class ReliabilityGatedSAM2Train(SAM2Train):
         memory_position = (
             state_position + self.maskmem_tpos_enc[0].view(1, -1, 1, 1)
         ).to(dtype).flatten(2).permute(2, 0, 1)
+        memory_chunks = [memory]
+        position_chunks = [memory_position]
+        num_obj_ptr_tokens = append_native_object_pointers(
+            self,
+            frame_idx,
+            output_dict,
+            num_frames,
+            track_in_reverse,
+            current_vision_feats[-1].device,
+            current_vision_feats[-1].size(1),
+            memory_chunks,
+            position_chunks,
+        )
         fused = self.memory_attention(
             curr=current_vision_feats,
             curr_pos=current_vision_pos_embeds,
-            memory=memory,
-            memory_pos=memory_position,
-            num_obj_ptr_tokens=0,
+            memory=torch.cat(memory_chunks, dim=0),
+            memory_pos=torch.cat(position_chunks, dim=0),
+            num_obj_ptr_tokens=num_obj_ptr_tokens,
         )
         batch_size = current_vision_feats[-1].size(1)
         return fused.permute(1, 2, 0).reshape(
@@ -117,11 +131,12 @@ class ReliabilityGatedSAM2Train(SAM2Train):
         predicted_iou = current_out["multistep_pred_ious"][-1].max(dim=-1).values
         object_score = current_out["multistep_object_score_logits"][-1].sigmoid().flatten(1).mean(dim=1)
         similarity = self._state_similarity(state, candidate)
-        gate_logit = self.reliability_gate(predicted_iou, object_score, similarity)
-        gate = gate_logit.sigmoid().view(-1, 1, 1, 1)
+        quality_logit = self.reliability_gate(predicted_iou, similarity)
+        quality = quality_logit.sigmoid()
+        gate = (quality * object_score).view(-1, 1, 1, 1)
         next_state = (1.0 - gate) * state + gate * candidate
         output_dict["dynamic_state"] = next_state
-        self._add_quality_target(current_out, kwargs, gate_logit)
+        self._add_quality_target(current_out, kwargs, quality_logit)
         return current_out
 
     def _add_quality_target(self, current_out, kwargs, gate_logit):
@@ -143,7 +158,11 @@ class ReliabilityAwareMultiStepLoss(MultiStepMultiMasksAndIous):
         super().__init__(weight_dict=weight_dict, **kwargs)
 
     def _forward(self, outputs, targets, num_objects):
-        losses = super()._forward(outputs, targets, num_objects)
+        quality_weight = self.weight_dict.pop("loss_quality")
+        try:
+            losses = super()._forward(outputs, targets, num_objects)
+        finally:
+            self.weight_dict["loss_quality"] = quality_weight
         reference = losses[CORE_LOSS_KEY]
         quality_logit = outputs.get("state_quality_logit")
         quality_target = outputs.get("state_quality_target")

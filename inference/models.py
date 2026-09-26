@@ -17,9 +17,11 @@ def build_image_predictor(
     device: str | None = None,
     apply_postprocessing: bool = False,
 ):
-    from MedSAM2.sam2.build_sam import build_sam2
+    from MedSAM2.sam2.build_sam import build_sam2, get_best_available_device
     from MedSAM2.sam2.sam2_image_predictor import SAM2ImagePredictor
 
+    if device == "auto":
+        device = get_best_available_device()
     model = build_sam2(
         config_file=config_file,
         ckpt_path=str(checkpoint),
@@ -37,7 +39,10 @@ def build_video_predictor(
     hydra_overrides_extra=None,
     vos_optimized: bool = False,
 ):
-    from MedSAM2.sam2.build_sam import build_sam2_video_predictor
+    from MedSAM2.sam2.build_sam import build_sam2_video_predictor, get_best_available_device
+
+    if device == "auto":
+        device = get_best_available_device()
 
     kwargs = {
         "config_file": config_file,

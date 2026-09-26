@@ -183,6 +183,9 @@ class Trainer:
         cuda = CudaConf(**cuda or {})
         self.where = 0.0
 
+        accelerator = self._resolve_accelerator(accelerator)
+        self.accelerator = accelerator
+
         self._infer_distributed_backend_if_none(distributed, accelerator)
 
         self._setup_device(accelerator)
@@ -254,6 +257,16 @@ class Trainer:
         if distributed_conf.backend is None:
             distributed_conf.backend = "nccl" if accelerator == "cuda" else "gloo"
 
+    @staticmethod
+    def _resolve_accelerator(accelerator):
+        if accelerator != "auto":
+            return accelerator
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+
     def _setup_env_variables(self, env_variables_conf) -> None:
         if env_variables_conf is not None:
             for variable_name, value in env_variables_conf.items():
@@ -285,12 +298,22 @@ class Trainer:
             torch.cuda.set_device(self.local_rank)
         elif accelerator == "cpu":
             self.device = torch.device("cpu")
+        elif accelerator == "mps":
+            if not torch.backends.mps.is_available():
+                raise RuntimeError("MPS was requested but is not available.")
+            self.device = torch.device("mps")
         else:
             raise ValueError(f"Unsupported accelerator: {accelerator}")
 
     def _setup_ddp_distributed_training(self, distributed_conf, accelerator):
 
         assert isinstance(self.model, torch.nn.Module)
+
+        # CPU and MPS local runs have no device-id DDP mode. Keeping a
+        # one-process model unwrapped also makes the smoke configuration match
+        # the normal trainer interface.
+        if accelerator in {"cpu", "mps"} and dist.get_world_size() == 1:
+            return
 
         self.model = nn.parallel.DistributedDataParallel(
             self.model,
@@ -750,7 +773,8 @@ class Trainer:
 
                 # Add this block to clear cache every N steps
                 if data_iter % 20 == 0:  # Adjust 20 to your desired frequency
-                    torch.cuda.empty_cache()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                     gc.collect()
 
                 # compute gradient and do optim step
@@ -804,7 +828,8 @@ class Trainer:
                     time.time() - self.start_time + self.ckpt_time_elapsed
                 )
 
-                mem_meter.update(reset_peak_usage=True)
+                if torch.cuda.is_available():
+                    mem_meter.update(reset_peak_usage=True)
                 if data_iter % self.logging_conf.log_freq == 0:
                     progress.display(data_iter)
 
@@ -989,7 +1014,11 @@ class Trainer:
         val_phase = Phase.VAL
         val_keys = None
         if self.data_conf.get(val_phase, None) is not None:
-            val_keys = collect_dict_keys(self.data_conf[val_phase])
+            val_config = self.data_conf[val_phase]
+            # A single validation loader is configured directly, so it shares
+            # the training loss named "all" and has no dataset-specific key.
+            if "_target_" not in val_config:
+                val_keys = collect_dict_keys(val_config)
         # Additional checks on the sanity of the config for val datasets
         self._check_val_key_match(val_keys, phase=val_phase)
 

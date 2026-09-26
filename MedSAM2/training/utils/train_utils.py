@@ -150,6 +150,8 @@ def log_env_variables():
     st = ""
     for k in env_keys:
         v = os.environ[k]
+        if any(marker in k.upper() for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")):
+            v = "<redacted>"
         st += f"{k}={v}\n"
     logging.info("Logging ENV_VARIABLES")
     logging.info(st)

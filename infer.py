@@ -39,7 +39,7 @@ from utils.mask_utils import save_masks_to_dir
 
 
 def save_diagnostics(output_mask_dir, video_name, rows):
-    """Save one dynamic-token trace row per frame."""
+    """Save one state-update trace row per frame."""
     directory = Path(output_mask_dir) / "diagnostics"
     directory.mkdir(parents=True, exist_ok=True)
     fields = list(dict.fromkeys(key for row in rows for key in row))
@@ -82,7 +82,11 @@ def vos_inference(
     if not frame_names:
         raise RuntimeError(f"Found no image frames in {video_dir}")
 
-    inference_state = predictor.init_state(video_path=video_dir, offload_video_to_cpu=True)
+    inference_state = predictor.init_state(
+        video_path=video_dir,
+        offload_video_to_cpu=True,
+        offload_state_to_cpu=True,
+    )
     height = inference_state["video_height"]
     width = inference_state["video_width"]
     diagnostic_rows = []
@@ -120,7 +124,7 @@ def vos_inference(
         f"{video_output_name}: adding YOLO box prompt on frame {prompt_frame_idx} "
         f"({frame_names[prompt_frame_idx]}), confidence={prompt_confidence:.4f}"
     )
-    if memory_backend == "learned":
+    if memory_backend != "native":
         inference_state.update({
             "learned_state_enabled": True,
             "learned_state_anchor_frame_idx": prompt_frame_idx,
@@ -200,11 +204,21 @@ def parse_args():
     parser.add_argument("--yolo_checkpoint", type=Path, default=resolve_project_path(model_config["yolo_checkpoint"]))
     parser.add_argument("--seq_nums", type=int, nargs="*", default=None)
     parser.add_argument("-o", "--output_mask_dir", type=Path, required=True)
-    parser.add_argument("--device", choices=["cuda", "mps", "cpu"], default=model_config["device"])
+    parser.add_argument("--device", choices=["auto", "cuda", "mps", "cpu"], default=model_config["device"])
     parser.add_argument("--yolo_conf", type=float, default=model_config["yolo_conf"])
     parser.add_argument("--yolo_imgsz", type=int, default=model_config["yolo_imgsz"])
     parser.add_argument("--video_prompt_stride", type=int, default=model_config["video_prompt_stride"])
-    parser.add_argument("--memory_backend", choices=["native", "learned"], default="learned")
+    parser.add_argument(
+        "--memory_backend",
+        choices=["native", "current", "fixed_ema", "learned"],
+        default="learned",
+    )
+    parser.add_argument(
+        "--fixed_ema_alpha",
+        type=float,
+        default=None,
+        help="Fixed update weight for --memory_backend fixed_ema.",
+    )
     parser.add_argument("--prompt_records", type=Path, default=None)
     return parser.parse_args(), model_config
 
@@ -213,6 +227,10 @@ def main():
     args, model_config = parse_args()
     if args.video_prompt_stride < 1:
         raise ValueError("--video_prompt_stride must be at least 1")
+    if args.memory_backend == "fixed_ema" and args.fixed_ema_alpha is None:
+        raise ValueError("--fixed_ema_alpha is required for fixed_ema memory.")
+    if args.fixed_ema_alpha is not None and not 0.0 <= args.fixed_ema_alpha <= 1.0:
+        raise ValueError("--fixed_ema_alpha must be in [0, 1].")
     prompt_records = load_prompt_records(args.prompt_records)
 
     overrides = ["++model.select_memory_by_iou=false"]
@@ -222,7 +240,11 @@ def main():
                 "--learned_checkpoint is required for learned memory because it "
                 "contains the trained reliability gate."
             )
+    if args.memory_backend != "native":
         overrides.insert(0, f"++model._target_={model_config['predictor_target']}")
+        overrides.append(f"++model.state_update_mode={args.memory_backend}")
+        if args.memory_backend == "fixed_ema":
+            overrides.append(f"++model.fixed_ema_alpha={args.fixed_ema_alpha}")
     checkpoint = (
         args.learned_checkpoint
         if args.memory_backend == "learned"
@@ -235,8 +257,8 @@ def main():
         apply_postprocessing=False,
         hydra_overrides_extra=overrides,
     )
-    if args.memory_backend == "learned" and predictor.num_maskmem < 1:
-        raise RuntimeError("Learned-state inference requires MedSAM2 memory features.")
+    if args.memory_backend != "native" and predictor.num_maskmem < 1:
+        raise RuntimeError("State-update baselines require MedSAM2 memory features.")
     yolo_model = load_yolo_model(args.yolo_checkpoint)
 
     video_names = [

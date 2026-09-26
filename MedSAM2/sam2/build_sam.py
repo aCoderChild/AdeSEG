@@ -238,6 +238,10 @@ def _load_checkpoint(model, ckpt_path):
             )
         missing_keys, unexpected_keys = model.load_state_dict(sd, strict=False)
         missing_keys = [key for key in missing_keys if key not in shape_mismatched]
+        if getattr(model, "allow_missing_reliability_gate", False):
+            missing_keys = [
+                key for key in missing_keys if not key.startswith("reliability_gate.")
+            ]
         if missing_keys:
             logging.error(missing_keys)
             raise RuntimeError()

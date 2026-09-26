@@ -22,6 +22,7 @@ from omegaconf.listconfig import ListConfig
 
 from MedSAM2.training.dataset.vos_segment_loader import (
     JSONSegmentLoader,
+    BinaryImageSegmentLoader,
     MultiplePNGSegmentLoader,
     PalettisedPNGSegmentLoader,
     SA1BSegmentLoader,
@@ -67,6 +68,12 @@ class PNGRawDataset(VOSRawDataset):
         single_object_mode=False,
         truncate_video=-1,
         frames_sampling_mult=False,
+        image_subdir_template=None,
+        mask_subdir_template=None,
+        binary_mask_images=False,
+        binary_mask_suffix="_mask",
+        binary_mask_extension=".jpg",
+        binary_mask_threshold=128,
     ):
         self.img_folder = img_folder
         self.gt_folder = gt_folder
@@ -74,6 +81,12 @@ class PNGRawDataset(VOSRawDataset):
         self.is_palette = is_palette
         self.single_object_mode = single_object_mode
         self.truncate_video = truncate_video
+        self.image_subdir_template = image_subdir_template
+        self.mask_subdir_template = mask_subdir_template
+        self.binary_mask_images = binary_mask_images
+        self.binary_mask_suffix = binary_mask_suffix
+        self.binary_mask_extension = binary_mask_extension
+        self.binary_mask_threshold = binary_mask_threshold
 
         # Read the subset defined in file_list_txt
         if file_list_txt is not None:
@@ -107,9 +120,30 @@ class PNGRawDataset(VOSRawDataset):
         if frames_sampling_mult:
             video_names_mult = []
             for video_name in self.video_names:
-                num_frames = len(os.listdir(os.path.join(self.img_folder, video_name)))
+                video_frame_root = self._video_frame_root(video_name)
+                num_frames = len(glob.glob(os.path.join(video_frame_root, "*.jpg")))
                 video_names_mult.extend([video_name] * num_frames)
             self.video_names = video_names_mult
+
+    def _video_frame_root(self, video_name):
+        if self.single_object_mode:
+            video_name = os.path.dirname(video_name)
+        video_frame_root = os.path.join(self.img_folder, video_name)
+        if self.image_subdir_template is not None:
+            video_frame_root = os.path.join(
+                video_frame_root,
+                self.image_subdir_template.format(video_name=video_name),
+            )
+        return video_frame_root
+
+    def _video_mask_root(self, video_name):
+        video_mask_root = os.path.join(self.gt_folder, video_name)
+        if self.mask_subdir_template is not None:
+            video_mask_root = os.path.join(
+                video_mask_root,
+                self.mask_subdir_template.format(video_name=video_name),
+            )
+        return video_mask_root
 
     def get_video(self, idx):
         """
@@ -117,28 +151,29 @@ class PNGRawDataset(VOSRawDataset):
         """
         video_name = self.video_names[idx]
 
-        if self.single_object_mode:
-            video_frame_root = os.path.join(
-                self.img_folder, os.path.dirname(video_name)
+        video_frame_root = self._video_frame_root(video_name)
+        video_mask_root = self._video_mask_root(video_name)
+        all_frames = sorted(glob.glob(os.path.join(video_frame_root, "*.jpg")))
+        if self.truncate_video > 0:
+            all_frames = all_frames[: self.truncate_video]
+        all_frames = all_frames[::self.sample_rate]
+        if self.binary_mask_images:
+            segment_loader = BinaryImageSegmentLoader(
+                all_frames,
+                video_mask_root,
+                mask_suffix=self.binary_mask_suffix,
+                mask_extension=self.binary_mask_extension,
+                threshold=self.binary_mask_threshold,
             )
-        else:
-            video_frame_root = os.path.join(self.img_folder, video_name)
-
-        video_mask_root = os.path.join(self.gt_folder, video_name)
-
-        if self.is_palette:
+        elif self.is_palette:
             segment_loader = PalettisedPNGSegmentLoader(video_mask_root, sample_rate=self.sample_rate)
         else:
             segment_loader = MultiplePNGSegmentLoader(
                 video_mask_root, self.single_object_mode
             )
-
-        all_frames = sorted(glob.glob(os.path.join(video_frame_root, "*.jpg")))
-        if self.truncate_video > 0:
-            all_frames = all_frames[: self.truncate_video]
         frames = []
-        for idx, fpath in enumerate(all_frames[::self.sample_rate]):
-            fid = idx # int(os.path.basename(fpath).split(".")[0])
+        for frame_idx, fpath in enumerate(all_frames):
+            fid = frame_idx # int(os.path.basename(fpath).split(".")[0])
             frames.append(VOSFrame(fid, image_path=fpath))
         video = VOSVideo(video_name, idx, frames)
         return video, segment_loader
