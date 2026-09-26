@@ -13,21 +13,15 @@ def token_write_reliability(
     object_score: float, # SAM2 probability that the object is present
     has_foreground: bool, # whether the decoded mask contains any foreground pixel
     identity_similarity: float, # foreground-pooled feature consistency proxy
-    area_plausibility: float,
-    temporal_consistency: float,
-    background_confirmed: bool = False,
     unconfirmed_absence_scale: float = 0.25,
-    detector_geometry_agreement: float | None = None,
 ) -> float:
-    """Return a continuous write score from segmentation and external evidence."""
+    """Return a continuous write score from segmentation signals."""
     if not all(
         math.isfinite(value) and 0.0 <= value <= 1.0
         for value in (
             mask_confidence,
             object_score,
             identity_similarity,
-            area_plausibility,
-            temporal_consistency,
         )
     ):
         raise ValueError(
@@ -36,19 +30,12 @@ def token_write_reliability(
     if not has_foreground:
         if not 0.0 <= unconfirmed_absence_scale <= 1.0:
             raise ValueError("unconfirmed_absence_scale must be in [0, 1].")
-        absence_scale = 1.0 if background_confirmed else unconfirmed_absence_scale
-        return (1.0 - object_score) * absence_scale
+        return (1.0 - object_score) * unconfirmed_absence_scale
     signals = (
         mask_confidence,
         object_score,
         identity_similarity,
-        area_plausibility,
-        temporal_consistency,
     )
-    if detector_geometry_agreement is not None:
-        if not math.isfinite(detector_geometry_agreement) or not 0.0 <= detector_geometry_agreement <= 1.0:
-            raise ValueError("detector_geometry_agreement must be finite in [0, 1].")
-        signals = (*signals, detector_geometry_agreement)
     return math.prod(signals) ** (1.0 / len(signals))
 
 

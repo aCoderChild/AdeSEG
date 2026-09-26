@@ -45,7 +45,15 @@ def list_video_names(base_video_dir: str | Path) -> list[str]:
     images = base / "images"
     if images.is_dir() and any(is_image_file(path.name) for path in images.iterdir()):
         return ["."]
-    videos = [path.name for path in base.iterdir() if path.is_dir()]
+    videos = [
+        path.name
+        for path in base.iterdir()
+        if path.is_dir()
+        and any(
+            is_image_file(frame_path.name)
+            for frame_path in Path(get_video_frame_dir(base, path.name)).iterdir()
+        )
+    ]
     if videos:
         return sorted(videos, key=get_numeric_sort_key)
     return ["."] if any(is_image_file(path.name) for path in base.iterdir()) else []

@@ -57,11 +57,11 @@ def get_first_yolo_box(yolo_model, frame_path, yolo_imgsz, yolo_conf):
 
 
 ABLATION_SETTINGS = {
-    "native": ("native", "direct", "none", False),
-    "current_only": ("recurrent", "direct", "none", False),
-    "ema": ("recurrent", "fixed", "none", False),
-    "ema_flow": ("recurrent", "fixed", "flow", False),
-    "three_timescale": ("recurrent", "three_timescale", "none", False),
+    "native": ("native", "direct", "none"),
+    "current_only": ("recurrent", "direct", "none"),
+    "ema": ("recurrent", "fixed", "none"),
+    "ema_flow": ("recurrent", "fixed", "flow"),
+    "three_timescale": ("recurrent", "three_timescale", "none"),
 }
 EMA_ABLATION_WEIGHTS = {
     "current_only": 1.0,
@@ -105,17 +105,11 @@ def vos_inference(
     unreliable_write_rate=0.02,
     long_term_split_power=1.5,
     unconfirmed_absence_scale=0.25,
-    detector_conflict_scale=0.35,
-    absence_confirmation_frames=3,
-    detector_stride=1,
     memory_backend="recurrent",
-    detector_recovery=True,
-    detector_recovery_confidence=0.8,
-    detector_recovery_iou=0.1,
     max_background_write=0.02,
     prompt_records=None,
 ):
-    """Initialize from YOLO, with detector-guided recovery during propagation."""
+    """Initialize from a YOLO box prompt and propagate through the video."""
     video_dir = get_video_frame_dir(base_video_dir, video_name)
     video_output_name = get_video_name(base_video_dir, video_name)
     frame_names = get_frame_names(video_dir)
@@ -125,34 +119,11 @@ def vos_inference(
     inference_state = predictor.init_state(video_path=video_dir, offload_video_to_cpu=True)
     height = inference_state["video_height"]
     width = inference_state["video_width"]
-    if detector_stride < 1:
-        raise ValueError("detector_stride must be at least 1")
-    if absence_confirmation_frames < 3:
-        raise ValueError("absence_confirmation_frames must be at least 3")
     if not 0.0 <= max_background_write <= 1.0:
         raise ValueError("max_background_write must be in [0, 1]")
-    frames_bgr, detector_present, detector_boxes, detector_confidences = [], [], [], []
+    frames_bgr = []
     diagnostic_rows = []
     prompt_frame_idx, prompt_box, prompt_confidence = None, None, None
-
-    for frame_idx, frame_name in enumerate(frame_names):
-        frame_path = resolve_frame_path(video_dir, frame_name)
-        frames_bgr.append(load_bgr_image(frame_path))
-        box, confidence = None, None
-        if frame_idx % detector_stride == 0:
-            box, confidence = get_first_yolo_box(
-                yolo_model, frame_path, yolo_imgsz, yolo_conf
-            )
-            detector_present.append(box is not None)
-            detector_boxes.append(box)
-            detector_confidences.append(confidence)
-        else:
-            detector_present.append(None)
-            detector_boxes.append(None)
-            detector_confidences.append(None)
-        if prompt_box is None and frame_idx % video_prompt_stride == 0:
-            if box is not None:
-                prompt_frame_idx, prompt_box, prompt_confidence = frame_idx, box, confidence
 
     saved_prompt = (prompt_records or {}).get(video_name)
     if saved_prompt is not None:
@@ -163,6 +134,16 @@ def vos_inference(
         if prompt_box.shape != (4,):
             raise ValueError(f"Saved prompt box for {video_output_name} must have four coordinates.")
         prompt_confidence = float(saved_prompt["confidence"])
+
+    for frame_idx, frame_name in enumerate(frame_names):
+        frame_path = resolve_frame_path(video_dir, frame_name)
+        frames_bgr.append(load_bgr_image(frame_path))
+        if prompt_box is None and frame_idx % video_prompt_stride == 0:
+            box, confidence = get_first_yolo_box(
+                yolo_model, frame_path, yolo_imgsz, yolo_conf
+            )
+            if box is not None:
+                prompt_frame_idx, prompt_box, prompt_confidence = frame_idx, box, confidence
     if prompt_box is None:
         print(f"Warning: {video_output_name}: YOLO found no box; saving empty masks.")
         for frame_idx, frame_name in enumerate(frame_names):
@@ -195,14 +176,6 @@ def vos_inference(
             "dynamic_token_unreliable_write_rate": unreliable_write_rate,
             "dynamic_token_long_term_split_power": long_term_split_power,
             "dynamic_token_unconfirmed_absence_scale": unconfirmed_absence_scale,
-            "dynamic_token_detector_conflict_scale": detector_conflict_scale,
-            "dynamic_token_absence_confirmation_frames": absence_confirmation_frames,
-            "dynamic_token_detector_present": detector_present,
-            "dynamic_token_detector_boxes": detector_boxes,
-            "dynamic_token_detector_confidences": detector_confidences,
-            "dynamic_token_enable_detector_recovery": detector_recovery,
-            "dynamic_token_detector_recovery_confidence": detector_recovery_confidence,
-            "dynamic_token_detector_recovery_iou": detector_recovery_iou,
             "dynamic_token_max_background_write": max_background_write,
         })
     predictor.add_new_points_or_box(
@@ -286,18 +259,6 @@ def parse_args():
         default=None,
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
-    parser.add_argument(
-        "--detector_recovery", action=argparse.BooleanOptionalAction,
-        default=model_config["detector_recovery"],
-    )
-    parser.add_argument(
-        "--detector_recovery_confidence", type=float,
-        default=model_config["detector_recovery_confidence"],
-    )
-    parser.add_argument(
-        "--detector_recovery_iou", type=float,
-        default=model_config["detector_recovery_iou"],
-    )
     parser.add_argument("--fixed_memory_weight", type=float, default=model_config["fixed_memory_weight"])
     parser.add_argument("--token_write_rate", type=float, default=model_config["token_write_rate"])
     parser.add_argument("--fixed_reliability", type=float, default=model_config["fixed_reliability"])
@@ -311,14 +272,12 @@ def main():
             args.memory_backend = "recurrent"
             args.memory_update = "direct" if args.ablation == "current_only" else "fixed"
             args.motion_alignment = "flow" if args.ablation == "ema_flow" else "none"
-            args.detector_recovery = False
             args.fixed_memory_weight = EMA_ABLATION_WEIGHTS[args.ablation]
         else:
             (
                 args.memory_backend,
                 args.memory_update,
                 args.motion_alignment,
-                args.detector_recovery,
             ) = ABLATION_SETTINGS[args.ablation]
     if args.video_prompt_stride < 1:
         raise ValueError("--video_prompt_stride must be at least 1")
@@ -336,21 +295,14 @@ def main():
         "reliable_write_rate",
         "unreliable_write_rate",
         "unconfirmed_absence_scale",
-        "detector_conflict_scale",
         "max_background_write",
     ):
         if not 0.0 <= dynamic[key] <= 1.0:
             raise ValueError(f"{key} in the model config must be in [0, 1]")
-    if dynamic["absence_confirmation_frames"] < 3 or dynamic["detector_stride"] < 1:
-        raise ValueError("absence_confirmation_frames must be at least 3 and detector_stride at least 1")
     if dynamic["short_read_weight"] + dynamic["reliable_read_weight"] > 1.0:
         raise ValueError("short_read_weight + reliable_read_weight must not exceed 1")
     if dynamic["long_term_split_power"] <= 0.0:
         raise ValueError("long_term_split_power must be positive")
-    if not 0.0 <= args.detector_recovery_confidence <= 1.0:
-        raise ValueError("--detector_recovery_confidence must be in [0, 1]")
-    if not 0.0 <= args.detector_recovery_iou <= 1.0:
-        raise ValueError("--detector_recovery_iou must be in [0, 1]")
     prompt_records = load_prompt_records(args.prompt_records)
 
     overrides = ["++model.select_memory_by_iou=false"]
@@ -429,13 +381,7 @@ def main():
             unreliable_write_rate=dynamic["unreliable_write_rate"],
             long_term_split_power=dynamic["long_term_split_power"],
             unconfirmed_absence_scale=dynamic["unconfirmed_absence_scale"],
-            detector_conflict_scale=dynamic["detector_conflict_scale"],
-            absence_confirmation_frames=dynamic["absence_confirmation_frames"],
-            detector_stride=dynamic["detector_stride"],
             memory_backend=args.memory_backend,
-            detector_recovery=args.detector_recovery,
-            detector_recovery_confidence=args.detector_recovery_confidence,
-            detector_recovery_iou=args.detector_recovery_iou,
             max_background_write=dynamic["max_background_write"],
             prompt_records=prompt_records,
         )

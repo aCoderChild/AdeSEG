@@ -30,7 +30,7 @@ DEFAULT_DATA_ROOT = (
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 METRIC_NAMES = (
     "dice", "iou", "f_measure", "f2", "precision", "recall", "sensitivity",
-    "specificity", "accuracy", "mae", "temporal_iou",
+    "specificity", "accuracy", "mae",
 )
 
 
@@ -131,13 +131,6 @@ def segmentation_scores(prediction: np.ndarray, ground_truth: np.ndarray) -> dic
     return calculate_scores(prediction, ground_truth)
 
 
-def temporal_iou(previous_prediction: np.ndarray | None, prediction: np.ndarray) -> float:
-    """IoU of consecutive foreground predictions; this is a stability diagnostic."""
-    if previous_prediction is None:
-        return float("nan")
-    return calculate_scores(prediction > 0, previous_prediction > 0)["iou"]
-
-
 def create_overlay(frame_bgr: np.ndarray, prediction: np.ndarray, ground_truth: np.ndarray) -> np.ndarray:
     """Create the shared RGB prediction/ground-truth overlay."""
     if frame_bgr.shape[:2] != ground_truth.shape:
@@ -168,7 +161,6 @@ def evaluate_sequence(
     overlay_dir = evaluation_dir / "overlays" / sequence_name
     overlay_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, object]] = []
-    previous_prediction: np.ndarray | None = None
     missing_predictions = 0
 
     for ground_truth_path in ground_truth_files:
@@ -190,9 +182,7 @@ def evaluate_sequence(
         save_overlay(create_overlay(frame_bgr, prediction, ground_truth), overlay_path)
 
         scores = segmentation_scores(prediction, ground_truth)
-        scores["temporal_iou"] = temporal_iou(previous_prediction, prediction)
         rows.append({"sequence": sequence_name, "frame": stem, "prediction_missing": prediction_missing, **scores})
-        previous_prediction = prediction
 
     sequence_row: dict[str, object] = {
         "sequence": sequence_name,

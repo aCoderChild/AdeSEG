@@ -1,4 +1,5 @@
 """Training-free recurrent spatial memory for SAM2 video predictor.
+   After the current has predicted the mask.
    How the recurrent memory is represented, read, aligned, updated
 """
 
@@ -24,52 +25,22 @@ UPDATE_MODE_COMPONENTS = {
 
 
 def update_mode_components(mode):
-    """Return the memory representation and write policy for an ablation mode."""
+    """Return pair: memory representation + write policy for an ablation mode."""
     try:
         return UPDATE_MODE_COMPONENTS[mode]
     except KeyError as error:
         raise ValueError(f"Unknown dynamic-token update mode: {mode}") from error
 
 
-def detector_disagreement(detector_present, has_foreground):
-    """Classify asymmetric detector and segmentation disagreements."""
-    return detector_present is True and not has_foreground, (
-        detector_present is False and has_foreground
-    )
-
-
-def mask_bounding_box(mask_logits, frame_shape):
-    """Return the foreground box in original-frame coordinates, if present."""
-    foreground = (mask_logits[0, 0] > 0).nonzero()
-    if foreground.numel() == 0:
-        return None
-    height, width = mask_logits.shape[-2:]
-    frame_height, frame_width = frame_shape
-    y1, x1 = foreground.min(dim=0).values.cpu().tolist()
-    y2, x2 = foreground.max(dim=0).values.cpu().tolist()
-    return np.array(
-        [x1 * frame_width / width, y1 * frame_height / height,
-         (x2 + 1) * frame_width / width, (y2 + 1) * frame_height / height],
-        dtype=np.float32,
-    )
-
-
-def box_iou(box_a, box_b):
-    """Compute IoU for two xyxy boxes."""
-    box_a = np.asarray(box_a, dtype=np.float32)
-    box_b = np.asarray(box_b, dtype=np.float32)
-    left_top = np.maximum(box_a[:2], box_b[:2])
-    right_bottom = np.minimum(box_a[2:], box_b[2:])
-    intersection = np.prod(np.maximum(right_bottom - left_top, 0.0))
-    area_a = np.prod(np.maximum(box_a[2:] - box_a[:2], 0.0))
-    area_b = np.prod(np.maximum(box_b[2:] - box_b[:2], 0.0))
-    union = area_a + area_b - intersection
-    return float(intersection / union) if union > 0.0 else 0.0
-
-
 def warp_token_grid(features, previous_bgr, current_bgr):
-    """Backward optical flow resamples old features into current coordinates."""
-    # moves previous token-state feature map -> coordinates of the current video frame before fusion
+    """Estimate flow from images => warp previous spatial memory features - using Farneback algo
+       Args: maskmem_features: encoded features from memory encoder, gray-scale images of previous and current frames
+       Returns:
+       - aligned: previous frame's memory grid warped into the current frame's coordinate
+       - valid: binary spatial map of shape
+          - 1: warped location sampled from inside the previous grid
+          - 0: flow-mapped source outside the grid"""
+    # before fusion
     # Ablated through --motion_alignment none vs flow.
     if previous_bgr is None:
         return features, torch.ones_like(features[:, :1])
@@ -90,22 +61,32 @@ def warp_token_grid(features, previous_bgr, current_bgr):
 
 
 def foreground_token_probabilities(mask_logits, feature_size, device):
-    """Map a decoded mask to soft foreground weights on the memory-token grid."""
+    """Describe the current mask prediction, expressed at memory-token resolution
+       Returns: tensor [B, 1, feature_height, feature_width]"""
     probabilities = mask_logits.detach().to(device=device, dtype=torch.float32).sigmoid()
-    return F.interpolate(probabilities, size=feature_size, mode="bilinear", align_corners=False)
+    return F.interpolate(probabilities, size=feature_size, mode="bilinear", align_corners=False) # resize smoothly to maskmem_fea resolution
 
 
 def pool_foreground_features(features, foreground_probabilities):
-    """Pool memory features using soft foreground weights."""
+    """summarizes all foreground memory features into 1 object -  create a compact appearance representation
+       Args:
+       - features [B, C (channels), feature_width, feature_height]: current_outp["maskmem_features"] - current frame's output from SAM2's memory encoder
+       - foreground_probabilities [B, 1, feature_width, feature_height]: return of foreground_token_probabilities function
+       Returns: [B, C] - ground-weighted feature vector - summarize how strongly the feature dimension appear over foreground object
+    """
     if features.shape[0] != foreground_probabilities.shape[0]:
         raise ValueError("Feature and foreground-mask batches must match.")
     weights = foreground_probabilities.to(device=features.device, dtype=features.dtype)
-    normalizer = weights.sum(dim=(-2, -1)).clamp_min(torch.finfo(features.dtype).eps)
+    normalizer = weights.sum(dim=(-2, -1)).clamp_min(torch.finfo(features.dtype).eps) # sum foreground weights
     return (features * weights).sum(dim=(-2, -1)) / normalizer
 
 
 def token_identity_similarity(foreground_feature, identity_prototype):
-    """Cosine consistency of a foreground feature and the recurrent prototype."""
+    """Cosine consistency of a foreground feature and the recurrent prototype.
+       Args: 
+       - foreground_feature: current-frame maskmem_features -> pooled vector
+       - identity_prototype: return of SAM2's memory-encoder features
+    """
     if foreground_feature.shape != identity_prototype.shape:
         raise ValueError("Foreground feature and identity prototype shapes must match.")
     similarity = F.cosine_similarity(
@@ -114,40 +95,17 @@ def token_identity_similarity(foreground_feature, identity_prototype):
     return float(similarity.clamp(0.0, 1.0).mean().item())
 
 
-def area_plausibility(current_foreground, reference_foreground):
-    """Score current foreground area against the aligned state."""
-    current_area = float(current_foreground.mean().item())
-    reference_area = float(reference_foreground.mean().item())
-    if current_area == 0.0 or reference_area == 0.0:
-        return 1.0
-    return (min(current_area, reference_area) / max(current_area, reference_area)) ** 0.5
-
-
-def soft_foreground_iou(current_foreground, reference_foreground):
-    """Measure token-grid foreground agreement."""
-    intersection = torch.minimum(current_foreground, reference_foreground).sum()
-    union = torch.maximum(current_foreground, reference_foreground).sum()
-    if float(union.item()) == 0.0:
-        return 1.0
-    return float((intersection / union).item())
-
-
-def foreground_consistency_map(current_foreground, reference_foreground):
-    """Return local agreement between current and aligned foreground maps."""
-    return 1.0 - (current_foreground - reference_foreground).abs()
-
-
 class DynamicTokenState:
-    """A recurrent spatial-memory summary with native-style raw pointer history."""
+    """recurrent state for one tracked object across a video"""
 
     def __init__(
         self,
-        seed_frame_idx,
-        output,
-        frame_bgr,
-        short_read_weight,
-        reliable_read_weight,
-        representation,
+        seed_frame_idx, # index of the prompt frame
+        output, # SAM2 output for the current frame
+        frame_bgr, # raw prompt-frame image - future optical flow alignment
+        short_read_weight, # weights for reading 3-timscale memory
+        reliable_read_weight, # weights for reading 3-timscale memory
+        representation, # "single" or "three_timescale"
     ):
         if not 0.0 <= short_read_weight <= 1.0 or not 0.0 <= reliable_read_weight <= 1.0:
             raise ValueError("Read weights must be in [0, 1].")
@@ -160,18 +118,19 @@ class DynamicTokenState:
         # The prompted frame initializes the state, but is not kept as a
         # separate spatial-memory slot.
         device = output["obj_ptr"].device
-        initial_features = output["maskmem_features"].detach().to(device=device, dtype=torch.float32)
-        self.position = output["maskmem_pos_enc"][-1].detach().to(device=device, dtype=torch.float32).clone()
+        initial_features = output["maskmem_features"].detach().to(device=device, dtype=torch.float32) # return of memory encoder
+        self.position = output["maskmem_pos_enc"][-1].detach().to(device=device, dtype=torch.float32).clone() # maskmem + pos_enc + memory tokens => attention
         if representation == "single":
             self.single_features = initial_features.clone()
-        else:
+        else: # three-timescale
             self.short_features = initial_features.clone()
             self.reliable_features = initial_features.clone()
             self.unreliable_features = initial_features.clone()
         self.short_read_weight = short_read_weight
         self.reliable_read_weight = reliable_read_weight
         self.previous_frame_bgr = frame_bgr
-        self.valid = torch.ones_like(initial_features[:, :1])
+        # valid: decide whether old memory can be trusted at each spatial location
+        self.valid = torch.ones_like(initial_features[:, :1]) # every spatial memory is valid before any optical flow warp
         foreground_probabilities = foreground_token_probabilities(
             output["pred_masks"], initial_features.shape[-2:], device
         )
@@ -189,22 +148,24 @@ class DynamicTokenState:
         self.pointer_history = {}
         self.updates = 0
         self.last_frame_idx = seed_frame_idx
-        self.detector_absence_streak = 0
 
     @property
     def features(self):
+        """Returns: spatial memory grid currently used for reading"""
         if self.representation == "single":
             return self.single_features
+        # three time-scale
         return (
-            self.short_read_weight * self.short_features
-            + self.reliable_read_weight * self.reliable_features
-            + (1.0 - self.short_read_weight - self.reliable_read_weight) * self.unreliable_features
+            self.short_read_weight * self.short_features # change quickly with recent frames
+            + self.reliable_read_weight * self.reliable_features # update slowly from reliable predictions
+            + (1.0 - self.short_read_weight - self.reliable_read_weight) * self.unreliable_features # retain a separate slow history for uncertain predictions
         )
 
     @property
     def foreground_probabilities(self):
         if self.representation == "single":
             return self.single_foreground_probabilities
+        # blend 3 stored maps using read weights as feature memory
         return (
             self.short_read_weight * self.short_foreground_probabilities
             + self.reliable_read_weight * self.reliable_foreground_probabilities
@@ -225,6 +186,7 @@ class DynamicTokenState:
         return entries
 
     def align(self, frame_bgr, use_flow):
+        """warp the stored spatial meory into current frame's coordinate using optical flow"""
         if use_flow:
             if self.representation == "single":
                 aligned, self.valid = warp_token_grid(
@@ -267,12 +229,13 @@ class DynamicTokenState:
         has_foreground,
         foreground_probabilities,
         foreground_feature,
-        local_consistency,
         write_policy="reliability_gated_ema",
         reliable_write_rate=0.08,
         unreliable_write_rate=0.02,
         long_term_split_power=1.5,
     ):
+        """Take the current's output and write into stored state"""
+        # check the update
         if frame_idx != self.last_frame_idx + 1:
             raise ValueError("Token state requires consecutive, forward frame updates.")
         if not np.isfinite(write_weight) or not 0 <= write_weight <= 1:
@@ -299,12 +262,10 @@ class DynamicTokenState:
             token_weight = torch.full_like(probabilities, write_weight)
         elif write_policy == "reliability_gated_ema":
             # Confident background must also clear stale foreground memory.
-            token_weight = (
-                write_weight * (2.0 * probabilities - 1.0).abs()
-                * (reliability + (1.0 - reliability) * local_consistency.to(self.features))
-            )
+            token_weight = write_weight * (2.0 * probabilities - 1.0).abs()
         else:
             raise ValueError(f"Unknown dynamic-token write policy: {write_policy}")
+
         # Where flow has no source coordinate, use the current candidate as the base.
         short_weight = token_weight
         if self.representation == "single":
@@ -438,55 +399,6 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
         mask_confidence = float(current_out["iou_predictions"].max(dim=-1).values.item())
         object_probability = float(current_out["object_score_logits"].sigmoid().item())
         has_foreground = bool((pred_masks > 0).any().item())
-        detector_present = inference_state["dynamic_token_detector_present"][frame_idx]
-        _, detector_absence_conflict = detector_disagreement(detector_present, has_foreground)
-        detector_box = inference_state["dynamic_token_detector_boxes"][frame_idx]
-        detector_confidence = inference_state["dynamic_token_detector_confidences"][frame_idx]
-        predicted_box = mask_bounding_box(pred_masks, frame_bgr.shape[:2])
-        detector_geometry_agreement = (
-            box_iou(detector_box, predicted_box)
-            if detector_present is True and predicted_box is not None else None
-        )
-        detector_geometry_conflict = (
-            detector_geometry_agreement is not None
-            and detector_geometry_agreement < inference_state["dynamic_token_detector_recovery_iou"]
-        )
-        detector_recovery = (
-            inference_state["dynamic_token_enable_detector_recovery"]
-            and detector_present is True
-            and detector_confidence is not None
-            and detector_confidence >= inference_state["dynamic_token_detector_recovery_confidence"]
-            and (not has_foreground or detector_geometry_conflict)
-        )
-        if detector_recovery:
-            detector_box = inference_state["dynamic_token_detector_boxes"][frame_idx]
-            if detector_box is None:
-                raise RuntimeError("Detector marked an object present without a recovery box.")
-            recovery_kwargs = {
-                **kwargs,
-                "is_init_cond_frame": True,
-                "point_inputs": self.prepare_point_inputs(inference_state, box=detector_box),
-                "mask_inputs": None,
-                "reverse": False,
-                "run_mem_encoder": True,
-                "prev_sam_mask_logits": None,
-            }
-            current_out, pred_masks = super()._run_single_frame_inference(*args, **recovery_kwargs)
-            token_state = self._new_token_state(inference_state, frame_idx, current_out)
-            output_dict["token_state"] = token_state
-            mask_confidence = float(current_out["iou_predictions"].max(dim=-1).values.item())
-            object_probability = float(current_out["object_score_logits"].sigmoid().item())
-            has_foreground = bool((pred_masks > 0).any().item())
-        if detector_present is False and not has_foreground:
-            token_state.detector_absence_streak += 1
-        elif detector_present is not None:
-            token_state.detector_absence_streak = 0
-        background_confirmed = (
-            not has_foreground
-            and detector_present is False
-            and token_state.detector_absence_streak
-            >= inference_state["dynamic_token_absence_confirmation_frames"]
-        )
         foreground_probabilities = foreground_token_probabilities(
             pred_masks, token_state.features.shape[-2:], token_state.features.device
         )
@@ -497,15 +409,6 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
         identity_similarity = token_identity_similarity(
             foreground_feature, token_state.identity_prototype
         )
-        area_score = area_plausibility(
-            foreground_probabilities, token_state.foreground_probabilities
-        )
-        temporal_score = soft_foreground_iou(
-            foreground_probabilities, token_state.foreground_probabilities
-        )
-        local_consistency = foreground_consistency_map(
-            foreground_probabilities, token_state.foreground_probabilities
-        )
         reliability = inference_state.get("dynamic_token_fixed_reliability")
         if reliability is None:
             reliability = token_write_reliability(
@@ -513,11 +416,7 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
                 object_probability,
                 has_foreground,
                 identity_similarity,
-                area_score,
-                temporal_score,
-                background_confirmed,
                 inference_state["dynamic_token_unconfirmed_absence_scale"],
-                detector_geometry_agreement,
             )
         representation, write_policy = update_mode_components(
             inference_state["dynamic_token_update_mode"]
@@ -542,55 +441,32 @@ class DynamicTokenVideoPredictor(SAM2VideoPredictor):
             )
             background_write_capped = capped_weight < write_weight
             write_weight = capped_weight
-        if detector_recovery:
-            write_weight = 1.0
-            short_weights = torch.ones_like(foreground_probabilities)
-            if representation == "three_timescale":
-                reliable_weights = torch.ones_like(foreground_probabilities)
-                unreliable_weights = torch.ones_like(foreground_probabilities)
-            else:
-                reliable_weights = None
-                unreliable_weights = None
-        else:
-            if detector_absence_conflict and write_policy == "reliability_gated_ema":
-                write_weight *= inference_state["dynamic_token_detector_conflict_scale"]
-            short_weights, reliable_weights, unreliable_weights = token_state.update(
-                frame_idx,
-                current_out,
-                frame_bgr,
-                write_weight,
-                reliability,
-                has_foreground,
-                foreground_probabilities,
-                foreground_feature,
-                local_consistency,
-                write_policy,
-                reliable_write_rate=inference_state["dynamic_token_reliable_write_rate"],
-                unreliable_write_rate=inference_state["dynamic_token_unreliable_write_rate"],
-                long_term_split_power=inference_state["dynamic_token_long_term_split_power"],
-            )
+        short_weights, reliable_weights, unreliable_weights = token_state.update(
+            frame_idx,
+            current_out,
+            frame_bgr,
+            write_weight,
+            reliability,
+            has_foreground,
+            foreground_probabilities,
+            foreground_feature,
+            write_policy,
+            reliable_write_rate=inference_state["dynamic_token_reliable_write_rate"],
+            unreliable_write_rate=inference_state["dynamic_token_unreliable_write_rate"],
+            long_term_split_power=inference_state["dynamic_token_long_term_split_power"],
+        )
         # for savings
         current_out["dynamic_token_trace"] = {
             "predicted_iou": mask_confidence,
             "object_probability": object_probability,
             "identity_similarity": identity_similarity,
-            "area_plausibility": area_score,
-            "temporal_consistency": temporal_score,
             "foreground_fraction": float((foreground_probabilities > 0.5).float().mean().item()),
             "reliability": reliability,
             "memory_representation": representation,
             "write_policy": write_policy,
             "write_weight": write_weight,
             "has_foreground": has_foreground,
-            "detector_present": detector_present,
-            "detector_conflict": detector_recovery or detector_absence_conflict,
-            "detector_recovery": detector_recovery,
-            "detector_absence_conflict": detector_absence_conflict,
-            "detector_geometry_agreement": detector_geometry_agreement,
-            "detector_geometry_conflict": detector_geometry_conflict,
-            "background_confirmed": background_confirmed,
             "background_write_capped": background_write_capped,
-            "detector_absence_streak": token_state.detector_absence_streak,
             "mean_short_token_weight": float(short_weights.mean().item()),
             "mean_reliable_token_weight": (
                 None if reliable_weights is None else float(reliable_weights.mean().item())

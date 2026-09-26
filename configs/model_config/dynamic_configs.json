@@ -20,11 +20,5 @@
   "unreliable_write_rate": 0.02,
   "long_term_split_power": 1.5,
   "unconfirmed_absence_scale": 0.25,
-  "detector_conflict_scale": 0.35,
-  "max_background_write": 0.02,
-  "absence_confirmation_frames": 3,
-  "detector_stride": 1,
-  "detector_recovery": false,
-  "detector_recovery_confidence": 0.8,
-  "detector_recovery_iou": 0.1
+  "max_background_write": 0.02
 }
