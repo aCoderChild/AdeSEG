@@ -29,7 +29,7 @@ trainer:
         loss_dice: 1
         loss_iou: 1
         loss_class: 1
-        loss_reliability: 1
+        loss_quality: 1
 
   checkpoint:
     model_weight_initializer:

@@ -178,6 +178,7 @@ def parse_args():
     config_paths, _ = config_parser.parse_known_args()
     data_config = load_json_config(config_paths.data_config)
     model_config = load_json_config(config_paths.model_config)
+    learned_checkpoint = model_config.get("learned_checkpoint")
 
     parser = argparse.ArgumentParser(
         description="Learned-state MedSAM2 VOS with a YOLO box prompt.",
@@ -185,6 +186,16 @@ def parse_args():
     )
     parser.add_argument("--sam2_cfg", default=model_config["sam2_cfg"])
     parser.add_argument("--sam2_checkpoint", type=Path, default=resolve_project_path(model_config["sam2_checkpoint"]))
+    parser.add_argument(
+        "--learned_checkpoint",
+        type=Path,
+        default=(
+            None
+            if learned_checkpoint is None
+            else resolve_project_path(learned_checkpoint)
+        ),
+        help="Checkpoint produced by dynamic-state training; required for learned memory.",
+    )
     parser.add_argument("-i", "--base_video_dir", type=Path, default=resolve_project_path(data_config["data_root"]))
     parser.add_argument("--yolo_checkpoint", type=Path, default=resolve_project_path(model_config["yolo_checkpoint"]))
     parser.add_argument("--seq_nums", type=int, nargs="*", default=None)
@@ -206,10 +217,20 @@ def main():
 
     overrides = ["++model.select_memory_by_iou=false"]
     if args.memory_backend == "learned":
+        if args.learned_checkpoint is None:
+            raise ValueError(
+                "--learned_checkpoint is required for learned memory because it "
+                "contains the trained reliability gate."
+            )
         overrides.insert(0, f"++model._target_={model_config['predictor_target']}")
+    checkpoint = (
+        args.learned_checkpoint
+        if args.memory_backend == "learned"
+        else args.sam2_checkpoint
+    )
     predictor = build_video_predictor(
         args.sam2_cfg,
-        args.sam2_checkpoint,
+        checkpoint,
         device=args.device,
         apply_postprocessing=False,
         hydra_overrides_extra=overrides,

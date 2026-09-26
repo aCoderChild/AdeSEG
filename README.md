@@ -209,6 +209,7 @@ Use `cuda` on an NVIDIA machine:
 python infer.py \
   -i data/PolypGen2021_MultiCenterData_v3/sequenceData/positive \
   -o outputs/LearnedState_YOLO/masks \
+  --learned_checkpoint path/to/dynamic_state_checkpoint.pt \
   --seq_nums 1 2 3 4 5 \
   --device mps
 ```
@@ -219,7 +220,8 @@ Run the learned model first; it writes `prompt_records.json`. Replay that file
 with the native backend to use the same prompt frame and box.
 
 ```bash
-python infer.py -i "$DATA" -o outputs/learned --device mps
+python infer.py -i "$DATA" -o outputs/learned \
+  --learned_checkpoint path/to/dynamic_state_checkpoint.pt --device mps
 python infer.py -i "$DATA" -o outputs/native --memory_backend native \
   --prompt_records outputs/learned/prompt_records.json --device mps
 ```
@@ -238,6 +240,7 @@ python infer.py -i "$DATA" -o outputs/native --memory_backend native \
 | `--yolo_imgsz` | YOLO inference resolution |
 | `--video_prompt_stride` | Interval between candidate frames searched for the initial YOLO prompt |
 | `--memory_backend` | Native MedSAM2 memory bank or learned recurrent state |
+| `--learned_checkpoint` | Dynamic-state training checkpoint, required for learned memory |
 | `--prompt_records` | Saved prompt boxes to replay exactly in a comparison run |
 
 Run:
@@ -328,6 +331,7 @@ DATA="data/PolypGen2021_MultiCenterData_v3/sequenceData/positive"
 python infer.py \
   -i "$DATA" \
   -o "$OUTPUT/masks" \
+  --learned_checkpoint path/to/dynamic_state_checkpoint.pt \
   --device mps \
 && \
 python utils/eval.py \

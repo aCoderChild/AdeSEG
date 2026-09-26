@@ -44,8 +44,8 @@ class LearnedStateVideoPredictor(SAM2VideoPredictor):
 
     @staticmethod
     def _state_similarity(state, candidate):
-        state_vector = state.float().mean(dim=(-2, -1))
-        candidate_vector = candidate.float().mean(dim=(-2, -1))
+        state_vector = state.float().flatten(1)
+        candidate_vector = candidate.float().flatten(1)
         return F.cosine_similarity(state_vector, candidate_vector, dim=1).clamp(
             -1.0, 1.0
         )

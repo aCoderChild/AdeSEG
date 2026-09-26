@@ -3,6 +3,7 @@
   "model": {
     "sam2_cfg": "configs/sam2.1_hiera_t512.yaml",
     "sam2_checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "learned_checkpoint": null,
     "yolo_checkpoint": "checkpoints/polypgen_yolov8n.pt",
     "device": "mps",
     "apply_postprocessing": false

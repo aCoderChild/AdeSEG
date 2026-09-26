@@ -34,21 +34,22 @@ class ReliabilityGatedSAM2Train(SAM2Train):
         return self
 
     @staticmethod
-    def _masked_dice(prediction_logits, target_masks):
+    def _mask_iou(prediction_logits, target_masks):
         target_masks = F.interpolate(
             target_masks.float(),
             size=prediction_logits.shape[-2:],
             mode="nearest",
         )
-        prediction = prediction_logits.sigmoid()
-        numerator = 2.0 * (prediction * target_masks).flatten(1).sum(dim=1)
-        denominator = prediction.flatten(1).sum(dim=1) + target_masks.flatten(1).sum(dim=1)
-        return (numerator + 1.0) / (denominator + 1.0)
+        prediction = prediction_logits > 0
+        target = target_masks > 0
+        intersection = (prediction & target).flatten(1).sum(dim=1).float()
+        union = (prediction | target).flatten(1).sum(dim=1).float()
+        return torch.where(union > 0, intersection / union, torch.ones_like(union))
 
     @staticmethod
     def _state_similarity(state, candidate):
-        state_vector = state.float().mean(dim=(-2, -1))
-        candidate_vector = candidate.float().mean(dim=(-2, -1))
+        state_vector = state.float().flatten(1)
+        candidate_vector = candidate.float().flatten(1)
         return F.cosine_similarity(state_vector, candidate_vector, dim=1).clamp(-1.0, 1.0)
 
     def _prepare_memory_conditioned_features(
@@ -120,37 +121,37 @@ class ReliabilityGatedSAM2Train(SAM2Train):
         gate = gate_logit.sigmoid().view(-1, 1, 1, 1)
         next_state = (1.0 - gate) * state + gate * candidate
         output_dict["dynamic_state"] = next_state
-        self._add_reliability_target(current_out, kwargs, gate_logit)
+        self._add_quality_target(current_out, kwargs, gate_logit)
         return current_out
 
-    def _add_reliability_target(self, current_out, kwargs, gate_logit):
+    def _add_quality_target(self, current_out, kwargs, gate_logit):
         gt_masks = kwargs.get("gt_masks")
         if not self.training or gt_masks is None:
             return
-        current_out["state_reliability_logit"] = gate_logit
-        current_out["state_reliability_target"] = self._masked_dice(
+        current_out["state_quality_logit"] = gate_logit
+        current_out["state_quality_target"] = self._mask_iou(
             current_out["pred_masks_high_res"], gt_masks
         ).detach()
 
 
 class ReliabilityAwareMultiStepLoss(MultiStepMultiMasksAndIous):
-    """Add reliability-quality supervision to the standard segmentation losses."""
+    """Add actual-mask-IoU supervision to the learned update gate."""
 
     def __init__(self, weight_dict, **kwargs):
         weight_dict = dict(weight_dict)
-        weight_dict.setdefault("loss_reliability", 0.0)
+        weight_dict.setdefault("loss_quality", 0.0)
         super().__init__(weight_dict=weight_dict, **kwargs)
 
     def _forward(self, outputs, targets, num_objects):
         losses = super()._forward(outputs, targets, num_objects)
         reference = losses[CORE_LOSS_KEY]
-        reliability_logit = outputs.get("state_reliability_logit")
-        reliability_target = outputs.get("state_reliability_target")
-        if reliability_logit is None or reliability_target is None:
-            losses["loss_reliability"] = reference.new_zeros(())
+        quality_logit = outputs.get("state_quality_logit")
+        quality_target = outputs.get("state_quality_target")
+        if quality_logit is None or quality_target is None:
+            losses["loss_quality"] = reference.new_zeros(())
         else:
-            losses["loss_reliability"] = F.binary_cross_entropy_with_logits(
-                reliability_logit, reliability_target
+            losses["loss_quality"] = F.smooth_l1_loss(
+                quality_logit.sigmoid(), quality_target
             )
         losses[CORE_LOSS_KEY] = self.reduce_loss(losses)
         return losses
