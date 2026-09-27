@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from adenoid.dataset import FrameSample
+from datasets.common import FrameSample
 from adenoid.io import load_binary_mask, resolve_mask_path
 
 

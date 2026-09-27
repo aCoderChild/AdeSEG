@@ -34,3 +34,15 @@ def evaluate_ratios(
         metrics["pearson"] = float(pearsonr(prediction, ground_truth).statistic)
         metrics["spearman"] = float(spearmanr(prediction, ground_truth).statistic)
     return metrics
+
+
+def vertical_diameter(mask: np.ndarray) -> float:
+    """Return the vertical extent of a non-empty binary mask in pixels."""
+    rows = np.where(np.asarray(mask) > 0)[0]
+    return float(rows.max() - rows.min() + 1) if rows.size else float("nan")
+
+
+def compute_vcdr(cup_mask: np.ndarray, disc_mask: np.ndarray) -> float:
+    """Compute vertical cup-to-disc ratio, returning nan for an empty disc."""
+    cup, disc = vertical_diameter(cup_mask), vertical_diameter(disc_mask)
+    return cup / disc if np.isfinite(cup) and np.isfinite(disc) and disc > 0 else float("nan")

@@ -18,3 +18,8 @@ class FrameSample:
     image_path: Path
     masks: dict[str, np.ndarray]
     metadata: dict[str, object] = field(default_factory=dict)
+
+    @property
+    def sequence_id(self) -> str | None:
+        value = self.metadata.get("sequence_id", self.metadata.get("sequence"))
+        return None if value is None else str(value)

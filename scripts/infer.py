@@ -16,16 +16,15 @@ import torch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXTERNAL_ROOT = PROJECT_ROOT / "external"
-MEDSAM2_ROOT = EXTERNAL_ROOT / "MedSAM2"
-for path in (PROJECT_ROOT, EXTERNAL_ROOT, MEDSAM2_ROOT):
+MEDSAM2_ROOT = PROJECT_ROOT / "MedSAM2"
+for path in (PROJECT_ROOT, MEDSAM2_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
 from adenoid.io import save_masks_to_dir
-from models.compact_memory import MEMORY_BACKENDS
-from models.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
-from validation.polypgen.dataset import (
+from modeling.dynamic_memory import MEMORY_BACKENDS
+from modeling.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
+from datasets.polypgen import (
     get_frame_names,
     get_video_frame_dir,
     get_video_name,
@@ -34,7 +33,7 @@ from validation.polypgen.dataset import (
 )
 
 
-DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.json"
+DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
 
 
 def load_config(config_path: Path) -> dict[str, object]:
@@ -290,8 +289,8 @@ def main():
     args.output_mask_dir.mkdir(parents=True, exist_ok=True)
     sources = [
         Path(__file__),
-        PROJECT_ROOT / "models/compact_memory.py",
-        args.config,
+        PROJECT_ROOT / "modeling/dynamic_memory.py",
+        args.config if args.config.is_absolute() else PROJECT_ROOT / args.config,
     ]
     manifest = {
         "started_utc": datetime.now(timezone.utc).isoformat(),

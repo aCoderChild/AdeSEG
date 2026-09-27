@@ -7,5 +7,5 @@
   "yolo_conf": 0.5,
   "yolo_imgsz": 640,
   "video_prompt_stride": 1,
-  "predictor_target": "models.compact_memory.CompactStateVideoPredictor"
+  "predictor_target": "modeling.dynamic_memory.CompactStateVideoPredictor"
 }

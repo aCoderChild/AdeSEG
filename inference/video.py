@@ -18,14 +18,13 @@ import torch
 from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXTERNAL_ROOT = PROJECT_ROOT / "external"
-MEDSAM2_ROOT = EXTERNAL_ROOT / "MedSAM2"
-for path in (PROJECT_ROOT, EXTERNAL_ROOT, MEDSAM2_ROOT):
+MEDSAM2_ROOT = PROJECT_ROOT / "MedSAM2"
+for path in (PROJECT_ROOT, MEDSAM2_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
 from adenoid.io import save_masks_to_dir, save_palette_masks_to_dir
-from models.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
+from modeling.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
 
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")

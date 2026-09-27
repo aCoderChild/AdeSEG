@@ -61,7 +61,7 @@ def append_native_object_pointers(
     return pointers.shape[0]
 
 
-class CompactEMAState:
+class DynamicMemoryState:
     """One recurrent spatial memory state for a single prompted object."""
 
     def __init__(self, frame_idx, output):
@@ -120,7 +120,7 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
             output = output_dict["cond_frame_outputs"].get(frame_idx)
             if output is None:
                 raise RuntimeError("VOS preflight did not encode the prompted frame.")
-            output_dict["compact_state"] = CompactEMAState(frame_idx, output)
+            output_dict["compact_state"] = DynamicMemoryState(frame_idx, output)
 
     def _reset_tracking_results(self, inference_state):
         super()._reset_tracking_results(inference_state)
