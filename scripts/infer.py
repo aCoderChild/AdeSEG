@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PolypGen MedSAM2 VOS with native or recurrent dynamic memory."""
+"""PolypGen MedSAM2 VOS with native and bounded-memory baselines."""
 
 from __future__ import annotations
 
@@ -22,8 +22,6 @@ for path in (PROJECT_ROOT, MEDSAM2_ROOT):
         sys.path.insert(0, str(path))
 
 from adenoid.io import save_masks_to_dir
-from modeling.dynamic_memory import MEMORY_BACKENDS
-from modeling.fusion import AdaptiveStateFusion
 from modeling.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
 from datasets.polypgen import (
     get_frame_names,
@@ -35,6 +33,8 @@ from datasets.polypgen import (
 
 
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
+MEMORY_BACKENDS = ("native", "bounded", "fixed_ema", "adaptive")
+COMPACT_ABLATION_BACKENDS = {"fixed_ema", "adaptive"}
 
 
 def load_config(config_path: Path) -> dict[str, object]:
@@ -75,7 +75,7 @@ def tensor_bytes(value) -> int:
 
 def stored_spatial_memory_bytes(inference_state, memory_backend: str) -> int:
     output_dict = inference_state["output_dict"]
-    if memory_backend != "native":
+    if memory_backend in COMPACT_ABLATION_BACKENDS:
         state = output_dict.get("compact_state")
         return 0 if state is None else tensor_bytes(state.features) + tensor_bytes(state.position)
     total = 0
@@ -154,7 +154,7 @@ def vos_inference(
         f"{video_output_name}: adding YOLO box prompt on frame {prompt_frame_idx} "
         f"({frame_names[prompt_frame_idx]}), confidence={prompt_confidence:.4f}"
     )
-    if memory_backend != "native":
+    if memory_backend in COMPACT_ABLATION_BACKENDS:
         inference_state.update({
             "compact_state_enabled": True,
             "compact_state_anchor_frame_idx": prompt_frame_idx,
@@ -238,7 +238,22 @@ def parse_args():
         "--memory_backend",
         choices=MEMORY_BACKENDS,
         default="native",
-        help="native is the default MedSAM2 baseline; compact-memory modes are archived ablations.",
+        help=(
+            "native is the MedSAM2 baseline; bounded retains native anchor plus a "
+            "fixed number of native entries. fixed_ema and adaptive are archived ablations."
+        ),
+    )
+    parser.add_argument(
+        "--bounded_memory_policy",
+        choices=["recent", "confidence"],
+        default="recent",
+        help="Native-entry policy used only by --memory_backend bounded.",
+    )
+    parser.add_argument(
+        "--bounded_memory_size",
+        type=int,
+        default=1,
+        help="Number of non-conditioning native entries retained by bounded memory.",
     )
     parser.add_argument(
         "--fixed_ema_alpha",
@@ -264,11 +279,28 @@ def main():
         raise ValueError("--fixed_ema_alpha must be in [0, 1].")
     if args.memory_backend == "adaptive" and args.fusion_checkpoint is None:
         raise ValueError("--fusion_checkpoint is required for adaptive inference.")
+    if args.memory_backend == "bounded" and args.bounded_memory_size < 1:
+        raise ValueError("--bounded_memory_size must be at least 1.")
 
-    predictor_target = None if args.memory_backend == "native" else config.get("predictor_target")
+    if args.memory_backend == "bounded":
+        predictor_target = "modeling.bounded_memory.BoundedMemoryVideoPredictor"
+    elif args.memory_backend in COMPACT_ABLATION_BACKENDS:
+        predictor_target = config.get("predictor_target")
+        if predictor_target is None:
+            raise ValueError(
+                "Archived compact-memory modes require "
+                "--config configs/polypgen_compact_ablation.yaml."
+            )
+    else:
+        predictor_target = None
     state_update_mode = "adaptive" if args.memory_backend == "adaptive" else "fixed_ema"
     predictor_overrides = {}
-    if args.memory_backend != "native":
+    if args.memory_backend == "bounded":
+        predictor_overrides = {
+            "bounded_memory_policy": args.bounded_memory_policy,
+            "bounded_memory_size": args.bounded_memory_size,
+        }
+    elif args.memory_backend in COMPACT_ABLATION_BACKENDS:
         predictor_overrides = {
             "state_update_mode": state_update_mode,
             "fixed_ema_alpha": args.fixed_ema_alpha,
@@ -281,6 +313,8 @@ def main():
         predictor_overrides=predictor_overrides,
     )
     if args.memory_backend == "adaptive":
+        from modeling.fusion import AdaptiveStateFusion
+
         if not args.fusion_checkpoint.is_file():
             raise FileNotFoundError(f"Missing fusion checkpoint: {args.fusion_checkpoint}")
         try:
@@ -326,6 +360,12 @@ def main():
         "created_at": datetime.now(timezone.utc).isoformat(),
         "config": str(args.config),
         "memory_backend": args.memory_backend,
+        "bounded_memory_policy": (
+            args.bounded_memory_policy if args.memory_backend == "bounded" else None
+        ),
+        "bounded_memory_size": (
+            args.bounded_memory_size if args.memory_backend == "bounded" else None
+        ),
         "fixed_ema_alpha": args.fixed_ema_alpha if args.memory_backend == "fixed_ema" else None,
         "fusion_checkpoint": str(args.fusion_checkpoint) if args.fusion_checkpoint else None,
         "sequences": videos,
