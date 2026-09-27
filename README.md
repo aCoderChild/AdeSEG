@@ -31,7 +31,7 @@ AdaptiveStateFusion
 new state S(t)
 ```
 
-`adaptive` is the proposed method. `native` and `fixed_ema` are kept only as research baselines/ablations and should be run with the same sequences and prompt records.
+`adaptive` is the proposed method. `native` and `fixed_ema` are retained only as research baselines/ablations so the contribution can be tested fairly. `current` has been removed from the public backend choices because it does not add a necessary comparison for the current study.
 
 ## Proxy datasets
 
@@ -61,7 +61,7 @@ propagated masks
 Dice + BCE loss
 ```
 
-`training.video_trainer.freeze_except_fusion()` freezes the MedSAM2 parameters and leaves only `AdaptiveStateFusion` trainable. The full clip-training loop still needs to be connected to the MedSAM2 video trainer/data loader.
+`training.video_trainer.freeze_except_fusion()` freezes the MedSAM2 parameters and leaves only `AdaptiveStateFusion` trainable. `training/fusion_trainer.py` contains the project-specific optimizer/loss entry points. The full clip sampling and backward loop still needs to be connected to the existing MedSAM2 training/data stack.
 
 ## Inference
 
@@ -94,7 +94,7 @@ python scripts/run_refuge2.py \
 
 ## Important current limitations
 
-- Adaptive fusion is now connected to the recurrent-state predictor, but it is untrained until a fusion checkpoint is produced.
+- Adaptive fusion is connected to the recurrent-state predictor, but it is untrained until a fusion checkpoint is produced.
 - Dynamic-state video inference currently supports one prompted object and forward propagation only.
-- `native` and `fixed_ema` are retained as baselines; they are not the proposed final method.
+- `native` and `fixed_ema` are baselines, not the proposed final method.
 - Clinical adenoid grading thresholds and the final obstruction-ratio definition must be validated on the real annotated adenoid dataset.
