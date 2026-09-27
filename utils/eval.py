@@ -355,65 +355,6 @@ def write_drift_statistics(evaluation_dir: Path, frame_rows: list[dict[str, obje
     )
 
 
-def write_quality_statistics(
-    output_mask_dir: Path,
-    evaluation_dir: Path,
-    frame_rows: list[dict[str, object]],
-    sequence_names: list[str],
-) -> None:
-    """Compare predicted segmentation quality with actual mask IoU."""
-    iou_by_frame = {(row["sequence"], row["frame"]): row["iou"] for row in frame_rows}
-    joined_rows = []
-    for sequence_name in sequence_names:
-        for record in load_diagnostic_rows(output_mask_dir, sequence_name):
-            if record.get("status") != "propagated":
-                continue
-            quality_value = record.get("quality", record.get("update_weight"))
-            if not quality_value:
-                continue
-            frame = Path(record.get("frame", "")).stem
-            actual_iou = iou_by_frame.get((sequence_name, frame))
-            if actual_iou is None:
-                continue
-            try:
-                quality = float(quality_value)
-            except ValueError:
-                continue
-            joined_rows.append(
-                {
-                    "sequence": sequence_name,
-                    "frame": frame,
-                    "quality": quality,
-                    "actual_iou": actual_iou,
-                    "absolute_quality_iou_error": abs(quality - actual_iou),
-                }
-            )
-    if not joined_rows:
-        return
-    write_csv(
-        evaluation_dir / "quality_per_frame.csv",
-        ["sequence", "frame", "quality", "actual_iou", "absolute_quality_iou_error"],
-        joined_rows,
-    )
-    qualities = np.asarray([row["quality"] for row in joined_rows], dtype=float)
-    actual_ious = np.asarray([row["actual_iou"] for row in joined_rows], dtype=float)
-    correlation = (
-        float(np.corrcoef(qualities, actual_ious)[0, 1])
-        if qualities.size > 1 and qualities.std() > 0 and actual_ious.std() > 0
-        else float("nan")
-    )
-    write_csv(
-        evaluation_dir / "quality_summary.csv",
-        ["frames", "mean_absolute_quality_iou_error", "quality_iou_correlation"],
-        [{
-            "frames": len(joined_rows),
-            "mean_absolute_quality_iou_error": float(
-                np.mean([row["absolute_quality_iou_error"] for row in joined_rows])
-            ),
-            "quality_iou_correlation": correlation,
-        }],
-    )
-
 def evaluate_masks(
     output_mask_dir: Path,
     data_root: Path = DEFAULT_DATA_ROOT,
@@ -472,7 +413,6 @@ def evaluate_masks(
     write_csv(evaluation_dir / "metrics_stats.csv", ["aggregation", "metric", "mean", "std", "min", "max"], stats_rows)
     write_memory_confidence_statistics(output_mask_dir, evaluation_dir, sequence_names)
     write_drift_statistics(evaluation_dir, frame_rows)
-    write_quality_statistics(output_mask_dir, evaluation_dir, frame_rows, sequence_names)
     for obsolete_path in (evaluation_dir / "metrics_avg.csv", evaluation_dir / "metrics_coverage.json"):
         obsolete_path.unlink(missing_ok=True)
     return summary

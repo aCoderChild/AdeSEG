@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Learned-state MedSAM2 VOS with one YOLO box prompt."""
+"""Compact-state MedSAM2 VOS with one YOLO box prompt."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import csv
 import hashlib
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,6 +63,27 @@ def load_prompt_records(path):
         return json.load(handle)
 
 
+def tensor_bytes(value) -> int:
+    if isinstance(value, torch.Tensor):
+        return value.numel() * value.element_size()
+    if isinstance(value, (list, tuple)):
+        return sum(tensor_bytes(item) for item in value)
+    return 0
+
+
+def stored_spatial_memory_bytes(inference_state, memory_backend: str) -> int:
+    output_dict = inference_state["output_dict"]
+    if memory_backend != "native":
+        state = output_dict.get("compact_state")
+        return 0 if state is None else tensor_bytes(state.features) + tensor_bytes(state.position)
+    total = 0
+    for output_type in ("cond_frame_outputs", "non_cond_frame_outputs"):
+        for output in output_dict[output_type].values():
+            total += tensor_bytes(output.get("maskmem_features"))
+            total += tensor_bytes(output.get("maskmem_pos_enc"))
+    return total
+
+
 @torch.inference_mode()
 def vos_inference(
     predictor,
@@ -72,10 +94,11 @@ def vos_inference(
     yolo_imgsz=640,
     yolo_conf=0.5,
     video_prompt_stride=1,
-    memory_backend="learned",
+    memory_backend="fixed_ema",
     prompt_records=None,
 ):
     """Initialize from a YOLO box prompt and propagate through the video."""
+    started = time.perf_counter()
     video_dir = get_video_frame_dir(base_video_dir, video_name)
     video_output_name = get_video_name(base_video_dir, video_name)
     frame_names = get_frame_names(video_dir)
@@ -118,7 +141,13 @@ def vos_inference(
             )
             diagnostic_rows.append({"frame_idx": frame_idx, "frame": frame_name, "status": "no_prompt"})
         save_diagnostics(output_mask_dir, video_output_name, diagnostic_rows)
-        return video_output_name, frame_names, None
+        return video_output_name, frame_names, None, {
+            "sequence": video_output_name,
+            "frames": len(frame_names),
+            "elapsed_seconds": time.perf_counter() - started,
+            "fps": 0.0,
+            "stored_spatial_memory_bytes": 0,
+        }
 
     print(
         f"{video_output_name}: adding YOLO box prompt on frame {prompt_frame_idx} "
@@ -126,8 +155,8 @@ def vos_inference(
     )
     if memory_backend != "native":
         inference_state.update({
-            "learned_state_enabled": True,
-            "learned_state_anchor_frame_idx": prompt_frame_idx,
+            "compact_state_enabled": True,
+            "compact_state_anchor_frame_idx": prompt_frame_idx,
         })
     predictor.add_new_points_or_box(
         inference_state=inference_state,
@@ -164,15 +193,25 @@ def vos_inference(
                 "status": "prompt" if frame_idx == prompt_frame_idx else "propagated",
                 "prompt_confidence": prompt_confidence if frame_idx == prompt_frame_idx else "",
                 "prompt_box": json.dumps(prompt_box.tolist()) if frame_idx == prompt_frame_idx else "",
-                **output.get("learned_state_trace", {}),
+                **output.get("compact_state_trace", {}),
             }
         )
     save_diagnostics(output_mask_dir, video_output_name, diagnostic_rows)
+    elapsed_seconds = time.perf_counter() - started
+    efficiency = {
+        "sequence": video_output_name,
+        "frames": len(frame_names),
+        "elapsed_seconds": elapsed_seconds,
+        "fps": len(frame_names) / elapsed_seconds if elapsed_seconds else 0.0,
+        "stored_spatial_memory_bytes": stored_spatial_memory_bytes(
+            inference_state, memory_backend
+        ),
+    }
     return video_output_name, frame_names, {
         "frame_idx": prompt_frame_idx,
         "box": prompt_box.tolist(),
         "confidence": prompt_confidence,
-    }
+    }, efficiency
 
 
 def parse_args():
@@ -182,24 +221,12 @@ def parse_args():
     config_paths, _ = config_parser.parse_known_args()
     data_config = load_json_config(config_paths.data_config)
     model_config = load_json_config(config_paths.model_config)
-    learned_checkpoint = model_config.get("learned_checkpoint")
-
     parser = argparse.ArgumentParser(
-        description="Learned-state MedSAM2 VOS with a YOLO box prompt.",
+        description="Compact-state MedSAM2 VOS with a YOLO box prompt.",
         parents=[config_parser],
     )
     parser.add_argument("--sam2_cfg", default=model_config["sam2_cfg"])
     parser.add_argument("--sam2_checkpoint", type=Path, default=resolve_project_path(model_config["sam2_checkpoint"]))
-    parser.add_argument(
-        "--learned_checkpoint",
-        type=Path,
-        default=(
-            None
-            if learned_checkpoint is None
-            else resolve_project_path(learned_checkpoint)
-        ),
-        help="Checkpoint produced by dynamic-state training; required for learned memory.",
-    )
     parser.add_argument("-i", "--base_video_dir", type=Path, default=resolve_project_path(data_config["data_root"]))
     parser.add_argument("--yolo_checkpoint", type=Path, default=resolve_project_path(model_config["yolo_checkpoint"]))
     parser.add_argument("--seq_nums", type=int, nargs="*", default=None)
@@ -210,13 +237,13 @@ def parse_args():
     parser.add_argument("--video_prompt_stride", type=int, default=model_config["video_prompt_stride"])
     parser.add_argument(
         "--memory_backend",
-        choices=["native", "current", "fixed_ema", "learned"],
-        default="learned",
+        choices=["native", "current", "fixed_ema"],
+        default="fixed_ema",
     )
     parser.add_argument(
         "--fixed_ema_alpha",
         type=float,
-        default=None,
+        default=0.1,
         help="Fixed update weight for --memory_backend fixed_ema.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
@@ -234,25 +261,14 @@ def main():
     prompt_records = load_prompt_records(args.prompt_records)
 
     overrides = ["++model.select_memory_by_iou=false"]
-    if args.memory_backend == "learned":
-        if args.learned_checkpoint is None:
-            raise ValueError(
-                "--learned_checkpoint is required for learned memory because it "
-                "contains the trained reliability gate."
-            )
     if args.memory_backend != "native":
         overrides.insert(0, f"++model._target_={model_config['predictor_target']}")
         overrides.append(f"++model.state_update_mode={args.memory_backend}")
         if args.memory_backend == "fixed_ema":
             overrides.append(f"++model.fixed_ema_alpha={args.fixed_ema_alpha}")
-    checkpoint = (
-        args.learned_checkpoint
-        if args.memory_backend == "learned"
-        else args.sam2_checkpoint
-    )
     predictor = build_video_predictor(
         args.sam2_cfg,
-        checkpoint,
+        args.sam2_checkpoint,
         device=args.device,
         apply_postprocessing=False,
         hydra_overrides_extra=overrides,
@@ -273,7 +289,6 @@ def main():
     sources = [
         Path(__file__),
         PROJECT_ROOT / "modeling/fusion.py",
-        PROJECT_ROOT / "modeling/reliability_gate.py",
         args.data_config,
         args.model_config,
     ]
@@ -295,9 +310,10 @@ def main():
 
     print(f"Running {args.memory_backend}-memory MedSAM2 VOS on {len(video_names)} sequence(s) with YOLO boxes.")
     saved_prompt_records = {}
+    efficiency_records = []
     for index, video_name in enumerate(video_names, start=1):
         print(f"{index}/{len(video_names)}: {get_video_name(args.base_video_dir, video_name)}")
-        _, _, prompt_record = vos_inference(
+        _, _, prompt_record, efficiency = vos_inference(
             predictor=predictor,
             yolo_model=yolo_model,
             base_video_dir=args.base_video_dir,
@@ -311,8 +327,12 @@ def main():
         )
         if prompt_record is not None:
             saved_prompt_records[video_name] = prompt_record
+        efficiency_records.append(efficiency)
     (args.output_mask_dir / "prompt_records.json").write_text(
         json.dumps(saved_prompt_records, indent=2) + "\n"
+    )
+    (args.output_mask_dir / "efficiency.json").write_text(
+        json.dumps(efficiency_records, indent=2) + "\n"
     )
     manifest["inference_complete"] = True
     manifest["completed_utc"] = datetime.now(timezone.utc).isoformat()

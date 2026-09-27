@@ -3,7 +3,6 @@
   "model": {
     "sam2_cfg": "configs/sam2.1_hiera_t512.yaml",
     "sam2_checkpoint": "checkpoints/MedSAM2_latest.pt",
-    "learned_checkpoint": null,
     "yolo_checkpoint": "checkpoints/polypgen_yolov8n.pt",
     "device": "auto",
     "apply_postprocessing": false
@@ -24,7 +23,7 @@
     "save_palette_png": false,
     "use_vos_optimized_video_predictor": false
   },
-  "learned_state": {
-    "predictor_target": "modeling.fusion.LearnedStateVideoPredictor"
+  "compact_state": {
+    "predictor_target": "modeling.fusion.CompactStateVideoPredictor"
   }
 }
