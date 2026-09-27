@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import numpy as np
@@ -27,27 +26,26 @@ def build_video_predictor(
     predictor_target=None,
     predictor_overrides=None,
 ):
-    """Build native MedSAM2 or a custom video predictor."""
+    """Build native MedSAM2 or a custom video predictor.
+
+    Custom predictors are selected through Hydra configuration overrides so the
+    bundled MedSAM2 builder remains the single construction path.
+    """
     from MedSAM2.sam2.build_sam import build_sam2_video_predictor
 
     device = _resolve_device(device)
-    if predictor_target is None:
-        return build_sam2_video_predictor(
-            model_cfg,
-            str(checkpoint),
-            device=device,
-        )
-
-    module_name, class_name = str(predictor_target).rsplit(".", 1)
-    predictor_class = getattr(importlib.import_module(module_name), class_name)
-    overrides = dict(predictor_overrides or {})
+    hydra_overrides = []
+    if predictor_target is not None:
+        hydra_overrides.append(f"++model._target_={predictor_target}")
+        for key, value in (predictor_overrides or {}).items():
+            if isinstance(value, bool):
+                value = str(value).lower()
+            hydra_overrides.append(f"++model.{key}={value}")
     return build_sam2_video_predictor(
         model_cfg,
         str(checkpoint),
         device=device,
-        vos_optimized=False,
-        _target_=predictor_class,
-        **overrides,
+        hydra_overrides_extra=hydra_overrides,
     )
 
 
