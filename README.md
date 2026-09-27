@@ -10,20 +10,18 @@ video -> prompts -> adenoid + airway masks -> temporal propagation
 ## Repository layout
 
 ```text
-adenoid/          Target-pipeline components: dataset record, prompts,
-                  segmentation-mask I/O, temporal backend names, measurement,
-                  validity, selection, aggregation, and grading.
-models/           MedSAM2 wrapper and compact recurrent EMA memory.
-evaluation/       Per-region segmentation, temporal PolypGen, and ratio metrics.
-proxy_datasets/   PolypGen adapter and its frame/prompt helpers.
-experiments/      Dataset-specific experiment utilities.
-scripts/          Runnable PolypGen, frame, and multi-object adenoid workflows.
+adenoid/          Target dataset record, pipeline, mask I/O, measurement, and grading.
+models/           MedSAM2 wrapper and compact recurrent EMA state.
+validation/       Proxy validation code, currently PolypGen only.
+evaluation/       Dataset-independent segmentation and ratio metrics.
+scripts/          Small command-line entry points.
+configs/          One JSON configuration per supported workflow.
 external/MedSAM2/ Third-party MedSAM2 source.
 ```
 
 PolypGen validates prompting and temporal propagation. REFUGE2 will validate
-two-region segmentation and structural-ratio accuracy once its dataset adapter
-is implemented. The adenoid pipeline combines both for the target task.
+two-region segmentation and structural-ratio accuracy after its label mapping
+and evaluation protocol are defined. The adenoid pipeline is the target task.
 
 ## Current components
 
@@ -52,28 +50,34 @@ The compact state supports `native`, `current`, and `fixed_ema` memory modes:
 state_t = (1 - alpha) * state_(t-1) + alpha * candidate_t
 ```
 
-## PolypGen temporal experiment
+## Commands
 
 ```bash
 DATA=data/PolypGen2021_MultiCenterData_v3/sequenceData/positive
 
-python scripts/run_polypgen.py -i "$DATA" -o outputs/fixed_ema_01 \
+python scripts/run_polypgen.py --config configs/polypgen.json -i "$DATA" -o outputs/fixed_ema_01 \
   --memory_backend fixed_ema --fixed_ema_alpha 0.1 --device auto
 
-python scripts/run_polypgen.py -i "$DATA" -o outputs/native \
+python scripts/run_polypgen.py --config configs/polypgen.json -i "$DATA" -o outputs/native \
   --memory_backend native \
   --prompt_records outputs/fixed_ema_01/prompt_records.json --device auto
 
-python -m evaluation.temporal \
+python -m validation.polypgen.evaluate \
   --output_mask_dir outputs/fixed_ema_01 \
   --data_root "$DATA" \
   --output_eval_dir outputs/fixed_ema_01/evaluation \
   --sequences seq16 seq17 seq18 seq19
+
+python scripts/run_adenoid.py --config configs/adenoid.json \
+  -i path/to/adenoid_video_or_sequences -o outputs/adenoid
 ```
 
-`--device auto` selects CUDA, then MPS, then CPU. On the development Mac, MPS
-produced non-finite SAM2 memory features in this path, so use `--device cpu` if
-that recurs.
+The adenoid runner performs prompt-driven, multi-object MedSAM2 propagation.
+`adenoid.measurement` and `adenoid.grading` provide the frame and video-level
+steps once the clinical region definitions and grading thresholds are supplied.
+
+`--device auto` selects CUDA, then MPS, then CPU. Use `--device cpu` if MPS
+produces non-finite MedSAM2 memory features.
 
 ## Validation splits
 

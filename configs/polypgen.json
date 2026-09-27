@@ -1,4 +1,5 @@
 {
+  "data_root": "data/PolypGen2021_MultiCenterData_v3/sequenceData/positive",
   "sam2_cfg": "configs/sam2.1_hiera_t512.yaml",
   "sam2_checkpoint": "checkpoints/MedSAM2_latest.pt",
   "yolo_checkpoint": "checkpoints/polypgen_yolov8n.pt",

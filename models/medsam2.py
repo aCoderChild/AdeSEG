@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
 
 def load_yolo_model(checkpoint: str):
     try:
@@ -9,6 +14,23 @@ def load_yolo_model(checkpoint: str):
     except ImportError as error:
         raise RuntimeError("YOLO inference requires the 'ultralytics' package.") from error
     return YOLO(str(checkpoint))
+
+
+def get_yolo_boxes(
+    yolo_model, frame_path: str | Path, yolo_imgsz: int, yolo_conf: float, max_boxes: int
+):
+    """Return highest-confidence YOLO xyxy boxes for one frame."""
+    with Image.open(frame_path) as image:
+        results = yolo_model.predict([image.convert("RGB")], imgsz=yolo_imgsz, conf=yolo_conf, verbose=False)
+    boxes = results[0].boxes
+    if boxes is None or len(boxes) == 0:
+        return []
+    xyxy = boxes.xyxy.detach().cpu().numpy()
+    confidence = boxes.conf.detach().cpu().numpy()
+    order = np.argsort(confidence)[::-1]
+    if max_boxes > 0:
+        order = order[:max_boxes]
+    return [(xyxy[index].astype(np.float32), float(confidence[index])) for index in order]
 
 
 def build_image_predictor(

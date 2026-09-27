@@ -22,22 +22,25 @@ for path in (PROJECT_ROOT, EXTERNAL_ROOT, MEDSAM2_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from configs.paths import (
-    DEFAULT_DATA_CONFIG,
-    DEFAULT_DYNAMIC_CONFIG,
-    load_json_config,
-    resolve_project_path,
-)
-from proxy_datasets.polypgen import (
+from adenoid.io import save_masks_to_dir
+from models.compact_memory import MEMORY_BACKENDS
+from models.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
+from validation.polypgen.dataset import (
     get_frame_names,
     get_video_frame_dir,
     get_video_name,
-    get_yolo_boxes,
     resolve_frame_path,
     select_video_names,
 )
-from models.medsam2 import build_video_predictor, load_yolo_model
-from adenoid.segmentation import save_masks_to_dir
+
+
+DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.json"
+
+
+def load_config(config_path: Path) -> dict[str, object]:
+    path = config_path if config_path.is_absolute() else PROJECT_ROOT / config_path
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def save_diagnostics(output_mask_dir, video_name, rows):
@@ -217,28 +220,26 @@ def vos_inference(
 
 def parse_args():
     config_parser = argparse.ArgumentParser(add_help=False)
-    config_parser.add_argument("--data_config", type=Path, default=DEFAULT_DATA_CONFIG)
-    config_parser.add_argument("--model_config", type=Path, default=DEFAULT_DYNAMIC_CONFIG)
+    config_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     config_paths, _ = config_parser.parse_known_args()
-    data_config = load_json_config(config_paths.data_config)
-    model_config = load_json_config(config_paths.model_config)
+    config = load_config(config_paths.config)
     parser = argparse.ArgumentParser(
         description="Compact-state MedSAM2 VOS with a YOLO box prompt.",
         parents=[config_parser],
     )
-    parser.add_argument("--sam2_cfg", default=model_config["sam2_cfg"])
-    parser.add_argument("--sam2_checkpoint", type=Path, default=resolve_project_path(model_config["sam2_checkpoint"]))
-    parser.add_argument("-i", "--base_video_dir", type=Path, default=resolve_project_path(data_config["data_root"]))
-    parser.add_argument("--yolo_checkpoint", type=Path, default=resolve_project_path(model_config["yolo_checkpoint"]))
+    parser.add_argument("--sam2_cfg", default=config["sam2_cfg"])
+    parser.add_argument("--sam2_checkpoint", type=Path, default=PROJECT_ROOT / str(config["sam2_checkpoint"]))
+    parser.add_argument("-i", "--base_video_dir", type=Path, default=PROJECT_ROOT / str(config["data_root"]))
+    parser.add_argument("--yolo_checkpoint", type=Path, default=PROJECT_ROOT / str(config["yolo_checkpoint"]))
     parser.add_argument("--seq_nums", type=int, nargs="*", default=None)
     parser.add_argument("-o", "--output_mask_dir", type=Path, required=True)
-    parser.add_argument("--device", choices=["auto", "cuda", "mps", "cpu"], default=model_config["device"])
-    parser.add_argument("--yolo_conf", type=float, default=model_config["yolo_conf"])
-    parser.add_argument("--yolo_imgsz", type=int, default=model_config["yolo_imgsz"])
-    parser.add_argument("--video_prompt_stride", type=int, default=model_config["video_prompt_stride"])
+    parser.add_argument("--device", choices=["auto", "cuda", "mps", "cpu"], default=config["device"])
+    parser.add_argument("--yolo_conf", type=float, default=config["yolo_conf"])
+    parser.add_argument("--yolo_imgsz", type=int, default=config["yolo_imgsz"])
+    parser.add_argument("--video_prompt_stride", type=int, default=config["video_prompt_stride"])
     parser.add_argument(
         "--memory_backend",
-        choices=["native", "current", "fixed_ema"],
+        choices=MEMORY_BACKENDS,
         default="fixed_ema",
     )
     parser.add_argument(
@@ -248,11 +249,11 @@ def parse_args():
         help="Fixed update weight for --memory_backend fixed_ema.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
-    return parser.parse_args(), model_config
+    return parser.parse_args(), config
 
 
 def main():
-    args, model_config = parse_args()
+    args, config = parse_args()
     if args.video_prompt_stride < 1:
         raise ValueError("--video_prompt_stride must be at least 1")
     if args.memory_backend == "fixed_ema" and args.fixed_ema_alpha is None:
@@ -263,7 +264,7 @@ def main():
 
     overrides = ["++model.select_memory_by_iou=false"]
     if args.memory_backend != "native":
-        overrides.insert(0, f"++model._target_={model_config['predictor_target']}")
+        overrides.insert(0, f"++model._target_={config['predictor_target']}")
         overrides.append(f"++model.state_update_mode={args.memory_backend}")
         if args.memory_backend == "fixed_ema":
             overrides.append(f"++model.fixed_ema_alpha={args.fixed_ema_alpha}")
@@ -290,13 +291,11 @@ def main():
     sources = [
         Path(__file__),
         PROJECT_ROOT / "models/compact_memory.py",
-        args.data_config,
-        args.model_config,
+        args.config,
     ]
     manifest = {
         "started_utc": datetime.now(timezone.utc).isoformat(),
-        "data_config": str(args.data_config),
-        "model_config": str(args.model_config),
+        "config": str(args.config),
         "arguments": {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
         "sequences": video_names,
         "source_sha256": {

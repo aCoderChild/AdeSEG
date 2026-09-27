@@ -5,11 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import numpy as np
-from PIL import Image
-
 from adenoid.dataset import FrameSample
-from adenoid.segmentation import load_binary_mask, resolve_mask_path
+from adenoid.io import load_binary_mask, resolve_mask_path
 
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".JPG", ".JPEG")
@@ -75,49 +72,6 @@ def resolve_frame_path(video_dir: str | Path, frame_name: str) -> str:
         if path.exists():
             return str(path)
     raise FileNotFoundError(Path(video_dir) / f"{frame_name}.jpg")
-
-
-def load_rgb_image(frame_path: str | Path) -> Image.Image:
-    with Image.open(frame_path) as image:
-        return image.convert("RGB")
-
-
-def load_bgr_image(frame_path: str | Path) -> np.ndarray:
-    return np.asarray(load_rgb_image(frame_path))[:, :, ::-1].copy()
-
-
-def get_data_box_dir(base_video_dir: str | Path, video_name: str) -> Path:
-    return Path(base_video_dir) / video_name / f"bbox_{video_name}"
-
-
-def get_data_boxes(bbox_dir: str | Path, frame_name: str, max_boxes: int):
-    bbox_path = Path(bbox_dir) / f"{frame_name}.txt"
-    if not bbox_path.is_file():
-        return []
-    boxes = []
-    for line in bbox_path.read_text(encoding="utf-8").splitlines():
-        fields = line.split()
-        if not fields:
-            continue
-        if len(fields) != 5:
-            raise ValueError(f"Expected 5 fields in {bbox_path}: {line}")
-        _, x1, y1, x2, y2 = fields
-        boxes.append((np.array([x1, y1, x2, y2], dtype=np.float32), 1.0))
-    return boxes[:max_boxes] if max_boxes > 0 else boxes
-
-
-def get_yolo_boxes(yolo_model, frame_path: str | Path, yolo_imgsz: int, yolo_conf: float, max_boxes: int):
-    image = load_rgb_image(frame_path)
-    results = yolo_model.predict([image], imgsz=yolo_imgsz, conf=yolo_conf, verbose=False)
-    boxes = results[0].boxes
-    if boxes is None or len(boxes) == 0:
-        return []
-    xyxy = boxes.xyxy.detach().cpu().numpy()
-    confidence = boxes.conf.detach().cpu().numpy()
-    order = np.argsort(confidence)[::-1]
-    if max_boxes > 0:
-        order = order[:max_boxes]
-    return [(xyxy[index].astype(np.float32), float(confidence[index])) for index in order]
 
 
 def select_video_names(base_video_dir: str | Path, seq_nums=None, video_list_file: str | Path | None = None) -> list[str]:

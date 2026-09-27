@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
-import numpy as np
+from collections.abc import Iterable
 
-from .mask_validity import masks_are_valid
+import numpy as np
 
 
 RATIO_MODES = ("fraction_of_total", "region_a_over_region_b")
+
+
+def masks_are_valid(*masks: np.ndarray, min_area: int = 1) -> bool:
+    """Check that all masks are 2-D, shape-compatible, and visible."""
+    if min_area < 1:
+        raise ValueError("min_area must be at least 1.")
+    if not masks:
+        return False
+    arrays = [np.asarray(mask) for mask in masks]
+    if any(mask.ndim != 2 for mask in arrays):
+        return False
+    if any(mask.shape != arrays[0].shape for mask in arrays[1:]):
+        return False
+    return all(np.count_nonzero(mask) >= min_area for mask in arrays)
 
 
 def _binary_mask(mask: np.ndarray) -> np.ndarray:
@@ -72,3 +86,24 @@ def measure_frame(
         "valid_frame": masks_are_valid(region_a, region_b, min_area=min_area)
         and bool(np.isfinite(ratio)),
     }
+
+
+def select_valid_frames(frame_predictions: Iterable[dict[str, object]]) -> list[dict[str, object]]:
+    """Keep frame records marked valid with a finite ratio."""
+    return [
+        prediction for prediction in frame_predictions
+        if prediction.get("valid_frame") and np.isfinite(prediction.get("ratio", float("nan")))
+    ]
+
+
+def aggregate_video_ratio(frame_predictions: Iterable[dict[str, object]], method: str = "median") -> float:
+    """Aggregate valid frame ratios into one video-level score."""
+    valid_frames = select_valid_frames(frame_predictions)
+    if not valid_frames:
+        return float("nan")
+    ratios = np.asarray([frame["ratio"] for frame in valid_frames], dtype=float)
+    if method == "median":
+        return float(np.median(ratios))
+    if method == "mean":
+        return float(np.mean(ratios))
+    raise ValueError("method must be 'median' or 'mean'.")

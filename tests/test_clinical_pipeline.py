@@ -4,9 +4,8 @@ import unittest
 
 import numpy as np
 
-from adenoid.aggregation import aggregate_video_ratio
 from adenoid.grading import ratio_to_grade
-from adenoid.measurement import compute_ratio, measure_frame
+from adenoid.measurement import aggregate_video_ratio, compute_ratio, measure_frame
 from evaluation.ratio import evaluate_ratios
 from evaluation.segmentation import evaluate_regions
 
