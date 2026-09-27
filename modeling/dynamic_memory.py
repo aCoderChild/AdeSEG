@@ -6,10 +6,8 @@ import torch.nn.functional as F
 from MedSAM2.sam2.modeling.sam2_utils import get_1d_sine_pe, select_closest_cond_frames
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
-from modeling.fusion import AdaptiveStateFusion
-
-
-# Keep native and fixed_ema as research baselines. Adaptive is the proposed path.
+# Archived compact-memory ablation backends. Native MedSAM2 is the active
+# baseline; this module is retained so the negative result remains reproducible.
 MEMORY_BACKENDS = ("native", "fixed_ema", "adaptive")
 
 
@@ -123,8 +121,10 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
             raise ValueError("fixed_ema_alpha must be in [0, 1].")
         self.state_update_mode = state_update_mode
         self.fixed_ema_alpha = fixed_ema_alpha
-        # maskmem_features use mem_dim channels in SAM2/MedSAM2.
-        self.state_fusion = AdaptiveStateFusion(self.mem_dim) if state_update_mode == "adaptive" else None
+        # Attach trained fusion weights after MedSAM2's base checkpoint loads.
+        # Registering this new module here would make upstream strict checkpoint
+        # loading expect fusion parameters that do not exist in MedSAM2 weights.
+        self.state_fusion = None
 
     def propagate_in_video_preflight(self, inference_state):
         if not inference_state.get("compact_state_enabled", False):
@@ -165,6 +165,8 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
             raise RuntimeError("Dynamic-state inference requires memory features.")
 
         if self.state_update_mode == "adaptive":
+            if self.state_fusion is None:
+                raise RuntimeError("Adaptive inference requires trained state-fusion weights.")
             probability = torch.sigmoid(pred_masks.detach())
             probability = F.interpolate(
                 probability,
@@ -186,8 +188,8 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
             weight = torch.full(
                 (candidate.size(0),),
                 self.fixed_ema_alpha,
-                device=candidate.device,
-                dtype=candidate.dtype,
+                device=state.features.device,
+                dtype=state.features.dtype,
             )
             state.update_fixed(frame_idx, candidate, weight)
             trace = {

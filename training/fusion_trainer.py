@@ -1,4 +1,4 @@
-"""Train only AdaptiveStateFusion while keeping MedSAM2 frozen.
+"""Archived helpers to train AdaptiveStateFusion while keeping MedSAM2 frozen.
 
 This module intentionally contains only the project-specific optimization logic.
 Dataset sampling and MedSAM2 clip construction should reuse the existing

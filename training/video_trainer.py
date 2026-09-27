@@ -1,4 +1,4 @@
-"""Fusion-only training helpers for PolypGen and future adenoid video clips."""
+"""Archived fusion-only training helpers for the compact-memory ablation."""
 
 import torch
 

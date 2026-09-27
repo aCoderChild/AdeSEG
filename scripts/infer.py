@@ -23,6 +23,7 @@ for path in (PROJECT_ROOT, MEDSAM2_ROOT):
 
 from adenoid.io import save_masks_to_dir
 from modeling.dynamic_memory import MEMORY_BACKENDS
+from modeling.fusion import AdaptiveStateFusion
 from modeling.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
 from datasets.polypgen import (
     get_frame_names,
@@ -236,14 +237,20 @@ def parse_args():
     parser.add_argument(
         "--memory_backend",
         choices=MEMORY_BACKENDS,
-        default="adaptive",
-        help="adaptive is the proposed method; native and fixed_ema are baselines.",
+        default="native",
+        help="native is the default MedSAM2 baseline; compact-memory modes are archived ablations.",
     )
     parser.add_argument(
         "--fixed_ema_alpha",
         type=float,
         default=0.1,
         help="Fixed update weight used only by --memory_backend fixed_ema.",
+    )
+    parser.add_argument(
+        "--fusion_checkpoint",
+        type=Path,
+        default=None,
+        help="Trained AdaptiveStateFusion weights; required for adaptive inference.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
     return parser.parse_args(), config
@@ -255,6 +262,8 @@ def main():
         raise ValueError("--video_prompt_stride must be at least 1")
     if args.memory_backend == "fixed_ema" and not 0.0 <= args.fixed_ema_alpha <= 1.0:
         raise ValueError("--fixed_ema_alpha must be in [0, 1].")
+    if args.memory_backend == "adaptive" and args.fusion_checkpoint is None:
+        raise ValueError("--fusion_checkpoint is required for adaptive inference.")
 
     predictor_target = None if args.memory_backend == "native" else config.get("predictor_target")
     state_update_mode = "adaptive" if args.memory_backend == "adaptive" else "fixed_ema"
@@ -271,6 +280,16 @@ def main():
         predictor_target=predictor_target,
         predictor_overrides=predictor_overrides,
     )
+    if args.memory_backend == "adaptive":
+        if not args.fusion_checkpoint.is_file():
+            raise FileNotFoundError(f"Missing fusion checkpoint: {args.fusion_checkpoint}")
+        try:
+            fusion_state = torch.load(args.fusion_checkpoint, map_location=args.device, weights_only=True)
+        except TypeError:
+            fusion_state = torch.load(args.fusion_checkpoint, map_location=args.device)
+        predictor.state_fusion = AdaptiveStateFusion(predictor.mem_dim).to(args.device)
+        predictor.state_fusion.load_state_dict(fusion_state)
+        predictor.state_fusion.eval()
     yolo_model = load_yolo_model(args.yolo_checkpoint)
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:
@@ -308,6 +327,7 @@ def main():
         "config": str(args.config),
         "memory_backend": args.memory_backend,
         "fixed_ema_alpha": args.fixed_ema_alpha if args.memory_backend == "fixed_ema" else None,
+        "fusion_checkpoint": str(args.fusion_checkpoint) if args.fusion_checkpoint else None,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
         "yolo_checkpoint": str(args.yolo_checkpoint),
@@ -317,6 +337,8 @@ def main():
         manifest["sam2_checkpoint_sha256"] = hashlib.sha256(args.sam2_checkpoint.read_bytes()).hexdigest()
     except OSError:
         manifest["sam2_checkpoint_sha256"] = None
+    if args.fusion_checkpoint:
+        manifest["fusion_checkpoint_sha256"] = hashlib.sha256(args.fusion_checkpoint.read_bytes()).hexdigest()
     (args.output_mask_dir / "run_manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )

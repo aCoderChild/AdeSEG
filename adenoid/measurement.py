@@ -39,7 +39,7 @@ def mask_area(mask: np.ndarray) -> int:
 def compute_ratio(
     region_a_mask: np.ndarray,
     region_b_mask: np.ndarray,
-    mode: str = "fraction_of_total",
+    mode: str,
 ) -> float:
     """Compute a two-region area ratio without fixing a clinical definition.
 
@@ -64,7 +64,7 @@ def measure_frame(
     frame_idx: int,
     region_a_mask: np.ndarray,
     region_b_mask: np.ndarray,
-    mode: str = "fraction_of_total",
+    mode: str,
     region_a_name: str = "adenoid",
     region_b_name: str = "airway",
     min_area: int = 1,

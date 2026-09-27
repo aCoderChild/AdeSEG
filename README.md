@@ -1,100 +1,94 @@
 # AdeSEG
 
-AdeSEG is a research codebase for video-level adenoid hypertrophy assessment from nasopharyngoscopy. The target task is two-region segmentation (`adenoid`, `nasopharynx_airway`) followed by temporal measurement and grading. PolypGen and REFUGE2 are proxy datasets used to verify separate parts of the implementation.
-
-## Project roles
-
-- `datasets/`: dataset adapters for PolypGen, REFUGE2, and the future adenoid dataset.
-- `modeling/`: MedSAM2 wrapper, recurrent dynamic memory, and adaptive fusion.
-- `inference/`: image and video inference paths.
-- `training/`: custom training helpers; the main proposed training path freezes MedSAM2 and trains only adaptive state fusion.
-- `evaluation/`: segmentation, temporal, structural-ratio, and REFUGE2 evaluation.
-- `adenoid/`: target-task measurement and grading logic.
-- `scripts/`: runnable entry points.
-- `MedSAM2/`: bundled upstream MedSAM2 implementation.
-
-## Proposed video method
-
-The proposed temporal path replaces MedSAM2's multi-frame spatial memory bank with one recurrent spatial state. The state is updated by a learnable fusion module:
+AdeSEG studies **video-level adenoid hypertrophy assessment from
+nasopharyngoscopy**. The intended clinical pipeline is:
 
 ```text
-previous state S(t-1)
-        +
-current candidate C(t)
-        +
-foreground probability P(t)
-        |
-        v
-AdaptiveStateFusion
-        |
-        v
-new state S(t)
+nasopharyngoscopy video
+    -> adenoid and nasopharyngeal-airway segmentation
+    -> valid and clinically stable frames
+    -> per-frame obstruction measurement
+    -> video-level aggregation
+    -> hypertrophy grade
 ```
 
-`adaptive` is the proposed method. `native` and `fixed_ema` are retained only as research baselines/ablations so the contribution can be tested fairly. `current` has been removed from the public backend choices because it does not add a necessary comparison for the current study.
+The exact obstruction-ratio formula and grade thresholds are deliberately not
+hard-coded. They must come from the annotation and clinical protocol supplied
+with the adenoid dataset.
+
+## Research scope
+
+### C1: video-level two-region assessment
+
+The target task is joint segmentation of `adenoid` and
+`nasopharynx_airway`, followed by a quantitative video-level obstruction
+measurement. This differs from static-image classification or one-frame
+measurement because the clinical score is derived after temporal propagation,
+frame selection, and aggregation.
+
+### C2: measurement-aware segmentation
+
+The first required experiment is a diagnostic: determine whether good regional
+Dice can still produce a poor obstruction measurement. The repository provides
+`evaluation.evaluate_two_region_measurement()` for this comparison. It reports
+per-region Dice/IoU, predicted ratio, ground-truth ratio, and absolute ratio
+error for an explicitly selected ratio protocol.
+
+A measurement-aware loss is **not implemented yet**. It should only be added
+if the diagnostic demonstrates a real Dice--measurement mismatch and after the
+adenoid protocol defines the clinical ratio.
+
+### C3: temporal robustness study
+
+MedSAM2 native memory and published temporal strategies may be compared as
+baselines for nasopharyngoscopy. The contribution is the controlled comparison
+on segmentation and downstream measurement, rather than a claim to a new
+memory mechanism.
+
+A literature-backed candidate is documented in
+[`docs/constant_memory_direction.md`](docs/constant_memory_direction.md).
+It separates anchor/recent references from a recurrent key-value history, but
+it is not yet integrated into MedSAM2 because LiVOS readout and MedSAM2 memory
+attention have incompatible interfaces.
+
+## Repository layout
+
+- `adenoid/`: target-task ratio measurement and grade conversion helpers.
+- `datasets/`: common sample interface and adapters for PolypGen and REFUGE2.
+- `modeling/`: MedSAM2 construction plus archived compact-memory ablation code.
+- `inference/`: image and video inference utilities.
+- `evaluation/`: segmentation, temporal, ratio, and two-region measurement metrics.
+- `scripts/`: runnable proxy-dataset scripts.
+- `MedSAM2/`: bundled upstream implementation.
 
 ## Proxy datasets
 
 ### PolypGen
 
-Used to test video propagation, recurrent memory, adaptive fusion, and temporal robustness. Complete videos are split rather than individual frames. Empty-GT sequences `seq1` and `seq7` are excluded from train/validation/test splits.
+PolypGen validates video segmentation and temporal propagation. Native MedSAM2
+on the fixed seq16--19 validation protocol achieved sequence-macro Dice 0.7753
+and IoU 0.7134.
 
 ### REFUGE2
 
-Used to test two-region image segmentation and structural measurement. The zero-shot baseline uses GT-derived oracle boxes for optic disc and optic cup and reports disc Dice, cup Dice, and vertical cup-to-disc ratio error. It is not an apples-to-apples comparison with fully automatic REFUGE2 challenge methods.
+REFUGE2 verifies static two-region segmentation and structural measurement. The
+oracle protocol uses GT-derived disc and cup boxes, so it is not comparable to
+fully automatic challenge systems.
 
-## Training
+## Archived compact-memory ablation
 
-The intended custom training setup is:
+The single-state EMA, learned projection, and gate-only variants are retained
+for reproducibility but are not active methods. They reduced retained spatial
+state storage to 0.5 MiB, but suffered severe immediate validation degradation
+against native MedSAM2. This is a negative finding: simple recurrent averaging
+does not preserve the information used by MedSAM2's multi-frame memory.
 
-```text
-frozen MedSAM2
-    |
-video clip + first-frame prompt
-    |
-DynamicMemoryState
-    |
-AdaptiveStateFusion   <- trainable
-    |
-propagated masks
-    |
-Dice + BCE loss
-```
+`scripts/infer.py` therefore defaults to `--memory_backend native`. The
+compact-memory backends remain available only for reproducing the ablation.
 
-`training.video_trainer.freeze_except_fusion()` freezes the MedSAM2 parameters and leaves only `AdaptiveStateFusion` trainable. `training/fusion_trainer.py` contains the project-specific optimizer/loss entry points. The full clip sampling and backward loop still needs to be connected to the existing MedSAM2 training/data stack.
+## Current implementation boundary
 
-## Inference
-
-PolypGen video inference supports:
-
-```bash
-python scripts/infer.py \
-  --memory_backend native \
-  -o outputs/native
-
-python scripts/infer.py \
-  --memory_backend fixed_ema \
-  --fixed_ema_alpha 0.1 \
-  -o outputs/fixed_ema
-
-python scripts/infer.py \
-  --memory_backend adaptive \
-  -o outputs/adaptive
-```
-
-For fair method comparison, replay the same `prompt_records.json` across all three runs.
-
-REFUGE2 zero-shot oracle-box inference:
-
-```bash
-python scripts/run_refuge2.py \
-  --split val \
-  --output_dir outputs/refuge2_oracle
-```
-
-## Important current limitations
-
-- Adaptive fusion is connected to the recurrent-state predictor, but it is untrained until a fusion checkpoint is produced.
-- Dynamic-state video inference currently supports one prompted object and forward propagation only.
-- `native` and `fixed_ema` are baselines, not the proposed final method.
-- Clinical adenoid grading thresholds and the final obstruction-ratio definition must be validated on the real annotated adenoid dataset.
+There is no real adenoid dataset adapter, annotated ratio protocol, or
+end-to-end adenoid segmentation entry point in the repository yet. The project
+does not claim that the clinical video pipeline is implemented until those
+inputs are available.
