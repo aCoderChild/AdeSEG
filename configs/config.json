@@ -24,6 +24,6 @@
     "use_vos_optimized_video_predictor": false
   },
   "compact_state": {
-    "predictor_target": "modeling.fusion.CompactStateVideoPredictor"
+    "predictor_target": "models.compact_memory.CompactStateVideoPredictor"
   }
 }

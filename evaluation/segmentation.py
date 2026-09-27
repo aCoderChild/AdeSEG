@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 import numpy as np
 
-from utils.eval_metrics import calculate_scores
+from .metrics import calculate_scores
 
 
 def evaluate_regions(

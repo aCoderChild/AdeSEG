@@ -8,6 +8,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from adenoid.dataset import FrameSample
+from adenoid.segmentation import load_binary_mask, resolve_mask_path
+
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".JPG", ".JPEG")
 
@@ -123,3 +126,24 @@ def select_video_names(base_video_dir: str | Path, seq_nums=None, video_list_fil
     if video_list_file:
         return [line.strip() for line in Path(video_list_file).read_text(encoding="utf-8").splitlines() if line.strip()]
     return list_video_names(base_video_dir)
+
+
+def iter_polypgen_samples(data_root: str | Path, sequence_name: str):
+    """Yield a PolypGen sequence as common frame samples with a ``polyp`` mask."""
+    data_root = Path(data_root)
+    video_dir = Path(get_video_frame_dir(data_root, sequence_name))
+    sequence_number = sequence_name.removeprefix("seq")
+    mask_dir = data_root / sequence_name / f"masks_seq{sequence_number}"
+    if not mask_dir.is_dir():
+        raise FileNotFoundError(f"Missing PolypGen masks: {mask_dir}")
+
+    for frame_idx, frame_name in enumerate(get_frame_names(video_dir)):
+        mask_path = resolve_mask_path(mask_dir, frame_name)
+        if mask_path is None:
+            raise FileNotFoundError(f"Missing PolypGen mask for {sequence_name}/{frame_name}")
+        yield FrameSample(
+            frame_idx=frame_idx,
+            image_path=Path(resolve_frame_path(video_dir, frame_name)),
+            masks={"polyp": load_binary_mask(mask_path)},
+            metadata={"sequence": sequence_name, "frame_name": frame_name},
+        )

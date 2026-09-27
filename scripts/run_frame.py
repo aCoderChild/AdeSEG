@@ -10,16 +10,19 @@ import torch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+EXTERNAL_ROOT = PROJECT_ROOT / "external"
+MEDSAM2_ROOT = EXTERNAL_ROOT / "MedSAM2"
+for path in (PROJECT_ROOT, EXTERNAL_ROOT, MEDSAM2_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from inference.config import (
+from configs.paths import (
     DEFAULT_DATA_CONFIG,
     DEFAULT_FRAME_CONFIG,
     load_json_config,
     resolve_project_path,
 )
-from inference.data import (
+from proxy_datasets.polypgen import (
     get_data_box_dir,
     get_data_boxes,
     get_frame_names,
@@ -30,8 +33,8 @@ from inference.data import (
     resolve_frame_path,
     select_video_names,
 )
-from inference.models import build_image_predictor, load_yolo_model
-from utils.mask_utils import save_masks_to_dir
+from models.medsam2 import build_image_predictor, load_yolo_model
+from adenoid.segmentation import save_masks_to_dir
 
 
 @torch.inference_mode()

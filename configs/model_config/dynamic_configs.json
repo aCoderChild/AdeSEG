@@ -6,5 +6,5 @@
   "yolo_conf": 0.5,
   "yolo_imgsz": 640,
   "video_prompt_stride": 1,
-  "predictor_target": "modeling.fusion.CompactStateVideoPredictor"
+  "predictor_target": "models.compact_memory.CompactStateVideoPredictor"
 }

@@ -2,7 +2,7 @@
 
 import torch
 
-from modeling.state_memory import append_native_object_pointers
+from models.state_memory import append_native_object_pointers
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
 

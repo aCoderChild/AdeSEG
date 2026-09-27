@@ -9,21 +9,20 @@ with PolypGen masks and writes score tables plus visual overlays only.
 import argparse
 import csv
 import re
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image
 
-if __package__:
-    from .eval_metrics import calculate_scores
-    from .mask_utils import make_overlay, save_overlay
-else:
-    from eval_metrics import calculate_scores
-    from mask_utils import make_overlay, save_overlay
-
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from adenoid.segmentation import make_overlay, save_overlay
+from evaluation.metrics import calculate_scores
+
 DEFAULT_DATA_ROOT = (
     PROJECT_ROOT / "data" / "PolypGen2021_MultiCenterData_v3" / "sequenceData" / "positive"
 )

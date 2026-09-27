@@ -15,19 +15,20 @@ from pathlib import Path
 import torch
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-MEDSAM2_ROOT = PROJECT_ROOT / "MedSAM2"
-for path in (PROJECT_ROOT, MEDSAM2_ROOT):
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+EXTERNAL_ROOT = PROJECT_ROOT / "external"
+MEDSAM2_ROOT = EXTERNAL_ROOT / "MedSAM2"
+for path in (PROJECT_ROOT, EXTERNAL_ROOT, MEDSAM2_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from inference.config import (
+from configs.paths import (
     DEFAULT_DATA_CONFIG,
     DEFAULT_DYNAMIC_CONFIG,
     load_json_config,
     resolve_project_path,
 )
-from inference.data import (
+from proxy_datasets.polypgen import (
     get_frame_names,
     get_video_frame_dir,
     get_video_name,
@@ -35,8 +36,8 @@ from inference.data import (
     resolve_frame_path,
     select_video_names,
 )
-from inference.models import build_video_predictor, load_yolo_model
-from utils.mask_utils import save_masks_to_dir
+from models.medsam2 import build_video_predictor, load_yolo_model
+from adenoid.segmentation import save_masks_to_dir
 
 
 def save_diagnostics(output_mask_dir, video_name, rows):
@@ -288,7 +289,7 @@ def main():
     args.output_mask_dir.mkdir(parents=True, exist_ok=True)
     sources = [
         Path(__file__),
-        PROJECT_ROOT / "modeling/fusion.py",
+        PROJECT_ROOT / "models/compact_memory.py",
         args.data_config,
         args.model_config,
     ]
