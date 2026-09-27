@@ -1,19 +1,23 @@
-"""Compact fixed-update spatial memory for MedSAM2 video inference."""
+"""Compact recurrent spatial memory for MedSAM2 video inference."""
 
 import torch
+import torch.nn.functional as F
 
 from MedSAM2.sam2.modeling.sam2_utils import get_1d_sine_pe, select_closest_cond_frames
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
+from modeling.fusion import AdaptiveStateFusion
 
-MEMORY_BACKENDS = ("native", "current", "fixed_ema")
+
+# Keep native and fixed_ema as research baselines. Adaptive is the proposed path.
+MEMORY_BACKENDS = ("native", "fixed_ema", "adaptive")
 
 
 def append_native_object_pointers(
     model, frame_idx, output_dict, num_frames, track_in_reverse, device, batch_size,
     memory_chunks, position_chunks,
 ):
-    """Append MedSAM2's normal object-pointer tokens to compact spatial memory."""
+    """Append MedSAM2's normal object-pointer tokens to recurrent spatial memory."""
     if not model.use_obj_ptrs_in_encoder:
         return 0
     selected_cond, unselected_cond = select_closest_cond_frames(
@@ -66,7 +70,7 @@ class DynamicMemoryState:
 
     def __init__(self, frame_idx, output):
         if output["maskmem_features"] is None:
-            raise RuntimeError("Compact-state inference requires memory features.")
+            raise RuntimeError("Dynamic-state inference requires memory features.")
         device = output["obj_ptr"].device
         self.features = output["maskmem_features"].detach().to(
             device=device, dtype=torch.float32
@@ -77,20 +81,34 @@ class DynamicMemoryState:
         self.last_frame_idx = frame_idx
         self.updates = 0
 
-    def update(self, frame_idx, candidate, weight):
+    def _check_candidate(self, frame_idx, candidate):
         if frame_idx != self.last_frame_idx + 1:
-            raise ValueError("Compact state requires consecutive forward updates.")
-        candidate = candidate.detach().to(self.features)
+            raise ValueError("Dynamic state requires consecutive forward updates.")
+        candidate = candidate.to(self.features)
         if candidate.shape != self.features.shape:
             raise ValueError("Memory feature shape changed within the sequence.")
+        return candidate
+
+    def update_fixed(self, frame_idx, candidate, weight):
+        """Update with a fixed scalar EMA weight (ablation baseline)."""
+        candidate = self._check_candidate(frame_idx, candidate).detach()
         weight = weight.view(-1, 1, 1, 1).to(self.features)
         self.features = (1.0 - weight) * self.features + weight * candidate
         self.last_frame_idx = frame_idx
         self.updates += 1
 
+    def update_adaptive(self, frame_idx, candidate, foreground_probability, fusion):
+        """Update with a learned spatial/channel gate."""
+        candidate = self._check_candidate(frame_idx, candidate).detach()
+        previous = self.features
+        probability = foreground_probability.to(previous)
+        self.features = fusion(previous, candidate, probability)
+        self.last_frame_idx = frame_idx
+        self.updates += 1
+
 
 class CompactStateVideoPredictor(SAM2VideoPredictor):
-    """Predict masks using one spatial state with a fixed update rule."""
+    """MedSAM2 predictor using one recurrent spatial memory state."""
 
     def __init__(
         self,
@@ -99,22 +117,24 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if state_update_mode not in {"current", "fixed_ema"}:
-            raise ValueError(f"Unknown compact-state update mode: {state_update_mode}")
+        if state_update_mode not in {"fixed_ema", "adaptive"}:
+            raise ValueError(f"Unknown dynamic-state update mode: {state_update_mode}")
         if state_update_mode == "fixed_ema" and not 0.0 <= fixed_ema_alpha <= 1.0:
             raise ValueError("fixed_ema_alpha must be in [0, 1].")
         self.state_update_mode = state_update_mode
         self.fixed_ema_alpha = fixed_ema_alpha
+        # maskmem_features use mem_dim channels in SAM2/MedSAM2.
+        self.state_fusion = AdaptiveStateFusion(self.mem_dim) if state_update_mode == "adaptive" else None
 
     def propagate_in_video_preflight(self, inference_state):
         if not inference_state.get("compact_state_enabled", False):
-            raise ValueError("Compact-state inference must be enabled before propagation.")
+            raise ValueError("Dynamic-state inference must be enabled before propagation.")
         if self._get_obj_num(inference_state) != 1:
-            raise ValueError("Compact-state inference supports exactly one object.")
+            raise ValueError("Dynamic-state inference currently supports exactly one object.")
         super().propagate_in_video_preflight(inference_state)
         frame_idx = inference_state["compact_state_anchor_frame_idx"]
         if set(inference_state["output_dict"]["cond_frame_outputs"]) != {frame_idx}:
-            raise ValueError("Compact-state inference supports one initial prompt frame.")
+            raise ValueError("Dynamic-state inference supports one initial prompt frame.")
         output_dict = inference_state["output_dict"]
         if "compact_state" not in output_dict:
             output = output_dict["cond_frame_outputs"].get(frame_idx)
@@ -133,28 +153,46 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
         if state is None or kwargs["is_init_cond_frame"]:
             return super()._run_single_frame_inference(*args, **kwargs)
         if kwargs["reverse"]:
-            raise ValueError("Compact-state inference supports forward propagation only.")
+            raise ValueError("Dynamic-state inference supports forward propagation only.")
 
         current_out, pred_masks = super()._run_single_frame_inference(*args, **kwargs)
         candidate = current_out["maskmem_features"]
         if candidate is None:
-            raise RuntimeError("Compact-state inference requires memory features.")
-        weight = (
-            torch.ones(candidate.size(0), device=candidate.device, dtype=candidate.dtype)
-            if self.state_update_mode == "current"
-            else torch.full(
+            raise RuntimeError("Dynamic-state inference requires memory features.")
+
+        if self.state_update_mode == "adaptive":
+            probability = torch.sigmoid(pred_masks.detach())
+            probability = F.interpolate(
+                probability,
+                size=candidate.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+            state.update_adaptive(
+                frame_idx,
+                candidate,
+                probability,
+                self.state_fusion,
+            )
+            trace = {
+                "state_update_mode": "adaptive",
+                "updates": state.updates,
+            }
+        else:
+            weight = torch.full(
                 (candidate.size(0),),
                 self.fixed_ema_alpha,
                 device=candidate.device,
                 dtype=candidate.dtype,
             )
-        )
-        state.update(frame_idx, candidate, weight)
-        current_out["compact_state_trace"] = {
-            "state_update_mode": self.state_update_mode,
-            "update_weight": float(weight.mean().item()),
-            "updates": state.updates,
-        }
+            state.update_fixed(frame_idx, candidate, weight)
+            trace = {
+                "state_update_mode": "fixed_ema",
+                "update_weight": float(weight.mean().item()),
+                "updates": state.updates,
+            }
+
+        current_out["compact_state_trace"] = trace
         return current_out, pred_masks
 
     def _prepare_memory_conditioned_features(
@@ -180,10 +218,10 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
                 track_in_reverse,
             )
         if track_in_reverse:
-            raise ValueError("Compact-state inference supports forward propagation only.")
+            raise ValueError("Dynamic-state inference supports forward propagation only.")
         state = output_dict["compact_state"]
         if frame_idx != state.last_frame_idx + 1:
-            raise ValueError("Compact state was read out of order.")
+            raise ValueError("Dynamic state was read out of order.")
         dtype = current_vision_feats[-1].dtype
         memory = state.features.to(dtype).flatten(2).permute(2, 0, 1)
         memory_position = (
