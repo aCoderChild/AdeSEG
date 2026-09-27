@@ -141,6 +141,10 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
             if output is None:
                 raise RuntimeError("VOS preflight did not encode the prompted frame.")
             output_dict["compact_state"] = DynamicMemoryState(frame_idx, output)
+            # Keep the copied recurrent state, not a duplicate prompt-frame
+            # spatial memory tensor in the native conditioning dictionary.
+            output["maskmem_features"] = None
+            output["maskmem_pos_enc"] = None
 
     def _reset_tracking_results(self, inference_state):
         super()._reset_tracking_results(inference_state)
@@ -192,6 +196,11 @@ class CompactStateVideoPredictor(SAM2VideoPredictor):
                 "updates": state.updates,
             }
 
+        # The recurrent state is now the sole spatial memory read by later
+        # frames. Retaining this frame's memory-encoder tensors in the native
+        # output dictionary would defeat the compact-memory storage claim.
+        current_out["maskmem_features"] = None
+        current_out["maskmem_pos_enc"] = None
         current_out["compact_state_trace"] = trace
         return current_out, pred_masks
 
