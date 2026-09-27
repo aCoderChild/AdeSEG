@@ -1,12 +1,16 @@
-"""Segmentation losses used by image and video trainers."""
+"""Small project-specific losses used by adaptive-memory training."""
 
 import torch
-from torch.nn import functional as F
+import torch.nn.functional as F
 
 
-def dice_bce_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    target = target.to(dtype=logits.dtype)
-    probability = logits.sigmoid()
-    intersection = (probability * target).sum(dim=(-2, -1))
-    dice = 1 - (2 * intersection + 1) / (probability.sum(dim=(-2, -1)) + target.sum(dim=(-2, -1)) + 1)
-    return F.binary_cross_entropy_with_logits(logits, target) + dice.mean()
+def dice_bce_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    """Binary BCE + soft Dice loss for propagated segmentation masks."""
+    targets = targets.to(device=logits.device, dtype=logits.dtype)
+    bce = F.binary_cross_entropy_with_logits(logits, targets)
+    probabilities = torch.sigmoid(logits)
+    dims = tuple(range(1, probabilities.ndim))
+    intersection = (probabilities * targets).sum(dim=dims)
+    denominator = probabilities.sum(dim=dims) + targets.sum(dim=dims)
+    dice = (2.0 * intersection + 1.0) / (denominator + 1.0)
+    return bce + (1.0 - dice.mean())
