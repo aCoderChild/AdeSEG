@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compact-state MedSAM2 VOS with one YOLO box prompt."""
+"""PolypGen MedSAM2 VOS with native or recurrent dynamic memory."""
 
 from __future__ import annotations
 
@@ -43,7 +43,6 @@ def load_config(config_path: Path) -> dict[str, object]:
 
 
 def save_diagnostics(output_mask_dir, video_name, rows):
-    """Save one state-update trace row per frame."""
     directory = Path(output_mask_dir) / "diagnostics"
     directory.mkdir(parents=True, exist_ok=True)
     fields = list(dict.fromkeys(key for row in rows for key in row))
@@ -54,7 +53,6 @@ def save_diagnostics(output_mask_dir, video_name, rows):
 
 
 def get_first_yolo_box(yolo_model, frame_path, yolo_imgsz, yolo_conf):
-    """Return the highest-confidence YOLO box for the single VOS object."""
     boxes = get_yolo_boxes(yolo_model, frame_path, yolo_imgsz, yolo_conf, max_boxes=1)
     return boxes[0] if boxes else (None, None)
 
@@ -97,10 +95,9 @@ def vos_inference(
     yolo_imgsz=640,
     yolo_conf=0.5,
     video_prompt_stride=1,
-    memory_backend="fixed_ema",
+    memory_backend="adaptive",
     prompt_records=None,
 ):
-    """Initialize from a YOLO box prompt and propagate through the video."""
     started = time.perf_counter()
     video_dir = get_video_frame_dir(base_video_dir, video_name)
     video_output_name = get_video_name(base_video_dir, video_name)
@@ -223,7 +220,7 @@ def parse_args():
     config_paths, _ = config_parser.parse_known_args()
     config = load_config(config_paths.config)
     parser = argparse.ArgumentParser(
-        description="Compact-state MedSAM2 VOS with a YOLO box prompt.",
+        description="PolypGen MedSAM2 VOS with native or recurrent dynamic memory.",
         parents=[config_parser],
     )
     parser.add_argument("--sam2_cfg", default=config["sam2_cfg"])
@@ -239,13 +236,14 @@ def parse_args():
     parser.add_argument(
         "--memory_backend",
         choices=MEMORY_BACKENDS,
-        default="fixed_ema",
+        default="adaptive",
+        help="adaptive is the proposed method; native and fixed_ema are baselines.",
     )
     parser.add_argument(
         "--fixed_ema_alpha",
         type=float,
         default=0.1,
-        help="Fixed update weight for --memory_backend fixed_ema.",
+        help="Fixed update weight used only by --memory_backend fixed_ema.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
     return parser.parse_args(), config
@@ -255,87 +253,73 @@ def main():
     args, config = parse_args()
     if args.video_prompt_stride < 1:
         raise ValueError("--video_prompt_stride must be at least 1")
-    if args.memory_backend == "fixed_ema" and args.fixed_ema_alpha is None:
-        raise ValueError("--fixed_ema_alpha is required for fixed_ema memory.")
-    if args.fixed_ema_alpha is not None and not 0.0 <= args.fixed_ema_alpha <= 1.0:
+    if args.memory_backend == "fixed_ema" and not 0.0 <= args.fixed_ema_alpha <= 1.0:
         raise ValueError("--fixed_ema_alpha must be in [0, 1].")
-    prompt_records = load_prompt_records(args.prompt_records)
 
-    overrides = ["++model.select_memory_by_iou=false"]
+    predictor_target = None if args.memory_backend == "native" else config.get("predictor_target")
+    state_update_mode = "adaptive" if args.memory_backend == "adaptive" else "fixed_ema"
+    predictor_overrides = {}
     if args.memory_backend != "native":
-        overrides.insert(0, f"++model._target_={config['predictor_target']}")
-        overrides.append(f"++model.state_update_mode={args.memory_backend}")
-        if args.memory_backend == "fixed_ema":
-            overrides.append(f"++model.fixed_ema_alpha={args.fixed_ema_alpha}")
+        predictor_overrides = {
+            "state_update_mode": state_update_mode,
+            "fixed_ema_alpha": args.fixed_ema_alpha,
+        }
     predictor = build_video_predictor(
         args.sam2_cfg,
         args.sam2_checkpoint,
-        device=args.device,
-        apply_postprocessing=False,
-        hydra_overrides_extra=overrides,
+        args.device,
+        predictor_target=predictor_target,
+        predictor_overrides=predictor_overrides,
     )
-    if args.memory_backend != "native" and predictor.num_maskmem < 1:
-        raise RuntimeError("State-update baselines require MedSAM2 memory features.")
     yolo_model = load_yolo_model(args.yolo_checkpoint)
-
-    video_names = [
-        name
-        for name in select_video_names(args.base_video_dir, args.seq_nums)
-        if get_frame_names(get_video_frame_dir(args.base_video_dir, name))
-    ]
-    if not video_names:
-        raise RuntimeError(f"Found no video sequences in {args.base_video_dir}")
+    videos = select_video_names(args.base_video_dir, args.seq_nums)
+    if not videos:
+        raise RuntimeError(f"No sequences found under {args.base_video_dir}")
 
     args.output_mask_dir.mkdir(parents=True, exist_ok=True)
-    sources = [
-        Path(__file__),
-        PROJECT_ROOT / "modeling/dynamic_memory.py",
-        args.config if args.config.is_absolute() else PROJECT_ROOT / args.config,
-    ]
-    manifest = {
-        "started_utc": datetime.now(timezone.utc).isoformat(),
-        "config": str(args.config),
-        "arguments": {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
-        "sequences": video_names,
-        "source_sha256": {
-            str(path.relative_to(PROJECT_ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in sources
-        },
-        "torch_version": torch.__version__,
-        "inference_complete": False,
-    }
-    manifest_path = args.output_mask_dir / "run_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-
-    print(f"Running {args.memory_backend}-memory MedSAM2 VOS on {len(video_names)} sequence(s) with YOLO boxes.")
-    saved_prompt_records = {}
-    efficiency_records = []
-    for index, video_name in enumerate(video_names, start=1):
-        print(f"{index}/{len(video_names)}: {get_video_name(args.base_video_dir, video_name)}")
-        _, _, prompt_record, efficiency = vos_inference(
-            predictor=predictor,
-            yolo_model=yolo_model,
-            base_video_dir=args.base_video_dir,
-            output_mask_dir=args.output_mask_dir,
-            video_name=video_name,
+    prompt_records = load_prompt_records(args.prompt_records)
+    used_prompts = {}
+    efficiency_rows = []
+    for video_name in videos:
+        output_name, _, prompt, efficiency = vos_inference(
+            predictor,
+            yolo_model,
+            args.base_video_dir,
+            args.output_mask_dir,
+            video_name,
             yolo_imgsz=args.yolo_imgsz,
             yolo_conf=args.yolo_conf,
             video_prompt_stride=args.video_prompt_stride,
             memory_backend=args.memory_backend,
             prompt_records=prompt_records,
         )
-        if prompt_record is not None:
-            saved_prompt_records[video_name] = prompt_record
-        efficiency_records.append(efficiency)
+        if prompt is not None:
+            used_prompts[output_name] = prompt
+        efficiency_rows.append(efficiency)
+
     (args.output_mask_dir / "prompt_records.json").write_text(
-        json.dumps(saved_prompt_records, indent=2) + "\n"
+        json.dumps(used_prompts, indent=2), encoding="utf-8"
     )
     (args.output_mask_dir / "efficiency.json").write_text(
-        json.dumps(efficiency_records, indent=2) + "\n"
+        json.dumps(efficiency_rows, indent=2), encoding="utf-8"
     )
-    manifest["inference_complete"] = True
-    manifest["completed_utc"] = datetime.now(timezone.utc).isoformat()
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "config": str(args.config),
+        "memory_backend": args.memory_backend,
+        "fixed_ema_alpha": args.fixed_ema_alpha if args.memory_backend == "fixed_ema" else None,
+        "sequences": videos,
+        "sam2_checkpoint": str(args.sam2_checkpoint),
+        "yolo_checkpoint": str(args.yolo_checkpoint),
+        "prompt_records_source": str(args.prompt_records) if args.prompt_records else None,
+    }
+    try:
+        manifest["sam2_checkpoint_sha256"] = hashlib.sha256(args.sam2_checkpoint.read_bytes()).hexdigest()
+    except OSError:
+        manifest["sam2_checkpoint_sha256"] = None
+    (args.output_mask_dir / "run_manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":
