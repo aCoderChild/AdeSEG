@@ -33,6 +33,7 @@ def main():
         raise ValueError("--stride must be positive.")
     yolo = load_yolo_model(args.yolo_checkpoint)
     records = {}
+    missing = []
     for sequence in args.sequences:
         frame_dir = get_video_frame_dir(args.data_root, sequence)
         frames = get_frame_names(frame_dir)
@@ -56,11 +57,23 @@ def main():
                 }
                 break
         if selected is None:
-            raise RuntimeError(f"YOLO found no prompt box for {sequence}.")
+            missing.append(sequence)
+            continue
         records[sequence] = selected
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(records, indent=2))
+    summary = {
+        "requested_sequences": args.sequences,
+        "prompted_sequences": sorted(records),
+        "missing_sequences": missing,
+        "confidence": args.confidence,
+        "image_size": args.image_size,
+        "stride": args.stride,
+    }
+    args.output.with_name(f"{args.output.stem}_summary.json").write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+    )
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

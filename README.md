@@ -38,21 +38,17 @@ A measurement-aware loss is **not implemented yet**. It should only be added
 if the diagnostic demonstrates a real Dice--measurement mismatch and after the
 adenoid protocol defines the clinical ratio.
 
-### C3: temporal robustness study
+### C3: reliability-gated recurrent memory
 
-MedSAM2 native memory and published temporal strategies may be compared as
-baselines for nasopharyngoscopy. The contribution is the controlled comparison
-on segmentation and downstream measurement, rather than a claim to a new
-memory mechanism.
+RGM-MedSAM2 investigates whether MedSAM2's multi-frame spatial memory can be
+compressed into one recurrent state while retaining its native object-pointer
+history. The fusion uses an RDE-VOS-inspired two-frame spatial convolution and
+a LiVOS-inspired reliability gate. This is an adaptation to MedSAM2, rather
+than an implementation of either source method.
 
-A literature-backed recurrent-memory experiment is implemented in
-[`modeling/rgm_memory.py`](modeling/rgm_memory.py). It retains one MedSAM2
-spatial mask-memory state while preserving MedSAM2's normal prompt and recent
-object-pointer history. Its two-frame temporal convolution is inspired by
-RDE-VOS, but it is an adaptation to MedSAM2 rather than an RDE-VOS port. It is
-not an active method until controlled training improves over fixed EMA.
-
-The active temporal comparison is native MedSAM2 versus RGM-MedSAM2.
+Its effectiveness remains under validation. Native MedSAM2 is the primary
+baseline, and RGM must improve over its fixed initialization under the same
+frozen YOLO prompts before it is presented as an effective method.
 
 ## Repository layout
 
@@ -83,8 +79,9 @@ fully automatic challenge systems.
 `modeling/rgm_memory.py` and `training/rgm_trainer.py` implement the current
 RGM experiment. It replaces only spatial mask memories with a recurrent state;
 the anchor and MedSAM2's normal recent object-pointer history remain available
-to memory attention. `scripts/train_rgm.py` freezes MedSAM2, encodes state
-updates from predicted masks, and applies Dice+BCE only to future predictions.
+to memory attention. `scripts/train_rgm.py` freezes MedSAM2 in evaluation mode,
+uses the same decoder and memory-encoding path as inference, updates state from
+predicted masks, and applies Dice+BCE only to future predictions.
 The gate receives decoder-predicted IoU plus pooled summaries of the prior
 state, candidate, and their absolute difference. It is never trained against
 ground-truth IoU.
@@ -92,6 +89,10 @@ ground-truth IoU.
 The initial update is fixed EMA alpha=0.1 by construction. The current
 CPU-controlled seq16--19 result is a prototype diagnostic; it must be improved
 by full train/validation before RGM can be described as a contribution.
+
+The bundled MedSAM2 code has one minimal RGM instrumentation change: compact
+per-frame outputs retain the decoder's selected predicted-IoU value. Native
+prediction and native recent-memory selection are unchanged.
 
 ## Current implementation boundary
 

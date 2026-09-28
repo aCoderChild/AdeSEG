@@ -29,7 +29,7 @@ DEFAULT_DATA_ROOT = (
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 METRIC_NAMES = (
     "dice", "iou", "f_measure", "f2", "precision", "recall", "sensitivity",
-    "specificity", "accuracy", "mae", "temporal_iou",
+    "specificity", "accuracy", "mae",
 )
 
 
@@ -130,20 +130,6 @@ def segmentation_scores(prediction: np.ndarray, ground_truth: np.ndarray) -> dic
     return calculate_scores(prediction, ground_truth)
 
 
-def temporal_iou(current: np.ndarray, previous: np.ndarray) -> float:
-    """Return foreground IoU between consecutive predicted masks.
-
-    This is a temporal-consistency statistic, not IoU against ground truth.
-    It is calculated only between contiguous frames propagated after the prompt.
-    """
-    current_foreground = current > 0
-    previous_foreground = previous > 0
-    union = np.logical_or(current_foreground, previous_foreground).sum()
-    if union == 0:
-        return float("nan")
-    return float(np.logical_and(current_foreground, previous_foreground).sum() / union)
-
-
 def create_overlay(frame_bgr: np.ndarray, prediction: np.ndarray, ground_truth: np.ndarray) -> np.ndarray:
     """Create the shared RGB prediction/ground-truth overlay."""
     if frame_bgr.shape[:2] != ground_truth.shape:
@@ -218,23 +204,12 @@ def evaluate_sequence(
         except (TypeError, ValueError):
             current_frame_index = None
         is_propagated = frames_after_prompt is not None and frames_after_prompt >= 1
-        if (
-            is_propagated
-            and not prediction_missing
-            and previous_prediction is not None
-            and previous_frame_index is not None
-            and current_frame_index == previous_frame_index + 1
-        ):
-            frame_temporal_iou = temporal_iou(prediction, previous_prediction)
-        else:
-            frame_temporal_iou = float("nan")
         rows.append(
             {
                 "sequence": sequence_name,
                 "frame": stem,
                 "prediction_missing": prediction_missing,
                 "frames_after_prompt": frames_after_prompt,
-                "temporal_iou": frame_temporal_iou,
                 **scores,
             }
         )
@@ -352,7 +327,7 @@ def write_memory_confidence_statistics(
         stats_rows,
     )
 
-
+# TODO: review
 def write_drift_statistics(evaluation_dir: Path, frame_rows: list[dict[str, object]]) -> None:
     """Write Dice and IoU grouped by frames elapsed after the prompt."""
     propagated_rows = [

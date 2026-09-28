@@ -59,7 +59,7 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
         )
         return self._as_inference_memory(memory_features), memory_positions[-1]
 
-    def _record_state(self, frame_idx, candidate, gate):
+    def _record_state(self, frame_idx, candidate, gate, previous_state=None):
         prediction = self._last_prediction
         if prediction is None:
             raise RuntimeError("RGM state was updated without a decoder prediction.")
@@ -69,6 +69,7 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
             "predicted_iou": prediction["predicted_iou"].detach().cpu(),
             "object_pointer": prediction["object_pointer"].detach().cpu(),
             "candidate": candidate.detach().cpu(),
+            "previous_state": None if previous_state is None else previous_state.detach().cpu(),
             "state": self.dynamic_state.detach().cpu(),
             "gate": None if gate is None else gate.detach().cpu(),
         })
@@ -98,10 +99,11 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
         candidate, _ = self._native_memory_encoding(
             features, prediction["high_res_masks"], prediction["object_score_logits"], False
         )
-        self.dynamic_state = self.state_fusion(
-            self.dynamic_state, candidate, prediction["predicted_iou"]
+        previous_state = self.dynamic_state
+        self.dynamic_state = self.state_fusion(previous_state, candidate, prediction["predicted_iou"])
+        self._record_state(
+            self.current_frame_idx, candidate, self.state_fusion.last_gate, previous_state
         )
-        self._record_state(self.current_frame_idx, candidate, self.state_fusion.last_gate)
         return self.dynamic_state, self.dynamic_state_pos
 
     def _prepare_memory(self):

@@ -198,6 +198,7 @@ class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
         if candidate is None or predicted_iou is None:
             raise RuntimeError("RGM requires candidate memory and predicted IoU.")
         assert self.state_fusion is not None
+        previous_state = state.features.detach().clone()
         state.update(frame_idx, candidate, predicted_iou, self.state_fusion)
         if kwargs["inference_state"].get("rgm_capture_tensors", False):
             output_dict.setdefault("rgm_frame_trace", []).append({
@@ -206,6 +207,7 @@ class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
                 "predicted_iou": predicted_iou.detach().float().cpu(),
                 "object_pointer": current_out["obj_ptr"].detach().float().cpu(),
                 "candidate": candidate.detach().float().cpu(),
+                "previous_state": previous_state.detach().float().cpu(),
                 "state": state.features.detach().float().cpu(),
                 "gate": self.state_fusion.last_gate.detach().float().cpu(),
             })
