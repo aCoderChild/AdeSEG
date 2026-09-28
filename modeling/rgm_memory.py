@@ -165,6 +165,16 @@ class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
         if anchor is None:
             raise RuntimeError("VOS preflight did not encode the prompted frame.")
         outputs["rgm_state"] = _RGMSpatialState(anchor_idx, anchor)
+        if inference_state.get("rgm_capture_tensors", False):
+            outputs["rgm_frame_trace"] = [{
+                "frame_idx": anchor_idx,
+                "mask_logits": anchor["pred_masks"].detach().float().cpu(),
+                "predicted_iou": anchor["iou_predictions"].detach().float().cpu(),
+                "object_pointer": anchor["obj_ptr"].detach().float().cpu(),
+                "candidate": outputs["rgm_state"].features.detach().cpu(),
+                "state": outputs["rgm_state"].features.detach().cpu(),
+                "gate": None,
+            }]
         # Keep the pointer but release the duplicated prompt-frame spatial tensor.
         anchor["maskmem_features"] = None
         anchor["maskmem_pos_enc"] = None
@@ -189,6 +199,16 @@ class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
             raise RuntimeError("RGM requires candidate memory and predicted IoU.")
         assert self.state_fusion is not None
         state.update(frame_idx, candidate, predicted_iou, self.state_fusion)
+        if kwargs["inference_state"].get("rgm_capture_tensors", False):
+            output_dict.setdefault("rgm_frame_trace", []).append({
+                "frame_idx": frame_idx,
+                "mask_logits": current_out["pred_masks"].detach().float().cpu(),
+                "predicted_iou": predicted_iou.detach().float().cpu(),
+                "object_pointer": current_out["obj_ptr"].detach().float().cpu(),
+                "candidate": candidate.detach().float().cpu(),
+                "state": state.features.detach().float().cpu(),
+                "gate": self.state_fusion.last_gate.detach().float().cpu(),
+            })
         current_out["maskmem_features"] = None
         current_out["maskmem_pos_enc"] = None
         current_out["rgm_trace"] = {

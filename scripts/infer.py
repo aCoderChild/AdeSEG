@@ -138,6 +138,7 @@ def vos_inference(
             )
             if box is not None:
                 prompt_frame_idx, prompt_box, prompt_confidence = frame_idx, box, confidence
+                break
     if prompt_box is None:
         print(f"Warning: {video_output_name}: YOLO found no box; saving empty masks.")
         for frame_idx, frame_name in enumerate(frame_names):

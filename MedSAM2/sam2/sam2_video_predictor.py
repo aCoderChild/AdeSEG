@@ -501,6 +501,14 @@ class SAM2VideoPredictor(SAM2Base):
                 dtype=torch.float32,
                 device=inference_state["device"],
             ),
+            # Minimal instrumentation for RGM's reliability input. It does not
+            # alter native decoding or native memory selection.
+            "iou_predictions": torch.full(
+                size=(batch_size, 1),
+                fill_value=0.0,
+                dtype=torch.float32,
+                device=inference_state["device"],
+            ),
         }
         empty_mask_ptr = None
         for obj_idx in range(batch_size):
@@ -547,6 +555,9 @@ class SAM2VideoPredictor(SAM2Base):
             consolidated_out["obj_ptr"][obj_idx : obj_idx + 1] = out["obj_ptr"]
             consolidated_out["object_score_logits"][obj_idx : obj_idx + 1] = out[
                 "object_score_logits"
+            ]
+            consolidated_out["iou_predictions"][obj_idx : obj_idx + 1] = out[
+                "iou_predictions"
             ]
 
         # Optionally, apply non-overlapping constraints on the consolidated scores
@@ -787,6 +798,7 @@ class SAM2VideoPredictor(SAM2Base):
                 "pred_masks": current_out["pred_masks"][obj_slice],
                 "obj_ptr": current_out["obj_ptr"][obj_slice],
                 "object_score_logits": current_out["object_score_logits"][obj_slice],
+                "iou_predictions": current_out["iou_predictions"][obj_slice],
             }
             if maskmem_features is not None:
                 obj_out["maskmem_features"] = maskmem_features[obj_slice]

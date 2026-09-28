@@ -1,8 +1,6 @@
-"""Frozen-MedSAM2 trainer for reliability-gated recurrent memory experiments."""
+"""Train RGM with the same decoder and memory-encoding path as inference."""
 
 from __future__ import annotations
-
-import math
 
 import torch
 
@@ -12,92 +10,116 @@ from modeling.rgm_memory import ReliabilityGatedFusion
 
 
 class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
-    """Use one spatial state while retaining MedSAM2's native pointer policy.
+    """One RGM spatial state plus MedSAM2's native object-pointer history.
 
-    The state update always receives predicted masks because callers must pass
-    ``labels=None``.  Labels are used only by the external segmentation loss.
+    Bounding boxes use the model's square input coordinates. The recurrent
+    state always receives predicted logits; labels belong only to the loss.
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.state_fusion = ReliabilityGatedFusion(self.model.mem_dim).to(self.device)
-        high_resolution = self.model.image_size // 4
-        self._bb_feat_sizes = [(high_resolution // (2**level),) * 2 for level in range(3)]
 
     def init_state(self):
         super().init_state()
         self.dynamic_state = None
         self.dynamic_state_pos = None
+        self.frame_trace = []
+        self._last_prediction = None
 
     def preprocess_frame_features(self, frame_features, batch_size, num_frames):
-        """Reshape features without relying on view-contiguity on MPS."""
+        """Reshape per-frame features without ``view`` contiguity assumptions."""
         prepared = []
         for frame_idx, frame_feature in enumerate(self.unbind_frame_features(frame_features, num_frames)):
             feature_maps = frame_feature["backbone_fpn"][-self.num_feature_levels :]
             vision_feats = [feature.flatten(2).permute(2, 0, 1) for feature in feature_maps]
-            if frame_idx == 0 and self.model.directly_add_no_mem_embed:
-                vision_feats[-1] = vision_feats[-1] + self.model.no_mem_embed
             features = [
-                feature.permute(1, 2, 0).reshape(batch_size, -1, *size)
-                for feature, size in zip(vision_feats[::-1], self._bb_feat_sizes[::-1])
-            ][::-1]
+                feature.permute(1, 2, 0).reshape(batch_size, -1, *feature_map.shape[-2:])
+                for feature, feature_map in zip(vision_feats, feature_maps)
+            ]
             prepared.append({
                 "image_embed": features[-1],
                 "high_res_feats": features[:-1],
-                "backbone_fpn": frame_feature["backbone_fpn"][-self.num_feature_levels :],
+                "backbone_fpn": feature_maps,
                 "vision_pos_enc": frame_feature["vision_pos_enc"][-self.num_feature_levels :],
             })
         return prepared
 
+    @staticmethod
+    def _as_inference_memory(features: torch.Tensor) -> torch.Tensor:
+        """Match bfloat16 storage used by ``SAM2VideoPredictor`` frame outputs."""
+        return features.to(torch.bfloat16).to(torch.float32)
+
+    def _native_memory_encoding(self, features, high_res_masks, object_score_logits, is_mask_from_pts):
+        """Use MedSAM2's native mask-memory encoder and its probability scaling."""
+        vision_feats = [feature.flatten(2).permute(2, 0, 1) for feature in features["backbone_fpn"]]
+        feat_sizes = [feature.shape[-2:] for feature in features["backbone_fpn"]]
+        memory_features, memory_positions = self.model._encode_new_memory(
+            vision_feats, feat_sizes, high_res_masks, object_score_logits, is_mask_from_pts
+        )
+        return self._as_inference_memory(memory_features), memory_positions[-1]
+
+    def _record_state(self, frame_idx, candidate, gate):
+        prediction = self._last_prediction
+        if prediction is None:
+            raise RuntimeError("RGM state was updated without a decoder prediction.")
+        self.frame_trace.append({
+            "frame_idx": frame_idx,
+            "mask_logits": prediction["mask_logits"].detach().cpu(),
+            "predicted_iou": prediction["predicted_iou"].detach().cpu(),
+            "object_pointer": prediction["object_pointer"].detach().cpu(),
+            "candidate": candidate.detach().cpu(),
+            "state": self.dynamic_state.detach().cpu(),
+            "gate": None if gate is None else gate.detach().cpu(),
+        })
+
     def _initialize_memory(self, features, masks, object_score_logits):
-        encoded = self._extract_memory_features(features, masks, object_score_logits)
-        self.dynamic_state = encoded["vision_features"]
-        self.dynamic_state_pos = encoded["vision_pos_enc"]
-        # Explicitly remove the upstream spatial-memory list from this trainer.
+        del masks, object_score_logits
+        prediction = self._last_prediction
+        if prediction is None:
+            raise RuntimeError("RGM memory needs the prompt-frame decoder prediction.")
+        candidate, position = self._native_memory_encoding(
+            features, prediction["high_res_masks"], prediction["object_score_logits"], True
+        )
+        self.dynamic_state = candidate
+        self.dynamic_state_pos = position
         self.maskmem_features = None
         self.maskmem_pos_enc = None
+        self._record_state(0, candidate, gate=None)
         return self.dynamic_state, self.dynamic_state_pos
 
-    def _update_memory(self, features, masks, memory=None, object_score_logits=None):
-        del memory
+    def _update_memory(self, features, masks=None, memory=None, object_score_logits=None):
+        del masks, memory, object_score_logits
         if self.dynamic_state is None:
             raise RuntimeError("RGM state was not initialized.")
-        encoded = self._extract_memory_features(features, masks, object_score_logits)
-        candidate = encoded["vision_features"]
-        tokens, batch_size, channels = candidate.shape
-        side = math.isqrt(tokens)
-        if side * side != tokens:
-            raise ValueError("RGM requires a square mask-memory feature grid.")
-        previous_grid = self.dynamic_state.permute(1, 2, 0).reshape(batch_size, channels, side, side)
-        candidate_grid = candidate.permute(1, 2, 0).reshape(batch_size, channels, side, side)
-        if self._last_predicted_iou is None:
-            raise RuntimeError("RGM update needs the current decoder-predicted IoU.")
-        fused = self.state_fusion(previous_grid, candidate_grid, self._last_predicted_iou)
-        self.dynamic_state = fused.flatten(2).permute(2, 0, 1)
-        # Memory positional encoding is fixed for a spatial grid in MedSAM2.  The
-        # anchor encoding therefore remains the state encoding used at inference.
+        prediction = self._last_prediction
+        if prediction is None:
+            raise RuntimeError("RGM update needs the current decoder prediction.")
+        candidate, _ = self._native_memory_encoding(
+            features, prediction["high_res_masks"], prediction["object_score_logits"], False
+        )
+        self.dynamic_state = self.state_fusion(
+            self.dynamic_state, candidate, prediction["predicted_iou"]
+        )
+        self._record_state(self.current_frame_idx, candidate, self.state_fusion.last_gate)
         return self.dynamic_state, self.dynamic_state_pos
 
-    def _prepare_memory(self, memory):
-        del memory
+    def _prepare_memory(self):
         if self.dynamic_state is None or self.dynamic_state_pos is None:
             raise RuntimeError("RGM state was not initialized.")
-        memory_chunks = [self.dynamic_state]
+        memory_chunks = [self.dynamic_state.flatten(2).permute(2, 0, 1)]
         position_chunks = [
-            self.dynamic_state_pos + self.model.maskmem_tpos_enc[0].view(1, 1, -1)
+            (self.dynamic_state_pos + self.model.maskmem_tpos_enc[0].view(1, -1, 1, 1))
+            .flatten(2)
+            .permute(2, 0, 1)
         ]
         num_obj_ptr_tokens = self._append_native_pointer_history(memory_chunks, position_chunks)
-        return (
-            torch.cat(memory_chunks, dim=0),
-            torch.cat(position_chunks, dim=0),
-            num_obj_ptr_tokens,
-        )
+        return torch.cat(memory_chunks), torch.cat(position_chunks), num_obj_ptr_tokens
 
     def _append_native_pointer_history(self, memory_chunks, position_chunks) -> int:
-        """Match the native prompt-anchor plus recent-pointer selection policy."""
         if not self.model.use_obj_ptrs_in_encoder:
             return 0
-        max_pointers = min(self.num_frames, self.model.max_obj_ptrs_in_encoder)
+        max_pointers = min(self.video_num_frames, self.model.max_obj_ptrs_in_encoder)
         positions_and_pointers = [(self.current_frame_idx, self.obj_ptrs[0])]
         for distance in range(1, max_pointers):
             pointer_index = self.current_frame_idx - distance
@@ -105,80 +127,132 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
                 break
             positions_and_pointers.append((distance, self.obj_ptrs[pointer_index]))
         positions, pointers = zip(*positions_and_pointers)
-        pointers = torch.stack(pointers, dim=0)
+        pointers = torch.stack(pointers)
         if self.model.add_tpos_enc_to_obj_ptrs:
             position_dim = self.model.hidden_dim if self.model.proj_tpos_enc_in_obj_ptrs else self.model.mem_dim
             temporal_positions = get_1d_sine_pe(
-                torch.tensor(positions, device=pointers.device) / (max_pointers - 1),
-                dim=position_dim,
+                torch.tensor(positions, device=pointers.device) / (max_pointers - 1), dim=position_dim
             )
             pointer_positions = self.model.obj_ptr_tpos_proj(temporal_positions)
             pointer_positions = pointer_positions.unsqueeze(1).expand(-1, self.batch_size, self.model.mem_dim)
         else:
             pointer_positions = pointers.new_zeros(len(positions), self.batch_size, self.model.mem_dim)
         if self.model.mem_dim < self.model.hidden_dim:
-            pointers = pointers.reshape(
-                -1, self.batch_size, self.model.hidden_dim // self.model.mem_dim, self.model.mem_dim
-            )
+            pointer_width = self.model.hidden_dim // self.model.mem_dim
+            pointers = pointers.reshape(-1, self.batch_size, pointer_width, self.model.mem_dim)
             pointers = pointers.permute(0, 2, 1, 3).flatten(0, 1)
-            pointer_positions = pointer_positions.repeat_interleave(
-                self.model.hidden_dim // self.model.mem_dim, dim=0
-            )
+            pointer_positions = pointer_positions.repeat_interleave(pointer_width, dim=0)
         memory_chunks.append(pointers)
         position_chunks.append(pointer_positions)
         return pointers.shape[0]
 
-    def _predict_frame(self, features, memory, prev_mask=None):
-        del prev_mask
-        memory, memory_pos_embed, num_obj_ptr_tokens = self._prepare_memory(memory)
-        current_vision_feats = [feature.flatten(2).permute(2, 0, 1) for feature in features["backbone_fpn"]]
-        current_vision_pos = [feature.flatten(2).permute(2, 0, 1) for feature in features["vision_pos_enc"]]
-        pixels_with_memory = self.model.memory_attention(
-            curr=current_vision_feats[-1:],
-            curr_pos=current_vision_pos[-1:],
-            memory=memory,
-            memory_pos=memory_pos_embed,
-            num_obj_ptr_tokens=num_obj_ptr_tokens,
-        )
-        pixels_with_memory = pixels_with_memory.permute(1, 2, 0).reshape(
-            *features["backbone_fpn"][-1].shape
-        )
+    def _point_inputs_from_boxes(self, bboxes):
+        return {
+            "point_coords": bboxes.reshape(self.batch_size, 2, 2),
+            "point_labels": torch.tensor([[2, 3]], dtype=torch.int32, device=bboxes.device).expand(self.batch_size, -1),
+        }
+
+    def _decode(self, features, point_inputs, is_init_cond_frame):
+        current_feats = [feature.flatten(2).permute(2, 0, 1) for feature in features["backbone_fpn"]]
+        current_pos = [feature.flatten(2).permute(2, 0, 1) for feature in features["vision_pos_enc"]]
+        feat_sizes = [feature.shape[-2:] for feature in features["backbone_fpn"]]
+        if is_init_cond_frame:
+            # Use the native no-memory path rather than bypassing it with the
+            # image embedding. This is the same call made by track_step().
+            pixels_with_memory = self.model._prepare_memory_conditioned_features(
+                frame_idx=0,
+                is_init_cond_frame=True,
+                current_vision_feats=current_feats[-1:],
+                current_vision_pos_embeds=current_pos[-1:],
+                feat_sizes=feat_sizes[-1:],
+                output_dict={},
+                num_frames=self.num_frames,
+            )
+        else:
+            memory, memory_pos, num_obj_ptr_tokens = self._prepare_memory()
+            fused = self.model.memory_attention(
+                curr=current_feats[-1:], curr_pos=current_pos[-1:], memory=memory,
+                memory_pos=memory_pos, num_obj_ptr_tokens=num_obj_ptr_tokens,
+            )
+            pixels_with_memory = fused.permute(1, 2, 0).reshape_as(features["backbone_fpn"][-1])
         (
-            _,
-            _,
-            iou_predictions,
-            low_res_masks,
-            _,
-            object_pointer,
-            object_score_logits,
+            _, _, iou_predictions, low_res_masks, high_res_masks, object_pointer, object_score_logits
         ) = self.model._forward_sam_heads(
             backbone_features=pixels_with_memory,
-            point_inputs=None,
+            point_inputs=point_inputs,
             mask_inputs=None,
             high_res_features=features["high_res_feats"],
-            multimask_output=False,
+            multimask_output=self.model._use_multimask(is_init_cond_frame, point_inputs),
         )
-        self.obj_ptrs.append(object_pointer)
-        self._last_predicted_iou = iou_predictions[:, -1]
         predicted_mask, predicted_logits = self._postprocess_masks(low_res_masks)
-        return predicted_mask, predicted_logits, self._last_predicted_iou, object_score_logits
+        predicted_iou = iou_predictions.max(dim=-1, keepdim=True).values
+        self.obj_ptrs.append(object_pointer)
+        self._last_prediction = {
+            "mask_logits": predicted_logits,
+            "high_res_masks": high_res_masks,
+            "predicted_iou": predicted_iou,
+            "object_pointer": object_pointer,
+            "object_score_logits": object_score_logits,
+        }
+        return predicted_mask, predicted_logits, predicted_iou, object_score_logits
 
-    def forward(self, videos, bboxes, labels=None):
+    def forward(self, videos, bboxes, labels=None, video_num_frames=None):
         if labels is not None:
-            raise ValueError("RGM training must use predicted masks for memory updates; pass labels=None.")
-        self._last_predicted_iou = None
-        return super().forward(videos, bboxes, labels=None)
+            raise ValueError("RGM updates use predicted masks; pass labels=None.")
+        self.init_state()
+        batch_size, num_frames, channels, height, width = videos.shape
+        self.batch_size = batch_size
+        self.num_frames = num_frames
+        self.video_num_frames = num_frames if video_num_frames is None else int(video_num_frames)
+        if self.video_num_frames < num_frames:
+            raise ValueError("video_num_frames cannot be smaller than the clip length.")
+        self._orig_hw = [height, width]
+        all_features = self.model.forward_image(videos.reshape(batch_size * num_frames, channels, height, width))
+        frame_features = {
+            key: value.reshape(batch_size, num_frames, *value.shape[1:])
+            if not isinstance(value, list)
+            else [item.reshape(batch_size, num_frames, *item.shape[1:]) for item in value]
+            for key, value in all_features.items()
+        }
+        frames = self.preprocess_frame_features(frame_features, batch_size, num_frames)
+        first_masks, first_logits, first_ious, first_scores = self._decode(
+            frames[0], self._point_inputs_from_boxes(bboxes), True
+        )
+        self._initialize_memory(frames[0], first_masks, first_scores)
+        all_masks, all_logits, all_ious = [first_masks], [first_logits], [first_ious]
+        for frame_idx in range(1, num_frames):
+            self.current_frame_idx = frame_idx
+            masks, logits, ious, scores = self._decode(frames[frame_idx], None, False)
+            all_masks.append(masks)
+            all_logits.append(logits)
+            all_ious.append(ious)
+            # Inference encodes every frame. Do the same to verify the full trajectory.
+            self._update_memory(frames[frame_idx], masks, object_score_logits=scores)
+        return all_masks, all_logits, all_ious
 
 
-def freeze_except_rgm(trainer: ReliabilityGatedMemoryTrainer):
-    """Freeze MedSAM2 and leave only the recurrent fusion module trainable."""
+def freeze_except_rgm(trainer: ReliabilityGatedMemoryTrainer, stage: str = "joint"):
+    """Freeze MedSAM2; optionally train only the reliability gate first."""
+    if stage not in {"gate", "joint"}:
+        raise ValueError("stage must be 'gate' or 'joint'.")
     for parameter in trainer.model.parameters():
         parameter.requires_grad = False
-    for parameter in trainer.state_fusion.parameters():
+    for parameter in trainer.state_fusion.reliability_gate.parameters():
         parameter.requires_grad = True
-    return trainer.state_fusion
+    for parameter in trainer.state_fusion.temporal_compression.parameters():
+        parameter.requires_grad = stage == "joint"
 
 
-def rgm_optimizer(trainer: ReliabilityGatedMemoryTrainer, lr=1e-4, weight_decay=1e-4):
-    fusion = freeze_except_rgm(trainer)
-    return torch.optim.AdamW(fusion.parameters(), lr=lr, weight_decay=weight_decay)
+def rgm_optimizer(
+    trainer: ReliabilityGatedMemoryTrainer,
+    gate_lr: float = 1e-4,
+    fusion_lr: float = 1e-5,
+    weight_decay: float = 1e-4,
+    stage: str = "joint",
+):
+    """Build the staged optimizer used by the RGM curriculum."""
+    freeze_except_rgm(trainer, stage=stage)
+    groups = [{"params": trainer.state_fusion.reliability_gate.parameters(), "lr": gate_lr}]
+    if stage == "joint":
+        groups.append({"params": trainer.state_fusion.temporal_compression.parameters(), "lr": fusion_lr})
+    return torch.optim.AdamW(groups, weight_decay=weight_decay)

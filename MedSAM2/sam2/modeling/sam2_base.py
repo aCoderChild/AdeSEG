@@ -59,9 +59,6 @@ class SAM2Base(torch.nn.Module):
         # For r>1, the (self.num_maskmem - 1) non-conditioning memory frames consist of
         # (self.num_maskmem - 2) nearest frames from every r-th frames, plus the last frame.
         memory_temporal_stride_for_eval=1,
-        # During inference, rank eligible non-conditioning memories by the mask
-        # decoder's predicted IoU instead of selecting the most recent frames.
-        select_memory_by_iou=False,
         # whether to apply non-overlapping constraints on the object masks in the memory encoder during evaluation (to avoid/alleviate superposing masks)
         non_overlap_masks_for_mem_enc=False,
         # whether to cross-attend to object pointers from other frames (based on SAM output tokens) in the encoder
@@ -150,7 +147,6 @@ class SAM2Base(torch.nn.Module):
         self.binarize_mask_from_pts_for_mem_enc = binarize_mask_from_pts_for_mem_enc
         self.non_overlap_masks_for_mem_enc = non_overlap_masks_for_mem_enc
         self.memory_temporal_stride_for_eval = memory_temporal_stride_for_eval
-        self.select_memory_by_iou = select_memory_by_iou
         # On frames with mask input, whether to directly output the input mask without
         # using a SAM prompt encoder + mask decoder
         self.use_mask_input_as_output_without_sam = use_mask_input_as_output_without_sam
@@ -544,95 +540,40 @@ class SAM2Base(torch.nn.Module):
                 frame_idx, cond_outputs, self.max_cond_frames_in_attn
             )
             t_pos_and_prevs = [(0, out) for out in selected_cond_outputs.values()]
-            selected_non_cond_outputs = []
-
-            # TODO: select the frames for memory bank by IoU
-            if self.select_memory_by_iou:
-                # Keep the fixed number of non-conditioning memory slots, but fill
-                # them with the highest-confidence eligible outputs. Inference
-                # stores one predicted IoU per object's selected mask ([B, 1]);
-                # the mean below only aggregates objects when B > 1.
-                candidate_outputs = {
-                    **{
-                        t: out
-                        for t, out in output_dict["non_cond_frame_outputs"].items()
-                        if (t > frame_idx if track_in_reverse else t < frame_idx)
-                    },
-                    **{
-                        t: out
-                        for t, out in unselected_cond_outputs.items()
-                        if (t > frame_idx if track_in_reverse else t < frame_idx)
-                    },
-                }
-
-                def confidence_sort_key(item): # ranking by confidence
-                    t, out = item
-                    iou_prediction = out.get("iou_predictions")
-                    score = (
-                        float(iou_prediction.detach().float().mean().cpu())
-                        if iou_prediction is not None
-                        else float("-inf")
-                    )
-                    return (-score, abs(frame_idx - t), t)
-
-                selected_non_cond_outputs = sorted(
-                    candidate_outputs.items(), key=confidence_sort_key
-                )[: self.num_maskmem - 1]
-                # Keep selected memories in temporal order and right-align them
-                # in the standard slots. During warmup the nearest selected frame
-                # still gets t_pos=num_maskmem-1, not t_pos=1.
-                selected_non_cond_outputs.sort(
-                    key=lambda item: item[0], reverse=track_in_reverse
-                )
-                t_pos_and_prevs.extend(
-                    (t_pos, out)
-                    # TODO: implementation change - correct temporal positions during warmup
-                    for t_pos, (_, out) in enumerate(
-                        selected_non_cond_outputs,
-                        start=self.num_maskmem - len(selected_non_cond_outputs),
-                    )
-                )
-
-            if not self.select_memory_by_iou:
-                # Temporary verification logging (intentionally disabled):
-                # selected_non_cond_frame_indices = []
-                # Add last (self.num_maskmem - 1) frames before current frame for non-conditioning memory
-                # the earliest one has t_pos=1 and the latest one has t_pos=self.num_maskmem-1
-                # We also allow taking the memory frame non-consecutively (with stride>1), in which case
-                # we take (self.num_maskmem - 2) frames among every stride-th frames plus the last frame.
-                stride = 1 if self.training else self.memory_temporal_stride_for_eval
-                for t_pos in range(1, self.num_maskmem):
-                    t_rel = self.num_maskmem - t_pos  # how many frames before current frame
-                    if t_rel == 1:
+            # Add last (self.num_maskmem - 1) frames before current frame for
+            # non-conditioning memory. The earliest has t_pos=1 and the latest
+            # has t_pos=self.num_maskmem-1. This is MedSAM2's native policy.
+            stride = 1 if self.training else self.memory_temporal_stride_for_eval
+            for t_pos in range(1, self.num_maskmem):
+                t_rel = self.num_maskmem - t_pos  # how many frames before current frame
+                if t_rel == 1:
                         # for t_rel == 1, we take the last frame (regardless of r)
-                        if not track_in_reverse:
+                    if not track_in_reverse:
                             # the frame immediately before this frame (i.e. frame_idx - 1)
                             prev_frame_idx = frame_idx - t_rel
-                        else:
+                    else:
                             # the frame immediately after this frame (i.e. frame_idx + 1)
                             prev_frame_idx = frame_idx + t_rel
-                    else:
+                else:
                         # for t_rel >= 2, we take the memory frame from every r-th frames
-                        if not track_in_reverse:
+                    if not track_in_reverse:
                             # first find the nearest frame among every r-th frames before this frame
                             # for r=1, this would be (frame_idx - 2)
                             prev_frame_idx = ((frame_idx - 2) // stride) * stride
                             # then seek further among every r-th frames
                             prev_frame_idx = prev_frame_idx - (t_rel - 2) * stride
-                        else:
+                    else:
                             # first find the nearest frame among every r-th frames after this frame
                             # for r=1, this would be (frame_idx + 2)
                             prev_frame_idx = -(-(frame_idx + 2) // stride) * stride
                             # then seek further among every r-th frames
                             prev_frame_idx = prev_frame_idx + (t_rel - 2) * stride
-                    out = output_dict["non_cond_frame_outputs"].get(prev_frame_idx, None)
-                    if out is None:
+                out = output_dict["non_cond_frame_outputs"].get(prev_frame_idx, None)
+                if out is None:
                         # If an unselected conditioning frame is among the last (self.num_maskmem - 1)
                         # frames, we still attend to it as if it's a non-conditioning frame.
-                        out = unselected_cond_outputs.get(prev_frame_idx, None)
-                    # if out is not None:
-                    #     selected_non_cond_frame_indices.append(prev_frame_idx)
-                    t_pos_and_prevs.append((t_pos, out))
+                    out = unselected_cond_outputs.get(prev_frame_idx, None)
+                t_pos_and_prevs.append((t_pos, out))
 
             # TODO: verify which frames in the memory bank
             # if output_dict.get("log_memory_selection", False):
