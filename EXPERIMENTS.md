@@ -1,42 +1,34 @@
 # Experiment record
 
-## Archived compact-memory ablation
+## RGM-MedSAM2 protocol
 
-The compact-memory experiments are retained as a negative result, not as the
-active method.
+RGM-MedSAM2 retains one recurrent spatial mask-memory state and MedSAM2's
+normal prompt plus recent object-pointer history. Its candidate state is
+produced by a two-frame 3-D convolution inspired by RDE-VOS. A scalar gate,
+inspired by the role of gating in LiVOS, receives decoder-predicted IoU and
+global summaries of the preceding state, candidate state, and their absolute
+difference. Ground-truth IoU is never supplied to the gate.
 
-| Method | Sequence-macro Dice | Sequence-macro IoU |
-|---|---:|---:|
-| Native MedSAM2 | 0.7753 | 0.7134 |
-| Fixed EMA, alpha=0.1 | 0.1543 | 0.1532 |
-| Adaptive projection | 0.1498 | 0.1486 |
-| Gate-only curriculum | 0.1518 | 0.1509 |
+Training freezes MedSAM2, updates state from predicted masks, and uses Dice+BCE
+only on future-frame masks.
 
-All rows used the same seq16--19 prompt records and MedSAM2 checkpoint. The
-gate-only implementation was verified to reproduce fixed EMA alpha=0.1 exactly
-before training. Its validation result did not exceed fixed EMA.
+## CPU smoke result
 
-The compact state retained 0.5 MiB of spatial-state tensors in the seq16 smoke
-run. This measures retained spatial state only; it is not a total peak-memory
-claim.
+All rows use CPU, seed 0, identical seq16--19 YOLO prompt records, and the
+same MedSAM2 checkpoint.
 
-## Active next diagnostic
+| Method | Sequence-macro Dice | Sequence-macro IoU | Temporal IoU |
+|---|---:|---:|---:|
+| Native MedSAM2 | 0.7655 | 0.7048 | 0.6019 |
+| RGM initialization | 0.7815 | 0.7177 | 0.6294 |
+| RGM after tiny seq2/3 training (100 steps) | 0.6310 | 0.5310 | 0.7204 |
 
-For each adenoid frame with predicted and ground-truth adenoid/airway masks:
+At initialization, the compressor returns the candidate and the gate is 0.1,
+so the update is exactly EMA alpha=0.1. Retained spatial state is 524,288 bytes
+(0.5 MiB) per evaluated sequence. The tiny run has nonzero fusion gradients,
+changed fusion parameters, and no MedSAM2 parameter gradients, but its
+validation drop means it is not evidence for an effective learned gate.
 
-1. score regional Dice and IoU;
-2. compute the protocol-defined obstruction ratio for both masks;
-3. inspect whether ratio error remains high when regional Dice is acceptable;
-4. aggregate valid, clinically stable frame measurements only after the
-   protocol defines that criterion.
-
-Only if this diagnostic identifies a genuine mismatch should a
-measurement-aware training objective be introduced.
-
-## Next temporal direction
-
-The next candidate is not another EMA variant. It is a bounded-memory study
-motivated by LiVOS, RDE-VOS, XMem, and PNS+. See
-[`docs/constant_memory_direction.md`](docs/constant_memory_direction.md) for
-the verified equations, source repositories, and the MedSAM2 integration
-boundary.
+The next valid experiment is full training on seq2--15 with validation fixed at
+seq16--19. The learned RGM checkpoint must improve over its fixed-EMA
+initialization before any learned-fusion claim is made.

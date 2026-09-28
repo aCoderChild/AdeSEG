@@ -45,17 +45,20 @@ baselines for nasopharyngoscopy. The contribution is the controlled comparison
 on segmentation and downstream measurement, rather than a claim to a new
 memory mechanism.
 
-A literature-backed candidate is documented in
-[`docs/constant_memory_direction.md`](docs/constant_memory_direction.md).
-It separates anchor/recent references from a recurrent key-value history, but
-it is not yet integrated into MedSAM2 because LiVOS readout and MedSAM2 memory
-attention have incompatible interfaces.
+A literature-backed recurrent-memory experiment is implemented in
+[`modeling/rgm_memory.py`](modeling/rgm_memory.py). It retains one MedSAM2
+spatial mask-memory state while preserving MedSAM2's normal prompt and recent
+object-pointer history. Its two-frame temporal convolution is inspired by
+RDE-VOS, but it is an adaptation to MedSAM2 rather than an RDE-VOS port. It is
+not an active method until controlled training improves over fixed EMA.
+
+The active temporal comparison is native MedSAM2 versus RGM-MedSAM2.
 
 ## Repository layout
 
 - `adenoid/`: target-task ratio measurement and grade conversion helpers.
 - `datasets/`: common sample interface and adapters for PolypGen and REFUGE2.
-- `modeling/`: MedSAM2 construction plus archived compact-memory ablation code.
+- `modeling/`: MedSAM2 construction, native-pointer preparation, and RGM.
 - `inference/`: image and video inference utilities.
 - `evaluation/`: segmentation, temporal, ratio, and two-region measurement metrics.
 - `scripts/`: runnable proxy-dataset scripts.
@@ -75,16 +78,20 @@ REFUGE2 verifies static two-region segmentation and structural measurement. The
 oracle protocol uses GT-derived disc and cup boxes, so it is not comparable to
 fully automatic challenge systems.
 
-## Archived compact-memory ablation
+## Reliability-gated recurrent-memory experiment
 
-The single-state EMA, learned projection, and gate-only variants are retained
-for reproducibility but are not active methods. They reduced retained spatial
-state storage to 0.5 MiB, but suffered severe immediate validation degradation
-against native MedSAM2. This is a negative finding: simple recurrent averaging
-does not preserve the information used by MedSAM2's multi-frame memory.
+`modeling/rgm_memory.py` and `training/rgm_trainer.py` implement the current
+RGM experiment. It replaces only spatial mask memories with a recurrent state;
+the anchor and MedSAM2's normal recent object-pointer history remain available
+to memory attention. `scripts/train_rgm.py` freezes MedSAM2, encodes state
+updates from predicted masks, and applies Dice+BCE only to future predictions.
+The gate receives decoder-predicted IoU plus pooled summaries of the prior
+state, candidate, and their absolute difference. It is never trained against
+ground-truth IoU.
 
-`scripts/infer.py` therefore defaults to `--memory_backend native`. The
-compact-memory backends remain available only for reproducing the ablation.
+The initial update is fixed EMA alpha=0.1 by construction. The current
+CPU-controlled seq16--19 result is a prototype diagnostic; it must be improved
+by full train/validation before RGM can be described as a contribution.
 
 ## Current implementation boundary
 

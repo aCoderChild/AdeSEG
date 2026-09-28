@@ -1,4 +1,4 @@
-"""Small project-specific losses used by adaptive-memory training."""
+"""Project-specific segmentation losses used by RGM training."""
 
 import torch
 import torch.nn.functional as F

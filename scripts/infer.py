@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PolypGen MedSAM2 VOS with native and bounded-memory baselines."""
+"""PolypGen MedSAM2 VOS with native and RGM-MedSAM2 memory."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
+import numpy as np
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -33,8 +34,7 @@ from datasets.polypgen import (
 
 
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
-MEMORY_BACKENDS = ("native", "bounded", "fixed_ema", "adaptive")
-COMPACT_ABLATION_BACKENDS = {"fixed_ema", "adaptive"}
+MEMORY_BACKENDS = ("native", "rgm")
 
 
 def load_config(config_path: Path) -> dict[str, object]:
@@ -73,10 +73,15 @@ def tensor_bytes(value) -> int:
     return 0
 
 
+def predicted_iou_value(output) -> float | None:
+    prediction = output.get("iou_predictions")
+    return None if prediction is None else float(prediction.detach().float().mean().cpu())
+
+
 def stored_spatial_memory_bytes(inference_state, memory_backend: str) -> int:
     output_dict = inference_state["output_dict"]
-    if memory_backend in COMPACT_ABLATION_BACKENDS:
-        state = output_dict.get("compact_state")
+    if memory_backend == "rgm":
+        state = output_dict.get("rgm_state")
         return 0 if state is None else tensor_bytes(state.features) + tensor_bytes(state.position)
     total = 0
     for output_type in ("cond_frame_outputs", "non_cond_frame_outputs"):
@@ -96,7 +101,7 @@ def vos_inference(
     yolo_imgsz=640,
     yolo_conf=0.5,
     video_prompt_stride=1,
-    memory_backend="adaptive",
+    memory_backend="native",
     prompt_records=None,
 ):
     started = time.perf_counter()
@@ -115,7 +120,6 @@ def vos_inference(
     width = inference_state["video_width"]
     diagnostic_rows = []
     prompt_frame_idx, prompt_box, prompt_confidence = None, None, None
-
     saved_prompt = (prompt_records or {}).get(video_name)
     if saved_prompt is not None:
         prompt_frame_idx = int(saved_prompt["frame_idx"])
@@ -154,10 +158,10 @@ def vos_inference(
         f"{video_output_name}: adding YOLO box prompt on frame {prompt_frame_idx} "
         f"({frame_names[prompt_frame_idx]}), confidence={prompt_confidence:.4f}"
     )
-    if memory_backend in COMPACT_ABLATION_BACKENDS:
+    if memory_backend == "rgm":
         inference_state.update({
-            "compact_state_enabled": True,
-            "compact_state_anchor_frame_idx": prompt_frame_idx,
+            "rgm_enabled": True,
+            "rgm_anchor_frame_idx": prompt_frame_idx,
         })
     predictor.add_new_points_or_box(
         inference_state=inference_state,
@@ -176,11 +180,12 @@ def vos_inference(
     for frame_idx, _, mask_logits in predictor.propagate_in_video(
         inference_state, start_frame_idx=prompt_frame_idx, reverse=False
     ):
+        prediction_mask = (mask_logits[0, 0] > 0).cpu().numpy()
         save_masks_to_dir(
             output_mask_dir,
             video_output_name,
             frame_names[frame_idx],
-            {1: (mask_logits[0, 0] > 0).cpu().numpy()},
+            {1: prediction_mask},
             height,
             width,
             False,
@@ -194,7 +199,8 @@ def vos_inference(
                 "status": "prompt" if frame_idx == prompt_frame_idx else "propagated",
                 "prompt_confidence": prompt_confidence if frame_idx == prompt_frame_idx else "",
                 "prompt_box": json.dumps(prompt_box.tolist()) if frame_idx == prompt_frame_idx else "",
-                **output.get("compact_state_trace", {}),
+                "predicted_iou": predicted_iou_value(output),
+                **output.get("rgm_trace", {}),
             }
         )
     save_diagnostics(output_mask_dir, video_output_name, diagnostic_rows)
@@ -221,7 +227,7 @@ def parse_args():
     config_paths, _ = config_parser.parse_known_args()
     config = load_config(config_paths.config)
     parser = argparse.ArgumentParser(
-        description="PolypGen MedSAM2 VOS with native or recurrent dynamic memory.",
+        description="PolypGen MedSAM2 VOS with native or RGM recurrent memory.",
         parents=[config_parser],
     )
     parser.add_argument("--sam2_cfg", default=config["sam2_cfg"])
@@ -234,38 +240,21 @@ def parse_args():
     parser.add_argument("--yolo_conf", type=float, default=config["yolo_conf"])
     parser.add_argument("--yolo_imgsz", type=int, default=config["yolo_imgsz"])
     parser.add_argument("--video_prompt_stride", type=int, default=config["video_prompt_stride"])
+    parser.add_argument("--seed", type=int, default=0, help="Torch seed recorded for reproducible inference.")
     parser.add_argument(
         "--memory_backend",
         choices=MEMORY_BACKENDS,
         default="native",
         help=(
-            "native is the MedSAM2 baseline; bounded retains native anchor plus a "
-            "fixed number of native entries. fixed_ema and adaptive are archived ablations."
+            "native is the MedSAM2 baseline; rgm is the reliability-gated "
+            "recurrent-memory experiment."
         ),
     )
     parser.add_argument(
-        "--bounded_memory_policy",
-        choices=["recent", "confidence"],
-        default="recent",
-        help="Native-entry policy used only by --memory_backend bounded.",
-    )
-    parser.add_argument(
-        "--bounded_memory_size",
-        type=int,
-        default=1,
-        help="Number of non-conditioning native entries retained by bounded memory.",
-    )
-    parser.add_argument(
-        "--fixed_ema_alpha",
-        type=float,
-        default=0.1,
-        help="Fixed update weight used only by --memory_backend fixed_ema.",
-    )
-    parser.add_argument(
-        "--fusion_checkpoint",
+        "--rgm_checkpoint",
         type=Path,
         default=None,
-        help="Trained AdaptiveStateFusion weights; required for adaptive inference.",
+        help="ReliabilityGatedFusion checkpoint produced by scripts/train_rgm.py.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
     return parser.parse_args(), config
@@ -273,56 +262,38 @@ def parse_args():
 
 def main():
     args, config = parse_args()
+    torch.manual_seed(args.seed)
     if args.video_prompt_stride < 1:
         raise ValueError("--video_prompt_stride must be at least 1")
-    if args.memory_backend == "fixed_ema" and not 0.0 <= args.fixed_ema_alpha <= 1.0:
-        raise ValueError("--fixed_ema_alpha must be in [0, 1].")
-    if args.memory_backend == "adaptive" and args.fusion_checkpoint is None:
-        raise ValueError("--fusion_checkpoint is required for adaptive inference.")
-    if args.memory_backend == "bounded" and args.bounded_memory_size < 1:
-        raise ValueError("--bounded_memory_size must be at least 1.")
+    if args.memory_backend == "rgm" and args.rgm_checkpoint is None:
+        raise ValueError("--rgm_checkpoint is required for RGM inference.")
 
-    if args.memory_backend == "bounded":
-        predictor_target = "modeling.bounded_memory.BoundedMemoryVideoPredictor"
-    elif args.memory_backend in COMPACT_ABLATION_BACKENDS:
-        predictor_target = config.get("predictor_target")
-        if predictor_target is None:
-            raise ValueError(
-                "Archived compact-memory modes require "
-                "--config configs/polypgen_compact_ablation.yaml."
-            )
+    if args.memory_backend == "rgm":
+        predictor_target = "modeling.rgm_memory.ReliabilityGatedMemoryVideoPredictor"
     else:
         predictor_target = None
-    state_update_mode = "adaptive" if args.memory_backend == "adaptive" else "fixed_ema"
-    predictor_overrides = {}
-    if args.memory_backend == "bounded":
-        predictor_overrides = {
-            "bounded_memory_policy": args.bounded_memory_policy,
-            "bounded_memory_size": args.bounded_memory_size,
-        }
-    elif args.memory_backend in COMPACT_ABLATION_BACKENDS:
-        predictor_overrides = {
-            "state_update_mode": state_update_mode,
-            "fixed_ema_alpha": args.fixed_ema_alpha,
-        }
     predictor = build_video_predictor(
         args.sam2_cfg,
         args.sam2_checkpoint,
         args.device,
         predictor_target=predictor_target,
-        predictor_overrides=predictor_overrides,
+        predictor_overrides=None,
     )
-    if args.memory_backend == "adaptive":
-        from modeling.fusion import AdaptiveStateFusion
+    if args.memory_backend == "rgm":
+        from modeling.rgm_memory import ReliabilityGatedFusion
 
-        if not args.fusion_checkpoint.is_file():
-            raise FileNotFoundError(f"Missing fusion checkpoint: {args.fusion_checkpoint}")
+        if not args.rgm_checkpoint.is_file():
+            raise FileNotFoundError(f"Missing RGM checkpoint: {args.rgm_checkpoint}")
         try:
-            fusion_state = torch.load(args.fusion_checkpoint, map_location=args.device, weights_only=True)
+            checkpoint = torch.load(args.rgm_checkpoint, map_location=args.device, weights_only=True)
         except TypeError:
-            fusion_state = torch.load(args.fusion_checkpoint, map_location=args.device)
-        predictor.state_fusion = AdaptiveStateFusion(predictor.mem_dim).to(args.device)
-        predictor.state_fusion.load_state_dict(fusion_state)
+            checkpoint = torch.load(args.rgm_checkpoint, map_location=args.device)
+        if checkpoint.get("format") != "adseg_rgm_rde_livos_v1":
+            raise ValueError("RGM checkpoint has an unrecognized format.")
+        if checkpoint.get("feature_channels") != predictor.mem_dim:
+            raise ValueError("RGM checkpoint feature width does not match this MedSAM2 model.")
+        predictor.state_fusion = ReliabilityGatedFusion(predictor.mem_dim).to(args.device)
+        predictor.state_fusion.load_state_dict(checkpoint["state_dict"])
         predictor.state_fusion.eval()
     yolo_model = load_yolo_model(args.yolo_checkpoint)
     videos = select_video_names(args.base_video_dir, args.seq_nums)
@@ -360,14 +331,8 @@ def main():
         "created_at": datetime.now(timezone.utc).isoformat(),
         "config": str(args.config),
         "memory_backend": args.memory_backend,
-        "bounded_memory_policy": (
-            args.bounded_memory_policy if args.memory_backend == "bounded" else None
-        ),
-        "bounded_memory_size": (
-            args.bounded_memory_size if args.memory_backend == "bounded" else None
-        ),
-        "fixed_ema_alpha": args.fixed_ema_alpha if args.memory_backend == "fixed_ema" else None,
-        "fusion_checkpoint": str(args.fusion_checkpoint) if args.fusion_checkpoint else None,
+        "seed": args.seed,
+        "rgm_checkpoint": str(args.rgm_checkpoint) if args.rgm_checkpoint else None,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
         "yolo_checkpoint": str(args.yolo_checkpoint),
@@ -377,8 +342,8 @@ def main():
         manifest["sam2_checkpoint_sha256"] = hashlib.sha256(args.sam2_checkpoint.read_bytes()).hexdigest()
     except OSError:
         manifest["sam2_checkpoint_sha256"] = None
-    if args.fusion_checkpoint:
-        manifest["fusion_checkpoint_sha256"] = hashlib.sha256(args.fusion_checkpoint.read_bytes()).hexdigest()
+    if args.rgm_checkpoint:
+        manifest["rgm_checkpoint_sha256"] = hashlib.sha256(args.rgm_checkpoint.read_bytes()).hexdigest()
     (args.output_mask_dir / "run_manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )

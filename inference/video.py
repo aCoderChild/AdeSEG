@@ -206,7 +206,6 @@ def vos_inference(
     yolo_conf=0.5,
     yolo_iou_match_thresh=0.3,
     max_yolo_boxes_per_frame=1,  # limit how many
-    # log_memory_selection=False,
 ):
     """Run MedSAM2 VOS from the first available box prompt."""
     video_dir = get_video_frame_dir(base_video_dir, video_name)
@@ -217,7 +216,6 @@ def vos_inference(
         raise RuntimeError(f"In {video_output_name=}, found no image frames in {video_dir=}")
 
     inference_state = predictor.init_state(video_path=video_dir, async_loading_frames=False)
-    # inference_state["output_dict"]["log_memory_selection"] = log_memory_selection
     height = inference_state["video_height"]
     width = inference_state["video_width"]
     previous_boxes = {}
@@ -305,7 +303,6 @@ def vos_separate_inference_per_object(
     output_mask_dir,
     video_name,
     score_thresh=0.0,
-    # log_memory_selection=False,
 ):
     """Run anchor-mask VOS separately for objects appearing in later frames."""
     video_dir = get_video_frame_dir(base_video_dir, video_name)
@@ -315,7 +312,6 @@ def vos_separate_inference_per_object(
         raise RuntimeError(f"In {video_output_name=}, found no image frames in {video_dir=}")
 
     inference_state = predictor.init_state(video_path=video_dir, async_loading_frames=False)
-    # inference_state["output_dict"]["log_memory_selection"] = log_memory_selection
     height = inference_state["video_height"]
     width = inference_state["video_width"]
 
