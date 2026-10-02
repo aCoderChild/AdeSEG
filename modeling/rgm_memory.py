@@ -1,11 +1,11 @@
 """Recurrent fusion memory for MedSAM2 experiments.
 
-The predictor keeps one spatial mask-memory state.  It deliberately leaves
+The predictor keeps one spatial mask-memory state. It deliberately leaves
 MedSAM2 object-pointer selection unchanged: the prompt-frame pointer and the
 native recent-pointer history are still supplied to memory attention.
 
 The temporal compression primitive follows the two-frame ``Conv3d`` pattern
-used by RDE-VOS' public ``MemCrompress`` implementation.  It is an adaptation
+used by RDE-VOS' public ``MemCrompress`` implementation. It is an adaptation
 to MedSAM2 mask-memory features, not an RDE-VOS implementation.
 """
 
@@ -24,11 +24,14 @@ def _logit(probability: float) -> float:
 
 
 class ReliabilityGatedFusion(nn.Module):
-    """Learn a two-frame spatial fusion, with an optional update-gate ablation.
+    """Gate current-frame evidence before one recurrent Conv3D fusion.
 
-    The Conv3D compressor is the main trainable component. The scalar gate can
-    be fixed or learned from decoder-predicted IoU and pooled state features;
-    it never receives ground-truth IoU.
+    The scalar gate estimates how much of the current candidate memory should
+    enter the recurrent fusion. Conv3D then performs the only old/new spatial
+    state fusion. There is no second interpolation with the previous state.
+
+    The gate can be fixed or learned from decoder-predicted IoU and pooled
+    state features; it never receives ground-truth IoU.
     """
 
     def __init__(
@@ -47,6 +50,7 @@ class ReliabilityGatedFusion(nn.Module):
         self.initial_gate = initial_gate
         self.fixed_gate = fixed_gate
         self.last_gate: torch.Tensor | None = None
+
         # RDE-VOS MemCrompress uses a two-frame Conv3d with this kernel.
         self.temporal_compression = nn.Conv3d(
             feature_channels,
@@ -55,28 +59,40 @@ class ReliabilityGatedFusion(nn.Module):
             padding=(0, 1, 1),
             bias=True,
         )
-        self._initialize_candidate_identity()
+        self._initialize_recurrent_fusion()
+
         hidden = gate_hidden_channels or max(32, feature_channels // 4)
         self.reliability_gate = nn.Sequential(
             nn.Linear(1 + feature_channels * 3, hidden),
             nn.GELU(),
             nn.Linear(hidden, 1),
         )
-        # The initial model is exactly EMA(initial_gate), because compression
-        # initially returns the unmodified candidate.
         nn.init.zeros_(self.reliability_gate[-1].weight)
         nn.init.constant_(self.reliability_gate[-1].bias, _logit(initial_gate))
 
-    def _initialize_candidate_identity(self) -> None:
-        """Make the temporal compressor return candidate state at step zero."""
-        assert self.temporal_compression is not None
+    def _initialize_recurrent_fusion(self) -> None:
+        """Start from EMA-like behavior while keeping fusion inside Conv3D.
+
+        The gate is initialized to ``initial_gate`` and scales only the current
+        candidate. The Conv3D center weights start as
+
+            (1 - initial_gate) * previous + 1 * gated_candidate
+
+        so the complete initial update is exactly
+
+            (1 - initial_gate) * previous + initial_gate * candidate.
+        """
         with torch.no_grad():
             self.temporal_compression.weight.zero_()
             self.temporal_compression.bias.zero_()
             center = self.temporal_compression.kernel_size[1] // 2
             for channel in range(self.feature_channels):
-                # Temporal index 1 is the second input: the current candidate.
-                self.temporal_compression.weight[channel, channel, 1, center, center] = 1.0
+                self.temporal_compression.weight[
+                    channel, channel, 0, center, center
+                ] = 1.0 - self.initial_gate
+                self.temporal_compression.weight[
+                    channel, channel, 1, center, center
+                ] = 1.0
 
     @staticmethod
     def _normalize_predicted_iou(predicted_iou: torch.Tensor, batch_size: int) -> torch.Tensor:
@@ -86,11 +102,16 @@ class ReliabilityGatedFusion(nn.Module):
             raise ValueError("predicted_iou must be [B] or [B, 1].")
         return predicted_iou
 
-    def _candidate_state(self, previous: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
-        temporal_pair = torch.stack((previous, candidate), dim=2)
+    def _fuse_state(self, previous: torch.Tensor, gated_candidate: torch.Tensor) -> torch.Tensor:
+        temporal_pair = torch.stack((previous, gated_candidate), dim=2)
         return self.temporal_compression(temporal_pair).squeeze(2)
 
-    def _gate(self, previous: torch.Tensor, candidate: torch.Tensor, predicted_iou: torch.Tensor) -> torch.Tensor:
+    def _gate(
+        self,
+        previous: torch.Tensor,
+        candidate: torch.Tensor,
+        predicted_iou: torch.Tensor,
+    ) -> torch.Tensor:
         if self.fixed_gate is not None:
             return previous.new_full((previous.size(0), 1), self.fixed_gate)
         pooled_previous = previous.mean(dim=(-2, -1))
@@ -111,10 +132,10 @@ class ReliabilityGatedFusion(nn.Module):
     ) -> torch.Tensor:
         if previous.ndim != 4 or previous.shape != candidate.shape:
             raise ValueError("previous and candidate must be matching [B, C, H, W] tensors.")
-        candidate_state = self._candidate_state(previous, candidate)
         gate = self._gate(previous, candidate, predicted_iou)
         self.last_gate = gate.detach()
-        return (1.0 - gate[:, :, None, None]) * previous + gate[:, :, None, None] * candidate_state
+        gated_candidate = candidate * gate[:, :, None, None]
+        return self._fuse_state(previous, gated_candidate)
 
 
 class _RGMSpatialState:
