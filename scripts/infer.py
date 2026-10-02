@@ -35,6 +35,7 @@ from datasets.polypgen import (
 
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
 MEMORY_BACKENDS = ("native", "rgm")
+RGM_CHECKPOINT_FORMAT = "adseg_rgm_candidate_gate_v2"
 
 
 def load_config(config_path: Path) -> dict[str, object]:
@@ -289,13 +290,18 @@ def main():
             checkpoint = torch.load(args.rgm_checkpoint, map_location=args.device, weights_only=True)
         except TypeError:
             checkpoint = torch.load(args.rgm_checkpoint, map_location=args.device)
-        if checkpoint.get("format") != "adseg_rgm_rde_livos_v1":
-            raise ValueError("RGM checkpoint has an unrecognized format.")
+        if checkpoint.get("format") != RGM_CHECKPOINT_FORMAT:
+            raise ValueError(
+                "RGM checkpoint uses an incompatible recurrent-fusion architecture. "
+                "Retrain with the candidate-gated v2 implementation."
+            )
         if checkpoint.get("feature_channels") != predictor.mem_dim:
             raise ValueError("RGM checkpoint feature width does not match this MedSAM2 model.")
         fusion_config = checkpoint.get("fusion_config", {})
         if not isinstance(fusion_config, dict):
             raise ValueError("RGM checkpoint has an invalid fusion configuration.")
+        if fusion_config.get("gate_position") != "candidate_before_fusion":
+            raise ValueError("RGM checkpoint has an incompatible gate position.")
         predictor.state_fusion = ReliabilityGatedFusion(
             predictor.mem_dim,
             initial_gate=float(fusion_config.get("initial_gate", 0.1)),
