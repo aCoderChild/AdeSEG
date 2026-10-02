@@ -50,6 +50,9 @@ class ReliabilityGatedFusion(nn.Module):
         self.initial_gate = initial_gate
         self.fixed_gate = fixed_gate
         self.last_gate: torch.Tensor | None = None
+        # Persistent version marker makes legacy post-fusion-gate checkpoints
+        # fail loudly instead of being loaded with different semantics.
+        self.register_buffer("candidate_gate_version", torch.tensor(2, dtype=torch.int8))
 
         # RDE-VOS MemCrompress uses a two-frame Conv3d with this kernel.
         self.temporal_compression = nn.Conv3d(
