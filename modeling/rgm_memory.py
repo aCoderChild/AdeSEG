@@ -1,8 +1,4 @@
-"""Recurrent fusion memory for MedSAM2 experiments.
-
-The predictor keeps one spatial mask-memory state. It deliberately leaves
-MedSAM2 object-pointer selection unchanged: the prompt-frame pointer and the
-native recent-pointer history are still supplied to memory attention.
+"""Recurrent fusion memory.
 
 The temporal compression primitive follows the two-frame ``Conv3d`` pattern
 used by RDE-VOS' public ``MemCrompress`` implementation. It is an adaptation
@@ -25,10 +21,6 @@ def _logit(probability: float) -> float:
 
 class ReliabilityGatedFusion(nn.Module):
     """Gate current-frame evidence before one recurrent Conv3D fusion.
-
-    The scalar gate estimates how much of the current candidate memory should
-    enter the recurrent fusion. Conv3D then performs the only old/new spatial
-    state fusion. There is no second interpolation with the previous state.
 
     The gate can be fixed or learned from decoder-predicted IoU and pooled
     state features; it never receives ground-truth IoU.
