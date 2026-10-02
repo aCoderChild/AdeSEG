@@ -1,141 +1,129 @@
-"""Recurrent fusion memory.
-
-The temporal compression primitive follows the two-frame ``Conv3d`` pattern
-used by RDE-VOS' public ``MemCrompress`` implementation. It is an adaptation
-to MedSAM2 mask-memory features, not an RDE-VOS implementation.
-"""
+"""Recurrent MedSAM2 memory with LiVOS gating and RDE-VOS fusion."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from modeling.native_pointers import append_native_object_pointers
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
 
-def _logit(probability: float) -> float:
-    value = torch.tensor(probability, dtype=torch.float32)
-    return float(torch.logit(value).item())
-
-
-class ReliabilityGatedFusion(nn.Module):
-    """Gate current-frame evidence before one recurrent Conv3D fusion.
-
-    The gate can be fixed or learned from decoder-predicted IoU and pooled
-    state features; it never receives ground-truth IoU.
-    """
-
+class LiVOSGate(nn.Module):
     def __init__(
         self,
-        feature_channels: int,
-        gate_hidden_channels: int | None = None,
-        initial_gate: float = 0.1,
+        image_channels: int,
+        state_channels: int,
         fixed_gate: float | None = None,
     ):
         super().__init__()
-        if not 0.0 < initial_gate < 1.0:
-            raise ValueError("initial_gate must be in (0, 1).")
-        if fixed_gate is not None and not 0.0 < fixed_gate < 1.0:
-            raise ValueError("fixed_gate must be in (0, 1) when provided.")
-        self.feature_channels = feature_channels
-        self.initial_gate = initial_gate
+        if fixed_gate is not None and not 0.0 <= fixed_gate <= 1.0:
+            raise ValueError("fixed_gate must be in [0, 1].")
+        self.state_channels = state_channels
         self.fixed_gate = fixed_gate
-        self.last_gate: torch.Tensor | None = None
-        # Persistent version marker makes legacy post-fusion-gate checkpoints
-        # fail loudly instead of being loaded with different semantics.
-        self.register_buffer("candidate_gate_version", torch.tensor(2, dtype=torch.int8))
+        self.layer = nn.Conv2d(image_channels, state_channels, kernel_size=1)
 
-        # RDE-VOS MemCrompress uses a two-frame Conv3d with this kernel.
-        self.temporal_compression = nn.Conv3d(
-            feature_channels,
-            feature_channels,
+    def forward(self, image_feature: torch.Tensor) -> torch.Tensor:
+        if image_feature.ndim != 4:
+            raise ValueError("image_feature must be [B, C, H, W].")
+        if self.fixed_gate is not None:
+            return image_feature.new_full(
+                (image_feature.size(0), self.state_channels), self.fixed_gate
+            )
+        return torch.sigmoid(self.layer(image_feature)).mean(dim=(-2, -1))
+
+
+class _NonLocal3D(nn.Module):
+    def __init__(self, channels: int):
+        super().__init__()
+        hidden = max(1, channels // 2)
+        pool = nn.MaxPool3d(kernel_size=(1, 2, 2))
+        self.g = nn.Sequential(nn.Conv3d(channels, hidden, 1), pool)
+        self.theta = nn.Conv3d(channels, hidden, 1)
+        self.phi = nn.Sequential(nn.Conv3d(channels, hidden, 1), nn.MaxPool3d((1, 2, 2)))
+        self.out = nn.Conv3d(hidden, channels, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch = x.size(0)
+        g = self.g(x).flatten(2).transpose(1, 2)
+        theta = self.theta(x).flatten(2).transpose(1, 2)
+        phi = self.phi(x).flatten(2)
+        affinity = torch.matmul(theta, phi) / phi.size(-1)
+        y = torch.matmul(affinity, g).transpose(1, 2).contiguous()
+        y = y.view(batch, -1, *x.shape[2:])
+        return self.out(y) + x
+
+
+class _ASPP3D(nn.Module):
+    def __init__(self, channels: int):
+        super().__init__()
+        mid = max(1, channels // 4)
+        self.branches = nn.ModuleList([
+            nn.Conv3d(channels, mid, 1, bias=False),
+            nn.Conv3d(channels, mid, (1, 3, 3), padding=(0, 2, 2), dilation=(1, 2, 2), bias=False),
+            nn.Conv3d(channels, mid, (1, 3, 3), padding=(0, 4, 4), dilation=(1, 4, 4), bias=False),
+            nn.Conv3d(channels, mid, (1, 3, 3), padding=(0, 6, 6), dilation=(1, 6, 6), bias=False),
+        ])
+        self.project = nn.Conv3d(mid * 4, channels, (1, 3, 3), padding=(0, 1, 1), bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = torch.cat([F.relu(branch(x), inplace=True) for branch in self.branches], dim=1)
+        return F.relu(self.project(x), inplace=True)
+
+
+class RDEFusion(nn.Module):
+    def __init__(self, channels: int):
+        super().__init__()
+        self.extract = _NonLocal3D(channels)
+        self.enhance = _ASPP3D(channels)
+        self.squeeze = nn.Conv3d(
+            channels,
+            channels,
             kernel_size=(2, 3, 3),
             padding=(0, 1, 1),
-            bias=True,
         )
-        self._initialize_recurrent_fusion()
 
-        hidden = gate_hidden_channels or max(32, feature_channels // 4)
-        self.reliability_gate = nn.Sequential(
-            nn.Linear(1 + feature_channels * 3, hidden),
-            nn.GELU(),
-            nn.Linear(hidden, 1),
-        )
-        nn.init.zeros_(self.reliability_gate[-1].weight)
-        nn.init.constant_(self.reliability_gate[-1].bias, _logit(initial_gate))
+    def forward(self, previous: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
+        x = torch.stack((previous, candidate), dim=2)
+        x = self.extract(x)
+        x = x + self.enhance(x)
+        return self.squeeze(x).squeeze(2)
 
-    def _initialize_recurrent_fusion(self) -> None:
-        """Start from EMA-like behavior while keeping fusion inside Conv3D.
 
-        The gate scales only the current candidate. The Conv3D center weights
-        are initialized so the complete first update is exactly
-
-            (1 - g0) * previous + g0 * candidate
-
-        where ``g0`` is ``fixed_gate`` for a fixed-gate ablation and
-        ``initial_gate`` otherwise.
-        """
-        gate_at_init = self.fixed_gate if self.fixed_gate is not None else self.initial_gate
-        with torch.no_grad():
-            self.temporal_compression.weight.zero_()
-            self.temporal_compression.bias.zero_()
-            center = self.temporal_compression.kernel_size[1] // 2
-            for channel in range(self.feature_channels):
-                self.temporal_compression.weight[
-                    channel, channel, 0, center, center
-                ] = 1.0 - gate_at_init
-                self.temporal_compression.weight[
-                    channel, channel, 1, center, center
-                ] = 1.0
-
-    @staticmethod
-    def _normalize_predicted_iou(predicted_iou: torch.Tensor, batch_size: int) -> torch.Tensor:
-        if predicted_iou.ndim == 1:
-            predicted_iou = predicted_iou.unsqueeze(1)
-        if predicted_iou.ndim != 2 or predicted_iou.shape != (batch_size, 1):
-            raise ValueError("predicted_iou must be [B] or [B, 1].")
-        return predicted_iou
-
-    def _fuse_state(self, previous: torch.Tensor, gated_candidate: torch.Tensor) -> torch.Tensor:
-        temporal_pair = torch.stack((previous, gated_candidate), dim=2)
-        return self.temporal_compression(temporal_pair).squeeze(2)
-
-    def _gate(
+class ReliabilityGatedFusion(nn.Module):
+    def __init__(
         self,
-        previous: torch.Tensor,
-        candidate: torch.Tensor,
-        predicted_iou: torch.Tensor,
-    ) -> torch.Tensor:
-        if self.fixed_gate is not None:
-            return previous.new_full((previous.size(0), 1), self.fixed_gate)
-        pooled_previous = previous.mean(dim=(-2, -1))
-        pooled_candidate = candidate.mean(dim=(-2, -1))
-        pooled_difference = (previous - candidate).abs().mean(dim=(-2, -1))
-        quality = self._normalize_predicted_iou(predicted_iou, previous.size(0)).to(previous)
-        return torch.sigmoid(
-            self.reliability_gate(
-                torch.cat((quality, pooled_previous, pooled_candidate, pooled_difference), dim=1)
-            )
-        )
+        feature_channels: int,
+        image_channels: int,
+        fixed_gate: float | None = None,
+    ):
+        super().__init__()
+        self.feature_channels = feature_channels
+        self.image_channels = image_channels
+        self.fixed_gate = fixed_gate
+        self.last_gate: torch.Tensor | None = None
+        self.register_buffer("livos_rde_version", torch.tensor(1, dtype=torch.int8))
+        self.gate_projector = LiVOSGate(image_channels, feature_channels, fixed_gate)
+        self.rde_fusion = RDEFusion(feature_channels)
 
     def forward(
         self,
         previous: torch.Tensor,
         candidate: torch.Tensor,
-        predicted_iou: torch.Tensor,
+        image_feature: torch.Tensor,
     ) -> torch.Tensor:
         if previous.ndim != 4 or previous.shape != candidate.shape:
             raise ValueError("previous and candidate must be matching [B, C, H, W] tensors.")
-        gate = self._gate(previous, candidate, predicted_iou)
+        if image_feature.size(0) != previous.size(0):
+            raise ValueError("image_feature batch size must match the recurrent state.")
+        gate = self.gate_projector(image_feature)
         self.last_gate = gate.detach()
-        gated_candidate = candidate * gate[:, :, None, None]
-        return self._fuse_state(previous, gated_candidate)
+        retained = previous * gate[:, :, None, None]
+        return self.rde_fusion(retained, candidate)
 
 
 class _RGMSpatialState:
-    """Inference-only holder for one recurrent spatial mask-memory tensor."""
-
     def __init__(self, frame_idx: int, output: dict):
         features = output.get("maskmem_features")
         positions = output.get("maskmem_pos_enc")
@@ -150,25 +138,23 @@ class _RGMSpatialState:
         self,
         frame_idx: int,
         candidate: torch.Tensor,
-        predicted_iou: torch.Tensor,
+        image_feature: torch.Tensor,
         fusion: ReliabilityGatedFusion,
     ) -> None:
         if frame_idx != self.last_frame_idx + 1:
             raise ValueError("RGM state requires consecutive forward updates.")
         candidate = candidate.to(self.features)
+        image_feature = image_feature.to(device=self.features.device, dtype=torch.float32)
         if candidate.shape != self.features.shape:
             raise ValueError("Mask-memory shape changed within the sequence.")
-        self.features = fusion(self.features, candidate, predicted_iou.to(self.features))
+        self.features = fusion(self.features, candidate, image_feature)
         self.last_frame_idx = frame_idx
         self.updates += 1
 
 
 class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
-    """MedSAM2 predictor with recurrent spatial fusion and native pointers."""
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Attached after the base MedSAM2 checkpoint loads.
         self.state_fusion: ReliabilityGatedFusion | None = None
 
     def propagate_in_video_preflight(self, inference_state):
@@ -197,7 +183,6 @@ class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
                 "state": outputs["rgm_state"].features.detach().cpu(),
                 "gate": None,
             }]
-        # Keep the pointer but release the duplicated prompt-frame spatial tensor.
         anchor["maskmem_features"] = None
         anchor["maskmem_pos_enc"] = None
 
@@ -214,6 +199,10 @@ class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
         if kwargs["reverse"]:
             raise ValueError("RGM supports forward propagation only.")
 
+        _, backbone_out, _, _, _ = self._get_image_feature(
+            kwargs["inference_state"], frame_idx, kwargs["batch_size"]
+        )
+        image_feature = backbone_out["backbone_fpn"][-1]
         current_out, pred_masks = super()._run_single_frame_inference(*args, **kwargs)
         candidate = current_out.get("maskmem_features")
         predicted_iou = current_out.get("iou_predictions")
@@ -221,7 +210,10 @@ class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
             raise RuntimeError("RGM requires candidate memory and predicted IoU.")
         assert self.state_fusion is not None
         previous_state = state.features.detach().clone()
-        state.update(frame_idx, candidate, predicted_iou, self.state_fusion)
+        state.update(frame_idx, candidate, image_feature, self.state_fusion)
+        gate = self.state_fusion.last_gate
+        if gate is None:
+            raise RuntimeError("RGM gate was not computed.")
         if kwargs["inference_state"].get("rgm_capture_tensors", False):
             output_dict.setdefault("rgm_frame_trace", []).append({
                 "frame_idx": frame_idx,
@@ -231,13 +223,16 @@ class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
                 "candidate": candidate.detach().float().cpu(),
                 "previous_state": previous_state.detach().float().cpu(),
                 "state": state.features.detach().float().cpu(),
-                "gate": self.state_fusion.last_gate.detach().float().cpu(),
+                "gate": gate.detach().float().cpu(),
             })
         current_out["maskmem_features"] = None
         current_out["maskmem_pos_enc"] = None
+        gate_cpu = gate.detach().float().cpu()
         current_out["rgm_trace"] = {
             "updates": state.updates,
-            "gate": [float(value) for value in self.state_fusion.last_gate.flatten().cpu()],
+            "gate_mean": float(gate_cpu.mean()),
+            "gate_min": float(gate_cpu.min()),
+            "gate_max": float(gate_cpu.max()),
         }
         return current_out, pred_masks
 

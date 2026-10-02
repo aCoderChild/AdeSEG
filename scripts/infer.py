@@ -35,7 +35,7 @@ from datasets.polypgen import (
 
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
 MEMORY_BACKENDS = ("native", "rgm")
-RGM_CHECKPOINT_FORMAT = "adseg_rgm_candidate_gate_v2"
+RGM_CHECKPOINT_FORMAT = "adseg_livos_rde_v1"
 
 
 def load_config(config_path: Path) -> dict[str, object]:
@@ -247,16 +247,13 @@ def parse_args():
         "--memory_backend",
         choices=MEMORY_BACKENDS,
         default="native",
-        help=(
-            "native is the MedSAM2 baseline; rgm is the recurrent-fusion "
-            "memory experiment."
-        ),
+        help="native is MedSAM2; rgm is the recurrent-memory experiment.",
     )
     parser.add_argument(
         "--rgm_checkpoint",
         type=Path,
         default=None,
-        help="Recurrent-fusion checkpoint produced by scripts/train_rgm.py.",
+        help="Recurrent-memory checkpoint produced by scripts/train_rgm.py.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
     return parser.parse_args(), config
@@ -270,10 +267,11 @@ def main():
     if args.memory_backend == "rgm" and args.rgm_checkpoint is None:
         raise ValueError("--rgm_checkpoint is required for RGM inference.")
 
-    if args.memory_backend == "rgm":
-        predictor_target = "modeling.rgm_memory.ReliabilityGatedMemoryVideoPredictor"
-    else:
-        predictor_target = None
+    predictor_target = (
+        "modeling.rgm_memory.ReliabilityGatedMemoryVideoPredictor"
+        if args.memory_backend == "rgm"
+        else None
+    )
     predictor = build_video_predictor(
         args.sam2_cfg,
         args.sam2_checkpoint,
@@ -291,24 +289,26 @@ def main():
         except TypeError:
             checkpoint = torch.load(args.rgm_checkpoint, map_location=args.device)
         if checkpoint.get("format") != RGM_CHECKPOINT_FORMAT:
-            raise ValueError(
-                "RGM checkpoint uses an incompatible recurrent-fusion architecture. "
-                "Retrain with the candidate-gated v2 implementation."
-            )
+            raise ValueError("RGM checkpoint uses an incompatible recurrent-memory architecture.")
         if checkpoint.get("feature_channels") != predictor.mem_dim:
             raise ValueError("RGM checkpoint feature width does not match this MedSAM2 model.")
+        if checkpoint.get("image_channels") != predictor.hidden_dim:
+            raise ValueError("RGM checkpoint image-feature width does not match this MedSAM2 model.")
         fusion_config = checkpoint.get("fusion_config", {})
         if not isinstance(fusion_config, dict):
             raise ValueError("RGM checkpoint has an invalid fusion configuration.")
-        if fusion_config.get("gate_position") != "candidate_before_fusion":
-            raise ValueError("RGM checkpoint has an incompatible gate position.")
+        if fusion_config.get("gate") != "livos_channel_forget":
+            raise ValueError("RGM checkpoint has an incompatible gate.")
+        if fusion_config.get("fusion") != "rde_sam":
+            raise ValueError("RGM checkpoint has an incompatible fusion module.")
         predictor.state_fusion = ReliabilityGatedFusion(
             predictor.mem_dim,
-            initial_gate=float(fusion_config.get("initial_gate", 0.1)),
+            predictor.hidden_dim,
             fixed_gate=fusion_config.get("fixed_gate"),
         ).to(args.device)
         predictor.state_fusion.load_state_dict(checkpoint["state_dict"])
         predictor.state_fusion.eval()
+
     yolo_model = load_yolo_model(args.yolo_checkpoint)
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train frozen-MedSAM2 recurrent fusion from reproducible YOLO box prompts."""
+"""Train frozen-MedSAM2 recurrent memory from reproducible YOLO box prompts."""
 
 from __future__ import annotations
 
@@ -21,9 +21,8 @@ from training.losses import dice_bce_loss
 from training.rgm_trainer import ReliabilityGatedMemoryTrainer, rgm_optimizer
 
 
-CHECKPOINT_FORMAT = "adseg_rgm_candidate_gate_v2"
+CHECKPOINT_FORMAT = "adseg_livos_rde_v1"
 
-# seq7 has no frozen YOLO prompt and is intentionally absent from prompt_records.
 DEFAULT_TRAIN_SEQUENCES = (
     "seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10",
     "seq11", "seq12", "seq13", "seq14", "seq15",
@@ -31,7 +30,6 @@ DEFAULT_TRAIN_SEQUENCES = (
 
 
 def load_prompted_clip(data_root, sequence, prompt, clip_length, image_size):
-    """Load the prompt frame and its following frames using inference preprocessing."""
     samples = list(iter_polypgen_samples(data_root, sequence))
     start = int(prompt["frame_idx"])
     window = samples[start : start + clip_length]
@@ -74,11 +72,14 @@ def trace_diagnostics(trace, targets):
         if target.shape[-2:] != logits.shape[-2:]:
             target = F.interpolate(target, size=logits.shape[-2:], mode="nearest")
         previous = item["previous_state"]
+        gate = item["gate"]
         rows.append({
             "frame_idx": frame_idx,
             "predicted_iou": float(item["predicted_iou"].mean()),
             "frame_dice": dice_score(logits, target),
-            "gate": None if item["gate"] is None else float(item["gate"].mean()),
+            "gate_mean": None if gate is None else float(gate.mean()),
+            "gate_min": None if gate is None else float(gate.min()),
+            "gate_max": None if gate is None else float(gate.max()),
             "candidate_previous_distance": None if previous is None else float(
                 (item["candidate"] - previous).norm()
             ),
@@ -95,12 +96,11 @@ def parse_args():
     parser.add_argument("--clip_length", type=int, default=8)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--stage", choices=("gate", "joint"), default="gate")
     parser.add_argument(
         "--fixed_gate",
         type=float,
         default=None,
-        help="Keep the current-candidate reliability gate fixed while training Conv3D.",
+        help="Use a fixed LiVOS-style forget gate while training the RDE fusion.",
     )
     parser.add_argument("--gate_learning_rate", type=float, default=1e-4)
     parser.add_argument("--fusion_learning_rate", type=float, default=1e-5)
@@ -115,44 +115,43 @@ def main():
     args = parse_args()
     if args.clip_length < 2 or args.steps < 1:
         raise ValueError("clip_length must be at least two and steps must be positive.")
-    if args.fixed_gate is not None and not 0.0 < args.fixed_gate < 1.0:
-        raise ValueError("--fixed_gate must be in (0, 1).")
-    if args.fixed_gate is not None and args.stage != "joint":
-        raise ValueError("--fixed_gate requires --stage joint to train the Conv3D fusion.")
+    if args.fixed_gate is not None and not 0.0 <= args.fixed_gate <= 1.0:
+        raise ValueError("--fixed_gate must be in [0, 1].")
     torch.manual_seed(args.seed)
     config = json.loads(args.config.read_text(encoding="utf-8"))
     prompt_records = json.loads(args.prompt_records.read_text(encoding="utf-8"))
     missing = [sequence for sequence in args.sequences if sequence not in prompt_records]
     if missing:
         raise KeyError(f"Missing frozen prompts for: {', '.join(missing)}")
+
     trainer = ReliabilityGatedMemoryTrainer(
         config["sam2_cfg"], ROOT / config["sam2_checkpoint"], args.device,
         fixed_gate=args.fixed_gate,
     )
-    # Frozen modules use inference behavior, while the selected RGM layers train.
     trainer.model.eval()
     trainer.state_fusion.train()
+
     if args.resume_checkpoint is not None:
         checkpoint = torch.load(args.resume_checkpoint, map_location=args.device, weights_only=True)
         if checkpoint.get("format") != CHECKPOINT_FORMAT:
-            raise ValueError(
-                "resume_checkpoint uses an incompatible recurrent-fusion architecture. "
-                "Retrain with the candidate-gated v2 implementation."
-            )
+            raise ValueError("resume_checkpoint uses an incompatible recurrent-memory architecture.")
         if checkpoint.get("feature_channels") != trainer.model.mem_dim:
-            raise ValueError("resume_checkpoint has an incompatible feature width.")
+            raise ValueError("resume_checkpoint has an incompatible memory width.")
+        if checkpoint.get("image_channels") != trainer.model.hidden_dim:
+            raise ValueError("resume_checkpoint has an incompatible image-feature width.")
         fusion_config = checkpoint.get("fusion_config", {})
-        if fusion_config.get("gate_position") != "candidate_before_fusion":
-            raise ValueError("resume_checkpoint has an incompatible gate position.")
-        saved_fixed_gate = fusion_config.get("fixed_gate")
-        if saved_fixed_gate != args.fixed_gate:
+        if fusion_config.get("gate") != "livos_channel_forget":
+            raise ValueError("resume_checkpoint has an incompatible gate.")
+        if fusion_config.get("fusion") != "rde_sam":
+            raise ValueError("resume_checkpoint has an incompatible fusion module.")
+        if fusion_config.get("fixed_gate") != args.fixed_gate:
             raise ValueError("resume_checkpoint fixed-gate setting does not match this run.")
         trainer.state_fusion.load_state_dict(checkpoint["state_dict"])
+
     optimizer = rgm_optimizer(
         trainer,
         gate_lr=args.gate_learning_rate,
         fusion_lr=args.fusion_learning_rate,
-        stage=args.stage,
     )
     clips = [
         load_prompted_clip(
@@ -164,6 +163,7 @@ def main():
     initial_parameters = [parameter.detach().clone() for parameter in trainer.state_fusion.parameters()]
     history = []
     frozen_model_has_gradients = False
+
     for step in range(args.steps):
         clip = clips[step % len(clips)]
         images = clip["images"].to(args.device)
@@ -199,22 +199,24 @@ def main():
     torch.save({
         "format": CHECKPOINT_FORMAT,
         "feature_channels": trainer.model.mem_dim,
+        "image_channels": trainer.model.hidden_dim,
         "fusion_config": {
-            "initial_gate": trainer.state_fusion.initial_gate,
+            "gate": "livos_channel_forget",
+            "fusion": "rde_sam",
             "fixed_gate": trainer.state_fusion.fixed_gate,
-            "gate_position": "candidate_before_fusion",
         },
         "state_dict": trainer.state_fusion.state_dict(),
     }, args.output_dir / "rgm_fusion.pt")
+
     setup = {
         "sequences": args.sequences,
         "clip_length": args.clip_length,
         "steps": args.steps,
         "seed": args.seed,
         "device": args.device,
-        "stage": args.stage,
         "fixed_gate": args.fixed_gate,
-        "gate_position": "candidate_before_fusion",
+        "gate": "livos_channel_forget",
+        "fusion": "rde_sam",
         "gate_learning_rate": args.gate_learning_rate,
         "fusion_learning_rate": args.fusion_learning_rate,
         "gradient_clip_norm": args.gradient_clip_norm,
@@ -230,6 +232,7 @@ def main():
     }
     (args.output_dir / "setup.json").write_text(json.dumps(setup, indent=2) + "\n", encoding="utf-8")
     (args.output_dir / "history.json").write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
+
     per_sequence = {}
     for sequence in args.sequences:
         sequence_history = [row for row in history if row["sequence"] == sequence]

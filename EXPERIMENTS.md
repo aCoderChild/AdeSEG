@@ -1,39 +1,42 @@
 # Experiment record
 
-## Current candidate-gated architecture (2026-10-02)
+## Current LiVOS-gated RDE architecture (2026-10-03)
 
-Main now uses a revised reliability placement:
+Main now uses a LiVOS-style channel forget gate and the RDE-VOS
+spatio-temporal aggregation path:
 
 ```text
-g_t = reliability_gate(S_(t-1), C_t, predicted_iou)
-gated_candidate = g_t * C_t
-S_t = Conv3D([S_(t-1), gated_candidate])
+g_t = mean(sigmoid(Conv1x1(F_t)), spatial_dims)
+retained = g_t * S_(t-1)
+S_t = RDE_Fusion([retained, C_t])
 ```
 
-The gate therefore filters current-frame candidate evidence **before** the
-single recurrent Conv3D fusion. There is no post-fusion interpolation with the
-previous state. The Conv3D initialization and gate initialization preserve the
-same initial EMA-like update, `0.9 * S_(t-1) + 0.1 * C_t`, before training.
+`F_t` the current MedSAM2 image feature, `S_(t-1)` the recurrent spatial
+state, and `C_t` the current mask-memory candidate. The gate is applied to
+the previous state, matching LiVOS' forget-gate role. It is channel-wise rather
+than a scalar.
 
-This implementation uses checkpoint format `adseg_rgm_candidate_gate_v2`.
-Legacy checkpoints from the post-fusion-gate implementation are intentionally
-incompatible.
+`RDE_Fusion` follows the public RDE-VOS `MemCrompress` structure: non-local
+spatio-temporal extraction, residual ASPP3D enhancement, then a `2 x 3 x 3`
+Conv3D squeeze from two temporal slots to one recurrent state.
 
-**All numerical RFM/RGM results below were produced by the older post-fusion-
-gate architecture. They are historical evidence only and must not be reported
-as results for the current candidate-gated implementation.** The current
-architecture requires a new train--inference parity check, training run,
-validation, fixed-gate attribution, and held-out evaluation.
+There is no post-fusion addition of `S_(t-1)`, so the previous state is not
+used twice in the update.
+
+This implementation uses checkpoint format `adseg_livos_rde_v1`. All older RGM
+checkpoints are intentionally incompatible and must be retrained. Numerical
+results below are historical results from earlier RGM architectures and do not
+validate the current LiVOS-gated RDE implementation.
 
 ## Recurrent Fusion Memory protocol
 
 Recurrent Fusion Memory retains one recurrent spatial mask-memory state and
-MedSAM2's normal prompt plus recent object-pointer history. Its main component
-is a two-frame 3-D convolution inspired by RDE-VOS. The optional scalar gate,
-inspired by the role of gating in LiVOS, is retained as an ablation.
+MedSAM2's normal prompt plus recent object-pointer history. Training freezes
+MedSAM2, updates state from predicted masks, and uses Dice+BCE only on
+future-frame masks.
 
-Training freezes MedSAM2, updates state from predicted masks, and uses Dice+BCE
-only on future-frame masks.
+The learned gate is derived from the current image feature. Decoder-predicted
+IoU remains available for diagnostics but is not an input to the gate.
 
 ## Superseded CPU smoke result
 
@@ -73,7 +76,7 @@ prompt. Validation uses the same frozen records for every row.
 |---|---:|---:|---|
 | Native MedSAM2 | 0.7655 | 0.7048 | reference |
 | Recurrent fusion, 20-step gate smoke | 0.7808 | 0.7171 | seq2/3 only; gate remained about 0.1 |
-| Recurrent fusion, Stage 2, 8-frame joint | **0.7881** | **0.7242** | selected checkpoint |
+| Recurrent fusion, Stage 2, 8-frame joint | *)0.7881** | **0.7242** | selected checkpoint |
 | Recurrent fusion, Stage 3, 16-frame joint | 0.7825 | 0.7178 | stopped: validation declined |
 
 The Stage 2 improvement is validation evidence only: checkpoint selection used
@@ -81,7 +84,7 @@ seq16--19, and no held-out test result should be claimed. The gate remained
 close to its EMA initialization, so these runs do not yet establish that
 reliability-adaptive gating provides the gain. Recurrent fusion retained exactly 524,288
 bytes (0.5 MiB) of spatial state per sequence. Native retained 14.9--24.8 MiB
-of spatial state in the matched CPU runs; this is not a peak-memory comparison.
+in the matched CPU runs; this is not a peak-memory comparison.
 
 ## Fixed-gate attribution and held-out test
 
@@ -159,7 +162,7 @@ gate-plus-Conv3D steps, with the same frozen `seq2--15` prompts and
 | 0 | 0.788086 | 0.724225 |
 | 1 | 0.788085 | 0.724224 |
 | 2 | 0.788089 | 0.724230 |
-| Mean ± sample SD | 0.788086 ± 0.000002 | 0.724226 ± 0.000003 |
+| Mean ñ sample SD | 0.788086 ñ 0.000002 | 0.724226 ñ 0.000003 |
 
 The near-zero variation shows that this CPU protocol is effectively
 deterministic under these seeds. It verifies reproducibility of the validation

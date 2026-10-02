@@ -10,16 +10,12 @@ from modeling.rgm_memory import ReliabilityGatedFusion
 
 
 class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
-    """One RGM spatial state plus MedSAM2's native object-pointer history.
-
-    Bounding boxes use the model's square input coordinates. The recurrent
-    state always receives predicted logits; labels belong only to the loss.
-    """
-
     def __init__(self, *args, fixed_gate: float | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.state_fusion = ReliabilityGatedFusion(
-            self.model.mem_dim, fixed_gate=fixed_gate
+            self.model.mem_dim,
+            self.model.hidden_dim,
+            fixed_gate=fixed_gate,
         ).to(self.device)
 
     def init_state(self):
@@ -30,9 +26,8 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
         self._last_prediction = None
 
     def preprocess_frame_features(self, frame_features, batch_size, num_frames):
-        """Reshape per-frame features without ``view`` contiguity assumptions."""
         prepared = []
-        for frame_idx, frame_feature in enumerate(self.unbind_frame_features(frame_features, num_frames)):
+        for frame_feature in self.unbind_frame_features(frame_features, num_frames):
             feature_maps = frame_feature["backbone_fpn"][-self.num_feature_levels :]
             vision_feats = [feature.flatten(2).permute(2, 0, 1) for feature in feature_maps]
             features = [
@@ -49,11 +44,9 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
 
     @staticmethod
     def _as_inference_memory(features: torch.Tensor) -> torch.Tensor:
-        """Match bfloat16 storage used by ``SAM2VideoPredictor`` frame outputs."""
         return features.to(torch.bfloat16).to(torch.float32)
 
     def _native_memory_encoding(self, features, high_res_masks, object_score_logits, is_mask_from_pts):
-        """Use MedSAM2's native mask-memory encoder and its probability scaling."""
         vision_feats = [feature.flatten(2).permute(2, 0, 1) for feature in features["backbone_fpn"]]
         feat_sizes = [feature.shape[-2:] for feature in features["backbone_fpn"]]
         memory_features, memory_positions = self.model._encode_new_memory(
@@ -102,7 +95,11 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
             features, prediction["high_res_masks"], prediction["object_score_logits"], False
         )
         previous_state = self.dynamic_state
-        self.dynamic_state = self.state_fusion(previous_state, candidate, prediction["predicted_iou"])
+        self.dynamic_state = self.state_fusion(
+            previous_state,
+            candidate,
+            features["backbone_fpn"][-1],
+        )
         self._record_state(
             self.current_frame_idx, candidate, self.state_fusion.last_gate, previous_state
         )
@@ -133,14 +130,23 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
         positions, pointers = zip(*positions_and_pointers)
         pointers = torch.stack(pointers)
         if self.model.add_tpos_enc_to_obj_ptrs:
-            position_dim = self.model.hidden_dim if self.model.proj_tpos_enc_in_obj_ptrs else self.model.mem_dim
+            position_dim = (
+                self.model.hidden_dim
+                if self.model.proj_tpos_enc_in_obj_ptrs
+                else self.model.mem_dim
+            )
             temporal_positions = get_1d_sine_pe(
-                torch.tensor(positions, device=pointers.device) / (max_pointers - 1), dim=position_dim
+                torch.tensor(positions, device=pointers.device) / (max_pointers - 1),
+                dim=position_dim,
             )
             pointer_positions = self.model.obj_ptr_tpos_proj(temporal_positions)
-            pointer_positions = pointer_positions.unsqueeze(1).expand(-1, self.batch_size, self.model.mem_dim)
+            pointer_positions = pointer_positions.unsqueeze(1).expand(
+                -1, self.batch_size, self.model.mem_dim
+            )
         else:
-            pointer_positions = pointers.new_zeros(len(positions), self.batch_size, self.model.mem_dim)
+            pointer_positions = pointers.new_zeros(
+                len(positions), self.batch_size, self.model.mem_dim
+            )
         if self.model.mem_dim < self.model.hidden_dim:
             pointer_width = self.model.hidden_dim // self.model.mem_dim
             pointers = pointers.reshape(-1, self.batch_size, pointer_width, self.model.mem_dim)
@@ -153,7 +159,9 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
     def _point_inputs_from_boxes(self, bboxes):
         return {
             "point_coords": bboxes.reshape(self.batch_size, 2, 2),
-            "point_labels": torch.tensor([[2, 3]], dtype=torch.int32, device=bboxes.device).expand(self.batch_size, -1),
+            "point_labels": torch.tensor(
+                [[2, 3]], dtype=torch.int32, device=bboxes.device
+            ).expand(self.batch_size, -1),
         }
 
     def _decode(self, features, point_inputs, is_init_cond_frame):
@@ -161,8 +169,6 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
         current_pos = [feature.flatten(2).permute(2, 0, 1) for feature in features["vision_pos_enc"]]
         feat_sizes = [feature.shape[-2:] for feature in features["backbone_fpn"]]
         if is_init_cond_frame:
-            # Use the native no-memory path rather than bypassing it with the
-            # image embedding. This is the same call made by track_step().
             pixels_with_memory = self.model._prepare_memory_conditioned_features(
                 frame_idx=0,
                 is_init_cond_frame=True,
@@ -175,12 +181,21 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
         else:
             memory, memory_pos, num_obj_ptr_tokens = self._prepare_memory()
             fused = self.model.memory_attention(
-                curr=current_feats[-1:], curr_pos=current_pos[-1:], memory=memory,
-                memory_pos=memory_pos, num_obj_ptr_tokens=num_obj_ptr_tokens,
+                curr=current_feats[-1:],
+                curr_pos=current_pos[-1:],
+                memory=memory,
+                memory_pos=memory_pos,
+                num_obj_ptr_tokens=num_obj_ptr_tokens,
             )
             pixels_with_memory = fused.permute(1, 2, 0).reshape_as(features["backbone_fpn"][-1])
         (
-            _, _, iou_predictions, low_res_masks, high_res_masks, object_pointer, object_score_logits
+            _,
+            _,
+            iou_predictions,
+            low_res_masks,
+            high_res_masks,
+            object_pointer,
+            object_score_logits,
         ) = self.model._forward_sam_heads(
             backbone_features=pixels_with_memory,
             point_inputs=point_inputs,
@@ -211,7 +226,9 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
         if self.video_num_frames < num_frames:
             raise ValueError("video_num_frames cannot be smaller than the clip length.")
         self._orig_hw = [height, width]
-        all_features = self.model.forward_image(videos.reshape(batch_size * num_frames, channels, height, width))
+        all_features = self.model.forward_image(
+            videos.reshape(batch_size * num_frames, channels, height, width)
+        )
         frame_features = {
             key: value.reshape(batch_size, num_frames, *value.shape[1:])
             if not isinstance(value, list)
@@ -230,23 +247,18 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
             all_masks.append(masks)
             all_logits.append(logits)
             all_ious.append(ious)
-            # Inference encodes every frame. Do the same to verify the full trajectory.
             self._update_memory(frames[frame_idx], masks, object_score_logits=scores)
         return all_masks, all_logits, all_ious
 
 
-def freeze_except_rgm(trainer: ReliabilityGatedMemoryTrainer, stage: str = "joint"):
-    """Freeze MedSAM2; train recurrent fusion and, optionally, its gate."""
-    if stage not in {"gate", "joint"}:
-        raise ValueError("stage must be 'gate' or 'joint'.")
-    if trainer.state_fusion.fixed_gate is not None and stage == "gate":
-        raise ValueError("A fixed-gate ablation must train the temporal compressor in joint stage.")
+
+def freeze_except_rgm(trainer: ReliabilityGatedMemoryTrainer):
     for parameter in trainer.model.parameters():
         parameter.requires_grad = False
-    for parameter in trainer.state_fusion.reliability_gate.parameters():
+    for parameter in trainer.state_fusion.gate_projector.parameters():
         parameter.requires_grad = trainer.state_fusion.fixed_gate is None
-    for parameter in trainer.state_fusion.temporal_compression.parameters():
-        parameter.requires_grad = stage == "joint"
+    for parameter in trainer.state_fusion.rde_fusion.parameters():
+        parameter.requires_grad = True
 
 
 def rgm_optimizer(
@@ -254,13 +266,10 @@ def rgm_optimizer(
     gate_lr: float = 1e-4,
     fusion_lr: float = 1e-5,
     weight_decay: float = 1e-4,
-    stage: str = "joint",
 ):
-    """Build the staged optimizer used by the RGM curriculum."""
-    freeze_except_rgm(trainer, stage=stage)
+    freeze_except_rgm(trainer)
     groups = []
     if trainer.state_fusion.fixed_gate is None:
-        groups.append({"params": trainer.state_fusion.reliability_gate.parameters(), "lr": gate_lr})
-    if stage == "joint":
-        groups.append({"params": trainer.state_fusion.temporal_compression.parameters(), "lr": fusion_lr})
+        groups.append({"params": trainer.state_fusion.gate_projector.parameters(), "lr": gate_lr})
+    groups.append({"params": trainer.state_fusion.rde_fusion.parameters(), "lr": fusion_lr})
     return torch.optim.AdamW(groups, weight_decay=weight_decay)
