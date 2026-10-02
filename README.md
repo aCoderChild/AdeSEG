@@ -52,14 +52,14 @@ The current update combines two published mechanisms:
 The gate acts on the previous state before fusion, so the previous state is not
 added again after the RDE fusion.
 
-Native MedSAM2 remains the primary baseline. RGM is an experimental
-memory--accuracy trade-off, not an assumed segmentation improvement.
+Native MedSAM2 remains the primary baseline. The recurrent method is evaluated
+as a memory--accuracy trade-off rather than assumed to improve segmentation.
 
 ## Repository layout
 
 - `adenoid/`: target-task ratio measurement and grade conversion helpers.
 - `datasets/`: common sample interface and adapters for PolypGen and REFUGE2.
-- `modeling/`: MedSAM2 construction, native-pointer preparation, and RGM.
+- `modeling/`: MedSAM2 construction, native-pointer preparation, and recurrent memory.
 - `inference/`: image and video inference utilities.
 - `evaluation/`: segmentation, temporal, ratio, and two-region measurement metrics.
 - `scripts/`: runnable proxy-dataset scripts.
@@ -81,9 +81,9 @@ fully automatic challenge systems.
 
 ## Recurrent-fusion memory experiment
 
-`modeling/rgm_memory.py` and `training/rgm_trainer.py` implement the recurrent
-memory experiment. MedSAM2 stays frozen; the recurrent state is updated from
-predicted masks and training uses future-frame Dice+BCE.
+`modeling/rgm_memory.py` and `training/rgm_trainer.py` implement the current
+LiVOS-gated RDE recurrent-memory experiment. MedSAM2 stays frozen; the recurrent
+state is updated from predicted masks and training uses future-frame Dice+BCE.
 
 For frame `t`, let `F_t` be the current image feature, `S_(t-1)` the recurrent
 mask-memory state, and `C_t` the current MedSAM2 mask-memory candidate:
@@ -98,12 +98,15 @@ S_t = RDE_Fusion([retained, C_t])
 structure with non-local extraction, residual ASPP3D enhancement, and the final
 `2 x 3 x 3` Conv3D squeeze.
 
-This implementation uses checkpoint format `adseg_livos_rde_v1`. Older RGM
-checkpoints are intentionally incompatible and require retraining.
+The current checkpoint format is `adseg_livos_rde_v1`. Only checkpoints produced
+by this implementation should be used.
 
 The bundled MedSAM2 code retains the decoder's selected predicted-IoU value in
 compact frame outputs for diagnostics. The LiVOS-style gate itself is driven by
 image features, not predicted IoU.
+
+`EXPERIMENTS.md` records only the current protocol. Superseded recurrent-memory
+results are not used as evidence for this architecture.
 
 ## Current implementation boundary
 
