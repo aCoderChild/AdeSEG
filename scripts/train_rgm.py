@@ -21,6 +21,13 @@ from training.losses import dice_bce_loss
 from training.rgm_trainer import ReliabilityGatedMemoryTrainer, rgm_optimizer
 
 
+# seq7 has no frozen YOLO prompt and is intentionally absent from prompt_records.
+DEFAULT_TRAIN_SEQUENCES = (
+    "seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10",
+    "seq11", "seq12", "seq13", "seq14", "seq15",
+)
+
+
 def load_prompted_clip(data_root, sequence, prompt, clip_length, image_size):
     """Load the prompt frame and its following frames using inference preprocessing."""
     samples = list(iter_polypgen_samples(data_root, sequence))
@@ -82,11 +89,17 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=ROOT / "configs/polypgen.yaml")
     parser.add_argument("--prompt_records", type=Path, required=True)
-    parser.add_argument("--sequences", nargs="+", default=[f"seq{index}" for index in range(2, 16)])
+    parser.add_argument("--sequences", nargs="+", default=list(DEFAULT_TRAIN_SEQUENCES))
     parser.add_argument("--clip_length", type=int, default=8)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--stage", choices=("gate", "joint"), default="gate")
+    parser.add_argument(
+        "--fixed_gate",
+        type=float,
+        default=None,
+        help="Keep the update gate fixed while training the Conv3D fusion only.",
+    )
     parser.add_argument("--gate_learning_rate", type=float, default=1e-4)
     parser.add_argument("--fusion_learning_rate", type=float, default=1e-5)
     parser.add_argument("--gradient_clip_norm", type=float, default=1.0)
@@ -100,6 +113,10 @@ def main():
     args = parse_args()
     if args.clip_length < 2 or args.steps < 1:
         raise ValueError("clip_length must be at least two and steps must be positive.")
+    if args.fixed_gate is not None and not 0.0 < args.fixed_gate < 1.0:
+        raise ValueError("--fixed_gate must be in (0, 1).")
+    if args.fixed_gate is not None and args.stage != "joint":
+        raise ValueError("--fixed_gate requires --stage joint to train the Conv3D fusion.")
     torch.manual_seed(args.seed)
     config = json.loads(args.config.read_text(encoding="utf-8"))
     prompt_records = json.loads(args.prompt_records.read_text(encoding="utf-8"))
@@ -107,7 +124,8 @@ def main():
     if missing:
         raise KeyError(f"Missing frozen prompts for: {', '.join(missing)}")
     trainer = ReliabilityGatedMemoryTrainer(
-        config["sam2_cfg"], ROOT / config["sam2_checkpoint"], args.device
+        config["sam2_cfg"], ROOT / config["sam2_checkpoint"], args.device,
+        fixed_gate=args.fixed_gate,
     )
     # Frozen modules use inference behavior, while the selected RGM layers train.
     trainer.model.eval()
@@ -118,6 +136,9 @@ def main():
             raise ValueError("resume_checkpoint has an unrecognized RGM format.")
         if checkpoint.get("feature_channels") != trainer.model.mem_dim:
             raise ValueError("resume_checkpoint has an incompatible feature width.")
+        saved_fixed_gate = checkpoint.get("fusion_config", {}).get("fixed_gate")
+        if saved_fixed_gate != args.fixed_gate:
+            raise ValueError("resume_checkpoint fixed-gate setting does not match this run.")
         trainer.state_fusion.load_state_dict(checkpoint["state_dict"])
     optimizer = rgm_optimizer(
         trainer,
@@ -170,6 +191,10 @@ def main():
     torch.save({
         "format": "adseg_rgm_rde_livos_v1",
         "feature_channels": trainer.model.mem_dim,
+        "fusion_config": {
+            "initial_gate": trainer.state_fusion.initial_gate,
+            "fixed_gate": trainer.state_fusion.fixed_gate,
+        },
         "state_dict": trainer.state_fusion.state_dict(),
     }, args.output_dir / "rgm_fusion.pt")
     setup = {
@@ -179,6 +204,7 @@ def main():
         "seed": args.seed,
         "device": args.device,
         "stage": args.stage,
+        "fixed_gate": args.fixed_gate,
         "gate_learning_rate": args.gate_learning_rate,
         "fusion_learning_rate": args.fusion_learning_rate,
         "gradient_clip_norm": args.gradient_clip_norm,

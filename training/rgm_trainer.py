@@ -16,9 +16,11 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
     state always receives predicted logits; labels belong only to the loss.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, fixed_gate: float | None = None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.state_fusion = ReliabilityGatedFusion(self.model.mem_dim).to(self.device)
+        self.state_fusion = ReliabilityGatedFusion(
+            self.model.mem_dim, fixed_gate=fixed_gate
+        ).to(self.device)
 
     def init_state(self):
         super().init_state()
@@ -234,13 +236,15 @@ class ReliabilityGatedMemoryTrainer(SAM2VideoTrainer):
 
 
 def freeze_except_rgm(trainer: ReliabilityGatedMemoryTrainer, stage: str = "joint"):
-    """Freeze MedSAM2; optionally train only the reliability gate first."""
+    """Freeze MedSAM2; train recurrent fusion and, optionally, its gate."""
     if stage not in {"gate", "joint"}:
         raise ValueError("stage must be 'gate' or 'joint'.")
+    if trainer.state_fusion.fixed_gate is not None and stage == "gate":
+        raise ValueError("A fixed-gate ablation must train the temporal compressor in joint stage.")
     for parameter in trainer.model.parameters():
         parameter.requires_grad = False
     for parameter in trainer.state_fusion.reliability_gate.parameters():
-        parameter.requires_grad = True
+        parameter.requires_grad = trainer.state_fusion.fixed_gate is None
     for parameter in trainer.state_fusion.temporal_compression.parameters():
         parameter.requires_grad = stage == "joint"
 
@@ -254,7 +258,9 @@ def rgm_optimizer(
 ):
     """Build the staged optimizer used by the RGM curriculum."""
     freeze_except_rgm(trainer, stage=stage)
-    groups = [{"params": trainer.state_fusion.reliability_gate.parameters(), "lr": gate_lr}]
+    groups = []
+    if trainer.state_fusion.fixed_gate is None:
+        groups.append({"params": trainer.state_fusion.reliability_gate.parameters(), "lr": gate_lr})
     if stage == "joint":
         groups.append({"params": trainer.state_fusion.temporal_compression.parameters(), "lr": fusion_lr})
     return torch.optim.AdamW(groups, weight_decay=weight_decay)

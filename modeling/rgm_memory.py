@@ -1,4 +1,4 @@
-"""Reliability-gated recurrent spatial memory for MedSAM2 experiments.
+"""Recurrent fusion memory for MedSAM2 experiments.
 
 The predictor keeps one spatial mask-memory state.  It deliberately leaves
 MedSAM2 object-pointer selection unchanged: the prompt-frame pointer and the
@@ -24,11 +24,11 @@ def _logit(probability: float) -> float:
 
 
 class ReliabilityGatedFusion(nn.Module):
-    """Fuse two spatial states and learn one update weight per video object.
+    """Learn a two-frame spatial fusion, with an optional update-gate ablation.
 
-    The fusion learns a two-frame spatial compression and a scalar reliability
-    gate. It consumes the decoder's predicted IoU; it never receives
-    ground-truth IoU.
+    The Conv3D compressor is the main trainable component. The scalar gate can
+    be fixed or learned from decoder-predicted IoU and pooled state features;
+    it never receives ground-truth IoU.
     """
 
     def __init__(
@@ -36,12 +36,16 @@ class ReliabilityGatedFusion(nn.Module):
         feature_channels: int,
         gate_hidden_channels: int | None = None,
         initial_gate: float = 0.1,
+        fixed_gate: float | None = None,
     ):
         super().__init__()
         if not 0.0 < initial_gate < 1.0:
             raise ValueError("initial_gate must be in (0, 1).")
+        if fixed_gate is not None and not 0.0 < fixed_gate < 1.0:
+            raise ValueError("fixed_gate must be in (0, 1) when provided.")
         self.feature_channels = feature_channels
         self.initial_gate = initial_gate
+        self.fixed_gate = fixed_gate
         self.last_gate: torch.Tensor | None = None
         # RDE-VOS MemCrompress uses a two-frame Conv3d with this kernel.
         self.temporal_compression = nn.Conv3d(
@@ -87,6 +91,8 @@ class ReliabilityGatedFusion(nn.Module):
         return self.temporal_compression(temporal_pair).squeeze(2)
 
     def _gate(self, previous: torch.Tensor, candidate: torch.Tensor, predicted_iou: torch.Tensor) -> torch.Tensor:
+        if self.fixed_gate is not None:
+            return previous.new_full((previous.size(0), 1), self.fixed_gate)
         pooled_previous = previous.mean(dim=(-2, -1))
         pooled_candidate = candidate.mean(dim=(-2, -1))
         pooled_difference = (previous - candidate).abs().mean(dim=(-2, -1))
@@ -142,7 +148,7 @@ class _RGMSpatialState:
 
 
 class ReliabilityGatedMemoryVideoPredictor(SAM2VideoPredictor):
-    """MedSAM2 predictor with one spatial state and native pointer history."""
+    """MedSAM2 predictor with recurrent spatial fusion and native pointers."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

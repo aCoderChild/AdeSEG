@@ -77,6 +77,7 @@ def parse_args():
     parser.add_argument("--prompt_records", type=Path, required=True)
     parser.add_argument("--sequence", required=True)
     parser.add_argument("--clip_length", type=int, default=4)
+    parser.add_argument("--fixed_gate", type=float, default=None)
     parser.add_argument("--device", choices=["cuda", "mps", "cpu"], default="cpu")
     parser.add_argument("--output_dir", type=Path, required=True)
     parser.add_argument("--tolerance", type=float, default=0.02)
@@ -100,7 +101,8 @@ def main():
         raise ValueError("The requested clip extends past the sequence end.")
 
     trainer = ReliabilityGatedMemoryTrainer(
-        config["sam2_cfg"], ROOT / config["sam2_checkpoint"], args.device
+        config["sam2_cfg"], ROOT / config["sam2_checkpoint"], args.device,
+        fixed_gate=args.fixed_gate,
     )
     trainer.model.eval()
     trainer.state_fusion.eval()
@@ -126,7 +128,9 @@ def main():
         predictor_target="modeling.rgm_memory.ReliabilityGatedMemoryVideoPredictor",
     )
     predictor.eval()
-    predictor.state_fusion = ReliabilityGatedFusion(predictor.mem_dim).to(args.device)
+    predictor.state_fusion = ReliabilityGatedFusion(
+        predictor.mem_dim, fixed_gate=args.fixed_gate
+    ).to(args.device)
     predictor.state_fusion.load_state_dict(trainer.state_fusion.state_dict())
     predictor.state_fusion.eval()
     inference_state = predictor.init_state(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PolypGen MedSAM2 VOS with native and RGM-MedSAM2 memory."""
+"""PolypGen MedSAM2 VOS with native and recurrent-fusion memory."""
 
 from __future__ import annotations
 
@@ -228,7 +228,7 @@ def parse_args():
     config_paths, _ = config_parser.parse_known_args()
     config = load_config(config_paths.config)
     parser = argparse.ArgumentParser(
-        description="PolypGen MedSAM2 VOS with native or RGM recurrent memory.",
+        description="PolypGen MedSAM2 VOS with native or recurrent-fusion memory.",
         parents=[config_parser],
     )
     parser.add_argument("--sam2_cfg", default=config["sam2_cfg"])
@@ -247,15 +247,15 @@ def parse_args():
         choices=MEMORY_BACKENDS,
         default="native",
         help=(
-            "native is the MedSAM2 baseline; rgm is the reliability-gated "
-            "recurrent-memory experiment."
+            "native is the MedSAM2 baseline; rgm is the recurrent-fusion "
+            "memory experiment."
         ),
     )
     parser.add_argument(
         "--rgm_checkpoint",
         type=Path,
         default=None,
-        help="ReliabilityGatedFusion checkpoint produced by scripts/train_rgm.py.",
+        help="Recurrent-fusion checkpoint produced by scripts/train_rgm.py.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
     return parser.parse_args(), config
@@ -293,7 +293,14 @@ def main():
             raise ValueError("RGM checkpoint has an unrecognized format.")
         if checkpoint.get("feature_channels") != predictor.mem_dim:
             raise ValueError("RGM checkpoint feature width does not match this MedSAM2 model.")
-        predictor.state_fusion = ReliabilityGatedFusion(predictor.mem_dim).to(args.device)
+        fusion_config = checkpoint.get("fusion_config", {})
+        if not isinstance(fusion_config, dict):
+            raise ValueError("RGM checkpoint has an invalid fusion configuration.")
+        predictor.state_fusion = ReliabilityGatedFusion(
+            predictor.mem_dim,
+            initial_gate=float(fusion_config.get("initial_gate", 0.1)),
+            fixed_gate=fusion_config.get("fixed_gate"),
+        ).to(args.device)
         predictor.state_fusion.load_state_dict(checkpoint["state_dict"])
         predictor.state_fusion.eval()
     yolo_model = load_yolo_model(args.yolo_checkpoint)
