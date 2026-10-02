@@ -1,5 +1,30 @@
 # Experiment record
 
+## Current candidate-gated architecture (2026-10-02)
+
+Main now uses a revised reliability placement:
+
+```text
+g_t = reliability_gate(S_(t-1), C_t, predicted_iou)
+gated_candidate = g_t * C_t
+S_t = Conv3D([S_(t-1), gated_candidate])
+```
+
+The gate therefore filters current-frame candidate evidence **before** the
+single recurrent Conv3D fusion. There is no post-fusion interpolation with the
+previous state. The Conv3D initialization and gate initialization preserve the
+same initial EMA-like update, `0.9 * S_(t-1) + 0.1 * C_t`, before training.
+
+This implementation uses checkpoint format `adseg_rgm_candidate_gate_v2`.
+Legacy checkpoints from the post-fusion-gate implementation are intentionally
+incompatible.
+
+**All numerical RFM/RGM results below were produced by the older post-fusion-
+gate architecture. They are historical evidence only and must not be reported
+as results for the current candidate-gated implementation.** The current
+architecture requires a new train--inference parity check, training run,
+validation, fixed-gate attribution, and held-out evaluation.
+
 ## Recurrent Fusion Memory protocol
 
 Recurrent Fusion Memory retains one recurrent spatial mask-memory state and
