@@ -43,11 +43,15 @@ adenoid protocol defines the clinical ratio.
 Recurrent Fusion Memory for MedSAM2 investigates whether MedSAM2's multi-frame
 spatial memory can be compressed into one recurrent state while retaining its
 native object-pointer history. Its main component is an RDE-VOS-inspired
-two-frame spatial convolution. The optional LiVOS-inspired gate is retained as
-an ablation, rather than a headline contribution.
+two-frame spatial convolution.
 
-Native MedSAM2 remains the primary baseline. The first held-out experiment did
-not preserve the validation gain, so recurrent fusion is an experimental
+The current reliability gate is applied **before** recurrent fusion. It scales
+the current candidate memory only; Conv3D then performs the single old/new
+state fusion. The architecture therefore does not fuse the previous state a
+second time after Conv3D.
+
+Native MedSAM2 remains the primary baseline. The previous held-out experiment
+did not preserve the validation gain, so recurrent fusion is an experimental
 memory--accuracy trade-off rather than an improved segmentation method.
 
 ## Repository layout
@@ -77,19 +81,37 @@ fully automatic challenge systems.
 ## Recurrent-fusion memory experiment
 
 `modeling/rgm_memory.py` and `training/rgm_trainer.py` implement the current
-recurrent-fusion experiment. It replaces only spatial mask memories with a recurrent state;
-the anchor and MedSAM2's normal recent object-pointer history remain available
-to memory attention. `scripts/train_rgm.py` freezes MedSAM2 in evaluation mode,
-uses the same decoder and memory-encoding path as inference, updates state from
-predicted masks, and applies Dice+BCE only to future predictions.
-The optional gate receives decoder-predicted IoU plus pooled summaries of the
-prior state, candidate, and their absolute difference. It is never trained
-against ground-truth IoU. A fixed-gate ablation showed no material benefit
-from learning this gate in the current protocol.
+recurrent-fusion experiment. It replaces only spatial mask memories with a
+recurrent state; the anchor and MedSAM2's normal recent object-pointer history
+remain available to memory attention. `scripts/train_rgm.py` freezes MedSAM2 in
+evaluation mode, uses the same decoder and memory-encoding path as inference,
+updates state from predicted masks, and applies Dice+BCE only to future
+predictions.
 
-The initial update is fixed EMA alpha=0.1 by construction. The implementation
-is retained for memory-efficiency and failure-analysis experiments; it is not
-currently claimed as a segmentation improvement.
+For frame `t`, the gate receives decoder-predicted IoU plus pooled summaries of
+the prior state, current candidate, and their absolute difference. It outputs a
+scalar `g_t`, which filters the current candidate before fusion:
+
+```text
+g_t = reliability_gate(S_(t-1), C_t, predicted_iou)
+gated_candidate = g_t * C_t
+S_t = Conv3D([S_(t-1), gated_candidate])
+```
+
+The gate never receives ground-truth IoU. Conv3D is the only operation that
+fuses previous and current spatial memory. At initialization, the gate starts
+at 0.1 and the Conv3D center weights are chosen so the complete update is
+exactly `0.9 * S_(t-1) + 0.1 * C_t` before training.
+
+This candidate-gated implementation uses checkpoint format
+`adseg_rgm_candidate_gate_v2`. Checkpoints from the older post-fusion-gate
+architecture are intentionally incompatible and must not be reused.
+
+The historical results in `EXPERIMENTS.md` were produced with the older
+post-fusion-gate architecture unless explicitly marked otherwise. They remain
+useful as experiment history but do not validate the current candidate-gated
+implementation. The new architecture requires a fresh parity check, training,
+validation, and held-out evaluation.
 
 The bundled MedSAM2 code has one minimal RGM instrumentation change: compact
 per-frame outputs retain the decoder's selected predicted-IoU value. Native
