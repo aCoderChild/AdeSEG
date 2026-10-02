@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train frozen-MedSAM2 RGM from reproducible YOLO box prompts."""
+"""Train frozen-MedSAM2 recurrent fusion from reproducible YOLO box prompts."""
 
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ from modeling.medsam2 import load_video_frame_like_predictor
 from training.losses import dice_bce_loss
 from training.rgm_trainer import ReliabilityGatedMemoryTrainer, rgm_optimizer
 
+
+CHECKPOINT_FORMAT = "adseg_rgm_candidate_gate_v2"
 
 # seq7 has no frozen YOLO prompt and is intentionally absent from prompt_records.
 DEFAULT_TRAIN_SEQUENCES = (
@@ -98,7 +100,7 @@ def parse_args():
         "--fixed_gate",
         type=float,
         default=None,
-        help="Keep the update gate fixed while training the Conv3D fusion only.",
+        help="Keep the current-candidate reliability gate fixed while training Conv3D.",
     )
     parser.add_argument("--gate_learning_rate", type=float, default=1e-4)
     parser.add_argument("--fusion_learning_rate", type=float, default=1e-5)
@@ -132,11 +134,17 @@ def main():
     trainer.state_fusion.train()
     if args.resume_checkpoint is not None:
         checkpoint = torch.load(args.resume_checkpoint, map_location=args.device, weights_only=True)
-        if checkpoint.get("format") != "adseg_rgm_rde_livos_v1":
-            raise ValueError("resume_checkpoint has an unrecognized RGM format.")
+        if checkpoint.get("format") != CHECKPOINT_FORMAT:
+            raise ValueError(
+                "resume_checkpoint uses an incompatible recurrent-fusion architecture. "
+                "Retrain with the candidate-gated v2 implementation."
+            )
         if checkpoint.get("feature_channels") != trainer.model.mem_dim:
             raise ValueError("resume_checkpoint has an incompatible feature width.")
-        saved_fixed_gate = checkpoint.get("fusion_config", {}).get("fixed_gate")
+        fusion_config = checkpoint.get("fusion_config", {})
+        if fusion_config.get("gate_position") != "candidate_before_fusion":
+            raise ValueError("resume_checkpoint has an incompatible gate position.")
+        saved_fixed_gate = fusion_config.get("fixed_gate")
         if saved_fixed_gate != args.fixed_gate:
             raise ValueError("resume_checkpoint fixed-gate setting does not match this run.")
         trainer.state_fusion.load_state_dict(checkpoint["state_dict"])
@@ -189,11 +197,12 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     torch.save({
-        "format": "adseg_rgm_rde_livos_v1",
+        "format": CHECKPOINT_FORMAT,
         "feature_channels": trainer.model.mem_dim,
         "fusion_config": {
             "initial_gate": trainer.state_fusion.initial_gate,
             "fixed_gate": trainer.state_fusion.fixed_gate,
+            "gate_position": "candidate_before_fusion",
         },
         "state_dict": trainer.state_fusion.state_dict(),
     }, args.output_dir / "rgm_fusion.pt")
@@ -205,6 +214,7 @@ def main():
         "device": args.device,
         "stage": args.stage,
         "fixed_gate": args.fixed_gate,
+        "gate_position": "candidate_before_fusion",
         "gate_learning_rate": args.gate_learning_rate,
         "fusion_learning_rate": args.fusion_learning_rate,
         "gradient_clip_norm": args.gradient_clip_norm,
