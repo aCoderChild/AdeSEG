@@ -76,15 +76,15 @@ class ReliabilityGatedFusion(nn.Module):
     def _initialize_recurrent_fusion(self) -> None:
         """Start from EMA-like behavior while keeping fusion inside Conv3D.
 
-        The gate is initialized to ``initial_gate`` and scales only the current
-        candidate. The Conv3D center weights start as
+        The gate scales only the current candidate. The Conv3D center weights
+        are initialized so the complete first update is exactly
 
-            (1 - initial_gate) * previous + 1 * gated_candidate
+            (1 - g0) * previous + g0 * candidate
 
-        so the complete initial update is exactly
-
-            (1 - initial_gate) * previous + initial_gate * candidate.
+        where ``g0`` is ``fixed_gate`` for a fixed-gate ablation and
+        ``initial_gate`` otherwise.
         """
+        gate_at_init = self.fixed_gate if self.fixed_gate is not None else self.initial_gate
         with torch.no_grad():
             self.temporal_compression.weight.zero_()
             self.temporal_compression.bias.zero_()
@@ -92,7 +92,7 @@ class ReliabilityGatedFusion(nn.Module):
             for channel in range(self.feature_channels):
                 self.temporal_compression.weight[
                     channel, channel, 0, center, center
-                ] = 1.0 - self.initial_gate
+                ] = 1.0 - gate_at_init
                 self.temporal_compression.weight[
                     channel, channel, 1, center, center
                 ] = 1.0
