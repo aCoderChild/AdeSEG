@@ -62,17 +62,63 @@ adseg_livos_rde_v1
 Only checkpoints produced by the current LiVOS-gated RDE implementation should
 be used for training resume or inference.
 
-## Required evaluation
+## Required recurrent-memory evaluation
 
-Because the architecture changed, its results must be established from fresh
-runs. The required sequence is:
+The required sequence is:
 
 1. train/inference parity check;
 2. training on the frozen training split;
 3. validation on `seq16-seq19`;
-4. fixed-gate ablation;
+4. fixed-gate and ungated RDE ablations;
 5. held-out evaluation on `seq20-seq23`;
 6. retained-state storage and FPS measurement.
 
 No numerical result from a superseded recurrent-memory architecture is treated
 as evidence for the current implementation.
+
+## REFUGE2 measurement-pipeline preparation
+
+REFUGE2 is a static engineering proxy for the future adenoid two-region
+segmentation-to-measurement pipeline. Inference predicts disc and cup from
+GT-derived oracle boxes.
+
+The evaluator derives a non-overlapping rim:
+
+```text
+rim = disc AND NOT cup
+```
+
+and reports Dice/IoU for `disc`, `cup`, and `rim`.
+
+Three structural measurements are evaluated:
+
+```text
+vCDR           = vertical_diameter(cup) / vertical_diameter(disc)
+cup_rim_ratio  = area(cup) / area(rim)
+cup_fraction   = area(cup) / (area(cup) + area(rim))
+```
+
+For each ratio, report MAE, RMSE, Pearson, and Spearman against ground truth.
+The per-image CSV stores predicted/GT ratios and absolute errors. For the two
+area-ratio proxies, the summary also reports Pearson/Spearman association
+between cup/rim Dice and absolute measurement error.
+
+These area-ratio experiments verify the software path that will later support
+candidate adenoid measurements such as `adenoid / airway` and
+`adenoid / (adenoid + airway)`. They do not establish anatomical equivalence or
+clinical validity for adenoid hypertrophy.
+
+Run:
+
+```bash
+python3 scripts/run_refuge2.py \
+  --split val \
+  --output_dir outputs/refuge2_val
+```
+
+Outputs:
+
+```text
+outputs/refuge2_val/metrics_per_image.csv
+outputs/refuge2_val/summary.json
+```

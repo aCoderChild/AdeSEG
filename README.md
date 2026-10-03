@@ -75,9 +75,38 @@ and IoU 0.7134.
 
 ### REFUGE2
 
-REFUGE2 verifies static two-region segmentation and structural measurement. The
-oracle protocol uses GT-derived disc and cup boxes, so it is not comparable to
-fully automatic challenge systems.
+REFUGE2 is used as a static engineering proxy for the future two-region
+segmentation-to-measurement pipeline. The oracle protocol uses GT-derived disc
+and cup boxes, so it is not comparable to fully automatic challenge systems.
+
+Evaluation reports disc, cup, and derived disc-rim Dice/IoU. It keeps the
+standard vertical cup-to-disc ratio (vCDR) and also derives two non-overlapping
+area-ratio proxies from `cup` and `rim = disc - cup`:
+
+```text
+cup_rim_ratio = area(cup) / area(rim)
+cup_fraction  = area(cup) / (area(cup) + area(rim))
+```
+
+These exercise the same software paths as the candidate future adenoid ratios
+`adenoid / airway` and `adenoid / (adenoid + airway)`. REFUGE2 does not imply
+an anatomical or clinical equivalence between optic-disc structures and the
+adenoid/nasopharyngeal airway.
+
+For each structural ratio, the evaluator reports MAE, RMSE, Pearson, and
+Spearman agreement against ground truth. Per-image outputs also include ratio
+absolute errors and allow analysis of segmentation Dice versus downstream
+measurement error.
+
+Run the full REFUGE2 oracle evaluation with:
+
+```bash
+python3 scripts/run_refuge2.py \
+  --split val \
+  --output_dir outputs/refuge2_val
+```
+
+The run writes `metrics_per_image.csv` and `summary.json`.
 
 ## Recurrent-fusion memory experiment
 
