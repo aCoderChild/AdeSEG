@@ -22,7 +22,7 @@ NO_OBJ_SCORE = -1024.0
 class SAM2Base(torch.nn.Module):
     # Training-only: keep hard object gates in the forward pass, pass gradients through them.
     straight_through_object_gate = False
-    # Optional callable (object_score_logits, ious) -> object_score_logits, e.g. presence fusion with a detector.
+    # Optional callable (object_score_logits, ious, ungated mask logits) -> object_score_logits, e.g. presence fusion.
     object_score_hook = None
 
     def __init__(
@@ -379,7 +379,7 @@ class SAM2Base(torch.nn.Module):
         )
         if self.pred_obj_scores:
             if self.object_score_hook is not None:
-                object_score_logits = self.object_score_hook(object_score_logits, ious)
+                object_score_logits = self.object_score_hook(object_score_logits, ious, low_res_multimasks)
             is_obj_appearing = object_score_logits > 0
 
             # Mask used for spatial memories is always a *hard* choice between obj and no obj,

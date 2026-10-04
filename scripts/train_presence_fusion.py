@@ -47,7 +47,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--drop", nargs="*", default=[], choices=PRESENCE_FEATURES, help="Features set to zero (ablation).")
     args = parser.parse_args()
-    rows = list(csv.DictReader(open(args.data)))
+    rows = [r for r in csv.DictReader(open(args.data)) if r.get("observed", "0") == "0"]
     features = torch.tensor([[float(r[name]) for name in PRESENCE_FEATURES] for r in rows])
     for name in args.drop:
         features[:, PRESENCE_FEATURES.index(name)] = 0.0

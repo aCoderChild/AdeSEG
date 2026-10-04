@@ -5,7 +5,9 @@ For each fold k, clips are generated from the single frames and negative
 sequences held out of detector k (``build_detector_dataset.py --holdout_fold k``),
 so the detections are out-of-fold. Each clip runs through the Kalman predictor
 with detector observations, exactly as at test time, and every propagated frame
-without a confident detection is logged with its presence features and label.
+is logged in order with its presence features, label, frame gap, whether it had
+a confident detection, and the Dice of the decoder's mask before the presence
+gate (``dice_open``, what the frame scores if the gate stays open).
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+from torch.nn import functional as F
 
 ROOT = Path(__file__).resolve().parents[1]
 for path in (ROOT, ROOT / "MedSAM2"):
@@ -78,11 +81,12 @@ def main():
         ).to(args.device).eval()
         predictor.memory_update.load_state_dict(checkpoint["state_dict"])
     predictor.observation_conf = args.observation_conf
+    predictor.record_ungated_mask = True
 
     frames = list_single_frames(args.polypgen_root, excluded=load_excluded_paths(args.exclude_list))
     sequences = list_negative_sequences(args.polypgen_root)
     rng = np.random.default_rng(args.seed)
-    fields = ["fold", "clip", "frame", "present", "absence_mode", *PRESENCE_FEATURES]
+    fields = ["fold", "clip", "frame", "gap", "present", "observed", "dice_open", "absence_mode", *PRESENCE_FEATURES]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w", newline="") as handle, torch.inference_mode():
         writer = csv.DictWriter(handle, fieldnames=fields)
@@ -110,11 +114,17 @@ def main():
                 predictor.add_new_points_or_box(state, frame_idx=0, obj_id=1, box=first_box(clip["masks"][0].numpy()))
                 for frame_idx, _, _ in predictor.propagate_in_video(state, start_frame_idx=0):
                     trace = state["output_dict"]["non_cond_frame_outputs"].get(frame_idx, {}).get("presence_trace")
-                    if trace is None or trace["observed"]:
+                    if trace is None:
                         continue
+                    target = clip["masks"][frame_idx].to(args.device) > 0
+                    ungated = F.interpolate(predictor.ungated_mask[:, None], size=target.shape, mode="bilinear")[0, 0] > 0
+                    total = ungated.sum() + target.sum()
                     writer.writerow({
                         "fold": fold, "clip": clip_index, "frame": frame_idx,
-                        "present": int(clip["present"][frame_idx]), "absence_mode": clip["absence_mode"],
+                        "gap": float(clip["frame_gaps"][frame_idx]),
+                        "present": int(clip["present"][frame_idx]), "observed": trace["observed"],
+                        "dice_open": float(2 * (ungated & target).sum() / total) if total else 1.0,
+                        "absence_mode": clip["absence_mode"],
                         **{name: trace[f"feature_{name}"] for name in PRESENCE_FEATURES},
                     })
                 print(f"fold {fold} clip {clip_index + 1}/{args.clips_per_fold}", flush=True)
