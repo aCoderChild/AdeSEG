@@ -39,6 +39,7 @@ DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
 MEMORY_BACKENDS = ("native", "kalman")
 KALMAN_CHECKPOINT_FORMAT = "adseg_kalman_memory_v2"
 PROMPT_SOURCES = ("yolo", "gt_box")
+OBSERVATION_FLOOR = 0.01  # detections below this count as no detection
 
 
 def load_config(config_path: Path) -> dict[str, object]:
@@ -134,7 +135,6 @@ def vos_inference(
     prompt_records=None,
     prompt_source="yolo",
     observation_detector=None,
-    observation_conf=0.5,
 ):
     started = time.perf_counter()
     video_dir = get_video_frame_dir(base_video_dir, video_name)
@@ -213,7 +213,7 @@ def vos_inference(
     if observation_detector is not None:
         for frame_idx in range(prompt_frame_idx + 1, len(frame_names)):
             frame_path = resolve_frame_path(video_dir, frame_names[frame_idx])
-            box, confidence = get_first_yolo_box(observation_detector, frame_path, yolo_imgsz, observation_conf)
+            box, confidence = get_first_yolo_box(observation_detector, frame_path, yolo_imgsz, OBSERVATION_FLOOR)
             if box is not None:
                 observations[frame_idx] = (box, confidence)
         predictor.observations = observations
@@ -251,6 +251,7 @@ def vos_inference(
                 "object_score": float(output["object_score_logits"].float().mean()),
                 "observation_confidence": observations[frame_idx][1] if frame_idx in observations else "",
                 **output.get("kalman_trace", {}),
+                **output.get("presence_trace", {}),
             }
         )
     save_diagnostics(output_mask_dir, video_output_name, diagnostic_rows)
@@ -318,7 +319,11 @@ def parse_args():
         "--observation_detector", type=Path, default=None,
         help="Detector whose confident boxes prompt the decoder on propagated frames (detector observations).",
     )
-    parser.add_argument("--observation_conf", type=float, default=0.5)
+    parser.add_argument("--observation_conf", type=float, default=0.5, help="Detections at or above prompt the decoder.")
+    parser.add_argument(
+        "--presence_fusion", type=Path, default=None,
+        help="Presence-fusion checkpoint from scripts/train_presence_fusion.py (needs --observation_detector).",
+    )
     parser.add_argument(
         "--observation_box_only", action="store_true",
         help="Ablation: detector boxes prompt the decoder but do not vote on presence.",
@@ -384,6 +389,13 @@ def main():
     if observation_detector is not None:
         predictor.observation_presence = not args.observation_box_only
         predictor.observation_clean = not args.observation_on_memory
+        predictor.observation_conf = args.observation_conf
+        if args.presence_fusion is not None:
+            from modeling.detector_observation import PresenceFusion
+
+            predictor.presence_fusion = PresenceFusion().to(predictor.device)
+            predictor.presence_fusion.load_state_dict(torch.load(args.presence_fusion, map_location=predictor.device)["state_dict"])
+            predictor.presence_fusion.eval()
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:
         raise RuntimeError(f"No sequences found under {args.base_video_dir}")
@@ -406,7 +418,6 @@ def main():
             prompt_records=prompt_records,
             prompt_source=args.prompt_source,
             observation_detector=observation_detector,
-            observation_conf=args.observation_conf,
         )
         if prompt is not None:
             used_prompts[output_name] = prompt
@@ -430,6 +441,7 @@ def main():
         "observation_conf": args.observation_conf,
         "observation_box_only": args.observation_box_only,
         "observation_on_memory": args.observation_on_memory,
+        "presence_fusion": str(args.presence_fusion) if args.presence_fusion else None,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
         "yolo_checkpoint": str(args.yolo_checkpoint),

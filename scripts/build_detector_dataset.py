@@ -6,6 +6,10 @@ Positives: ``data_C1``..``data_C6`` single frames minus
 mask region. Background: a subsample of ``sequenceData/negativeOnly`` frames with
 empty label files. No ``sequenceData/positive`` frame is used. Images are
 symlinked; labels are YOLO ``class cx cy w h`` (normalized).
+
+With ``--holdout_fold k --folds n``, centers C(i) with (i - 1) % n == k and
+negative sequences with index % n == k are left out (cross-fitting: the
+detector then gives out-of-fold detections on the held-out part).
 """
 
 from __future__ import annotations
@@ -52,11 +56,17 @@ def main():
     parser.add_argument("--val_fraction", type=float, default=0.1)
     parser.add_argument("--min_area_fraction", type=float, default=2e-4)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--folds", type=int, default=1)
+    parser.add_argument("--holdout_fold", type=int, default=None)
     args = parser.parse_args()
     rng = np.random.default_rng(args.seed)
 
     positives = list_single_frames(args.polypgen_root, excluded=load_excluded_paths(args.exclude_list))
-    negatives = [path for sequence in list_negative_sequences(args.polypgen_root) for path in sequence]
+    sequences = list_negative_sequences(args.polypgen_root)
+    if args.holdout_fold is not None:
+        positives = [f for f in positives if (int(f.center[1:]) - 1) % args.folds != args.holdout_fold]
+        sequences = [seq for i, seq in enumerate(sequences) if i % args.folds != args.holdout_fold]
+    negatives = [path for sequence in sequences for path in sequence]
     negatives = negatives[:: args.negative_stride]
     counts = {"train": [0, 0, 0], "val": [0, 0, 0]}  # positive images, boxes, background images
 
