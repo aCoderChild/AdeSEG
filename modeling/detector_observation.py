@@ -99,6 +99,7 @@ class DetectorObservationMixin:
         finally:
             self.object_score_hook = None
             self.kalman_observation_frame = False
+            self.kalman_observation_logit = None
         current_out["presence_trace"] = trace
         return current_out, pred_masks
 
@@ -113,3 +114,5 @@ class ObservedVideoPredictor(DetectorObservationMixin, SAM2VideoPredictor):
 class ObservedKalmanVideoPredictor(DetectorObservationMixin, KalmanMemoryVideoPredictor):
     def _mark_clean_observation(self, kwargs):
         self.kalman_observation_frame = True
+        box, confidence = self.observations[kwargs["frame_idx"]]
+        self.kalman_observation_logit = detector_logit(confidence)

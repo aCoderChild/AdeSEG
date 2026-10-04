@@ -37,7 +37,7 @@ from datasets.polypgen import (
 
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
 MEMORY_BACKENDS = ("native", "kalman")
-KALMAN_CHECKPOINT_FORMAT = "adseg_kalman_memory_v3"
+KALMAN_CHECKPOINT_FORMAT = "adseg_kalman_memory_v4"
 PROMPT_SOURCES = ("yolo", "gt_box")
 OBSERVATION_FLOOR = 0.01  # detections below this count as no detection
 
@@ -94,16 +94,6 @@ def stored_spatial_memory_bytes(inference_state, memory_backend: str) -> int:
             total += tensor_bytes(output.get("maskmem_features"))
             total += tensor_bytes(output.get("maskmem_pos_enc"))
     return total
-
-
-def frame_times_from_names(frame_names):
-    """Raw-frame times from trailing integers in frame names, else frame indices."""
-    numbers = [re.search(r"(\d+)$", name) for name in frame_names]
-    if all(numbers):
-        times = [float(match.group(1)) for match in numbers]
-        if all(later > earlier for earlier, later in zip(times, times[1:])):
-            return times
-    return [float(index) for index in range(len(frame_names))]
 
 
 def first_ground_truth_box(base_video_dir, video_name, frame_names):
@@ -197,7 +187,6 @@ def vos_inference(
         f"{video_output_name}: adding {prompt_source} box prompt on frame {prompt_frame_idx} "
         f"({frame_names[prompt_frame_idx]}), confidence={prompt_confidence:.4f}"
     )
-    inference_state["frame_times"] = frame_times_from_names(frame_names)
     if memory_backend == "kalman":
         inference_state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": prompt_frame_idx})
     predictor.add_new_points_or_box(

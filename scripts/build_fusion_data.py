@@ -106,7 +106,7 @@ def main():
                         observations[index] = boxes[0] if boxes else (None, 0.0)
                     state = predictor.init_state(video_path=directory, offload_video_to_cpu=True)
                 if kalman:
-                    state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": 0, "frame_times": times})
+                    state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": 0})
                 predictor.observations = observations
                 predictor.add_new_points_or_box(state, frame_idx=0, obj_id=1, box=first_box(clip["masks"][0].numpy()))
                 for frame_idx, _, _ in predictor.propagate_in_video(state, start_frame_idx=0):

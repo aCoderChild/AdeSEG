@@ -7,20 +7,29 @@ Replaces MedSAM2's memory bank with two constant-size slots:
 
 Per frame ``t`` (predict -> read -> observe -> update, as in RKN / KalmanNet)::
 
-    predict:  P_prior = P_{t-1} + Q_t        Q_t = q * c(Q_net(F_t, |F_t - F_{t-1}|, log1p dt))
+    predict:  P_prior = P_{t-1} + q
     read:     memory attention sees S_{t-1} + u * log1p(P_prior)
     observe:  C_t = MedSAM2 memory encoder(F_t, predicted mask_t)
-    update:   R_t = (r + a * (1 - p_t)) * c(R_net(C_t, normalize(C_t - S_{t-1}), F_t, mask_t, p_t))
+    update:   R_t = (r + a * (1 - p_t)) * c(D_t - mean(D_t)) * [c(g(logit d_t)) on detector frames]
+              D_t = R_net(C_t, normalize(C_t - S_{t-1}), F_t, mask_t, p_t)
               K_t = P_prior / (P_prior + R_t)
               S_t = S_{t-1} + K_t * (C_t - S_{t-1})
               P_t = (1 - K_t) * P_prior
 
 The transition is identity, the covariance is diagonal and shared across channels
 at each pixel, and the observation model is identity (RKN's update with H = I).
-The networks learn bounded corrections c(x) = range ** tanh(x) to the noise
-levels q, r, a; they start at zero (c = 1), so the untrained module keeps
-presence gating (an absent frame writes about 17% of a present one) and training
-cannot remove it.
+The overall write level is hand-set: q, r and the absence noise a (an absent
+frame writes about 17% of a present one). Learning only redistributes it, with
+bounded corrections c(x) = range ** tanh(x):
+
+- R_net's map is centred per frame, so it decides where in the frame the new
+  observation is trusted (polyp vs. highlights, occluders, blur), not how much
+  the frame is written overall;
+- g maps the detector confidence d_t to how much a detector observation is trusted.
+
+Both start at zero (c = 1), so the untrained module is the hand-set filter.
+Pseudo-videos made from single frames cannot teach how fast appearance changes,
+which is why the overall write level is not learned.
 ``KalmanMemoryMixin`` hooks MedSAM2's ``_prepare_memory_conditioned_features``
 (predict + read) and ``_encode_memory_in_output`` (update), which both the video
 predictor and ``SAM2Train`` call on every frame, so training and inference share
@@ -84,9 +93,11 @@ class KalmanMemoryUpdate(nn.Module):
         self.absence_noise = absence_noise
         self.log_noise_range = math.log(noise_range)
         self.image_projection = nn.Conv2d(image_channels, projection_channels, 1)
-        self.process_head = _noise_head(2 * projection_channels + 1, hidden_channels)
         self.observation_head = _noise_head(2 * memory_channels + projection_channels + 2, hidden_channels)
-        self.log_initial_variance = nn.Parameter(torch.tensor(math.log(initial_variance)))
+        self.detection_trust = nn.Linear(1, 1)
+        nn.init.zeros_(self.detection_trust.weight)
+        nn.init.zeros_(self.detection_trust.bias)
+        self.register_buffer("log_initial_variance", torch.tensor(math.log(initial_variance)))
         self.uncertainty_embedding = nn.Parameter(torch.zeros(memory_channels))
 
     def correction(self, head_output: torch.Tensor) -> torch.Tensor:
@@ -101,33 +112,32 @@ class KalmanMemoryUpdate(nn.Module):
     def readout(self, mean: torch.Tensor, variance: torch.Tensor) -> torch.Tensor:
         return mean + self.uncertainty_embedding.view(1, -1, 1, 1) * torch.log1p(variance)
 
-    def predict(self, variance, image_projection, previous_image_projection, frame_gap):
-        batch, _, height, width = variance.shape
-        log_gap = torch.log1p(frame_gap.reshape(batch, 1, 1, 1).clamp_min(0.0))
-        process_noise = self.process_noise * self.correction(self.process_head(torch.cat([
-            image_projection,
-            (image_projection - previous_image_projection).abs(),
-            log_gap.expand(batch, 1, height, width),
-        ], dim=1)))
-        prior_variance = (variance + process_noise).clamp(self.min_variance, self.max_variance)
-        return prior_variance, process_noise
+    def predict(self, variance):
+        return (variance + self.process_noise).clamp(self.min_variance, self.max_variance)
 
-    def update(self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability):
+    def update(
+        self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability,
+        detection_logit=None,
+    ):
         if mean.shape != candidate.shape or mean.ndim != 4:
             raise ValueError("mean and candidate must be matching [B, C, H, W] tensors.")
         batch, _, height, width = mean.shape
         mask_probability = F.interpolate(mask_probability, size=(height, width), mode="area")
         presence = presence_probability.reshape(batch, 1, 1, 1)
         innovation = candidate - mean
+        spatial = self.observation_head(torch.cat([
+            candidate,
+            F.normalize(innovation, dim=1),
+            image_projection,
+            mask_probability,
+            presence.expand(batch, 1, height, width),
+        ], dim=1))
         observation_noise = (self.observation_noise + self.absence_noise * (1.0 - presence)) * self.correction(
-            self.observation_head(torch.cat([
-                candidate,
-                F.normalize(innovation, dim=1),
-                image_projection,
-                mask_probability,
-                presence.expand(batch, 1, height, width),
-            ], dim=1))
+            spatial - spatial.mean(dim=(2, 3), keepdim=True)
         )
+        if detection_logit is not None:
+            trust = self.detection_trust(torch.full((batch, 1), detection_logit, device=mean.device))
+            observation_noise = observation_noise * self.correction(trust).view(batch, 1, 1, 1)
         gain = prior_variance / (prior_variance + observation_noise)
         return {
             "mean": mean + gain * innovation,
@@ -140,19 +150,17 @@ class KalmanMemoryUpdate(nn.Module):
 class KalmanState:
     """Anchor slot plus Kalman mean/variance."""
 
-    def __init__(self, anchor, position, image_projection, frame_idx, frame_time, update: KalmanMemoryUpdate):
+    def __init__(self, anchor, position, frame_idx, update: KalmanMemoryUpdate):
         self.anchor = anchor.float()
         self.position = position.float()
         self.mean = self.anchor
         self.variance = update.initial_variance(self.mean)
-        self.image_projection = image_projection
         self.last_frame_idx = frame_idx
-        self.last_time = frame_time
         self.updates = 0
         self.detection = None
 
     def tensors(self) -> list[torch.Tensor]:
-        tensors = [self.anchor, self.position, self.mean, self.variance, self.image_projection]
+        tensors = [self.anchor, self.position, self.mean, self.variance]
         return tensors if self.detection is None else tensors + [self.detection]
 
 
@@ -163,17 +171,13 @@ class KalmanMemoryMixin:
         super().__init__(**kwargs)
         self.memory_update = None
         self.kalman_enabled = True
-        self.kalman_frame_times = None
         self.kalman_last_step = None
         self._kalman_step = None
         self.kalman_observation_frame = False
+        self.kalman_observation_logit = None
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
-
-    def _kalman_time(self, frame_idx: int) -> float:
-        times = self.kalman_frame_times
-        return float(frame_idx if times is None else times[frame_idx])
 
     def _prepare_memory_conditioned_features(
         self,
@@ -203,12 +207,9 @@ class KalmanMemoryMixin:
         state = output_dict["kalman_state"]
         if frame_idx != state.last_frame_idx + 1:
             raise ValueError("Kalman memory requires consecutive forward frames.")
-        frame_time = self._kalman_time(frame_idx)
-        gap = torch.full((batch,), frame_time - state.last_time, device=state.mean.device)
-        step["prior_variance"], step["process_noise"] = self.memory_update.predict(
-            state.variance, step["projection"], state.image_projection, gap
-        )
+        step["prior_variance"] = self.memory_update.predict(state.variance)
         step["observation"] = self.kalman_observation_frame
+        step["observation_logit"] = self.kalman_observation_logit if step["observation"] else None
         if step["observation"]:
             # Detector-prompted frame: decode on memory-free features, as on a prompt frame.
             step["pix_feat"] = super()._prepare_memory_conditioned_features(
@@ -265,8 +266,7 @@ class KalmanMemoryMixin:
         output_dict, frame_idx = step["output_dict"], step["frame_idx"]
         if step["init"]:
             output_dict["kalman_state"] = KalmanState(
-                candidate, current_out["maskmem_pos_enc"][-1], step["projection"],
-                frame_idx, self._kalman_time(frame_idx), self.memory_update,
+                candidate, current_out["maskmem_pos_enc"][-1], frame_idx, self.memory_update,
             )
             return
         state = output_dict["kalman_state"]
@@ -278,21 +278,16 @@ class KalmanMemoryMixin:
             step["projection"],
             torch.sigmoid(current_out["pred_masks"].float()),
             presence,
+            step["observation_logit"],
         )
         if not (torch.isfinite(updated["mean"]).all() and torch.isfinite(updated["variance"]).all()):
             raise FloatingPointError(f"Kalman state became non-finite at frame {frame_idx}.")
         state.mean, state.variance = updated["mean"], updated["variance"]
         if step.get("observation") and bool((presence > 0.5).all()):
             state.detection = candidate.float()
-        state.image_projection = step["projection"]
         state.last_frame_idx = frame_idx
-        state.last_time = self._kalman_time(frame_idx)
         state.updates += 1
-        updated.update(
-            presence=presence,
-            prior_variance=step["prior_variance"],
-            process_noise=step["process_noise"],
-        )
+        updated.update(presence=presence, prior_variance=step["prior_variance"])
         current_out["kalman"] = updated
         self.kalman_last_step = updated
 
@@ -318,18 +313,11 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
         anchor_idx = inference_state["kalman_anchor_frame_idx"]
         if set(outputs["cond_frame_outputs"]) != {anchor_idx}:
             raise ValueError("Kalman memory supports one initial prompt frame.")
-        self.kalman_frame_times = inference_state.get("frame_times")
         anchor = outputs["cond_frame_outputs"][anchor_idx]
         device = anchor["obj_ptr"].device
         _wait_for_offload(device)
-        _, backbone_out, _, _, _ = self._get_image_feature(inference_state, anchor_idx, 1)
         outputs["kalman_state"] = KalmanState(
-            anchor["maskmem_features"].to(device),
-            anchor["maskmem_pos_enc"][-1].to(device),
-            self.memory_update.project_image(backbone_out["backbone_fpn"][-1].float()),
-            anchor_idx,
-            self._kalman_time(anchor_idx),
-            self.memory_update,
+            anchor["maskmem_features"].to(device), anchor["maskmem_pos_enc"][-1].to(device), anchor_idx, self.memory_update,
         )
         anchor["maskmem_features"] = None
         anchor["maskmem_pos_enc"] = None
@@ -351,7 +339,6 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
                 "prior_variance_mean": float(step["prior_variance"].mean()),
                 "variance_mean": float(step["variance"].mean()),
                 "observation_noise_mean": float(step["observation_noise"].mean()),
-                "process_noise_mean": float(step["process_noise"].mean()),
             }
         return current_out, pred_masks
 

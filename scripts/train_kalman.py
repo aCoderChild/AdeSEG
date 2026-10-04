@@ -13,9 +13,10 @@ mixin (``training/kalman_trainer.py``). The loss on propagated frames ``t >= 1``
 follows MedSAM2's fine-tuning objective (``sam2.1_hiera_tiny_finetune512.yaml``),
 with the object-score term split by class:
 
-    present frames, gate open:  20 * focal(mask) + 1 * Dice(mask) + 1 * L1(predicted IoU, actual IoU)
-                     + 1 * BCE(object score, 1)          # MedSAM2 loss_class weight
-    empty frames:    w_absence * BCE(object score, 0)  # --absence_weight, relative to the 1 above
+    present frames, gate open:  20 * focal(mask) + 1 * Dice(mask)
+    present frames:  1 * BCE(object score, 1)
+    empty frames:    w_absence * BCE(object score, 0)  # --absence_weight, default 1: the Dice metric
+                                                       # counts an empty frame like a polyp frame
     present frames:  w_distill * ||student memory-conditioned features - native-bank teacher||^2  (default off)
 
 As in MedSAM2, mask losses are not applied to empty frames, so the object score
@@ -54,7 +55,7 @@ from datasets.pseudo_video import (
 from modeling.medsam2 import load_yolo_model
 from training.kalman_trainer import KalmanLoss, build_training_model, clip_observations, run_clip, video_batch
 
-CHECKPOINT_FORMAT = "adseg_kalman_memory_v3"
+CHECKPOINT_FORMAT = "adseg_kalman_memory_v4"
 
 
 def parse_args():
@@ -78,9 +79,12 @@ def parse_args():
     parser.add_argument("--gradient_clip_norm", type=float, default=1.0)
     parser.add_argument("--focal_weight", type=float, default=20.0, help="MedSAM2 loss_mask weight.")
     parser.add_argument("--dice_weight", type=float, default=1.0, help="MedSAM2 loss_dice weight.")
-    parser.add_argument("--iou_weight", type=float, default=1.0, help="MedSAM2 loss_iou weight.")
     parser.add_argument(
-        "--absence_weight", type=float, default=0.1,
+        "--iou_weight", type=float, default=0.0,
+        help="MedSAM2 loss_iou weight; off because the IoU head is frozen and not an output.",
+    )
+    parser.add_argument(
+        "--absence_weight", type=float, default=1.0,
         help="Object-score BCE weight on empty frames, relative to 1.0 on present frames.",
     )
     parser.add_argument("--distill_weight", type=float, default=0.0)
@@ -183,10 +187,7 @@ def main():
             for clip in validation:
                 masks = clip["masks"].to(args.device)
                 model.observations = clip["observations"]
-                student, _ = run_clip(
-                    model, video_batch(clip["images"].to(args.device), masks),
-                    clip["frame_gaps"].cumsum(0).tolist(), False,
-                )
+                student, _ = run_clip(model, video_batch(clip["images"].to(args.device), masks), False)
                 frame_dice, frame_present = clip_dice(student, masks)
                 dice += frame_dice
                 present += frame_present
@@ -234,9 +235,7 @@ def main():
                 model.observations = clip["observations"]
                 masks = clip["masks"].to(args.device)
                 batch = video_batch(clip["images"].to(args.device), masks)
-                student, teacher = run_clip(
-                    model, batch, clip["frame_gaps"].cumsum(0).tolist(), run_teacher
-                )
+                student, teacher = run_clip(model, batch, run_teacher)
                 loss, stats = criterion(student, teacher, masks)
                 if loss.requires_grad:  # false when every frame was decoded from a detector box
                     (loss / args.accumulate).backward()

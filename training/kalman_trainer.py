@@ -49,11 +49,13 @@ class KalmanSAM2Train(KalmanMemoryMixin, SAM2Train):
         }
         logit = detector_logit(confidence)
         self.kalman_observation_frame = True
+        self.kalman_observation_logit = logit
         self.object_score_hook = lambda object_score, ious: object_score + logit
         try:
             return super().track_step(**kwargs)
         finally:
             self.kalman_observation_frame = False
+            self.kalman_observation_logit = None
             self.object_score_hook = None
 
     def prepare_prompt_inputs(self, backbone_out, input, start_frame_idx=0):
@@ -110,9 +112,8 @@ def clip_observations(detector, images) -> dict:
     return observations
 
 
-def run_clip(model, batch, frame_times, run_teacher):
+def run_clip(model, batch, run_teacher):
     """Kalman (student) outputs, and native-bank (teacher) outputs from the same prompt."""
-    model.kalman_frame_times = frame_times
     with torch.no_grad():
         backbone_out = model.forward_image(batch.flat_img_batch)
     backbone_out = model.prepare_prompt_inputs(backbone_out, batch)
@@ -131,16 +132,17 @@ def run_clip(model, batch, frame_times, run_teacher):
 class KalmanLoss(torch.nn.Module):
     """MedSAM2 fine-tuning loss on frames t >= 1, with the object-score term split by class.
 
-    Mask terms reuse ``MultiStepMultiMasksAndIous`` with the weights of
-    ``sam2.1_hiera_tiny_finetune512.yaml`` (applied only where the object is present
-    and the presence gate is open; a closed gate is a presence error, left to the BCE).
+    Mask terms reuse ``MultiStepMultiMasksAndIous`` with MedSAM2's focal/Dice weights
+    (``sam2.1_hiera_tiny_finetune512.yaml``), applied only where the object is present
+    and the presence gate is open (a closed gate is a presence error, left to the BCE).
+    The IoU term is off by default: the IoU head is frozen and is not an output.
     They supervise the output mask (the candidate MedSAM2's frozen IoU head selects)
     rather than the best-matching of the candidate masks. Its object-score term is replaced by BCE averaged separately over present frames
     (weight 1) and empty frames (``absence_weight``), so the ratio does not depend on
     how many frames are empty.
     """
 
-    def __init__(self, absence_weight=0.1, distill_weight=1.0, focal=20.0, dice=1.0, iou=1.0):
+    def __init__(self, absence_weight=1.0, distill_weight=0.0, focal=20.0, dice=1.0, iou=0.0):
         super().__init__()
         self.absence_weight = absence_weight
         self.distill_weight = distill_weight

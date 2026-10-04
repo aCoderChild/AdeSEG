@@ -24,7 +24,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "MedSAM2")]
 
 from datasets.polypgen import get_video_frame_dir, iter_polypgen_samples
 from modeling.medsam2 import build_video_predictor, load_video_frame_like_predictor
-from scripts.infer import first_ground_truth_box, frame_times_from_names
+from scripts.infer import first_ground_truth_box
 from training.kalman_trainer import build_training_model, video_batch
 
 
@@ -42,7 +42,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_predictor(config, device, target, memory_update, clip_paths, times, box):
+def run_predictor(config, device, target, memory_update, clip_paths, box):
     predictor = build_video_predictor(
         config["sam2_cfg"], ROOT / config["sam2_checkpoint"], device=device, predictor_target=target
     )
@@ -53,7 +53,7 @@ def run_predictor(config, device, target, memory_update, clip_paths, times, box)
         for path in clip_paths:
             (Path(clip_dir) / path.name).symlink_to(path.resolve())
         state = predictor.init_state(video_path=clip_dir, offload_video_to_cpu=False, offload_state_to_cpu=False)
-        state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": 0, "frame_times": times})
+        state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": 0})
         predictor.add_new_points_or_box(inference_state=state, frame_idx=0, obj_id=1, box=box)
         with torch.no_grad():
             masks = {idx: logits for idx, _, logits in predictor.propagate_in_video(state)}
@@ -91,7 +91,6 @@ def main():
     if box is None:
         raise SystemExit(f"{args.sequence} has no non-empty mask to prompt from.")
     clip = samples[prompt_idx : prompt_idx + args.clip_length]
-    times = frame_times_from_names([sample.image_path.stem for sample in clip])
 
     model = build_training_model(config["sam2_cfg"], ROOT / config["sam2_checkpoint"], args.device)
     if args.kalman_checkpoint is not None:
@@ -100,9 +99,9 @@ def main():
     if args.perturb:
         torch.manual_seed(0)
         with torch.no_grad():
-            for head in (model.memory_update.process_head[-1], model.memory_update.observation_head[-1]):
-                head.weight.normal_(0, 0.05)
-                head.bias.normal_(0, 0.5)
+            for layer in (model.memory_update.observation_head[-1], model.memory_update.detection_trust):
+                layer.weight.normal_(0, 0.05)
+                layer.bias.normal_(0, 0.5)
             model.memory_update.uncertainty_embedding.normal_(0, 0.05)
     model.memory_update.eval()
 
@@ -114,7 +113,6 @@ def main():
     width, height = Image.open(clip[0].image_path).size
     model_box = torch.from_numpy(box) * torch.tensor([size / width, size / height] * 2)
 
-    model.kalman_frame_times = times
     with torch.no_grad():
         backbone_out = model.prepare_prompt_inputs(model.forward_image(batch.flat_img_batch), batch)
         backbone_out["point_inputs_per_frame"][0] = {
@@ -129,9 +127,9 @@ def main():
     clip_paths = [sample.image_path for sample in clip]
     kalman_masks, kalman_outputs = run_predictor(
         config, args.device, "modeling.kalman_memory.KalmanMemoryVideoPredictor",
-        model.memory_update, clip_paths, times, box,
+        model.memory_update, clip_paths, box,
     )
-    native_masks, native_outputs = run_predictor(config, args.device, None, None, clip_paths, times, box)
+    native_masks, native_outputs = run_predictor(config, args.device, None, None, clip_paths, box)
     results = {
         "kalman": compare(student, kalman_masks, kalman_outputs, size, with_gain=True),
         "native_teacher": compare(teacher, native_masks, native_outputs, size, with_gain=False),
