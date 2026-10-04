@@ -320,10 +320,6 @@ def parse_args():
     parser.add_argument("--observation_conf", type=float, default=0.5, help="Detections at or above prompt the decoder.")
     parser.add_argument("--observation_stride", type=int, default=1, help="Run the detector on every n-th frame only.")
     parser.add_argument(
-        "--presence_filter", type=Path, default=None,
-        help="Temporal presence filter from scripts/train_presence_filter.py (needs --observation_detector).",
-    )
-    parser.add_argument(
         "--presence_fusion_unmeasured", type=Path, default=None,
         help="Fusion head without the detector feature, for frames the detector did not run on.",
     )
@@ -403,14 +399,6 @@ def main():
             predictor.presence_fusion = PresenceFusion().to(predictor.device)
             predictor.presence_fusion.load_state_dict(torch.load(args.presence_fusion, map_location=predictor.device)["state_dict"])
             predictor.presence_fusion.eval()
-        if args.presence_filter is not None:
-            from modeling.detector_observation import PresenceFilter
-
-            predictor.presence_filter = PresenceFilter().to(predictor.device)
-            predictor.presence_filter.load_state_dict(
-                torch.load(args.presence_filter, map_location=predictor.device)["state_dict"]
-            )
-            predictor.presence_filter.eval()
         if args.presence_fusion_unmeasured is not None:
             from modeling.detector_observation import PresenceFusion
 
@@ -467,7 +455,6 @@ def main():
         "observation_on_memory": args.observation_on_memory,
         "presence_fusion": str(args.presence_fusion) if args.presence_fusion else None,
         "observation_stride": args.observation_stride,
-        "presence_filter": str(args.presence_filter) if args.presence_filter else None,
         "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
