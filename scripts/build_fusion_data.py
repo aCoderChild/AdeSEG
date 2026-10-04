@@ -30,9 +30,9 @@ from datasets.pseudo_video import (
     DIFFICULTIES, IMAGE_MEAN, IMAGE_STD, PseudoVideoGenerator,
     list_negative_sequences, list_single_frames, load_excluded_paths,
 )
-from modeling.detector_observation import PRESENCE_FEATURES
-from modeling.kalman_memory import KalmanMemoryUpdate
-from modeling.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
+from modeling.detector_observation import PRESENCE_FEATURES, top_detections
+from modeling.kalman_memory import load_memory_update
+from modeling.medsam2 import build_video_predictor, load_yolo_model
 
 
 def write_clip(clip, directory: Path) -> list[float]:
@@ -73,11 +73,7 @@ def main():
         predictor_target="modeling.detector_observation." + ("ObservedKalmanVideoPredictor" if kalman else "ObservedVideoPredictor"),
     )
     if kalman:
-        checkpoint = torch.load(args.kalman_checkpoint, map_location=args.device, weights_only=True)
-        predictor.memory_update = KalmanMemoryUpdate(
-            predictor.mem_dim, predictor.hidden_dim, **checkpoint["update_config"]
-        ).to(args.device).eval()
-        predictor.memory_update.load_state_dict(checkpoint["state_dict"])
+        predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, args.device)
     predictor.observation_conf = args.observation_conf
 
     frames = list_single_frames(args.polypgen_root, excluded=load_excluded_paths(args.exclude_list))
@@ -100,10 +96,7 @@ def main():
                 with tempfile.TemporaryDirectory() as directory:
                     times = write_clip(clip, Path(directory))
                     names = sorted(Path(directory).glob("*.jpg"))
-                    observations = {}
-                    for index, path in enumerate(names[1:], start=1):
-                        boxes = get_yolo_boxes(detector, path, confidence=0.01, max_boxes=1)
-                        observations[index] = boxes[0] if boxes else (None, 0.0)
+                    observations = dict(enumerate(top_detections(detector, names[1:]), start=1))
                     state = predictor.init_state(video_path=directory, offload_video_to_cpu=True)
                 if kalman:
                     state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": 0})

@@ -29,6 +29,20 @@ from sam2.utils.misc import concat_points
 from modeling.kalman_memory import KalmanMemoryVideoPredictor
 
 PRESENCE_FEATURES = ("object_score", "predicted_iou", "detector_logit", "log_prior_variance")
+DETECTION_FLOOR = 0.01  # detections below this confidence count as no detection
+
+
+def top_detections(detector, frames, image_size: int = 640) -> list[tuple[list[float] | None, float]]:
+    """Top YOLO box (xyxy, frame pixels) and confidence per frame; ``frames`` are paths or BGR arrays."""
+    detections = []
+    for frame in frames:
+        boxes = detector.predict(frame, imgsz=image_size, conf=DETECTION_FLOOR, verbose=False)[0].boxes
+        if len(boxes):
+            best = int(boxes.conf.argmax())
+            detections.append((boxes.xyxy[best].tolist(), float(boxes.conf[best])))
+        else:
+            detections.append((None, 0.0))
+    return detections
 
 
 def detector_logit(confidence: float) -> float:
@@ -49,6 +63,12 @@ class PresenceFusion(nn.Module):
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return self.linear(features)
+
+
+def load_presence_fusion(path, device) -> PresenceFusion:
+    fusion = PresenceFusion().to(device)
+    fusion.load_state_dict(torch.load(path, map_location=device, weights_only=True)["state_dict"])
+    return fusion.eval()
 
 
 class DetectorObservationMixin:

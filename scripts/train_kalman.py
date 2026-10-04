@@ -52,10 +52,9 @@ from datasets.pseudo_video import (
     list_single_frames,
     load_excluded_paths,
 )
+from modeling.kalman_memory import save_memory_update
 from modeling.medsam2 import load_yolo_model
 from training.kalman_trainer import KalmanLoss, build_training_model, clip_observations, run_clip, video_batch
-
-CHECKPOINT_FORMAT = "adseg_kalman_memory_v4"
 
 
 def parse_args():
@@ -201,13 +200,7 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     def save(path):
-        torch.save({
-            "format": CHECKPOINT_FORMAT,
-            "memory_channels": model.mem_dim,
-            "image_channels": model.hidden_dim,
-            "update_config": model.memory_update.config,
-            "state_dict": model.memory_update.state_dict(),
-        }, path)
+        save_memory_update(model.memory_update, path)
 
     setup = {key: json.loads(json.dumps(value, default=str)) for key, value in vars(args).items()}
     setup.update({

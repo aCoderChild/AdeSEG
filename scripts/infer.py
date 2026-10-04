@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PolypGen MedSAM2 VOS with native and recurrent-fusion memory."""
+"""PolypGen MedSAM2 VOS: native or Kalman memory, optionally with detector observations (DOK-Mem)."""
 
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ for path in (PROJECT_ROOT, MEDSAM2_ROOT):
 import re
 
 from adenoid.io import load_binary_mask, resolve_mask_path, save_masks_to_dir
+from modeling.detector_observation import load_presence_fusion, top_detections
+from modeling.kalman_memory import load_memory_update
 from modeling.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
 from datasets.polypgen import (
     get_frame_names,
@@ -37,9 +39,7 @@ from datasets.polypgen import (
 
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
 MEMORY_BACKENDS = ("native", "kalman")
-KALMAN_CHECKPOINT_FORMAT = "adseg_kalman_memory_v4"
 PROMPT_SOURCES = ("yolo", "gt_box")
-OBSERVATION_FLOOR = 0.01  # detections below this count as no detection
 
 
 def load_config(config_path: Path) -> dict[str, object]:
@@ -198,10 +198,9 @@ def vos_inference(
 
     observations = {}
     if observation_detector is not None:
-        for frame_idx in range(prompt_frame_idx + observation_stride, len(frame_names), observation_stride):
-            frame_path = resolve_frame_path(video_dir, frame_names[frame_idx])
-            box, confidence = get_first_yolo_box(observation_detector, frame_path, yolo_imgsz, OBSERVATION_FLOOR)
-            observations[frame_idx] = (box, confidence or 0.0)
+        measured = range(prompt_frame_idx + observation_stride, len(frame_names), observation_stride)
+        paths = [resolve_frame_path(video_dir, frame_names[frame_idx]) for frame_idx in measured]
+        observations = dict(zip(measured, top_detections(observation_detector, paths, yolo_imgsz)))
         predictor.observations = observations
 
     for frame_idx in range(prompt_frame_idx):
@@ -265,7 +264,7 @@ def parse_args():
     config_paths, _ = config_parser.parse_known_args()
     config = load_config(config_paths.config)
     parser = argparse.ArgumentParser(
-        description="PolypGen MedSAM2 VOS with native or recurrent-fusion memory.",
+        description="PolypGen MedSAM2 VOS: native or Kalman memory, optionally with detector observations (DOK-Mem).",
         parents=[config_parser],
     )
     parser.add_argument("--sam2_cfg", default=config["sam2_cfg"])
@@ -327,45 +326,26 @@ def parse_args():
     return parser.parse_args(), config
 
 
-def main():
-    args, config = parse_args()
-    torch.manual_seed(args.seed)
-    if args.video_prompt_stride < 1:
-        raise ValueError("--video_prompt_stride must be at least 1")
-    if args.memory_backend == "kalman" and args.kalman_checkpoint is None:
-        raise ValueError("--kalman_checkpoint is required for Kalman-memory inference.")
-
-    predictor_target = {
-        "kalman": "modeling.kalman_memory.KalmanMemoryVideoPredictor",
-    }.get(args.memory_backend)
-    if args.observation_detector is not None:
-        predictor_target = {
-            "native": "modeling.detector_observation.ObservedVideoPredictor",
-            "kalman": "modeling.detector_observation.ObservedKalmanVideoPredictor",
-        }[args.memory_backend]
-    predictor = build_video_predictor(
-        args.sam2_cfg,
-        args.sam2_checkpoint,
-        args.device,
-        predictor_target=predictor_target,
-        predictor_overrides=None,
-    )
+def build_predictor(args):
+    """MedSAM2 video predictor for ``--memory_backend``, with detector observations if requested."""
+    observed = args.observation_detector is not None
+    target = {
+        ("native", False): None,
+        ("kalman", False): "modeling.kalman_memory.KalmanMemoryVideoPredictor",
+        ("native", True): "modeling.detector_observation.ObservedVideoPredictor",
+        ("kalman", True): "modeling.detector_observation.ObservedKalmanVideoPredictor",
+    }[args.memory_backend, observed]
+    predictor = build_video_predictor(args.sam2_cfg, args.sam2_checkpoint, args.device, predictor_target=target)
     if args.memory_backend == "kalman":
-        from modeling.kalman_memory import KalmanMemoryUpdate
-
-        checkpoint = torch.load(args.kalman_checkpoint, map_location=args.device, weights_only=True)
-        if checkpoint.get("format") != KALMAN_CHECKPOINT_FORMAT:
-            raise ValueError("Kalman checkpoint uses an incompatible memory architecture.")
-        if checkpoint.get("memory_channels") != predictor.mem_dim:
-            raise ValueError("Kalman checkpoint memory width does not match this MedSAM2 model.")
-        if checkpoint.get("image_channels") != predictor.hidden_dim:
-            raise ValueError("Kalman checkpoint image-feature width does not match this MedSAM2 model.")
-        predictor.memory_update = KalmanMemoryUpdate(
-            predictor.mem_dim, predictor.hidden_dim, **checkpoint["update_config"]
-        ).to(args.device)
-        predictor.memory_update.load_state_dict(checkpoint["state_dict"])
-        predictor.memory_update.eval()
-
+        predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
+    if observed:
+        predictor.observation_presence = not args.observation_box_only
+        predictor.observation_clean = not args.observation_on_memory
+        predictor.observation_conf = args.observation_conf
+        if args.presence_fusion is not None:
+            predictor.presence_fusion = load_presence_fusion(args.presence_fusion, predictor.device)
+        if args.presence_fusion_unmeasured is not None:
+            predictor.presence_fusion_unmeasured = load_presence_fusion(args.presence_fusion_unmeasured, predictor.device)
     if args.native_memory_frames is not None:
         if args.memory_backend != "native" or not 0 <= args.native_memory_frames < predictor.num_maskmem:
             raise ValueError("--native_memory_frames needs the native backend and a value in [0, 6].")
@@ -375,27 +355,21 @@ def main():
             torch.cat([codes[: args.native_memory_frames], codes[-1:]]), requires_grad=False
         )
         predictor.num_maskmem = args.native_memory_frames + 1
+    return predictor
+
+
+def main():
+    args, config = parse_args()
+    torch.manual_seed(args.seed)
+    if args.video_prompt_stride < 1:
+        raise ValueError("--video_prompt_stride must be at least 1")
+    if args.memory_backend == "kalman" and args.kalman_checkpoint is None:
+        raise ValueError("--kalman_checkpoint is required for Kalman-memory inference.")
+
+    predictor = build_predictor(args)
 
     yolo_model = load_yolo_model(args.yolo_checkpoint) if args.prompt_source == "yolo" else None
     observation_detector = load_yolo_model(args.observation_detector) if args.observation_detector else None
-    if observation_detector is not None:
-        predictor.observation_presence = not args.observation_box_only
-        predictor.observation_clean = not args.observation_on_memory
-        predictor.observation_conf = args.observation_conf
-        if args.presence_fusion is not None:
-            from modeling.detector_observation import PresenceFusion
-
-            predictor.presence_fusion = PresenceFusion().to(predictor.device)
-            predictor.presence_fusion.load_state_dict(torch.load(args.presence_fusion, map_location=predictor.device)["state_dict"])
-            predictor.presence_fusion.eval()
-        if args.presence_fusion_unmeasured is not None:
-            from modeling.detector_observation import PresenceFusion
-
-            predictor.presence_fusion_unmeasured = PresenceFusion().to(predictor.device)
-            predictor.presence_fusion_unmeasured.load_state_dict(
-                torch.load(args.presence_fusion_unmeasured, map_location=predictor.device)["state_dict"]
-            )
-            predictor.presence_fusion_unmeasured.eval()
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:
         raise RuntimeError(f"No sequences found under {args.base_video_dir}")

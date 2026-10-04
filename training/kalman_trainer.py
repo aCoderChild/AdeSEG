@@ -9,8 +9,9 @@ from torch.nn import functional as F
 from MedSAM2.training.loss_fns import CORE_LOSS_KEY, MultiStepMultiMasksAndIous
 from MedSAM2.training.model.sam2 import SAM2Train
 from MedSAM2.training.utils.data_utils import BatchedVideoDatapoint, BatchedVideoMetaData
+from sam2.utils.misc import concat_points
 from datasets.pseudo_video import IMAGE_MEAN, IMAGE_STD
-from modeling.detector_observation import detector_logit
+from modeling.detector_observation import detector_logit, top_detections
 from modeling.kalman_memory import KalmanMemoryMixin, KalmanMemoryUpdate
 from modeling.medsam2 import build_video_predictor
 
@@ -43,10 +44,11 @@ class KalmanSAM2Train(KalmanMemoryMixin, SAM2Train):
         if kwargs["is_init_cond_frame"] or box is None or confidence < self.observation_conf:
             return super().track_step(**kwargs)
         device = kwargs["current_vision_feats"][-1].device
-        kwargs["point_inputs"] = {
-            "point_coords": torch.tensor(box, dtype=torch.float32, device=device).reshape(1, 2, 2),
-            "point_labels": torch.tensor([[2, 3]], dtype=torch.int32, device=device),
-        }
+        kwargs["point_inputs"] = concat_points(  # a box is MedSAM2's two corner points with labels 2 and 3
+            None,
+            torch.tensor(box, dtype=torch.float32, device=device).reshape(1, 2, 2),
+            torch.tensor([[2, 3]], dtype=torch.int32, device=device),
+        )
         logit = detector_logit(confidence)
         self.kalman_observation_frame = True
         self.kalman_observation_logit = logit
@@ -104,12 +106,7 @@ def clip_observations(detector, images) -> dict:
     """Top detection per frame (t >= 1) of a normalized [T, 3, H, W] clip, from a YOLO detector."""
     pixels = images.permute(0, 2, 3, 1).cpu().numpy() * IMAGE_STD + IMAGE_MEAN
     bgr = [np.ascontiguousarray((frame.clip(0, 1) * 255).round().astype(np.uint8)[..., ::-1]) for frame in pixels[1:]]
-    observations = {}
-    for index, result in enumerate(detector.predict(bgr, conf=0.01, verbose=False), start=1):
-        if len(result.boxes):
-            best = int(result.boxes.conf.argmax())
-            observations[index] = (result.boxes.xyxy[best].tolist(), float(result.boxes.conf[best]))
-    return observations
+    return dict(enumerate(top_detections(detector, bgr), start=1))
 
 
 def run_clip(model, batch, run_teacher):

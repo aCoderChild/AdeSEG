@@ -47,6 +47,8 @@ from torch.nn import functional as F
 from modeling.native_pointers import append_native_object_pointers
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
+CHECKPOINT_FORMAT = "adseg_kalman_memory_v4"
+
 
 def _noise_head(in_channels: int, hidden: int) -> nn.Sequential:
     head = nn.Sequential(
@@ -75,6 +77,8 @@ class KalmanMemoryUpdate(nn.Module):
         max_variance: float = 1e4,
     ):
         super().__init__()
+        self.memory_channels = memory_channels
+        self.image_channels = image_channels
         self.config = {
             "hidden_channels": hidden_channels,
             "projection_channels": projection_channels,
@@ -354,3 +358,25 @@ def kalman_memory_tokens(model, anchor, state_readout, position, dtype=None, det
         memory.insert(1, tokens(detection))
         positions.insert(1, tokens(anchor_position))
     return memory, positions
+
+
+def save_memory_update(update: KalmanMemoryUpdate, path) -> None:
+    torch.save({
+        "format": CHECKPOINT_FORMAT,
+        "memory_channels": update.memory_channels,
+        "image_channels": update.image_channels,
+        "update_config": update.config,
+        "state_dict": update.state_dict(),
+    }, path)
+
+
+def load_memory_update(path, model, device) -> KalmanMemoryUpdate:
+    """Kalman update from ``save_memory_update``, checked against ``model``'s MedSAM2 widths."""
+    checkpoint = torch.load(path, map_location=device, weights_only=True)
+    if checkpoint.get("format") != CHECKPOINT_FORMAT:
+        raise ValueError(f"{path} is not a {CHECKPOINT_FORMAT} checkpoint.")
+    if (checkpoint["memory_channels"], checkpoint["image_channels"]) != (model.mem_dim, model.hidden_dim):
+        raise ValueError(f"{path} does not match this MedSAM2 model.")
+    update = KalmanMemoryUpdate(model.mem_dim, model.hidden_dim, **checkpoint["update_config"]).to(device)
+    update.load_state_dict(checkpoint["state_dict"])
+    return update.eval()
