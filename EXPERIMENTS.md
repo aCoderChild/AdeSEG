@@ -288,6 +288,6 @@ Interpretation:
    no training absences (`--absence_probability 0`), and an untrained module
    (`--steps 0`, initialization only).
 4. Native bank trimmed to 1, 2, and 4 frames, and a fixed-gain average (EMA).
-5. Three seeds for each trained row; per-sequence and per-center tables;
-   paired Wilcoxon tests over sequences.
+5. One seed (0) per trained row on PolypGen, a proxy dataset; per-sequence and
+   per-center tables; paired Wilcoxon tests over sequences.
 6. Retained-memory size and FPS for every row.

@@ -62,7 +62,7 @@ def parse_args():
     parser.add_argument("--max_frame_gap", type=int, default=None, help="Defaults to the difficulty preset.")
     parser.add_argument("--absence_probability", type=float, default=0.6)
     parser.add_argument("--max_absence", type=int, default=12)
-    parser.add_argument("--steps", type=int, default=1000, help="Optimizer steps.")
+    parser.add_argument("--steps", type=int, default=500, help="Optimizer steps.")
     parser.add_argument("--accumulate", type=int, default=4, help="Clips per optimizer step.")
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
@@ -78,7 +78,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", choices=("cuda", "mps", "cpu"), default="cuda")
     parser.add_argument("--log_every", type=int, default=25)
-    parser.add_argument("--save_every", type=int, default=500)
+    parser.add_argument("--save_every", type=int, default=100)
     parser.add_argument("--output_dir", type=Path, required=True)
     return parser.parse_args()
 

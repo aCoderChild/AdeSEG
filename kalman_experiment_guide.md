@@ -45,10 +45,10 @@ Each run directory ends up as:
 | `$OUT/<run>/evaluation/` | `temporal.py` | `metrics_per_frame.csv`, `metrics_per_sequence.csv`, `presence_stratified.csv`, `drift_by_*.csv`, overlays |
 | `$OUT/summary/` | `summarize_kalman_runs.py` | the comparison tables (section 4) |
 
-Approximate cost on this Mac (MPS): training 1,000 steps x 4 clips of 16 frames
-takes about 2 h 10 min (1.9 s per clip); testing takes about 2 minutes of
-inference plus 3 minutes of evaluation. The full run list (B1–C3 plus two seeds)
-is about 17 hours of training. Overlays are about 1.7 GB per run, so ten runs use about 17 GB of
+Approximate cost on this Mac (MPS): training 500 steps x 4 clips of 16 frames
+takes about 65 minutes (1.9 s per clip); testing takes about 2 minutes of
+inference plus 3 minutes of evaluation. The full run list (six trained runs, B1–C3)
+is about 6.5 hours of training. Overlays are about 1.7 GB per run, so eight runs use about 14 GB of
 Drive space; Drive for desktop also caches them on the local disk (58 GB free
 at the time of writing) until they are uploaded.
 
@@ -70,8 +70,8 @@ python3 scripts/verify_kalman_parity.py --perturb --sequence seq5
 
 ## 3. Runs
 
-Seed 0 throughout, `hard` clips, 1,000 steps x 4 clips, `--absence_weight 0.1`
-unless stated. Names matter: the summary script uses `native_gtbox` and
+Seed 0 throughout, `hard` clips, 500 steps x 4 clips (checkpoints every 100
+steps), `--absence_weight 0.1` unless stated. Names matter: the summary script uses `native_gtbox` and
 `kalman_untrained` as reference runs.
 
 | ID | Run name | Commands | Question it answers |
@@ -84,9 +84,24 @@ unless stated. Names matter: the summary script uses `native_gtbox` and
 | C1 | `kalman_nodistill_s0` | `run_kalman kalman_nodistill_s0 --distill_weight 0` | Does distillation from the native bank help? |
 | C2 | `kalman_easy_s0` | `run_kalman kalman_easy_s0 --clip_difficulty easy` | Do the harder clips help? |
 | C3 | `kalman_noabsent_s0` | `run_kalman kalman_noabsent_s0 --absence_probability 0` | Does training with absent stretches help? |
-| S1, S2 | `kalman_<best>_s1`, `_s2` | best A-row with `--seed 1`, `--seed 2` | Is the effect larger than seed variation? |
 
-Order: B1, B2, then A1–A3, then C1–C3, then seeds for the best A-row.
+Order: B1, B2, then A1–A3, then C1–C3. One seed (0) per configuration: PolypGen
+is a proxy dataset, so seed repeats are left for the target adenoid data.
+
+Learning curve (optional, A2 only): each run saves `kalman_memory_step100.pt` to
+`kalman_memory_step500.pt`. Test them as separate runs to see whether training
+longer helps, for example:
+
+```bash
+for step in 100 200 300 400; do
+  run_test "kalman_aw0.1_s0_step$step" --memory_backend kalman \
+    --kalman_checkpoint "$OUT/kalman_aw0.1_s0/kalman_memory_step$step.pt"
+done
+```
+
+Report the whole curve. Always use the final checkpoint (`kalman_memory.pt`,
+equal to step 500) for the result tables: picking the step with the best test
+score would select on test labels.
 Optional: `run_test native_yolo --memory_backend native --prompt_source yolo`.
 The YOLO detector was most likely trained on PolypGen, so treat YOLO-prompt
 results as secondary.
@@ -161,7 +176,9 @@ Mean of each training statistic over the first and last 20% of clips (at most
 ## 5. Analysis
 
 Answer each question with the named comparison. Treat a difference as
-supported only if `paired_tests.csv` shows p < 0.05 and it holds across seeds.
+supported only if `paired_tests.csv` shows p < 0.05. With one seed per
+configuration, seed-to-seed variation is not measured, so state results as
+single-seed and treat small differences between trained runs with caution.
 
 | Question | Compare | Supported if | Earlier v1 result for context |
 |---|---|---|---|
@@ -172,11 +189,10 @@ supported only if `paired_tests.csv` shows p < 0.05 and it holds across seeds.
 | Distillation | C1 vs A2 | A2 better on `present_dice` | not measured |
 | Harder clips | C2 vs A2 | A2 better on real test videos | `easy` clips scored 0.89 Dice vs 0.54 on real videos |
 | Absent stretches in training | C3 vs A2 | A2 better on `absent_fp_rate` and reappearance rows | not measured |
-| Robustness | seeds | seed standard deviation smaller than the effect | not measured |
 
 Report in the write-up:
 
-1. **Main table**: B1, B2, best A-row (mean ± std over three seeds) with all
+1. **Main table**: B1, B2, best A-row (seed 0) with all
    `main_results.csv` columns except efficiency.
 2. **Absence ablation**: A1–A3 with `absent_fp_rate`,
    `present_detection_rate`, `present_dice`, `presence_auroc`.
@@ -197,7 +213,7 @@ Report in the write-up:
 | A run collapses on one sequence (seq6, seq21 in v1) | memory drift or a wrong presence decision after reappearance | `failure_cases.csv`; `presence` and `gain_mean` columns in `masks/diagnostics/seqN.csv`; overlays in `evaluation/overlays/seqN/` | describe it as a failure case with its overlay frames |
 | `absent_fp_rate` identical across all runs on many sequences | the frozen decoder's object score decides absence; the memory cannot change it | `per_sequence.csv`: same value for every run | report as a limitation of a memory-only change |
 | `absent_fp_rate` falls but `present_detection_rate` falls too | the model became more conservative overall | `presence_auroc` | if AUROC does not rise, it is a threshold shift, not better separation |
-| Differences are not significant | 21 sequences and one seed | `paired_tests.csv`, seed spread | add seeds; report the effect as not significant |
+| Differences are not significant | 21 sequences and one seed | `paired_tests.csv` | report the effect as not significant; confirm on the target data |
 | Drive errors (`Resource deadlock avoided`, missing or partial files) | Drive for desktop still syncing, or not running | Drive app status; file sizes in `$OUT/<run>` | keep the Drive app running; rerun only the failed step (`run_test` overwrites masks and evaluation) |
 | Disk or Drive quota full | overlays (about 1.7 GB per run) | `df -h`, Drive storage page | free space before the next run; overlays are required for failure figures |
 
