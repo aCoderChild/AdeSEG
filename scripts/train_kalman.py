@@ -13,7 +13,7 @@ mixin (``training/kalman_trainer.py``). The loss on propagated frames ``t >= 1``
 follows MedSAM2's fine-tuning objective (``sam2.1_hiera_tiny_finetune512.yaml``),
 with the object-score term split by class:
 
-    present frames:  20 * focal(mask) + 1 * Dice(mask) + 1 * L1(predicted IoU, actual IoU)
+    present frames, gate open:  20 * focal(mask) + 1 * Dice(mask) + 1 * L1(predicted IoU, actual IoU)
                      + 1 * BCE(object score, 1)          # MedSAM2 loss_class weight
     empty frames:    w_absence * BCE(object score, 0)  # --absence_weight, relative to the 1 above
     present frames:  w_distill * ||student memory-conditioned features - native-bank teacher||^2  (default off)
@@ -73,7 +73,7 @@ def parse_args():
     parser.add_argument("--max_absence", type=int, default=12)
     parser.add_argument("--steps", type=int, default=500, help="Optimizer steps.")
     parser.add_argument("--accumulate", type=int, default=4, help="Clips per optimizer step.")
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--gradient_clip_norm", type=float, default=1.0)
     parser.add_argument("--focal_weight", type=float, default=20.0, help="MedSAM2 loss_mask weight.")

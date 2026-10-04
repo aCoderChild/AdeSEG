@@ -132,7 +132,8 @@ class KalmanLoss(torch.nn.Module):
     """MedSAM2 fine-tuning loss on frames t >= 1, with the object-score term split by class.
 
     Mask terms reuse ``MultiStepMultiMasksAndIous`` with the weights of
-    ``sam2.1_hiera_tiny_finetune512.yaml`` (applied only where the object is present).
+    ``sam2.1_hiera_tiny_finetune512.yaml`` (applied only where the object is present
+    and the presence gate is open; a closed gate is a presence error, left to the BCE).
     They supervise the output mask (the candidate MedSAM2's frozen IoU head selects)
     rather than the best-matching of the candidate masks. Its object-score term is replaced by BCE averaged separately over present frames
     (weight 1) and empty frames (``absence_weight``), so the ratio does not depend on
@@ -154,9 +155,14 @@ class KalmanLoss(torch.nn.Module):
         student, targets = student[1:], masks[1:].unsqueeze(1).float()
         present = targets.flatten(1).any(dim=1)
         zero = student[0]["multistep_object_score_logits"][-1].sum() * 0.0
-        terms = self.masks([output_mask_only(frame) for frame in student], targets)
-        segmentation = terms[CORE_LOSS_KEY] / len(student)
         scores = torch.cat([frame["multistep_object_score_logits"][-1] for frame in student]).flatten()
+        # A polyp frame whose object score closed the gate has mask logits of -1024; its error is the
+        # presence decision (supervised below), so it gets no mask loss.
+        keep = [i for i in range(len(student)) if not (present[i] and scores[i] <= 0)]
+        terms = {key: zero for key in ("loss_mask", "loss_dice", "loss_iou", CORE_LOSS_KEY)}
+        if keep:
+            terms = self.masks([output_mask_only(student[i]) for i in keep], targets[keep])
+        segmentation = terms[CORE_LOSS_KEY] / len(student)
         presence = F.binary_cross_entropy_with_logits(scores[present], torch.ones_like(scores[present])) if present.any() else zero
         absence = F.binary_cross_entropy_with_logits(scores[~present], torch.zeros_like(scores[~present])) if (~present).any() else zero
         distill = zero
