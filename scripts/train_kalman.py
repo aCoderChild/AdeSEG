@@ -238,7 +238,8 @@ def main():
                     model, batch, clip["frame_gaps"].cumsum(0).tolist(), run_teacher
                 )
                 loss, stats = criterion(student, teacher, masks)
-                (loss / args.accumulate).backward()
+                if loss.requires_grad:  # false when every frame was decoded from a detector box
+                    (loss / args.accumulate).backward()
                 stats.update(frame_stats(student, masks))
                 stats.update({
                     "loss": float(loss),
