@@ -141,9 +141,11 @@ class KalmanState:
         self.last_frame_idx = frame_idx
         self.last_time = frame_time
         self.updates = 0
+        self.detection = None
 
     def tensors(self) -> list[torch.Tensor]:
-        return [self.anchor, self.position, self.mean, self.variance, self.image_projection]
+        tensors = [self.anchor, self.position, self.mean, self.variance, self.image_projection]
+        return tensors if self.detection is None else tensors + [self.detection]
 
 
 class KalmanMemoryMixin:
@@ -156,6 +158,7 @@ class KalmanMemoryMixin:
         self.kalman_frame_times = None
         self.kalman_last_step = None
         self._kalman_step = None
+        self.kalman_observation_frame = False
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -197,10 +200,19 @@ class KalmanMemoryMixin:
         step["prior_variance"], step["process_noise"] = self.memory_update.predict(
             state.variance, step["projection"], state.image_projection, gap
         )
+        step["observation"] = self.kalman_observation_frame
+        if step["observation"]:
+            # Detector-prompted frame: decode on memory-free features, as on a prompt frame.
+            step["pix_feat"] = super()._prepare_memory_conditioned_features(
+                frame_idx, True, current_vision_feats, current_vision_pos_embeds,
+                feat_sizes, output_dict, num_frames, track_in_reverse,
+            )
+            self._kalman_step = step
+            return step["pix_feat"]
         dtype = current_vision_feats[-1].dtype
         memory_chunks, position_chunks = kalman_memory_tokens(
             self, state.anchor, self.memory_update.readout(state.mean, step["prior_variance"]),
-            state.position, dtype,
+            state.position, dtype, state.detection,
         )
         num_obj_ptr_tokens = append_native_object_pointers(
             self, frame_idx, output_dict, num_frames, track_in_reverse,
@@ -262,6 +274,8 @@ class KalmanMemoryMixin:
         if not (torch.isfinite(updated["mean"]).all() and torch.isfinite(updated["variance"]).all()):
             raise FloatingPointError(f"Kalman state became non-finite at frame {frame_idx}.")
         state.mean, state.variance = updated["mean"], updated["variance"]
+        if step.get("observation") and bool((presence > 0.5).all()):
+            state.detection = candidate.float()
         state.image_projection = step["projection"]
         state.last_frame_idx = frame_idx
         state.last_time = self._kalman_time(frame_idx)
@@ -334,13 +348,14 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
         return current_out, pred_masks
 
 
-def kalman_memory_tokens(model, anchor, state_readout, position, dtype=None):
-    """Anchor with the prompt-frame temporal code, state with the latest-frame code."""
+def kalman_memory_tokens(model, anchor, state_readout, position, dtype=None, detection=None):
+    """Anchor (and detection slot) with the conditioning-frame temporal code, state with the latest-frame code."""
     dtype = dtype or anchor.dtype
     anchor_position = position + model.maskmem_tpos_enc[model.num_maskmem - 1].view(1, -1, 1, 1)
     state_position = position + model.maskmem_tpos_enc[0].view(1, -1, 1, 1)
     tokens = lambda tensor: tensor.to(dtype).flatten(2).permute(2, 0, 1)
-    return (
-        [tokens(anchor), tokens(state_readout)],
-        [tokens(anchor_position), tokens(state_position)],
-    )
+    memory, positions = [tokens(anchor), tokens(state_readout)], [tokens(anchor_position), tokens(state_position)]
+    if detection is not None:
+        memory.insert(1, tokens(detection))
+        positions.insert(1, tokens(anchor_position))
+    return memory, positions

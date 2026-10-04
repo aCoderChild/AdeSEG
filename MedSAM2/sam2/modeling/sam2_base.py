@@ -22,6 +22,8 @@ NO_OBJ_SCORE = -1024.0
 class SAM2Base(torch.nn.Module):
     # Training-only: keep hard object gates in the forward pass, pass gradients through them.
     straight_through_object_gate = False
+    # Optional log-odds added to the decoder's object score (e.g. from a detector observation).
+    object_score_bias = None
 
     def __init__(
         self,
@@ -376,6 +378,8 @@ class SAM2Base(torch.nn.Module):
             high_res_features=high_res_features,
         )
         if self.pred_obj_scores:
+            if self.object_score_bias is not None:
+                object_score_logits = object_score_logits + self.object_score_bias
             is_obj_appearing = object_score_logits > 0
 
             # Mask used for spatial memories is always a *hard* choice between obj and no obj,

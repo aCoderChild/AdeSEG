@@ -133,6 +133,8 @@ def vos_inference(
     memory_backend="native",
     prompt_records=None,
     prompt_source="yolo",
+    observation_detector=None,
+    observation_conf=0.5,
 ):
     started = time.perf_counter()
     video_dir = get_video_frame_dir(base_video_dir, video_name)
@@ -207,6 +209,15 @@ def vos_inference(
         box=prompt_box,
     )
 
+    observations = {}
+    if observation_detector is not None:
+        for frame_idx in range(prompt_frame_idx + 1, len(frame_names)):
+            frame_path = resolve_frame_path(video_dir, frame_names[frame_idx])
+            box, confidence = get_first_yolo_box(observation_detector, frame_path, yolo_imgsz, observation_conf)
+            if box is not None:
+                observations[frame_idx] = (box, confidence)
+        predictor.observations = observations
+
     for frame_idx in range(prompt_frame_idx):
         save_masks_to_dir(
             output_mask_dir, video_output_name, frame_names[frame_idx], {}, height, width, False
@@ -238,6 +249,7 @@ def vos_inference(
                 "prompt_box": json.dumps(prompt_box.tolist()) if frame_idx == prompt_frame_idx else "",
                 "predicted_iou": predicted_iou_value(output),
                 "object_score": float(output["object_score_logits"].float().mean()),
+                "observation_confidence": observations[frame_idx][1] if frame_idx in observations else "",
                 **output.get("kalman_trace", {}),
             }
         )
@@ -302,6 +314,19 @@ def parse_args():
         help="yolo: first confident detection; gt_box: tight box of the first non-empty GT mask.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
+    parser.add_argument(
+        "--observation_detector", type=Path, default=None,
+        help="Detector whose confident boxes prompt the decoder on propagated frames (detector observations).",
+    )
+    parser.add_argument("--observation_conf", type=float, default=0.5)
+    parser.add_argument(
+        "--observation_box_only", action="store_true",
+        help="Ablation: detector boxes prompt the decoder but do not vote on presence.",
+    )
+    parser.add_argument(
+        "--observation_on_memory", action="store_true",
+        help="Ablation: decode detector boxes on memory-conditioned features (no clean observation or detection slot).",
+    )
     return parser.parse_args(), config
 
 
@@ -316,6 +341,11 @@ def main():
     predictor_target = {
         "kalman": "modeling.kalman_memory.KalmanMemoryVideoPredictor",
     }.get(args.memory_backend)
+    if args.observation_detector is not None:
+        predictor_target = {
+            "native": "modeling.detector_observation.ObservedVideoPredictor",
+            "kalman": "modeling.detector_observation.ObservedKalmanVideoPredictor",
+        }[args.memory_backend]
     predictor = build_video_predictor(
         args.sam2_cfg,
         args.sam2_checkpoint,
@@ -350,6 +380,10 @@ def main():
         predictor.num_maskmem = args.native_memory_frames + 1
 
     yolo_model = load_yolo_model(args.yolo_checkpoint) if args.prompt_source == "yolo" else None
+    observation_detector = load_yolo_model(args.observation_detector) if args.observation_detector else None
+    if observation_detector is not None:
+        predictor.observation_presence = not args.observation_box_only
+        predictor.observation_clean = not args.observation_on_memory
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:
         raise RuntimeError(f"No sequences found under {args.base_video_dir}")
@@ -371,6 +405,8 @@ def main():
             memory_backend=args.memory_backend,
             prompt_records=prompt_records,
             prompt_source=args.prompt_source,
+            observation_detector=observation_detector,
+            observation_conf=args.observation_conf,
         )
         if prompt is not None:
             used_prompts[output_name] = prompt
@@ -390,6 +426,10 @@ def main():
         "kalman_checkpoint": str(args.kalman_checkpoint) if args.kalman_checkpoint else None,
         "prompt_source": args.prompt_source,
         "native_memory_frames": args.native_memory_frames,
+        "observation_detector": str(args.observation_detector) if args.observation_detector else None,
+        "observation_conf": args.observation_conf,
+        "observation_box_only": args.observation_box_only,
+        "observation_on_memory": args.observation_on_memory,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
         "yolo_checkpoint": str(args.yolo_checkpoint),
