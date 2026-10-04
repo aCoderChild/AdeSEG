@@ -102,8 +102,8 @@ def main():
         with torch.no_grad():
             for head in (model.memory_update.process_head[-1], model.memory_update.observation_head[-1]):
                 head.weight.normal_(0, 0.05)
+                head.bias.normal_(0, 0.5)
             model.memory_update.uncertainty_embedding.normal_(0, 0.05)
-            model.memory_update.absence_scale.fill_(1.0)
     model.memory_update.eval()
 
     size = model.image_size
