@@ -47,8 +47,8 @@ Each run directory ends up as:
 
 Approximate cost on this Mac (MPS): training 500 steps x 4 clips of 16 frames
 takes about 65 minutes (1.9 s per clip); testing takes about 2 minutes of
-inference plus 3 minutes of evaluation. The full run list (six trained runs, B1–C3)
-is about 6.5 hours of training. Overlays are about 1.7 GB per run, so eight runs use about 14 GB of
+inference plus 3 minutes of evaluation. The planned runs (section 3) take about
+80 minutes in total. Overlays are about 1.7 GB per run, so the three runs use about 5 GB of
 Drive space; Drive for desktop also caches them on the local disk (58 GB free
 at the time of writing) until they are uploaded.
 
@@ -70,25 +70,22 @@ python3 scripts/verify_kalman_parity.py --perturb --sequence seq5
 
 ## 3. Runs
 
-Seed 0 throughout, `hard` clips, 500 steps x 4 clips (checkpoints every 100
-steps), `--absence_weight 0.1` unless stated. Names matter: the summary script uses `native_gtbox` and
-`kalman_untrained` as reference runs.
+One trained configuration: `hard` clips, `--absence_weight 0.1`, seed 0, 500
+steps x 4 clips (checkpoints every 100 steps); these are the script defaults.
+The two reference runs need no training. Names matter: the summary script uses
+`native_gtbox` and `kalman_untrained` as reference runs.
 
-| ID | Run name | Commands | Question it answers |
-|---|---|---|---|
-| B1 | `native_gtbox` | `run_test native_gtbox --memory_backend native` | Reference: native MedSAM2 |
-| B2 | `kalman_untrained` | `run_kalman kalman_untrained --steps 0` | Does the architecture help without training? |
-| A1 | `kalman_aw0_s0` | `run_kalman kalman_aw0_s0 --absence_weight 0` | Absence supervision off |
-| A2 | `kalman_aw0.1_s0` | `run_kalman kalman_aw0.1_s0` | Main configuration |
-| A3 | `kalman_aw1_s0` | `run_kalman kalman_aw1_s0 --absence_weight 1.0` | Strong absence supervision |
-| C1 | `kalman_nodistill_s0` | `run_kalman kalman_nodistill_s0 --distill_weight 0` | Does distillation from the native bank help? |
-| C2 | `kalman_easy_s0` | `run_kalman kalman_easy_s0 --clip_difficulty easy` | Do the harder clips help? |
-| C3 | `kalman_noabsent_s0` | `run_kalman kalman_noabsent_s0 --absence_probability 0` | Does training with absent stretches help? |
+| ID | Run name | Command | Time | Question it answers |
+|---|---|---|---|---|
+| B1 | `native_gtbox` | `run_test native_gtbox --memory_backend native` | ~5 min | Reference: native MedSAM2 |
+| B2 | `kalman_untrained` | `run_kalman kalman_untrained --steps 0` | ~5 min | Does the architecture help without training? |
+| A2 | `kalman_aw0.1_s0` | `run_kalman kalman_aw0.1_s0` | ~70 min | Does training add to the architecture? |
 
-Order: B1, B2, then A1–A3, then C1–C3. One seed (0) per configuration: PolypGen
-is a proxy dataset, so seed repeats are left for the target adenoid data.
+Order: B1, B2, A2. PolypGen is a proxy dataset, so ablations (other absence
+weights, no distillation, easy clips, no training absences) and seed repeats
+are not run; their questions stay open (section 5).
 
-Learning curve (optional, A2 only): each run saves `kalman_memory_step100.pt` to
+Learning curve (optional, testing only): each run saves `kalman_memory_step100.pt` to
 `kalman_memory_step500.pt`. Test them as separate runs to see whether training
 longer helps, for example:
 
@@ -184,23 +181,22 @@ single-seed and treat small differences between trained runs with caution.
 |---|---|---|---|
 | Does the architecture help without training? | B2 vs B1 | `present_dice` and `reappear_ge10_after_ge1` higher, p < 0.05 | +0.019 present Dice, 14/21 sequences, p = 0.07 |
 | Does training add to the architecture? | A2 vs B2 | `present_dice` not lower, `absent_fp_rate` lower | NPO run: present Dice -0.032, p = 0.02 (worse) |
-| Does absence supervision reduce false positives, and at what cost? | A1, A2, A3 | `absent_fp_rate` falls with the weight while `present_detection_rate` holds | NPO run: FP 0.65 to 0.60 (p = 0.18), detection 0.875 to 0.858 (p = 0.07) |
-| Is it a real improvement or a threshold shift? | `presence_auroc` across A1–A3 | AUROC rises with the weight | not measured |
-| Distillation | C1 vs A2 | A2 better on `present_dice` | not measured |
-| Harder clips | C2 vs A2 | A2 better on real test videos | `easy` clips scored 0.89 Dice vs 0.54 on real videos |
-| Absent stretches in training | C3 vs A2 | A2 better on `absent_fp_rate` and reappearance rows | not measured |
+| Does the trained model beat native? | A2 vs B1 | `present_dice` higher and `absent_fp_rate` not higher, p < 0.05 | NPO run: propagated Dice -0.002, p = 0.33 |
+| Better presence separation or a threshold shift? | `presence_auroc`, A2 vs B1 and B2 | AUROC higher, not only a lower FP rate | untrained 0.66 |
+
+Not answered by this plan (no runs): the effect of the absence weight itself,
+distillation, harder clips, training absences, and seed variation. A lower
+`absent_fp_rate` in A2 shows that training helped, not that the absence term
+caused it.
 
 Report in the write-up:
 
-1. **Main table**: B1, B2, best A-row (seed 0) with all
-   `main_results.csv` columns except efficiency.
-2. **Absence ablation**: A1–A3 with `absent_fp_rate`,
-   `present_detection_rate`, `present_dice`, `presence_auroc`.
-3. **Component ablation**: A2, C1, C2, C3.
-4. **Paired tests**: the rows of `paired_tests.csv` behind every claim.
-5. **Failure cases**: `failure_cases.csv` with an overlay figure per sequence
+1. **Main table**: B1, B2, A2 with all `main_results.csv` columns except
+   efficiency.
+2. **Paired tests**: the rows of `paired_tests.csv` behind every claim.
+3. **Failure cases**: `failure_cases.csv` with an overlay figure per sequence
    (section 6).
-6. **Efficiency**: retained memory and FPS, with the caveat above.
+4. **Efficiency**: retained memory and FPS, with the caveat above.
 
 ## 6. Failure cases and what to do
 

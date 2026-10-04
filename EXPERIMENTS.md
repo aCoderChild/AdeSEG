@@ -278,16 +278,19 @@ Interpretation:
   methods, so absence errors are mostly decided by the frozen decoder's object
   score, not by the memory.
 
-## Required runs
+## Planned runs
 
-1. Native baseline with GT-box prompts (done above) and with YOLO prompts from a
-   detector not trained on PolypGen.
-2. Kalman memory with the MedSAM2 objective on `hard` clips, with
-   `--absence_weight` 0, 0.1, and 1.0 (the absence ablation).
-3. Ablations with the same seed and steps: `--distill_weight 0`,
-   no training absences (`--absence_probability 0`), and an untrained module
-   (`--steps 0`, initialization only).
-4. Native bank trimmed to 1, 2, and 4 frames, and a fixed-gain average (EMA).
-5. One seed (0) per trained row on PolypGen, a proxy dataset; per-sequence and
-   per-center tables; paired Wilcoxon tests over sequences.
-6. Retained-memory size and FPS for every row.
+PolypGen is a proxy dataset, so only one trained configuration is run
+(`kalman_experiment_guide.md`):
+
+1. `native_gtbox`: native MedSAM2 with GT-box prompts.
+2. `kalman_untrained`: the Kalman memory at initialization (`--steps 0`).
+3. `kalman_aw0.1_s0`: the Kalman memory trained on `hard` clips with
+   `--absence_weight 0.1`, seed 0, 500 steps.
+
+Each is reported with per-sequence tables, paired Wilcoxon tests over
+sequences, and retained-memory size and FPS.
+
+Not run, so their questions stay open: other absence weights, no distillation,
+easy clips, no training absences, seed repeats, YOLO prompts from a detector not
+trained on PolypGen, a trimmed native bank, and a fixed-gain average (EMA).
