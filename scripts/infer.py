@@ -22,7 +22,9 @@ for path in (PROJECT_ROOT, MEDSAM2_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from adenoid.io import save_masks_to_dir
+import re
+
+from adenoid.io import load_binary_mask, resolve_mask_path, save_masks_to_dir
 from modeling.medsam2 import build_video_predictor, get_yolo_boxes, load_yolo_model
 from datasets.polypgen import (
     get_frame_names,
@@ -34,8 +36,9 @@ from datasets.polypgen import (
 
 
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
-MEMORY_BACKENDS = ("native", "rgm")
-RGM_CHECKPOINT_FORMAT = "adseg_livos_rde_v1"
+MEMORY_BACKENDS = ("native", "kalman")
+KALMAN_CHECKPOINT_FORMAT = "adseg_kalman_memory_v2"
+PROMPT_SOURCES = ("yolo", "gt_box")
 
 
 def load_config(config_path: Path) -> dict[str, object]:
@@ -81,15 +84,40 @@ def predicted_iou_value(output) -> float | None:
 
 def stored_spatial_memory_bytes(inference_state, memory_backend: str) -> int:
     output_dict = inference_state["output_dict"]
-    if memory_backend == "rgm":
-        state = output_dict.get("rgm_state")
-        return 0 if state is None else tensor_bytes(state.features) + tensor_bytes(state.position)
+    if memory_backend == "kalman":
+        state = output_dict.get("kalman_state")
+        return 0 if state is None else tensor_bytes(state.tensors())
     total = 0
     for output_type in ("cond_frame_outputs", "non_cond_frame_outputs"):
         for output in output_dict[output_type].values():
             total += tensor_bytes(output.get("maskmem_features"))
             total += tensor_bytes(output.get("maskmem_pos_enc"))
     return total
+
+
+def frame_times_from_names(frame_names):
+    """Raw-frame times from trailing integers in frame names, else frame indices."""
+    numbers = [re.search(r"(\d+)$", name) for name in frame_names]
+    if all(numbers):
+        times = [float(match.group(1)) for match in numbers]
+        if all(later > earlier for earlier, later in zip(times, times[1:])):
+            return times
+    return [float(index) for index in range(len(frame_names))]
+
+
+def first_ground_truth_box(base_video_dir, video_name, frame_names):
+    """Tight xyxy box of the first non-empty PolypGen mask (oracle prompt protocol)."""
+    sequence_number = video_name.removeprefix("seq")
+    mask_dir = Path(base_video_dir) / video_name / f"masks_seq{sequence_number}"
+    for frame_idx, frame_name in enumerate(frame_names):
+        mask_path = resolve_mask_path(mask_dir, frame_name)
+        if mask_path is None:
+            continue
+        rows, columns = np.nonzero(load_binary_mask(mask_path))
+        if rows.size:
+            box = np.array([columns.min(), rows.min(), columns.max(), rows.max()], dtype=np.float32)
+            return frame_idx, box
+    return None, None
 
 
 @torch.inference_mode()
@@ -104,6 +132,7 @@ def vos_inference(
     video_prompt_stride=1,
     memory_backend="native",
     prompt_records=None,
+    prompt_source="yolo",
 ):
     started = time.perf_counter()
     video_dir = get_video_frame_dir(base_video_dir, video_name)
@@ -131,9 +160,12 @@ def vos_inference(
             raise ValueError(f"Saved prompt box for {video_output_name} must have four coordinates.")
         prompt_confidence = float(saved_prompt["confidence"])
 
+    if prompt_box is None and prompt_source == "gt_box":
+        prompt_frame_idx, prompt_box = first_ground_truth_box(base_video_dir, video_name, frame_names)
+        prompt_confidence = 1.0 if prompt_box is not None else None
     for frame_idx, frame_name in enumerate(frame_names):
         frame_path = resolve_frame_path(video_dir, frame_name)
-        if prompt_box is None and frame_idx % video_prompt_stride == 0:
+        if prompt_source == "yolo" and prompt_box is None and frame_idx % video_prompt_stride == 0:
             box, confidence = get_first_yolo_box(
                 yolo_model, frame_path, yolo_imgsz, yolo_conf
             )
@@ -141,7 +173,7 @@ def vos_inference(
                 prompt_frame_idx, prompt_box, prompt_confidence = frame_idx, box, confidence
                 break
     if prompt_box is None:
-        print(f"Warning: {video_output_name}: YOLO found no box; saving empty masks.")
+        print(f"Warning: {video_output_name}: no {prompt_source} prompt; saving empty masks.")
         for frame_idx, frame_name in enumerate(frame_names):
             save_masks_to_dir(
                 output_mask_dir, video_output_name, frame_name, {}, height, width, False
@@ -157,13 +189,14 @@ def vos_inference(
         }
 
     print(
-        f"{video_output_name}: adding YOLO box prompt on frame {prompt_frame_idx} "
+        f"{video_output_name}: adding {prompt_source} box prompt on frame {prompt_frame_idx} "
         f"({frame_names[prompt_frame_idx]}), confidence={prompt_confidence:.4f}"
     )
-    if memory_backend == "rgm":
+    if memory_backend == "kalman":
         inference_state.update({
-            "rgm_enabled": True,
-            "rgm_anchor_frame_idx": prompt_frame_idx,
+            "kalman_enabled": True,
+            "kalman_anchor_frame_idx": prompt_frame_idx,
+            "frame_times": frame_times_from_names(frame_names),
         })
     predictor.add_new_points_or_box(
         inference_state=inference_state,
@@ -202,7 +235,8 @@ def vos_inference(
                 "prompt_confidence": prompt_confidence if frame_idx == prompt_frame_idx else "",
                 "prompt_box": json.dumps(prompt_box.tolist()) if frame_idx == prompt_frame_idx else "",
                 "predicted_iou": predicted_iou_value(output),
-                **output.get("rgm_trace", {}),
+                "object_score": float(output["object_score_logits"].float().mean()),
+                **output.get("kalman_trace", {}),
             }
         )
     save_diagnostics(output_mask_dir, video_output_name, diagnostic_rows)
@@ -247,13 +281,19 @@ def parse_args():
         "--memory_backend",
         choices=MEMORY_BACKENDS,
         default="native",
-        help="native is MedSAM2; rgm is the recurrent-memory experiment.",
+        help="native is MedSAM2; kalman is the Kalman spatial memory.",
     )
     parser.add_argument(
-        "--rgm_checkpoint",
+        "--kalman_checkpoint",
         type=Path,
         default=None,
-        help="Recurrent-memory checkpoint produced by scripts/train_rgm.py.",
+        help="Kalman-memory checkpoint produced by scripts/train_kalman.py.",
+    )
+    parser.add_argument(
+        "--prompt_source",
+        choices=PROMPT_SOURCES,
+        default="yolo",
+        help="yolo: first confident detection; gt_box: tight box of the first non-empty GT mask.",
     )
     parser.add_argument("--prompt_records", type=Path, default=None)
     return parser.parse_args(), config
@@ -264,14 +304,12 @@ def main():
     torch.manual_seed(args.seed)
     if args.video_prompt_stride < 1:
         raise ValueError("--video_prompt_stride must be at least 1")
-    if args.memory_backend == "rgm" and args.rgm_checkpoint is None:
-        raise ValueError("--rgm_checkpoint is required for RGM inference.")
+    if args.memory_backend == "kalman" and args.kalman_checkpoint is None:
+        raise ValueError("--kalman_checkpoint is required for Kalman-memory inference.")
 
-    predictor_target = (
-        "modeling.rgm_memory.ReliabilityGatedMemoryVideoPredictor"
-        if args.memory_backend == "rgm"
-        else None
-    )
+    predictor_target = {
+        "kalman": "modeling.kalman_memory.KalmanMemoryVideoPredictor",
+    }.get(args.memory_backend)
     predictor = build_video_predictor(
         args.sam2_cfg,
         args.sam2_checkpoint,
@@ -279,37 +317,23 @@ def main():
         predictor_target=predictor_target,
         predictor_overrides=None,
     )
-    if args.memory_backend == "rgm":
-        from modeling.rgm_memory import ReliabilityGatedFusion
+    if args.memory_backend == "kalman":
+        from modeling.kalman_memory import KalmanMemoryUpdate
 
-        if not args.rgm_checkpoint.is_file():
-            raise FileNotFoundError(f"Missing RGM checkpoint: {args.rgm_checkpoint}")
-        try:
-            checkpoint = torch.load(args.rgm_checkpoint, map_location=args.device, weights_only=True)
-        except TypeError:
-            checkpoint = torch.load(args.rgm_checkpoint, map_location=args.device)
-        if checkpoint.get("format") != RGM_CHECKPOINT_FORMAT:
-            raise ValueError("RGM checkpoint uses an incompatible recurrent-memory architecture.")
-        if checkpoint.get("feature_channels") != predictor.mem_dim:
-            raise ValueError("RGM checkpoint feature width does not match this MedSAM2 model.")
+        checkpoint = torch.load(args.kalman_checkpoint, map_location=args.device, weights_only=True)
+        if checkpoint.get("format") != KALMAN_CHECKPOINT_FORMAT:
+            raise ValueError("Kalman checkpoint uses an incompatible memory architecture.")
+        if checkpoint.get("memory_channels") != predictor.mem_dim:
+            raise ValueError("Kalman checkpoint memory width does not match this MedSAM2 model.")
         if checkpoint.get("image_channels") != predictor.hidden_dim:
-            raise ValueError("RGM checkpoint image-feature width does not match this MedSAM2 model.")
-        fusion_config = checkpoint.get("fusion_config", {})
-        if not isinstance(fusion_config, dict):
-            raise ValueError("RGM checkpoint has an invalid fusion configuration.")
-        if fusion_config.get("gate") != "livos_channel_forget":
-            raise ValueError("RGM checkpoint has an incompatible gate.")
-        if fusion_config.get("fusion") != "rde_sam":
-            raise ValueError("RGM checkpoint has an incompatible fusion module.")
-        predictor.state_fusion = ReliabilityGatedFusion(
-            predictor.mem_dim,
-            predictor.hidden_dim,
-            fixed_gate=fusion_config.get("fixed_gate"),
+            raise ValueError("Kalman checkpoint image-feature width does not match this MedSAM2 model.")
+        predictor.memory_update = KalmanMemoryUpdate(
+            predictor.mem_dim, predictor.hidden_dim, **checkpoint["update_config"]
         ).to(args.device)
-        predictor.state_fusion.load_state_dict(checkpoint["state_dict"])
-        predictor.state_fusion.eval()
+        predictor.memory_update.load_state_dict(checkpoint["state_dict"])
+        predictor.memory_update.eval()
 
-    yolo_model = load_yolo_model(args.yolo_checkpoint)
+    yolo_model = load_yolo_model(args.yolo_checkpoint) if args.prompt_source == "yolo" else None
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:
         raise RuntimeError(f"No sequences found under {args.base_video_dir}")
@@ -330,6 +354,7 @@ def main():
             video_prompt_stride=args.video_prompt_stride,
             memory_backend=args.memory_backend,
             prompt_records=prompt_records,
+            prompt_source=args.prompt_source,
         )
         if prompt is not None:
             used_prompts[output_name] = prompt
@@ -346,7 +371,8 @@ def main():
         "config": str(args.config),
         "memory_backend": args.memory_backend,
         "seed": args.seed,
-        "rgm_checkpoint": str(args.rgm_checkpoint) if args.rgm_checkpoint else None,
+        "kalman_checkpoint": str(args.kalman_checkpoint) if args.kalman_checkpoint else None,
+        "prompt_source": args.prompt_source,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
         "yolo_checkpoint": str(args.yolo_checkpoint),
@@ -356,8 +382,8 @@ def main():
         manifest["sam2_checkpoint_sha256"] = hashlib.sha256(args.sam2_checkpoint.read_bytes()).hexdigest()
     except OSError:
         manifest["sam2_checkpoint_sha256"] = None
-    if args.rgm_checkpoint:
-        manifest["rgm_checkpoint_sha256"] = hashlib.sha256(args.rgm_checkpoint.read_bytes()).hexdigest()
+    if args.kalman_checkpoint:
+        manifest["kalman_checkpoint_sha256"] = hashlib.sha256(args.kalman_checkpoint.read_bytes()).hexdigest()
     (args.output_mask_dir / "run_manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )

@@ -1,0 +1,12 @@
+data_C2/images_C2/EndoCV2021_001140.jpg
+data_C2/images_C2/EndoCV2021_001318.jpg
+data_C2/images_C2/EndoCV2021_001320.jpg
+data_C2/images_C2/EndoCV2021_001334.jpg
+data_C2/images_C2/EndoCV2021_001344.jpg
+data_C2/images_C2/EndoCV2021_001346.jpg
+data_C2/images_C2/EndoCV2021_001351.jpg
+data_C2/images_C2/EndoCV2021_001353.jpg
+data_C6/images_C6/EndoCV2021_C6_0100068.jpg
+data_C6/images_C6/EndoCV2021_C6_0100091.jpg
+data_C6/images_C6/EndoCV2021_C6_0100111.jpg
+data_C6/images_C6/EndoCV2021_C6_0100112.jpg

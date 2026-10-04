@@ -55,4 +55,3 @@ scripts/eval_outputs/
 # External projects not committed here
 external/WTNet/
 external/PraNet/
-ReliabilityGated_GT_BOX_BOX_STRIDE10/

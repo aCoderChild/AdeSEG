@@ -20,6 +20,9 @@ NO_OBJ_SCORE = -1024.0
 
 
 class SAM2Base(torch.nn.Module):
+    # Training-only: keep hard object gates in the forward pass, pass gradients through them.
+    straight_through_object_gate = False
+
     def __init__(
         self,
         image_encoder,
@@ -254,6 +257,13 @@ class SAM2Base(torch.nn.Module):
         else:
             self.obj_ptr_tpos_proj = torch.nn.Identity()
 
+    def _object_gate(self, object_score_logits):
+        hard = (object_score_logits > 0).float()
+        if not self.straight_through_object_gate:
+            return hard
+        soft = object_score_logits.sigmoid()
+        return hard + (soft - soft.detach())
+
     def _forward_sam_heads(
         self,
         backbone_features,
@@ -370,11 +380,15 @@ class SAM2Base(torch.nn.Module):
 
             # Mask used for spatial memories is always a *hard* choice between obj and no obj,
             # consistent with the actual mask prediction
-            low_res_multimasks = torch.where(
+            gated = torch.where(
                 is_obj_appearing[:, None, None],
                 low_res_multimasks,
                 NO_OBJ_SCORE,
             )
+            if self.straight_through_object_gate:
+                closed = (~is_obj_appearing[:, None, None]).to(low_res_multimasks.dtype)
+                gated = gated + closed * (low_res_multimasks - low_res_multimasks.detach())
+            low_res_multimasks = gated
 
         # convert masks from possibly bfloat16 (or float16) to float32
         # (older PyTorch versions before 2.1 don't support `interpolate` on bf16)
@@ -405,7 +419,7 @@ class SAM2Base(torch.nn.Module):
             if self.soft_no_obj_ptr:
                 lambda_is_obj_appearing = object_score_logits.sigmoid()
             else:
-                lambda_is_obj_appearing = is_obj_appearing.float()
+                lambda_is_obj_appearing = self._object_gate(object_score_logits)
 
             if self.fixed_no_obj_ptr:
                 obj_ptr = lambda_is_obj_appearing * obj_ptr
@@ -733,7 +747,7 @@ class SAM2Base(torch.nn.Module):
         # add a no-object embedding to the spatial memory to indicate that the frame
         # is predicted to be occluded (i.e. no object is appearing in the frame)
         if self.no_obj_embed_spatial is not None:
-            is_obj_appearing = (object_score_logits > 0).float()
+            is_obj_appearing = self._object_gate(object_score_logits)
             maskmem_features += (
                 1 - is_obj_appearing[..., None, None]
             ) * self.no_obj_embed_spatial[..., None, None].expand(

@@ -210,6 +210,8 @@ def evaluate_sequence(
                 "frame": stem,
                 "prediction_missing": prediction_missing,
                 "frames_after_prompt": frames_after_prompt,
+                "gt_present": bool(ground_truth.any()),
+                "predicted_present": bool(prediction.any()),
                 **scores,
             }
         )
@@ -217,6 +219,7 @@ def evaluate_sequence(
             previous_prediction = prediction
             previous_frame_index = current_frame_index
 
+    annotate_reappearance(rows)
     sequence_row: dict[str, object] = {
         "sequence": sequence_name,
         "frames": len(rows),
@@ -224,6 +227,73 @@ def evaluate_sequence(
     }
     sequence_row.update({metric: mean_metric(rows, metric) for metric in METRIC_NAMES})
     return sequence_row, rows
+
+
+def annotate_reappearance(rows: list[dict[str, object]]) -> None:
+    """Mark, for present frames, how many frames ago an absent run ended and its length."""
+    absent_run = 0
+    since_reappearance = None
+    previous_absent_run = 0
+    for row in rows:
+        if not row["gt_present"]:
+            absent_run += 1
+            since_reappearance = None
+            row["frames_since_reappearance"] = None
+            row["preceding_absence"] = None
+            continue
+        if absent_run:
+            previous_absent_run, since_reappearance, absent_run = absent_run, 0, 0
+        elif since_reappearance is not None:
+            since_reappearance += 1
+        row["frames_since_reappearance"] = since_reappearance
+        row["preceding_absence"] = previous_absent_run if since_reappearance is not None else None
+
+
+def write_presence_statistics(evaluation_dir: Path, frame_rows: list[dict[str, object]]) -> None:
+    """Stratify propagated frames by ground-truth presence and by time since reappearance.
+
+    Dice is 1 for an empty prediction on an empty frame and 0 for any false
+    positive there, so pooled Dice mixes segmentation quality with absence
+    detection. These groups report the two separately.
+    """
+    propagated = [
+        row for row in frame_rows
+        if isinstance(row.get("frames_after_prompt"), int) and row["frames_after_prompt"] >= 1
+    ]
+    present = [row for row in propagated if row["gt_present"]]
+    absent = [row for row in propagated if not row["gt_present"]]
+
+    def summarize(group, rows):
+        return {
+            "group": group,
+            "frames": len(rows),
+            "dice": mean_metric(rows, "dice") if rows else float("nan"),
+            "iou": mean_metric(rows, "iou") if rows else float("nan"),
+            "predicted_present_rate": (
+                float(np.mean([row["predicted_present"] for row in rows])) if rows else float("nan")
+            ),
+        }
+
+    groups = [
+        summarize("propagated_all", propagated),
+        summarize("gt_present", present),
+        summarize("gt_absent", absent),
+    ]
+    for low, high, label in ((0, 0, "0"), (1, 4, "1-4"), (5, 9, "5-9"), (10, None, ">=10")):
+        for min_absence, absence_label in ((1, "absence>=1"), (7, "absence>=7")):
+            rows = [
+                row for row in present
+                if row.get("frames_since_reappearance") is not None
+                and row["frames_since_reappearance"] >= low
+                and (high is None or row["frames_since_reappearance"] <= high)
+                and row["preceding_absence"] >= min_absence
+            ]
+            groups.append(summarize(f"reappeared_{label}_after_{absence_label}", rows))
+    write_csv(
+        evaluation_dir / "presence_stratified.csv",
+        ["group", "frames", "dice", "iou", "predicted_present_rate"],
+        groups,
+    )
 
 
 def load_diagnostic_rows(output_mask_dir: Path, sequence_name: str) -> list[dict[str, str]]:
@@ -403,7 +473,10 @@ def evaluate_masks(
     )
     write_csv(
         evaluation_dir / "metrics_per_frame.csv",
-        ["sequence", "frame", "prediction_missing", "frames_after_prompt", *METRIC_NAMES],
+        [
+            "sequence", "frame", "prediction_missing", "frames_after_prompt", "gt_present",
+            "predicted_present", "frames_since_reappearance", "preceding_absence", *METRIC_NAMES,
+        ],
         frame_rows,
     )
     stats_rows = []
@@ -422,6 +495,7 @@ def evaluate_masks(
     write_csv(evaluation_dir / "metrics_stats.csv", ["aggregation", "metric", "mean", "std", "min", "max"], stats_rows)
     write_memory_confidence_statistics(output_mask_dir, evaluation_dir, sequence_names)
     write_drift_statistics(evaluation_dir, frame_rows)
+    write_presence_statistics(evaluation_dir, frame_rows)
     for obsolete_path in (evaluation_dir / "metrics_avg.csv", evaluation_dir / "metrics_coverage.json"):
         obsolete_path.unlink(missing_ok=True)
     return summary

@@ -38,40 +38,90 @@ A measurement-aware loss is **not implemented yet**. It should only be added
 if the diagnostic demonstrates a real Dice--measurement mismatch and after the
 adenoid protocol defines the clinical ratio.
 
-### C3: recurrent fusion memory
+### C3: Kalman spatial memory (experimental)
 
-Recurrent Fusion Memory replaces MedSAM2's multi-frame spatial memory with one
-recurrent state while retaining its native object-pointer history.
+The repository contains an experimental replacement for MedSAM2's FIFO
+memory bank, evaluated on PolypGen as a proxy dataset. The bank is replaced by
+two constant-size slots: the fixed prompt-frame memory and a Kalman-style
+spatial state with a per-pixel variance. Frames predicted as absent or
+unreliable barely change the state, and uncertainty grows with the frame gap.
+It is not yet a validated component of the adenoid clinical pipeline.
 
-The current update combines two published mechanisms:
+Native MedSAM2 remains the primary baseline. `EXPERIMENTS.md` records the
+design, data protocol, verification, and baseline results.
 
-- a LiVOS-style data-dependent channel forget gate from the current image feature;
-- the RDE-VOS spatio-temporal aggregation path: non-local extraction, residual
-  3-D ASPP enhancement, then a `2 x 3 x 3` Conv3D squeeze.
+## What is implemented now
 
-The gate acts on the previous state before fusion, so the previous state is not
-added again after the RDE fusion.
+- **MedSAM2 wrapper:** `modeling/medsam2.py` and the bundled upstream code under
+  `MedSAM2/`.
+- **Kalman spatial memory:** `modeling/kalman_memory.py`.
+- **Frozen-backbone training:** `training/kalman_trainer.py` and
+  `scripts/train_kalman.py`, reusing MedSAM2's `SAM2Train`, loss, and batch
+  format, on single-frame pseudo-videos from `datasets/pseudo_video.py`. Only
+  the Kalman update is trainable.
+- **Verification:** `scripts/verify_kalman_parity.py` compares the training and
+  inference trajectories; `scripts/check_split_overlap.py` finds training
+  frames that duplicate test frames.
+- **Proxy evaluation:** `scripts/infer.py` for PolypGen video inference
+  (`native` or `kalman`; YOLO or GT-box
+  prompts), `evaluation/temporal.py` for presence- and reappearance-stratified
+  metrics, and `scripts/run_refuge2.py` for REFUGE2 image evaluation.
+- **Measurement utilities:** `evaluation/measurement.py`,
+  `evaluation/ratio.py`, and `evaluation/refuge2.py`.
 
-Native MedSAM2 remains the primary baseline. The recurrent method is evaluated
-as a memory--accuracy trade-off rather than assumed to improve segmentation.
+There is currently no annotated adenoid dataset adapter, clinical obstruction
+ratio protocol, or complete adenoid video runner in this repository. The
+adenoid folders provide scaffolding and measurement helpers; they do not make
+the clinical task executable without the target data and protocol.
+
+## Method interpretation and novelty boundary
+
+Related work this memory builds on or must be compared with: RDE-VOS
+(recurrent constant-size memory), LiVOS (gated recurrent memory), SAMURAI
+(Kalman filtering of box motion, not of memory), EMA-SAM (confidence-weighted
+moving-average memory for medical SAM2), SAM2Long and DAM4SAM (memory
+selection), and TinySAM 2 (memory-token compression). The candidate technical
+contributions are the per-pixel Kalman update of MedSAM2's spatial memory with
+presence- and frame-gap-dependent noise, distillation from the native bank
+into the state, and absence training with real and synthesized polyp-free video. They are
+claims to test against those baselines, not established results.
+
+The project-level contribution remains the **video-level two-region adenoid
+assessment formulation**: segmentation of adenoid and nasopharyngeal airway
+over a video, followed by a protocol-defined obstruction measurement and
+video/patient-level aggregation. The Kalman memory supports that formulation
+and is evaluated on PolypGen until adenoid video data are available.
+
+The current measurement-aware objective is not implemented. It must not be
+claimed as a contribution until an adenoid annotation protocol defines the
+ratio and an experiment shows that pixel Dice alone can give clinically
+material ratio errors.
 
 ## Repository layout
 
-- `adenoid/`: target-task ratio measurement and grade conversion helpers.
-- `datasets/`: common sample interface and adapters for PolypGen and REFUGE2.
-- `modeling/`: MedSAM2 construction, native-pointer preparation, and recurrent memory.
-- `inference/`: image and video inference utilities.
-- `evaluation/`: segmentation, temporal, ratio, and two-region measurement metrics.
-- `scripts/`: runnable proxy-dataset scripts.
+- `adenoid/`: target-task measurement and grading helpers.
+- `datasets/`: common sample interface, PolypGen/REFUGE2 adapters, pseudo-video
+  generation, and PolypGen split lists.
+- `modeling/`: MedSAM2 construction, native-pointer preparation, and the Kalman
+  memory (update module, shared mixin, video predictor).
+- `training/`: `KalmanSAM2Train` (MedSAM2's `SAM2Train` with the Kalman mixin),
+  batch construction, and the loss built on MedSAM2's `MultiStepMultiMasksAndIous`.
+- `evaluation/`: segmentation, temporal, ratio, and two-region measurement
+  metrics.
+- `scripts/`: proxy inference, training, and parity commands.
 - `MedSAM2/`: bundled upstream implementation.
 
 ## Proxy datasets
 
 ### PolypGen
 
-PolypGen validates video segmentation and temporal propagation. Native MedSAM2
-on the fixed seq16--19 validation protocol achieved sequence-macro Dice 0.7753
-and IoU 0.7134.
+PolypGen validates video segmentation and temporal propagation. The positive
+sequences are sparsely annotated (3–80 raw frames between annotations), 4–55%
+of frames in several sequences contain no polyp, and seq16–seq23 all come from
+center C6. With GT-box prompts on all 23 sequences, native MedSAM2 reaches Dice
+0.537 on frames with a polyp and predicts a polyp on 65% of empty frames
+(`EXPERIMENTS.md`). Compare methods only under the same checkpoint, prompts,
+evaluator, and protocol.
 
 ### REFUGE2
 
@@ -108,38 +158,41 @@ python3 scripts/run_refuge2.py \
 
 The run writes `metrics_per_image.csv` and `summary.json`.
 
-## Recurrent-fusion memory experiment
+## Kalman spatial memory experiment
 
-`modeling/rgm_memory.py` and `training/rgm_trainer.py` implement the current
-LiVOS-gated RDE recurrent-memory experiment. MedSAM2 stays frozen; the recurrent
-state is updated from predicted masks and training uses future-frame Dice+BCE.
+Protocol: train on `data_C1`..`data_C6` single frames (minus test duplicates)
+and `sequenceData/negativeOnly`; test on every `sequenceData/positive`
+sequence. MedSAM2 stays frozen.
 
-For frame `t`, let `F_t` be the current image feature, `S_(t-1)` the recurrent
-mask-memory state, and `C_t` the current MedSAM2 mask-memory candidate:
-
-```text
-g_t = mean(sigmoid(Conv1x1(F_t)), spatial_dims)
-retained = g_t * S_(t-1)
-S_t = RDE_Fusion([retained, C_t])
+```bash
+python3 scripts/check_split_overlap.py
+python3 scripts/train_kalman.py --device cuda --output_dir outputs/kalman
+python3 scripts/verify_kalman_parity.py --kalman_checkpoint outputs/kalman/kalman_memory.pt
+python3 scripts/infer.py --memory_backend kalman --prompt_source gt_box \
+  --kalman_checkpoint outputs/kalman/kalman_memory.pt -o outputs/kalman/test/masks
+python3 evaluation/temporal.py --output_mask_dir outputs/kalman/test/masks
 ```
 
-`g_t` is channel-wise. `RDE_Fusion` follows the public RDE-VOS `MemCrompress`
-structure with non-local extraction, residual ASPP3D enhancement, and the final
-`2 x 3 x 3` Conv3D squeeze.
+The full run list, result tables, and failure handling are in
+`kalman_experiment_guide.md`; `scripts/summarize_kalman_runs.py` collects
+all runs into CSV tables. The checkpoint format is `adseg_kalman_memory_v2`. See `EXPERIMENTS.md` for the
+update equations, losses, and the native baseline.
 
-The current checkpoint format is `adseg_livos_rde_v1`. Only checkpoints produced
-by this implementation should be used.
+## Reference papers and implementations
 
-The bundled MedSAM2 code retains the decoder's selected predicted-IoU value in
-compact frame outputs for diagnostics. The LiVOS-style gate itself is driven by
-image features, not predicted IoU.
+- [MedSAM2: Segment Anything in 3D Medical Images and Videos](https://arxiv.org/abs/2504.03600)
+  and the [official MedSAM2 repository](https://github.com/bowang-lab/MedSAM2).
+- [Recurrent Dynamic Embedding for Video Object Segmentation (RDE-VOS)](https://arxiv.org/abs/2205.03761)
+  and its [official code](https://github.com/Limingxing00/RDE-VOS-CVPR2022).
+- [LiVOS: Light Video Object Segmentation with Gated Linear Matching](https://arxiv.org/abs/2411.02818)
+  and its [official code](https://github.com/uncbiag/LiVOS).
+- [SAM2Long](https://openaccess.thecvf.com/content/ICCV2025/papers/Ding_SAM2Long_Enhancing_SAM_2_for_Long_Video_Segmentation_with_a_ICCV_2025_paper.pdf),
+  [DAM4SAM](https://arxiv.org/abs/2509.13864),
+  [EMA-SAM](https://arxiv.org/abs/2510.18213), and
+  [TinySAM 2](https://arxiv.org/abs/2605.18013): SAM2 memory selection,
+  moving-average memory, and memory compression baselines.
+- [PolypGen](https://arxiv.org/abs/2106.04463): the multi-center dataset.
 
-`EXPERIMENTS.md` records only the current protocol. Superseded recurrent-memory
-results are not used as evidence for this architecture.
-
-## Current implementation boundary
-
-There is no real adenoid dataset adapter, annotated ratio protocol, or
-end-to-end adenoid segmentation entry point in the repository yet. The project
-does not claim that the clinical video pipeline is implemented until those
-inputs are available.
+These references support the source ideas being adapted. They do not validate
+the AdeSEG clinical task, its eventual obstruction ratio, or the Kalman memory
+results; those require target-dataset experiments.
