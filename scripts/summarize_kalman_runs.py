@@ -7,9 +7,9 @@ A run is any directory containing ``evaluation/metrics_per_frame.csv`` (written 
 ``history.jsonl`` (from ``scripts/train_kalman.py``).
 
 Tables:
-  main_results.csv      one row per run, frame-pooled metrics
+  main_results.csv      one row per run, frame-pooled metrics with 95% sequence-bootstrap intervals
   per_sequence.csv      run x sequence metrics
-  paired_tests.csv      each run vs each reference run, paired over sequences (Wilcoxon)
+  paired_tests.csv      each run vs each reference run, paired over sequences (Wilcoxon, bootstrap interval)
   failure_cases.csv     sequences where a run is clearly worse than the native baseline
   training_summary.csv  start/end training statistics and drift flags
 """
@@ -27,6 +27,8 @@ from scipy.stats import mannwhitneyu, wilcoxon
 SETUP_KEYS = ("absence_weight", "distill_weight", "clip_difficulty", "absence_probability", "seed", "steps")
 SEQUENCE_METRICS = ("propagated_dice", "present_dice", "absent_fp_rate", "present_detection_rate")
 LOWER_IS_BETTER = {"absent_fp_rate"}
+BOOTSTRAP_METRICS = ("propagated_dice", "present_dice", "absent_fp_rate")
+BOOTSTRAP_SAMPLES = 2000
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -108,6 +110,27 @@ def frame_metrics(frames: list[dict]) -> dict:
     }
 
 
+def bootstrap_intervals(frames: list[dict], seed: int = 0) -> dict:
+    """95% intervals of frame-pooled metrics, resampling whole sequences."""
+    rng = np.random.default_rng(seed)
+    by_sequence = {}
+    for f in frames:
+        by_sequence.setdefault(f["sequence"], []).append(f)
+    groups = list(by_sequence.values())
+    draws = {metric: [] for metric in BOOTSTRAP_METRICS}
+    for _ in range(BOOTSTRAP_SAMPLES):
+        sample = [f for index in rng.integers(len(groups), size=len(groups)) for f in groups[index]]
+        present = [f["dice"] for f in sample if f["present"]]
+        absent = [float(f["predicted"]) for f in sample if not f["present"]]
+        draws["propagated_dice"].append(mean(f["dice"] for f in sample))
+        draws["present_dice"].append(mean(present))
+        draws["absent_fp_rate"].append(mean(absent))
+    result = {}
+    for metric, values in draws.items():
+        result[f"{metric}_ci_low"], result[f"{metric}_ci_high"] = np.nanpercentile(values, [2.5, 97.5]).tolist()
+    return result
+
+
 def sequence_metrics(frames: list[dict]) -> dict[str, dict]:
     result = {}
     for sequence in sorted({f["sequence"] for f in frames}, key=lambda name: int(name[3:])):
@@ -163,6 +186,8 @@ def paired(run, reference, per_sequence) -> list[dict]:
         keys = [s for s in a if s in b and not np.isnan(a[s][metric]) and not np.isnan(b[s][metric])]
         x = np.array([a[s][metric] for s in keys])
         y = np.array([b[s][metric] for s in keys])
+        draws = np.random.default_rng(0).integers(len(x), size=(BOOTSTRAP_SAMPLES, len(x))) if len(x) else None
+        low, high = np.percentile((x - y)[draws].mean(axis=1), [2.5, 97.5]) if len(x) else (np.nan, np.nan)
         better = (x < y) if metric in LOWER_IS_BETTER else (x > y)
         worse = (x > y) if metric in LOWER_IS_BETTER else (x < y)
         rows.append({
@@ -173,6 +198,8 @@ def paired(run, reference, per_sequence) -> list[dict]:
             "mean_run": float(x.mean()) if len(x) else float("nan"),
             "mean_reference": float(y.mean()) if len(y) else float("nan"),
             "mean_diff": float((x - y).mean()) if len(x) else float("nan"),
+            "diff_ci_low": float(low),
+            "diff_ci_high": float(high),
             "better": int(better.sum()),
             "worse": int(worse.sum()),
             "ties": int((x == y).sum()),
@@ -203,6 +230,7 @@ def main():
             "run": run.name,
             **{key: setup.get(key, "") for key in SETUP_KEYS},
             **frame_metrics(frames),
+            **bootstrap_intervals(frames),
             **efficiency(run),
         })
         per_sequence[run.name] = sequence_metrics(frames)
