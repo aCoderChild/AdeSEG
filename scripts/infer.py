@@ -135,6 +135,7 @@ def vos_inference(
     prompt_records=None,
     prompt_source="yolo",
     observation_detector=None,
+    observation_stride=1,
 ):
     started = time.perf_counter()
     video_dir = get_video_frame_dir(base_video_dir, video_name)
@@ -211,11 +212,10 @@ def vos_inference(
 
     observations = {}
     if observation_detector is not None:
-        for frame_idx in range(prompt_frame_idx + 1, len(frame_names)):
+        for frame_idx in range(prompt_frame_idx + observation_stride, len(frame_names), observation_stride):
             frame_path = resolve_frame_path(video_dir, frame_names[frame_idx])
             box, confidence = get_first_yolo_box(observation_detector, frame_path, yolo_imgsz, OBSERVATION_FLOOR)
-            if box is not None:
-                observations[frame_idx] = (box, confidence)
+            observations[frame_idx] = (box, confidence or 0.0)
         predictor.observations = observations
 
     for frame_idx in range(prompt_frame_idx):
@@ -250,6 +250,7 @@ def vos_inference(
                 "predicted_iou": predicted_iou_value(output),
                 "object_score": float(output["object_score_logits"].float().mean()),
                 "observation_confidence": observations[frame_idx][1] if frame_idx in observations else "",
+                "measured": int(frame_idx in observations),
                 **output.get("kalman_trace", {}),
                 **output.get("presence_trace", {}),
             }
@@ -320,6 +321,11 @@ def parse_args():
         help="Detector whose confident boxes prompt the decoder on propagated frames (detector observations).",
     )
     parser.add_argument("--observation_conf", type=float, default=0.5, help="Detections at or above prompt the decoder.")
+    parser.add_argument("--observation_stride", type=int, default=1, help="Run the detector on every n-th frame only.")
+    parser.add_argument(
+        "--presence_fusion_unmeasured", type=Path, default=None,
+        help="Fusion head without the detector feature, for frames the detector did not run on.",
+    )
     parser.add_argument(
         "--presence_fusion", type=Path, default=None,
         help="Presence-fusion checkpoint from scripts/train_presence_fusion.py (needs --observation_detector).",
@@ -396,6 +402,14 @@ def main():
             predictor.presence_fusion = PresenceFusion().to(predictor.device)
             predictor.presence_fusion.load_state_dict(torch.load(args.presence_fusion, map_location=predictor.device)["state_dict"])
             predictor.presence_fusion.eval()
+        if args.presence_fusion_unmeasured is not None:
+            from modeling.detector_observation import PresenceFusion
+
+            predictor.presence_fusion_unmeasured = PresenceFusion().to(predictor.device)
+            predictor.presence_fusion_unmeasured.load_state_dict(
+                torch.load(args.presence_fusion_unmeasured, map_location=predictor.device)["state_dict"]
+            )
+            predictor.presence_fusion_unmeasured.eval()
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:
         raise RuntimeError(f"No sequences found under {args.base_video_dir}")
@@ -418,6 +432,7 @@ def main():
             prompt_records=prompt_records,
             prompt_source=args.prompt_source,
             observation_detector=observation_detector,
+            observation_stride=args.observation_stride,
         )
         if prompt is not None:
             used_prompts[output_name] = prompt
@@ -442,6 +457,8 @@ def main():
         "observation_box_only": args.observation_box_only,
         "observation_on_memory": args.observation_on_memory,
         "presence_fusion": str(args.presence_fusion) if args.presence_fusion else None,
+        "observation_stride": args.observation_stride,
+        "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
         "yolo_checkpoint": str(args.yolo_checkpoint),

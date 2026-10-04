@@ -11,7 +11,9 @@ resulting mask is written to memory as that frame's observation.
   to the decoder's object score (two independent sensors, equal prior).
 - ``presence_fusion``: on the other frames a learned head maps the decoder's
   object score and IoU, the (weak) detector evidence and the Kalman prior
-  variance to the object score that gates the mask and the memory.
+  variance to the object score that gates the mask and the memory. Frames the
+  detector did not run on (not in ``observations``) use
+  ``presence_fusion_unmeasured``, a head fitted without the detector feature.
 """
 
 from __future__ import annotations
@@ -60,7 +62,8 @@ class DetectorObservationMixin:
     def _run_single_frame_inference(self, *args, **kwargs):
         if kwargs["point_inputs"] is not None or kwargs["is_init_cond_frame"]:
             return super()._run_single_frame_inference(*args, **kwargs)
-        box, confidence = (self.observations or {}).get(kwargs["frame_idx"], (None, 0.0))
+        measured = kwargs["frame_idx"] in (self.observations or {})
+        box, confidence = self.observations[kwargs["frame_idx"]] if measured else (None, 0.0)
         observed = box is not None and confidence >= self.observation_conf
         if observed:
             prompt = self.prepare_point_inputs(inference_state=kwargs["inference_state"], box=box)
@@ -68,7 +71,8 @@ class DetectorObservationMixin:
             if self.observation_clean:
                 self._mark_clean_observation(kwargs)
         trace = {"observed": int(observed)}
-        logit = detector_logit(confidence)
+        logit = detector_logit(confidence) if measured else 0.0
+        fusion = getattr(self, "presence_fusion" if measured else "presence_fusion_unmeasured", None)
 
         def hook(object_score, ious):
             step = getattr(self, "_kalman_step", None) or {}
@@ -82,8 +86,8 @@ class DetectorObservationMixin:
             trace.update((f"feature_{name}", value) for name, value in zip(PRESENCE_FEATURES, features[0].tolist()))
             if observed:
                 fused = object_score + logit if self.observation_presence else object_score
-            elif getattr(self, "presence_fusion", None) is not None:
-                fused = self.presence_fusion(features).to(object_score.dtype)
+            elif fusion is not None:
+                fused = fusion(features).to(object_score.dtype)
             else:
                 fused = object_score
             trace["fused_score"] = float(fused.float().mean())

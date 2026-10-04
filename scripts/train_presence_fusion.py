@@ -45,13 +45,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--drop", nargs="*", default=[], choices=PRESENCE_FEATURES, help="Features set to zero (ablation).")
     args = parser.parse_args()
     rows = list(csv.DictReader(open(args.data)))
     features = torch.tensor([[float(r[name]) for name in PRESENCE_FEATURES] for r in rows])
+    for name in args.drop:
+        features[:, PRESENCE_FEATURES.index(name)] = 0.0
     labels = torch.tensor([float(r["present"]) for r in rows])
     folds = torch.tensor([int(r["fold"]) for r in rows])
 
-    report = {"frames": len(rows), "present_fraction": float(labels.mean()), "cross_fold": {}}
+    report = {"dropped": args.drop, "frames": len(rows), "present_fraction": float(labels.mean()), "cross_fold": {}}
     for fold in folds.unique().tolist():
         held = folds == fold
         model = fit(features[~held], labels[~held])

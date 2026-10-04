@@ -54,7 +54,8 @@ def main():
     parser.add_argument("--polypgen_root", type=Path, default=ROOT / "data/PolypGen2021_MultiCenterData_v3")
     parser.add_argument("--exclude_list", type=Path, default=ROOT / "datasets/splits/polypgen/single_frame_test_overlap.txt")
     parser.add_argument("--detectors", type=Path, nargs="+", required=True, help="best.pt of fold 0, 1, ...")
-    parser.add_argument("--kalman_checkpoint", type=Path, required=True)
+    parser.add_argument("--memory_backend", choices=["kalman", "native"], default="kalman")
+    parser.add_argument("--kalman_checkpoint", type=Path, default=None)
     parser.add_argument("--output", type=Path, required=True, help="CSV of per-frame features and labels.")
     parser.add_argument("--clips_per_fold", type=int, default=300)
     parser.add_argument("--clip_difficulty", choices=sorted(DIFFICULTIES), default="hard")
@@ -65,15 +66,17 @@ def main():
     config = json.loads(args.config.read_text())
     folds = len(args.detectors)
 
+    kalman = args.memory_backend == "kalman"
     predictor = build_video_predictor(
         config["sam2_cfg"], ROOT / config["sam2_checkpoint"], args.device,
-        predictor_target="modeling.detector_observation.ObservedKalmanVideoPredictor",
+        predictor_target="modeling.detector_observation." + ("ObservedKalmanVideoPredictor" if kalman else "ObservedVideoPredictor"),
     )
-    checkpoint = torch.load(args.kalman_checkpoint, map_location=args.device, weights_only=True)
-    predictor.memory_update = KalmanMemoryUpdate(
-        predictor.mem_dim, predictor.hidden_dim, **checkpoint["update_config"]
-    ).to(args.device).eval()
-    predictor.memory_update.load_state_dict(checkpoint["state_dict"])
+    if kalman:
+        checkpoint = torch.load(args.kalman_checkpoint, map_location=args.device, weights_only=True)
+        predictor.memory_update = KalmanMemoryUpdate(
+            predictor.mem_dim, predictor.hidden_dim, **checkpoint["update_config"]
+        ).to(args.device).eval()
+        predictor.memory_update.load_state_dict(checkpoint["state_dict"])
     predictor.observation_conf = args.observation_conf
 
     frames = list_single_frames(args.polypgen_root, excluded=load_excluded_paths(args.exclude_list))
@@ -99,10 +102,10 @@ def main():
                     observations = {}
                     for index, path in enumerate(names[1:], start=1):
                         boxes = get_yolo_boxes(detector, path, confidence=0.01, max_boxes=1)
-                        if boxes:
-                            observations[index] = boxes[0]
+                        observations[index] = boxes[0] if boxes else (None, 0.0)
                     state = predictor.init_state(video_path=directory, offload_video_to_cpu=True)
-                state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": 0, "frame_times": times})
+                if kalman:
+                    state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": 0, "frame_times": times})
                 predictor.observations = observations
                 predictor.add_new_points_or_box(state, frame_idx=0, obj_id=1, box=first_box(clip["masks"][0].numpy()))
                 for frame_idx, _, _ in predictor.propagate_in_video(state, start_frame_idx=0):
