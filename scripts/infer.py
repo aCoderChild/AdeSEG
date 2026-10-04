@@ -141,10 +141,12 @@ def vos_inference(
     if not frame_names:
         raise RuntimeError(f"Found no image frames in {video_dir}")
 
+    # MedSAM2 offloads state with non_blocking device-to-host copies and reads them back
+    # later; on MPS such a copy can still be in flight, so keep the state on the device.
     inference_state = predictor.init_state(
         video_path=video_dir,
         offload_video_to_cpu=True,
-        offload_state_to_cpu=True,
+        offload_state_to_cpu=predictor.device.type == "cuda",
     )
     height = inference_state["video_height"]
     width = inference_state["video_width"]
@@ -284,6 +286,10 @@ def parse_args():
         help="native is MedSAM2; kalman is the Kalman spatial memory.",
     )
     parser.add_argument(
+        "--native_memory_frames", type=int, default=None,
+        help="Native backend only: keep the prompt frame plus this many recent frame memories (MedSAM2 uses 6).",
+    )
+    parser.add_argument(
         "--kalman_checkpoint",
         type=Path,
         default=None,
@@ -333,6 +339,16 @@ def main():
         predictor.memory_update.load_state_dict(checkpoint["state_dict"])
         predictor.memory_update.eval()
 
+    if args.native_memory_frames is not None:
+        if args.memory_backend != "native" or not 0 <= args.native_memory_frames < predictor.num_maskmem:
+            raise ValueError("--native_memory_frames needs the native backend and a value in [0, 6].")
+        # Keep each kept frame's original temporal code: the k most recent codes plus the prompt-frame code.
+        codes = predictor.maskmem_tpos_enc.data
+        predictor.maskmem_tpos_enc = torch.nn.Parameter(
+            torch.cat([codes[: args.native_memory_frames], codes[-1:]]), requires_grad=False
+        )
+        predictor.num_maskmem = args.native_memory_frames + 1
+
     yolo_model = load_yolo_model(args.yolo_checkpoint) if args.prompt_source == "yolo" else None
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:
@@ -373,6 +389,7 @@ def main():
         "seed": args.seed,
         "kalman_checkpoint": str(args.kalman_checkpoint) if args.kalman_checkpoint else None,
         "prompt_source": args.prompt_source,
+        "native_memory_frames": args.native_memory_frames,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
         "yolo_checkpoint": str(args.yolo_checkpoint),
