@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import numpy as np
 import torch
 from torch.nn import functional as F
 
 from MedSAM2.training.loss_fns import CORE_LOSS_KEY, MultiStepMultiMasksAndIous
 from MedSAM2.training.model.sam2 import SAM2Train
 from MedSAM2.training.utils.data_utils import BatchedVideoDatapoint, BatchedVideoMetaData
+from datasets.pseudo_video import IMAGE_MEAN, IMAGE_STD
+from modeling.detector_observation import detector_logit
 from modeling.kalman_memory import KalmanMemoryMixin, KalmanMemoryUpdate
 from modeling.medsam2 import build_video_predictor
 
@@ -21,9 +24,37 @@ PROMPT_OVERRIDES = {
 
 
 class KalmanSAM2Train(KalmanMemoryMixin, SAM2Train):
+    """``observations``: {frame_idx: (xyxy box in model-input pixels, confidence)} for the current clip.
+
+    As in ``ObservedKalmanVideoPredictor``, a frame whose detection reaches
+    ``observation_conf`` is decoded from the box on memory-free features, written
+    to the detection slot, and its object score gets the detector's log-odds.
+    """
+
+    observation_conf = 0.5
+
     def __init__(self, fill_hole_area=0, **kwargs):
         # fill_hole_area is a video-predictor post-processing option added by the shared builder.
         super().__init__(**kwargs)
+        self.observations = {}
+
+    def track_step(self, **kwargs):
+        box, confidence = self.observations.get(kwargs["frame_idx"], (None, 0.0))
+        if kwargs["is_init_cond_frame"] or box is None or confidence < self.observation_conf:
+            return super().track_step(**kwargs)
+        device = kwargs["current_vision_feats"][-1].device
+        kwargs["point_inputs"] = {
+            "point_coords": torch.tensor(box, dtype=torch.float32, device=device).reshape(1, 2, 2),
+            "point_labels": torch.tensor([[2, 3]], dtype=torch.int32, device=device),
+        }
+        logit = detector_logit(confidence)
+        self.kalman_observation_frame = True
+        self.object_score_hook = lambda object_score, ious: object_score + logit
+        try:
+            return super().track_step(**kwargs)
+        finally:
+            self.kalman_observation_frame = False
+            self.object_score_hook = None
 
     def prepare_prompt_inputs(self, backbone_out, input, start_frame_idx=0):
         backbone_out = super().prepare_prompt_inputs(backbone_out, input, start_frame_idx)
@@ -65,6 +96,18 @@ def video_batch(images, masks) -> BatchedVideoDatapoint:
         dict_key="pseudo_video",
         batch_size=[num_frames],
     )
+
+
+def clip_observations(detector, images) -> dict:
+    """Top detection per frame (t >= 1) of a normalized [T, 3, H, W] clip, from a YOLO detector."""
+    pixels = images.permute(0, 2, 3, 1).cpu().numpy() * IMAGE_STD + IMAGE_MEAN
+    bgr = [np.ascontiguousarray((frame.clip(0, 1) * 255).round().astype(np.uint8)[..., ::-1]) for frame in pixels[1:]]
+    observations = {}
+    for index, result in enumerate(detector.predict(bgr, conf=0.01, verbose=False), start=1):
+        if len(result.boxes):
+            best = int(result.boxes.conf.argmax())
+            observations[index] = (result.boxes.xyxy[best].tolist(), float(result.boxes.conf[best]))
+    return observations
 
 
 def run_clip(model, batch, frame_times, run_teacher):

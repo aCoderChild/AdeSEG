@@ -16,11 +16,19 @@ with the object-score term split by class:
     present frames:  20 * focal(mask) + 1 * Dice(mask) + 1 * L1(predicted IoU, actual IoU)
                      + 1 * BCE(object score, 1)          # MedSAM2 loss_class weight
     empty frames:    w_absence * BCE(object score, 0)  # --absence_weight, relative to the 1 above
-    present frames:  w_distill * ||student memory-conditioned features - native-bank teacher||^2
+    present frames:  w_distill * ||student memory-conditioned features - native-bank teacher||^2  (default off)
 
 As in MedSAM2, mask losses are not applied to empty frames, so the object score
-is the only absence signal. The final checkpoint is the last step, so no test
-label influences model selection.
+is the only absence signal.
+
+With ``--detectors`` (one YOLO per fold from ``build_detector_dataset.py
+--holdout_fold``), clips of fold k get detector observations from detector k,
+which never saw fold k, and are run exactly as at test time (clean box decoding,
+detection slot, detector log-odds on the object score).
+
+Every 10th single frame and every 10th negative sequence are held out for
+validation clips. ``kalman_memory.pt`` is the checkpoint (step 0 = untrained
+included) with the best validation Dice, so no test label influences selection.
 """
 
 from __future__ import annotations
@@ -43,9 +51,10 @@ from datasets.pseudo_video import (
     list_single_frames,
     load_excluded_paths,
 )
-from training.kalman_trainer import KalmanLoss, build_training_model, run_clip, video_batch
+from modeling.medsam2 import load_yolo_model
+from training.kalman_trainer import KalmanLoss, build_training_model, clip_observations, run_clip, video_batch
 
-CHECKPOINT_FORMAT = "adseg_kalman_memory_v2"
+CHECKPOINT_FORMAT = "adseg_kalman_memory_v3"
 
 
 def parse_args():
@@ -74,13 +83,26 @@ def parse_args():
         "--absence_weight", type=float, default=0.1,
         help="Object-score BCE weight on empty frames, relative to 1.0 on present frames.",
     )
-    parser.add_argument("--distill_weight", type=float, default=1.0)
+    parser.add_argument("--distill_weight", type=float, default=0.0)
+    parser.add_argument("--detectors", type=Path, nargs="*", default=[], help="best.pt of fold 0, 1, ... (cross-fitted).")
+    parser.add_argument("--observation_conf", type=float, default=0.5)
+    parser.add_argument("--validation_clips", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", choices=("cuda", "mps", "cpu"), default="cuda")
     parser.add_argument("--log_every", type=int, default=25)
     parser.add_argument("--save_every", type=int, default=100)
     parser.add_argument("--output_dir", type=Path, required=True)
     return parser.parse_args()
+
+
+@torch.no_grad()
+def clip_dice(student, masks):
+    """Dice per propagated frame (an empty prediction on an empty frame scores 1)."""
+    predicted = torch.stack([frame["pred_masks_high_res"][0, 0] > 0 for frame in student[1:]])
+    target = masks[1:] > 0
+    total = predicted.flatten(1).sum(1) + target.flatten(1).sum(1)
+    dice = 2 * (predicted & target).flatten(1).sum(1) / total.clamp_min(1)
+    return torch.where(total == 0, torch.ones_like(dice), dice).tolist(), target.flatten(1).any(1).tolist()
 
 
 @torch.no_grad()
@@ -108,9 +130,16 @@ def main():
     rng = np.random.default_rng(args.seed)
     config = json.loads(args.config.read_text(encoding="utf-8"))
 
-    frames = list_single_frames(args.polypgen_root, excluded=load_excluded_paths(args.exclude_list))
-    negatives = list_negative_sequences(args.polypgen_root, set(args.exclude_negative_sequences))
+    all_frames = list_single_frames(args.polypgen_root, excluded=load_excluded_paths(args.exclude_list))
+    all_negatives = list_negative_sequences(args.polypgen_root, set(args.exclude_negative_sequences))
+    frames = [f for i, f in enumerate(all_frames) if i % 10]
+    negatives = [seq for i, seq in enumerate(all_negatives) if i % 10]
+    validation_frames = all_frames[::10]
+    validation_negatives = all_negatives[::10]
     model = build_training_model(config["sam2_cfg"], ROOT / config["sam2_checkpoint"], args.device)
+    model.observation_conf = args.observation_conf
+    detectors = [load_yolo_model(path) for path in args.detectors]
+    folds = max(1, len(detectors))
     criterion = KalmanLoss(
         absence_weight=args.absence_weight,
         distill_weight=args.distill_weight,
@@ -118,15 +147,52 @@ def main():
         dice=args.dice_weight,
         iou=args.iou_weight,
     )
-    generator = PseudoVideoGenerator(
-        frames, negatives,
-        image_size=model.image_size,
-        clip_length=args.clip_length,
-        max_frame_gap=args.max_frame_gap,
-        absence_probability=args.absence_probability,
-        max_absence=args.max_absence,
-        difficulty=DIFFICULTIES[args.clip_difficulty],
-    )
+    def fold_generators(frame_list, sequence_list):
+        """One generator per fold; fold k holds centers C(i) with (i - 1) % folds == k."""
+        generators = []
+        for fold in range(folds):
+            generators.append(PseudoVideoGenerator(
+                [f for f in frame_list if (int(f.center[1:]) - 1) % folds == fold],
+                [seq for i, seq in enumerate(sequence_list) if i % folds == fold] or sequence_list,
+                image_size=model.image_size,
+                clip_length=args.clip_length,
+                max_frame_gap=args.max_frame_gap,
+                absence_probability=args.absence_probability,
+                max_absence=args.max_absence,
+                difficulty=DIFFICULTIES[args.clip_difficulty],
+            ))
+        return generators
+
+    generators = fold_generators(frames, negatives)
+    fold_weights = np.array([len(g.frames) for g in generators], dtype=float)
+    fold_weights /= fold_weights.sum()
+
+    def sample(rng, generators):
+        fold = int(rng.choice(len(generators), p=fold_weights))
+        clip = generators[fold].sample(rng)
+        clip["observations"] = clip_observations(detectors[fold], clip["images"]) if detectors else {}
+        return clip
+
+    validation_rng = np.random.default_rng(args.seed + 1)
+    validation_generators = fold_generators(validation_frames, validation_negatives)
+    validation = [sample(validation_rng, validation_generators) for _ in range(args.validation_clips)]
+
+    def validate():
+        dice, present = [], []
+        with torch.no_grad():
+            for clip in validation:
+                masks = clip["masks"].to(args.device)
+                model.observations = clip["observations"]
+                student, _ = run_clip(
+                    model, video_batch(clip["images"].to(args.device), masks),
+                    clip["frame_gaps"].cumsum(0).tolist(), False,
+                )
+                frame_dice, frame_present = clip_dice(student, masks)
+                dice += frame_dice
+                present += frame_present
+        dice, present = np.array(dice), np.array(present)
+        return {"dice": float(dice.mean()), "present_dice": float(dice[present].mean()),
+                "absent_fp_rate": float(1 - dice[~present].mean()) if (~present).any() else None}
     optimizer = torch.optim.AdamW(
         model.memory_update.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
@@ -142,23 +208,30 @@ def main():
             "state_dict": model.memory_update.state_dict(),
         }, path)
 
-    setup = {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()}
+    setup = {key: json.loads(json.dumps(value, default=str)) for key, value in vars(args).items()}
     setup.update({
         "single_frames": len(frames),
         "negative_sequences": len(negatives),
+        "validation_single_frames": len(validation_frames),
+        "validation_negative_sequences": len(validation_negatives),
         "positive_sequences_used_for_training": 0,
         "medsam2_frozen": True,
-        "checkpoint_selection": "last_step",
+        "checkpoint_selection": "best_validation_dice_including_step0",
     })
     (args.output_dir / "setup.json").write_text(json.dumps(setup, indent=2) + "\n", encoding="utf-8")
 
     history = []
+    best = {"step": 0, **validate()}
+    save(args.output_dir / "kalman_memory.pt")
+    validation_log = [best]
+    print(f"step 0 validation: {best}", flush=True)
     with (args.output_dir / "history.jsonl").open("w", encoding="utf-8") as log:
         for step in range(1, args.steps + 1):
             optimizer.zero_grad(set_to_none=True)
             clip_stats = []
             for _ in range(args.accumulate):
-                clip = generator.sample(rng)
+                clip = sample(rng, generators)
+                model.observations = clip["observations"]
                 masks = clip["masks"].to(args.device)
                 batch = video_batch(clip["images"].to(args.device), masks)
                 student, teacher = run_clip(
@@ -194,7 +267,16 @@ def main():
                 )
             if step % args.save_every == 0:
                 save(args.output_dir / f"kalman_memory_step{step}.pt")
-    save(args.output_dir / "kalman_memory.pt")
+                scores = {"step": step, **validate()}
+                validation_log.append(scores)
+                print(f"step {step} validation: {scores}", flush=True)
+                if scores["dice"] > best["dice"]:
+                    best = scores
+                    save(args.output_dir / "kalman_memory.pt")
+    save(args.output_dir / "kalman_memory_last.pt")
+    (args.output_dir / "validation.json").write_text(
+        json.dumps({"selected": best, "history": validation_log}, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":

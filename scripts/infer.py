@@ -37,7 +37,7 @@ from datasets.polypgen import (
 
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "polypgen.yaml"
 MEMORY_BACKENDS = ("native", "kalman")
-KALMAN_CHECKPOINT_FORMAT = "adseg_kalman_memory_v2"
+KALMAN_CHECKPOINT_FORMAT = "adseg_kalman_memory_v3"
 PROMPT_SOURCES = ("yolo", "gt_box")
 OBSERVATION_FLOOR = 0.01  # detections below this count as no detection
 

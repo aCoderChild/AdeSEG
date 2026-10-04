@@ -7,16 +7,20 @@ Replaces MedSAM2's memory bank with two constant-size slots:
 
 Per frame ``t`` (predict -> read -> observe -> update, as in RKN / KalmanNet)::
 
-    predict:  P_prior = P_{t-1} + Q_t        Q_t = Q_net(F_t, |F_t - F_{t-1}|, log1p dt)
+    predict:  P_prior = P_{t-1} + Q_t        Q_t = q * c(Q_net(F_t, |F_t - F_{t-1}|, log1p dt))
     read:     memory attention sees S_{t-1} + u * log1p(P_prior)
     observe:  C_t = MedSAM2 memory encoder(F_t, predicted mask_t)
-    update:   R_t = R_net(C_t, normalize(C_t - S_{t-1}), F_t, mask_t, p_t) + a * (1 - p_t)
+    update:   R_t = (r + a * (1 - p_t)) * c(R_net(C_t, normalize(C_t - S_{t-1}), F_t, mask_t, p_t))
               K_t = P_prior / (P_prior + R_t)
               S_t = S_{t-1} + K_t * (C_t - S_{t-1})
               P_t = (1 - K_t) * P_prior
 
 The transition is identity, the covariance is diagonal and shared across channels
 at each pixel, and the observation model is identity (RKN's update with H = I).
+The networks learn bounded corrections c(x) = range ** tanh(x) to the noise
+levels q, r, a; they start at zero (c = 1), so the untrained module keeps
+presence gating (an absent frame writes about 17% of a present one) and training
+cannot remove it.
 ``KalmanMemoryMixin`` hooks MedSAM2's ``_prepare_memory_conditioned_features``
 (predict + read) and ``_encode_memory_in_output`` (update), which both the video
 predictor and ``SAM2Train`` call on every frame, so training and inference share
@@ -35,18 +39,14 @@ from modeling.native_pointers import append_native_object_pointers
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
 
-def _inverse_softplus(value: float) -> float:
-    return value + math.log(-math.expm1(-value))
-
-
-def _noise_head(in_channels: int, hidden: int, bias: float) -> nn.Sequential:
+def _noise_head(in_channels: int, hidden: int) -> nn.Sequential:
     head = nn.Sequential(
         nn.Conv2d(in_channels, hidden, 3, padding=1),
         nn.GELU(),
         nn.Conv2d(hidden, 1, 3, padding=1),
     )
     nn.init.zeros_(head[-1].weight)
-    nn.init.constant_(head[-1].bias, _inverse_softplus(bias))
+    nn.init.zeros_(head[-1].bias)
     return head
 
 
@@ -61,6 +61,7 @@ class KalmanMemoryUpdate(nn.Module):
         process_noise: float = 1.0,
         observation_noise: float = 0.1,
         absence_noise: float = 10.0,
+        noise_range: float = 10.0,
         min_variance: float = 1e-4,
         max_variance: float = 1e4,
     ):
@@ -72,19 +73,24 @@ class KalmanMemoryUpdate(nn.Module):
             "process_noise": process_noise,
             "observation_noise": observation_noise,
             "absence_noise": absence_noise,
+            "noise_range": noise_range,
             "min_variance": min_variance,
             "max_variance": max_variance,
         }
         self.min_variance = min_variance
         self.max_variance = max_variance
+        self.process_noise = process_noise
+        self.observation_noise = observation_noise
+        self.absence_noise = absence_noise
+        self.log_noise_range = math.log(noise_range)
         self.image_projection = nn.Conv2d(image_channels, projection_channels, 1)
-        self.process_head = _noise_head(2 * projection_channels + 1, hidden_channels, process_noise)
-        self.observation_head = _noise_head(
-            2 * memory_channels + projection_channels + 2, hidden_channels, observation_noise
-        )
-        self.absence_scale = nn.Parameter(torch.tensor(_inverse_softplus(absence_noise)))
+        self.process_head = _noise_head(2 * projection_channels + 1, hidden_channels)
+        self.observation_head = _noise_head(2 * memory_channels + projection_channels + 2, hidden_channels)
         self.log_initial_variance = nn.Parameter(torch.tensor(math.log(initial_variance)))
         self.uncertainty_embedding = nn.Parameter(torch.zeros(memory_channels))
+
+    def correction(self, head_output: torch.Tensor) -> torch.Tensor:
+        return torch.exp(self.log_noise_range * torch.tanh(head_output))
 
     def project_image(self, image_feature: torch.Tensor) -> torch.Tensor:
         return self.image_projection(image_feature)
@@ -98,7 +104,7 @@ class KalmanMemoryUpdate(nn.Module):
     def predict(self, variance, image_projection, previous_image_projection, frame_gap):
         batch, _, height, width = variance.shape
         log_gap = torch.log1p(frame_gap.reshape(batch, 1, 1, 1).clamp_min(0.0))
-        process_noise = F.softplus(self.process_head(torch.cat([
+        process_noise = self.process_noise * self.correction(self.process_head(torch.cat([
             image_projection,
             (image_projection - previous_image_projection).abs(),
             log_gap.expand(batch, 1, height, width),
@@ -113,13 +119,15 @@ class KalmanMemoryUpdate(nn.Module):
         mask_probability = F.interpolate(mask_probability, size=(height, width), mode="area")
         presence = presence_probability.reshape(batch, 1, 1, 1)
         innovation = candidate - mean
-        observation_noise = F.softplus(self.observation_head(torch.cat([
-            candidate,
-            F.normalize(innovation, dim=1),
-            image_projection,
-            mask_probability,
-            presence.expand(batch, 1, height, width),
-        ], dim=1))) + F.softplus(self.absence_scale) * (1.0 - presence)
+        observation_noise = (self.observation_noise + self.absence_noise * (1.0 - presence)) * self.correction(
+            self.observation_head(torch.cat([
+                candidate,
+                F.normalize(innovation, dim=1),
+                image_projection,
+                mask_probability,
+                presence.expand(batch, 1, height, width),
+            ], dim=1))
+        )
         gain = prior_variance / (prior_variance + observation_noise)
         return {
             "mean": mean + gain * innovation,
