@@ -1,73 +1,67 @@
 # Experiment record
 
-## Current architecture: Kalman spatial memory
+PolypGen is a proxy dataset for the adenoid videos. All numbers below are on
+the 23 `sequenceData/positive` sequences (2,012 propagated frames: 1,689 with a
+polyp, 323 empty), prompted with the tight box of the first non-empty
+ground-truth mask, MedSAM2 frozen, one seed. Results are on Google Drive under
+`outputs/Kalman/<run>/`.
 
-MedSAM2 keeps a FIFO memory bank: the prompt frame plus the last six frame
-memories. `modeling/kalman_memory.py` replaces it with two constant-size slots
-read by the frozen memory attention, while the native object-pointer history is
-unchanged:
-
-- **anchor slot**: the prompt-frame memory, never overwritten, with
-  MedSAM2's conditioning-frame temporal code (`maskmem_tpos_enc[num_maskmem-1]`);
-- **Kalman state**: a mean memory map `S` and a per-pixel variance `P`, with
-  the most-recent-frame temporal code (`maskmem_tpos_enc[0]`).
-
-For frame `t`, with `C_t` the MedSAM2 memory-encoder candidate, `F_t` the image
-feature, `M_t` the predicted low-resolution mask, `p_t = sigmoid(object score)`
-and `dt` the raw-frame gap, each step runs predict -> read -> observe -> update,
-as in RKN (`_predict`, `_update`) and KalmanNet (`step_prior`,
-`step_KGain_est`, `KNet_step`):
+## Current architecture: DOK-Mem (detection-observed Kalman memory)
 
 ```text
-predict:  Q_t     = softplus(Q_net(proj F_t, |proj F_t - proj F_{t-1}|, log1p dt))
-          P_prior = P_{t-1} + Q_t
-read:     memory attention sees S_{t-1} + u * log1p(P_prior)      # u zero-initialized
-observe:  decode frame t, C_t = MedSAM2 memory encoder(F_t, mask_t)
-update:   R_t = softplus(R_net(C_t, normalize(C_t - S_{t-1}), proj F_t, M_t, p_t)) + a * (1 - p_t)
-          K_t = P_prior / (P_prior + R_t)                          # per-pixel gain
-          S_t = S_{t-1} + K_t * (C_t - S_{t-1})
-          P_t = (1 - K_t) * P_prior
+frame t ──► MedSAM2 image encoder (frozen) ─────────────────────────────┐
+   │                                                                     ▼
+   └──► YOLOv8n detector (training data only) ──► top box b_t, conf d_t   memory attention (frozen) reads
+                                                     │                    [prompt anchor | detection slot | S + u·log(1+P)]
+            d_t ≥ 0.5 ?  ── yes ──► clean observation: decode b_t on memory-free features (prompt-frame path)
+                │                     object score += logit(d_t); memory -> detection slot + Kalman update
+                no
+                ▼
+     mask decoder (frozen) ──► object score s_t, predicted IoU
+                ▼
+     presence fusion  σ(w·[s_t, IoU, logit d_t, log P̄] + b)  ──► gates the mask output and the memory write
+                ▼
+     Kalman update:  P⁻ = P + q;  R = (r + a(1−p)) · c(spatial map);  K = P⁻/(P⁻+R);  S ← S + K(C_t − S);  P ← (1−K)P⁻
 ```
 
-Relation to the references: the update is RKN's diagonal update with an
-identity observation model (gain `covar / (covar + obs_covar)`, posterior
-`(1 - gain) * covar`) and an identity transition; the variance is one value per
-pixel shared across the 64 channels; the innovation enters the noise network
-L2-normalized, as KalmanNet normalizes its difference features. Unlike
-KalmanNet, the gain is not output directly by a network but computed from the
-learned `Q` and `R`, which keeps `P` interpretable as uncertainty.
+| Component | Code | Learned? |
+|---|---|---|
+| Kalman memory (prompt anchor, detection slot, mean `S`, per-pixel variance `P`) | `modeling/kalman_memory.py` | noise level hand-set (`q=1`, `r=0.1`, `a=10`, `P0=1`); bounded corrections trainable, used untrained in the main result |
+| Detector observations (clean decoding, detection slot, detector log-odds) | `modeling/detector_observation.py` (`DetectorObservationMixin`) | detector trained on training data |
+| Presence fusion (4 inputs, 5 weights) | `PresenceFusion` in the same file | yes, cross-fitted (below) |
+| Object pointers | `modeling/native_pointers.py` | MedSAM2's own selection; `scripts/verify_native_pointers.py` checks the tokens are identical to native MedSAM2 (max difference 0) |
 
-Checkpoint format `adseg_kalman_memory_v2`. Version 1 (used for the first
-results below) computed `Q_t` only after decoding, so the memory attention read
-`P_{t-1}` without the frame-gap uncertainty, used `|C_t - S|` unnormalized, and
-fed the 512-pixel mask to `R_net` during training but the 128-pixel mask at
-inference.
+Kalman step (identity transition, diagonal covariance shared across the 64
+channels at each pixel, identity observation model; RKN's update equations):
 
-Training uses straight-through object gates (`SAM2Base.straight_through_object_gate`,
-enabled only by `KalmanMemoryTrainer`). MedSAM2 rounds the object score at
-three places: the output mask (set to -1024 when the score is <= 0), the
-no-object pointer blend, and the no-object memory embedding. The forward pass
-keeps these hard choices, so training and inference outputs are identical; in
-the backward pass the pointer and memory gates use `sigmoid(score)`, and mask
-losses reach the mask logits even when the gate is closed. The mask gate does
-not pass gradient to the score, which would be scaled by about 1024.
+```text
+predict:  P⁻ = P + q
+read:     memory attention sees [anchor | detection slot | S + u·log1p(P⁻)] and MedSAM2's object pointers
+observe:  C_t = MedSAM2 memory encoder(F_t, mask_t)
+update:   R_t = (r + a·(1 − p_t)) · c(D_t − mean(D_t)) · [c(g(logit d_t)) on detector frames]
+          K_t = P⁻ / (P⁻ + R_t);   S ← S + K_t(C_t − S);   P ← (1 − K_t)P⁻
+```
 
-Design intent, tied to the PolypGen measurements below:
+`c(x) = 10^tanh(x)`. `D_t` is a per-pixel map from `R_net(C_t, normalize(C_t − S),
+F_t, mask_t, p_t)`, centred per frame so it only redistributes trust inside a
+frame; `g` is a linear function of the detector confidence. Both start at zero
+(`c = 1`), so the untrained module is the hand-set filter: a polyp frame writes
+about 95% of the memory, an empty one about 17%. The prompt anchor and the
+detection slot use MedSAM2's conditioning-frame temporal code
+(`maskmem_tpos_enc[num_maskmem−1]`), the state the most-recent-frame code
+(`maskmem_tpos_enc[0]`), as in MedSAM2/SAM2-Plus. Retained memory: about 1.0 MiB
+per object, constant in video length.
 
-| Problem measured in PolypGen | Mechanism |
-|---|---|
-| Absent runs of 16–21 frames exceed the 7-frame native window | anchor slot always present; absent frames get large `R` and barely overwrite `S` |
-| Annotated frame gaps of 3–80 raw frames | `Q` grows with `dt` and appearance change, so after long gaps the next reliable frame is trusted more |
-| Native predicts a polyp on 65% of empty frames | presence-dependent observation noise plus an absence objective in training |
-| Clinical need for confidence | `P` is a per-pixel uncertainty map |
+Detector observations: the detector runs on every propagated frame. When its top
+box has confidence ≥ 0.5 (56% of propagated frames: 65% of polyp frames, 6.8%
+of empty frames), the box is decoded on memory-free features, as on a prompt
+frame, so a drifted memory cannot pull the observation off the polyp; the
+detector's log-odds are added to the object score; the resulting memory is
+written to the detection slot (latest detection only) and into the Kalman state.
 
-Initialization: the noise heads' last convolutions are zero-initialized with
-biases giving `Q = 1`, `R = 0.1` (plus `10 * (1 - p)`) and `P_0 = 1`, so an
-untrained module writes about 95% of a present frame and about 17% of an
-absent one, and `u = 0` leaves the readout equal to `S`.
-
-Retained spatial memory is 0.88 MiB per object (anchor, mean, variance,
-position, previous image projection) regardless of video length.
+Presence fusion: on frames without a confident box, a logistic head replaces the
+object score that gates the mask and the memory write:
+`σ(w1·s + w2·IoU + w3·logit(d) + w4·log P̄ + b)`.
 
 ## Data protocol
 
@@ -75,222 +69,177 @@ Training never reads `sequenceData/positive`.
 
 | Role | Source |
 |---|---|
-| Positives for training | `data_C1`..`data_C6` single frames with non-empty masks (1,399 after exclusion) |
-| Absences for training | `sequenceData/negativeOnly` (23 sequences, 4,275 frames) and out-of-view motion |
-| Test | all 23 `sequenceData/positive` sequences (2,225 frames) |
+| Positives | `data_C1`..`data_C6` single frames with non-empty masks (1,399 after excluding 12 frames that duplicate test frames, `datasets/splits/polypgen/single_frame_test_overlap.txt`) |
+| Absences | `sequenceData/negativeOnly` (23 sequences, 4,275 frames), inpainted polyps, look-away camera motion |
+| Test | all 23 `sequenceData/positive` sequences |
 
-`scripts/check_split_overlap.py` compares difference hashes of every training
-and test frame. Twelve single frames are renamed copies of positive-sequence
-frames (34 of seq15's 116 frames have a duplicate in `data_C2`); they are
-listed in `datasets/splits/polypgen/single_frame_test_overlap.txt` and excluded.
-No negative-sequence frame duplicates a test frame.
+Pseudo-videos (`datasets/pseudo_video.py`, `hard` preset): one single frame on a
+mean-reverting camera path, 16 frames, gaps 1–80 raw frames, blur/defocus/noise/
+JPEG/specular highlights/vignetting, occluders in 40% of clips, and with
+probability 0.6 an absence of 2–12 frames (inpainted polyp, look-away, or a
+negative-video splice).
 
-Training clips are 16-frame pseudo-videos (`datasets/pseudo_video.py`): one single frame
-follows a mean-reverting camera path sampled in raw-frame time (about 3–4% of
-the image per 3-frame gap and about 12% per 80-frame gap, matching measured
-PolypGen centroid shifts), with photometric jitter and motion blur. With
-probability 0.6 a stretch of 2–12 frames is replaced by consecutive
-`negativeOnly` frames or the polyp is moved out of view; masks are warped with
-the same transform, so labels are exact. The 12-frame maximum is longer than
-MedSAM2's 7-frame memory window; test videos are still longer (15–250 frames,
-absences up to 54 frames, frame gaps up to 400 in seq11 versus at most 80 in
-training), so behavior on the longest absences remains an extrapolation.
+Detectors (`scripts/build_detector_dataset.py`, `scripts/train_detector.py`,
+YOLOv8n from COCO, 60 epochs, 640 px):
 
-Two difficulty presets (`--clip_difficulty`, default `hard`):
-
-| | `easy` (first run) | `hard` |
+| Detector | Training data | Use |
 |---|---|---|
-| Frame gap | 1–40 | 1–80 |
-| Camera spread (x, y, log-zoom, degrees) | 0.12, 0.12, 0.2, 8 | 0.18, 0.18, 0.35, 15; no zoom-out below 0.95 |
-| Degradations | gain/offset/tint jitter, motion blur 20% | wider jitter, motion blur 35%, defocus 20%, noise 50%, JPEG 30%, moving specular highlights, vignetting/exposure |
-| Occlusion | none | 40% of clips: displaced-tissue ellipse over part of the polyp for 1–4 frames, hidden pixels removed from the label |
-| Absence | other-video splice or slide off the image (30%) | 40% polyp inpainted in the same scene; otherwise look away within the scene (50%) or other-video splice |
+| main | all centres: 1,258 positive images (1,434 boxes) + 1,258 negativeOnly frames; validation 141 / 157 / 167 (mAP@0.5 0.882, P 0.887, R 0.798) | test-time observations |
+| fold 0 | centres C2, C4, C6 + half of the negative sequences | detections on C1/C3/C5 clips |
+| fold 1 | centres C1, C3, C5 + the other half | detections on C2/C4/C6 clips |
 
-`hard` was calibrated against native MedSAM2 behavior on the real test videos.
-The real empty-frame false positives are mostly polyp-like tissue or edge
-remnants in the same scene, which the inpainted and look-away absences imitate.
+The fold detectors give out-of-fold detections on training pseudo-videos
+(cross-fitting), so the presence fusion and the Kalman training see realistic
+detector errors rather than a detector that memorised the frames.
 
-| Native MedSAM2 | `easy` (40 clips) | `hard` (60 clips) | Real test videos |
-|---|---:|---:|---:|
-| Present-frame Dice | 0.894 | 0.588 | 0.537 |
-| Empty frames predicted present | 0.44 | 0.53 | 0.65 |
+Presence-fusion data (`scripts/build_fusion_data.py`): 300 clips per fold run
+through the full pipeline exactly as at test time; frames without a confident
+box are logged (5,760 frames, 58% with a polyp). Fit
+(`scripts/train_presence_fusion.py`): class-balanced logistic BCE with L2 1e-3.
+Cross-fold AUROC 0.790 / 0.820 (object score alone 0.762 / 0.784). Weights:
+object score 0.123, predicted IoU 1.300, detector logit 0.122, log prior
+variance −0.660, bias −0.075.
 
-The prompt box is sampled by MedSAM2's `SAM2Train` from the frame-0 mask
-(`sample_box_points`: noise 10% of the box size, at most 20 px), so the
-generator no longer draws its own box; the `easy` clip stream therefore differs
-from the first run's.
+No hyperparameter, threshold or checkpoint is chosen with test labels.
 
-Hyperparameters are fixed before testing and the final checkpoint is the last
-step, so no test label influences model selection.
+## Main results
 
-## Training stack
+Propagated frames (after the prompt). Dice on an empty frame is 1 for an empty
+prediction and 0 otherwise. 95% intervals resample sequences.
 
-Training reuses MedSAM2's own training code; the project adds only the Kalman
-pieces:
+| Run | Dice [95% CI] | IoU | Dice, polyp frames | Empty-frame FP | Polyp frames detected | Presence AUROC | ≥10 frames after reappearance | Memory | FPS |
+|---|---|---|---|---|---|---|---|---|---|
+| native MedSAM2 (`native_gtbox`) | 0.507 [0.387, 0.661] | 0.466 | 0.537 | 0.650 | 0.906 | 0.713 | 0.452 | grows | 13.3 |
+| native, prompt + 1 frame (`native_k1`) | 0.513 [0.385, 0.671] | 0.469 | 0.552 | 0.687 | 0.926 | 0.656 | 0.466 | grows | 15.7 |
+| Kalman memory alone (`kalman_untrained`) | 0.531 [0.400, 0.693] | 0.487 | 0.574 | 0.693 | 0.927 | 0.665 | 0.519 | 0.88 MiB | 17.0 |
+| native + detector observations | 0.668 [0.549, 0.792] | 0.611 | 0.731 | 0.656 | 0.952 | 0.855 | 0.697 | grows | 12.8 |
+| native k1 + detector observations | 0.655 [0.533, 0.787] | 0.599 | 0.724 | 0.706 | 0.970 | 0.842 | 0.690 | grows | 13.9 |
+| Kalman + detector observations (`kalman_detobs_full`) | 0.658 [0.544, 0.779] | 0.600 | 0.724 | 0.690 | 0.977 | 0.859 | 0.689 | 1.13 MiB | 13.5 |
+| native + detector + fusion (`native_detobs_fusion`) | 0.690 [0.583, 0.803] | 0.634 | 0.724 | 0.486 | 0.917 | 0.886 | 0.693 | grows | 12.4 |
+| **DOK-Mem** (`kalman_detobs_fusion`) | **0.689 [0.590, 0.796]** | **0.633** | 0.716 | **0.449** | 0.941 | **0.893** | 0.681 | 1.13 MiB | 13.5 |
+| DOK-Mem, trained Kalman (`kalman_dok_trained_v2`) | 0.689 [0.593, 0.793] | 0.640 | 0.677 | 0.251 | 0.891 | 0.902 | 0.626 | 1.00 MiB | 13.2 |
 
-| Component | Source |
-|---|---|
-| Model | `SAM2Train` (`MedSAM2/training/model/sam2.py`) with `KalmanMemoryMixin`, as `KalmanSAM2Train` (`training/kalman_trainer.py`) |
-| Kalman memory | `KalmanMemoryMixin` (`modeling/kalman_memory.py`), shared with `KalmanMemoryVideoPredictor` |
-| Batch format | `BatchedVideoDatapoint` (`MedSAM2/training/utils/data_utils.py`) |
-| Mask losses | `MultiStepMultiMasksAndIous` (`MedSAM2/training/loss_fns.py`) |
-| Prompt box | `SAM2Train.prepare_prompt_inputs` / `sample_box_points` on the frame-0 mask |
-| Teacher | the same model with `kalman_enabled = False` (native bank), without gradients |
+Native "Memory" is reported as stored by the code (36.3 MiB); MedSAM2 attends
+to 7 frame memories, so that number overstates what a trimmed bank needs.
 
-The mixin hooks `_prepare_memory_conditioned_features` (predict + read) and
-`_encode_memory_in_output` (update). The video predictor and `SAM2Train` both
-call these on every frame, so training and inference run the same Kalman code.
+Per-sequence paired tests (21 sequences with a polyp, 17 with empty frames;
+Wilcoxon signed-rank; bootstrap 95% interval of the mean difference):
 
-Settings that keep training identical to inference:
+| Comparison | Metric | Difference [95% CI] | Better / worse | p |
+|---|---|---|---|---|
+| DOK-Mem vs native MedSAM2 | Dice | +0.084 [+0.002, +0.170] | 16 / 5 | 0.029 |
+| | IoU | +0.080 [+0.007, +0.158] | 16 / 5 | 0.018 |
+| | empty-frame FP | −0.266 [−0.435, −0.113] | 10 / 1 | 0.004 |
+| | Dice, polyp frames | +0.054 [−0.066, +0.167] | 13 / 8 | 0.393 |
+| DOK-Mem vs native + detector + fusion | Dice | −0.001 [−0.015, +0.011] | 12 / 9 | 1.000 |
+| | empty-frame FP | −0.075 [−0.183, +0.027] | 7 / 4 | 0.248 |
+| Kalman alone vs native MedSAM2 | Dice | +0.007 [−0.024, +0.031] | 14 / 7 | 0.137 |
+| Kalman alone vs native prompt + 1 frame | Dice, polyp frames | +0.027 | 17 of 21 better | 0.014 |
 
-- the model stays in eval mode with the video predictor's decoder overrides
-  (stability-based multimask fallback, binarized prompt masks for the memory
-  encoder), built through the same `build_video_predictor` path;
-- one box prompt on frame 0 (`prob_to_use_pt_input_for_eval = 1`,
-  `prob_to_use_box_input_for_eval = 1`) and no correction clicks
-  (`frames_to_add_correction_pt` cleared; MedSAM2's correction routine fails
-  with zero clicks);
-- frame memories rounded to bf16, the video predictor's storage precision, in
-  both paths.
+## Ablations and robustness (DOK-Mem, paired against the full model)
 
-## Training objective
+| Variant | Dice | Empty-frame FP | Paired vs full |
+|---|---|---|---|
+| without presence fusion (`kalman_detobs_full`) | 0.658 | 0.690 | Dice −0.029 [−0.051, −0.008], p = 0.021; FP +0.257, 11/17 worse, 0 better, p = 0.001 |
+| without the Kalman variance in the fusion (`_novar`) | 0.681 | 0.514 | Dice −0.008 [−0.013, −0.003], p = 0.011; FP +0.071 [+0.021, +0.136], p = 0.012 |
+| without clean decoding and detection slot, no fusion (`kalman_detobs_noclean`) | 0.606 | 0.693 | vs `kalman_detobs_full` 0.658 (pooled) |
+| detector threshold 0.25 | 0.672 | 0.517 | Dice −0.004, p = 0.494 |
+| detector threshold 0.75 | 0.675 | 0.421 | Dice +0.005, p = 0.812; FP −0.083, p = 0.046 |
+| detector on every 2nd frame | 0.678 | 0.446 | Dice −0.010, p = 0.229 |
+| detector on every 5th frame | 0.661 | 0.440 | Dice −0.029, p = 0.076 |
+| detector on every 10th frame | 0.643 | 0.437 | Dice −0.036, p = 0.082 |
 
-MedSAM2 is frozen; only the Kalman update is trained. On propagated frames
-`t >= 1` (`KalmanLoss`):
+Presence fusion on native memory: Dice +0.017 (p = 0.15), empty-frame FP
+−0.213 (10/17 better, 0 worse, p = 0.002).
+
+Detector baselines (YOLO on file paths, frozen MedSAM2 image predictor on the top
+box; `gate2_results.csv`): tracker (Kalman alone) 0.531, detector box on every
+confident frame without memory 0.598, switch to the detector mask when
+confident 0.616, Kalman + detector observations 0.658. Detector observations vs
+detector alone: +0.090 per sequence, 19/21 better, p = 0.003; vs switch: +0.020,
+12/21, p = 0.393.
+
+## Training the Kalman update
+
+Setup (`scripts/train_kalman.py`, `training/kalman_trainer.py`): MedSAM2's
+`SAM2Train`, `MultiStepMultiMasksAndIous` and `BatchedVideoDatapoint`; training
+clips run exactly as at test time, with out-of-fold detector observations, clean
+decoding and the detection slot. Every 10th single frame and every 10th
+negative sequence are held out for 64 validation clips. 500 steps × 4 clips,
+AdamW, learning rate 1e-3.
+
+Objective on propagated frames:
 
 ```text
-present frames:  20 * focal(mask) + 1 * Dice(mask) + 1 * L1(predicted IoU, actual IoU)   # MultiStepMultiMasksAndIous
-               + 1 * BCE(object score, 1)                   # fixed, MedSAM2 loss_class weight
-empty frames:    w_absence  * BCE(object score, 0)          # --absence_weight, default 0.1
-present frames:  w_distill  * normalized MSE(Kalman vs native-bank memory-conditioned features)
+polyp frames, presence gate open:  20 · focal(mask) + 1 · Dice(mask)       # MedSAM2 weights; IoU term off (frozen head)
+polyp frames:                      1 · BCE(object score, 1)
+empty frames:                      w_absence · BCE(object score, 0)
 ```
 
-The mask terms use MedSAM2's weights from `sam2.1_hiera_tiny_finetune512.yaml`
-and are averaged over frames; as in MedSAM2 they apply only where the object is
-present, so the object score is the only absence signal. Unlike MedSAM2, they
-supervise the output mask, i.e. the candidate the frozen IoU head selects
-(`argmax` of the predicted IoUs), not the candidate that best matches the ground
-truth: MedSAM2 also trains the IoU head to make those coincide, but here it is
-frozen, and on 15 hard clips the two differed in 44% of frames with a polyp.
-MedSAM2's own
-object-score term (`loss_class`) is replaced by BCE averaged separately over
-present and empty frames, so the `--absence_weight` ratio does not depend on how
-many frames in a clip are empty.
+Mask losses skip polyp frames whose gate closed (their logits are −1024, a
+presence error left to the BCE). Training clips decoded entirely from detector
+boxes carry no gradient for the memory and are skipped.
 
-When the object score of a present frame is <= 0, MedSAM2 sets its mask logits
-to -1024, so the focal term for that frame is large (about 0.25 * 1024 per
-polyp pixel). This is MedSAM2's behavior; the value is a constant in the
-forward pass and its straight-through gradient is bounded, so logged
-segmentation losses spike on such clips without destabilizing training.
+| Attempt | Trainable | Objective | Validation Dice (untrained 0.580) | Test |
+|---|---|---|---|---|
+| first (before detector observations) | unbounded Q/R heads | absence 0.1 + distillation to native | — | Dice −0.037 vs untrained (p = 0.042) |
+| v1, lr 1e-4 | bounded Q/R corrections | absence 1.0 | 0.5796 at step 100 (flat) | stopped |
+| v1, lr 1e-3 | bounded Q/R corrections | absence 1.0 | 0.566 at step 100; gains on all frames fell (0.82 → 0.27) | stopped |
+| **v2** (`kalman_dok_trained_v2`) | per-frame-centred spatial map + detector trust; noise level fixed | absence 1.0 | 0.612 / **0.623** / 0.617 / 0.615 / 0.614 at steps 100–500 | step 200 selected: Dice −0.002 [−0.013, +0.011] vs untrained, p = 0.517 |
 
-The first recorded run (below) used an earlier objective: pixel BCE + Dice on
-all frames, presence BCE 0.5 on present frames, and an NPO term (weight 1.0)
-on empty frames relative to the native-bank teacher. Pixel BCE on empty frames
-was itself a strong absence signal, so that run cannot isolate the effect of
-the absence term. NPO and gradient ascent have since been removed.
+v2 validation, steps 0 → 200 → 500: polyp-frame Dice 0.651 → 0.629 → 0.572,
+empty-frame FP 0.568 → 0.390 → 0.300. On the test set the trained model also
+trades polyp frames for empty ones (polyp-frame Dice 0.716 → 0.677, empty-frame
+FP 0.449 → 0.251), so Dice is unchanged. By construction about 28% of clip frames
+are empty (an absence in 60% of clips, 2–12 of 15 propagated frames), against
+16% of test frames, which favours that trade during training and validation.
+
+Learning only what single-frame pseudo-videos can show (where in a frame to trust
+the observation, how much to trust the detector) with the overall write level
+fixed is what made training stop hurting; it did not yet make it help on real
+video.
+
+Running: `kalman_dok_aw0.1` (absence weight 0.1), selected with a rule fixed
+beforehand: the highest validation polyp-frame Dice among checkpoints whose
+empty-frame FP is not above the untrained model's, across this run and v2;
+tested once only if a trained checkpoint is selected.
+
+## Negative results
+
+| Idea | Result |
+|---|---|
+| Re-prompting MedSAM2 with a box from the tracker's own mask | +0.0025 polyp-frame Dice (10/21 sequences), no gain: tracking errors are wrong-object, not mask shape |
+| Temporal presence filter (scalar Kalman filter on presence log-odds) | failed the pre-set pseudo-video rule (Dice 0.607 vs 0.608 and 0.677 vs 0.682 on the two folds); removed, not tested |
+| Presence verifier from tracker signals alone | leave-one-sequence-out at chance |
+| Two memory paths chosen by predicted IoU | 0.531 → 0.511 |
+| Prototype re-localisation in frozen features | lands on the polyp in 53% of polyp frames |
+
+Diagnostics behind the design: with the ground-truth box on every frame, frozen
+MedSAM2 reaches 0.906 Dice on polyp frames, against 0.574 when tracking; 514 of
+1,689 polyp frames are tracked with Dice < 0.1, and in 390 of them the tracker
+segments a different object.
 
 ## Verification
 
-- `scripts/verify_kalman_parity.py --perturb` compares, with randomly perturbed
-  Kalman layers, the training model against both inference predictors on 10
-  frames of seq20 and seq5 (CPU): Kalman path versus `KalmanMemoryVideoPredictor`
-  (mask IoU 1.0, object-score error <= 7.6e-6, gain error <= 6e-8) and teacher
-  path versus the native MedSAM2 predictor (mask IoU 1.0, object-score error
-  <= 8.6e-6), including bank eviction.
-- Straight-through gates: forward outputs are bit-identical with the gates on
-  or off; on a hard clip with 4 of 7 frames below the presence threshold, the
-  mask loss on those frames reaches the Kalman parameters only with the gates
-  on (gradient norm 0 versus 28).
-- On MPS, MedSAM2 offloads frame memories with `non_blocking=True`; reading the
-  copy immediately can return uninitialized values. The Kalman update now reads
-  each candidate inside `_encode_memory_in_output`, before offloading; the
-  predictor synchronizes before reading the offloaded prompt-frame memory and
-  raises if the state becomes non-finite. Before the prompt-frame fix, one MPS
-  test run produced NaN states on 1,348 of 2,012 frames (Dice 0.27); that run is
-  discarded. CPU and CUDA are unaffected.
+- `scripts/verify_kalman_parity.py --perturb`: training model vs inference
+  predictor with perturbed learned layers: mask IoU 1.0, object-score and gain
+  errors 0.
+- `scripts/verify_native_pointers.py`: object-pointer tokens identical to native
+  MedSAM2 (count and values, 50 frames).
+- Code changes that should not change behaviour were checked by reproducing
+  DOK-Mem on seq20 / seq23 (0.3649 / 0.6345) exactly.
 
-## Evaluation
+## Caveats
 
-`evaluation/temporal.py` writes `presence_stratified.csv`, separating propagated
-frames by ground-truth presence and by frames since the polyp reappeared after
-an absence of at least 1 or 7 frames. Pooled Dice scores 1 for an empty
-prediction on an empty frame and 0 for any false positive there, so it mixes
-segmentation quality with absence detection.
-
-### Native MedSAM2 baseline (GT-box prompt, all 23 sequences)
-
-Prompt: tight box of the first non-empty ground-truth mask; seq1 and seq7 have
-no polyp and receive empty predictions.
-
-| Group | Frames | Dice | Predicted-present rate |
-|---|---:|---:|---:|
-| All frames (incl. prompt and pre-prompt) | 2225 | 0.554 | |
-| Propagated | 2012 | 0.507 | 0.865 |
-| Ground truth present | 1689 | 0.537 | 0.906 |
-| Ground truth absent | 323 | 0.350 | 0.650 |
-| First frame after absence >= 1 | 51 | 0.361 | |
-| First frame after absence >= 7 | 11 | 0.203 | |
-| 1–4 frames after absence >= 7 | 52 | 0.445 | |
-
-Output: `outputs/kalman_protocol/native_gtbox/`.
-
-### First Kalman results (GT-box prompt, all 23 sequences, seed 0)
-
-`untrained` is the initialization (`--steps 0`); `npo` is 1,000 optimizer steps
-x 4 clips with the default objective. Step 250 and untrained ran on CPU, the
-final checkpoint on MPS after the synchronization fix.
-
-| Group | Native | Untrained | NPO step 250 | NPO final |
-|---|---:|---:|---:|---:|
-| Propagated Dice | 0.507 | 0.531 | 0.518 | 0.527 |
-| Present-frame Dice | 0.537 | **0.574** | 0.553 | 0.551 |
-| Present frames predicted present | 0.91 | 0.93 | 0.91 | 0.88 |
-| Absent-frame Dice | 0.350 | 0.307 | 0.334 | **0.402** |
-| Absent frames predicted present (FP) | 0.65 | 0.69 | 0.67 | **0.60** |
-| First frame after absence >= 7 (n=11) | 0.203 | 0.251 | 0.249 | 0.177 |
-| >= 10 frames after reappearance | 0.452 | **0.519** | 0.470 | 0.482 |
-
-Per-sequence paired Wilcoxon tests over the 21 sequences containing a polyp:
-
-| Comparison | Metric | Mean diff | Better / worse | p |
-|---|---|---:|---:|---:|
-| Untrained vs native | present-frame Dice | +0.019 | 14 / 7 | 0.070 |
-| Untrained vs native | propagated Dice | +0.007 | 14 / 7 | 0.137 |
-| NPO final vs native | propagated Dice | -0.002 | 12 / 8 | 0.332 |
-| NPO final vs untrained | present-frame Dice | -0.032 | 7 / 14 | 0.022 |
-| NPO final vs native | empty-frame FP rate (17 seqs) | -0.051 | 6 lower / 2 higher | 0.183 |
-| NPO final vs native | present-frame detection rate | -0.017 | 2 higher / 8 lower | 0.074 |
-
-Interpretation:
-
-- The architecture alone (anchor slot plus presence-gated state, no training)
-  improves present-frame Dice, mostly late after reappearance (seq5 +0.15,
-  seq6 +0.08, seq18 +0.06); seq21 drops from 0.685 to 0.448. Not yet
-  significant.
-- NPO training trades sensitivity for specificity: false positives on empty
-  frames fall (0.65 to 0.60; seq21 0.39 to 0.17, seq23 0.36 to 0.14) but fewer
-  present frames are detected and present-frame Dice is significantly below the
-  untrained module. Net effect versus native is nil.
-- Training raised the learned gain on absent frames from about 0.17 to about
-  0.90, undoing the intended presence gating; seq6 collapses after training
-  (0.865 to 0.391, all empty frames predicted present).
-- In 13 of 21 sequences the empty-frame false-positive rate is identical for all
-  methods, so absence errors are mostly decided by the frozen decoder's object
-  score, not by the memory.
-
-## Planned runs
-
-PolypGen is a proxy dataset, so only one trained configuration is run
-(`kalman_experiment_guide.md`):
-
-1. `native_gtbox`: native MedSAM2 with GT-box prompts.
-2. `kalman_untrained`: the Kalman memory at initialization (`--steps 0`).
-3. `kalman_aw0.1_s0`: the Kalman memory trained on `hard` clips with
-   `--absence_weight 0.1`, seed 0, 500 steps.
-
-Each is reported with per-sequence tables, paired Wilcoxon tests over
-sequences, and retained-memory size and FPS.
-
-Not run, so their questions stay open: other absence weights, no distillation,
-easy clips, no training absences, seed repeats, YOLO prompts from a detector not
-trained on PolypGen, a trimmed native bank, and a fixed-gain average (EMA).
+- Clean decoding and the detection slot were designed after inspecting failures
+  on two test sequences (seq20, seq23). They contain no tuned value, but the
+  design was informed by the test set. The presence fusion and the training
+  were not.
+- One proxy dataset, 21 sequences with a polyp, one seed. The adenoid data is
+  the clean test of the frozen design.
+- An earlier inference bug on MPS (MedSAM2's non-blocking offload read before
+  the copy finished) corrupted earlier results; fixed in `f96742d` (state stays
+  on the device on non-CUDA). All numbers above are after the fix. An earlier
+  feasibility check fed YOLO RGB arrays instead of BGR; the detector baselines
+  above use file paths.
+- Missing baselines: SAMURAI (Kalman filter on boxes), SAM2Long, DAM4SAM.
