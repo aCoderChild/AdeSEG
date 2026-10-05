@@ -29,7 +29,9 @@ detection slot, detector log-odds on the object score).
 
 Every 10th single frame and every 10th negative sequence are held out for
 validation clips. ``kalman_memory.pt`` is the checkpoint (step 0 = untrained
-included) with the best validation Dice, so no test label influences selection.
+included) with the highest validation polyp-frame Dice among those whose
+empty-frame false-positive rate is not above step 0's, so polyp segmentation
+improves without more false polyps, and no test label influences selection.
 """
 
 from __future__ import annotations
@@ -210,12 +212,13 @@ def main():
         "validation_negative_sequences": len(validation_negatives),
         "positive_sequences_used_for_training": 0,
         "medsam2_frozen": True,
-        "checkpoint_selection": "best_validation_dice_including_step0",
+        "checkpoint_selection": "max validation polyp-frame Dice with empty-frame FP <= step 0",
     })
     (args.output_dir / "setup.json").write_text(json.dumps(setup, indent=2) + "\n", encoding="utf-8")
 
     history = []
     best = {"step": 0, **validate()}
+    fp_limit = best["absent_fp_rate"]
     save(args.output_dir / "kalman_memory.pt")
     validation_log = [best]
     print(f"step 0 validation: {best}", flush=True)
@@ -263,7 +266,7 @@ def main():
                 scores = {"step": step, **validate()}
                 validation_log.append(scores)
                 print(f"step {step} validation: {scores}", flush=True)
-                if scores["dice"] > best["dice"]:
+                if scores["absent_fp_rate"] <= fp_limit and scores["present_dice"] > best["present_dice"]:
                     best = scores
                     save(args.output_dir / "kalman_memory.pt")
     save(args.output_dir / "kalman_memory_last.pt")
