@@ -219,6 +219,9 @@ class KalmanMemoryMixin:
         # Optional d_ref: q scales per pixel with the change of MedSAM2's image features since the previous frame
         # (1 - cosine per pixel) divided by d_ref, its mean on dev videos; camera jumps then raise P where the view changed.
         self.kalman_motion_noise = None
+        # Ablation (g_present, g_absent): replace the Kalman gain by constant gains, chosen by presence > 0.5 only,
+        # i.e. a presence-gated exponential moving average of the frame memories.
+        self.kalman_fixed_gain = None
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -345,6 +348,10 @@ class KalmanMemoryMixin:
             step["observation_logit"],
             reliability,
         )
+        if self.kalman_fixed_gain is not None:
+            constant = self.kalman_fixed_gain[0] if bool((presence > 0.5).all()) else self.kalman_fixed_gain[1]
+            gain = torch.full_like(updated["gain"], constant)
+            updated.update(mean=state.mean + gain * (candidate.float() - state.mean), gain=gain)
         if status != "accepted":  # missing measurement: keep the mean, let the variance grow
             updated.update(mean=state.mean, variance=step["prior_variance"], gain=torch.zeros_like(updated["gain"]))
         if not (torch.isfinite(updated["mean"]).all() and torch.isfinite(updated["variance"]).all()):

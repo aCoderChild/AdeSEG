@@ -316,6 +316,10 @@ def parse_args():
         help="Kalman: treat a frame whose presence gate is closed as a missing measurement (predict only).",
     )
     parser.add_argument(
+        "--fixed_gain", type=Path, default=None,
+        help="Ablation: JSON with g_present / g_absent; constant gains instead of the Kalman gain (gated EMA).",
+    )
+    parser.add_argument(
         "--motion_noise", type=float, default=None,
         help="Kalman: d_ref; process noise per pixel = q * feature change / d_ref (camera-motion-aware predict).",
     )
@@ -362,6 +366,9 @@ def build_predictor(args):
         predictor.kalman_skip_absent = args.skip_absent
         predictor.kalman_gate = args.innovation_gate
         predictor.kalman_motion_noise = args.motion_noise
+        if args.fixed_gain is not None:
+            gains = json.loads(args.fixed_gain.read_text())
+            predictor.kalman_fixed_gain = (gains["g_present"], gains["g_absent"])
         if args.reliability is not None:
             calibration = json.loads(args.reliability.read_text())
             predictor.kalman_reliability = (calibration["slope"], calibration["offset"])
@@ -452,6 +459,7 @@ def main():
         "innovation_gate": args.innovation_gate,
         "reliability": str(args.reliability) if args.reliability else None,
         "motion_noise": args.motion_noise,
+        "fixed_gain": str(args.fixed_gain) if args.fixed_gain else None,
         "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
         "split": args.split,
         "sequences": videos,
