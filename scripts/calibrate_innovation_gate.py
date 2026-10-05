@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Calibrate the Kalman innovation gate on held-out training pseudo-videos (no test video).
+"""Calibrate the Kalman innovation gate without test videos.
 
-Runs the Kalman memory (gate off, optional absence skip) on validation clips built
-from the frames ``train_kalman.py`` holds out (every 10th single frame and negative
-sequence), and records, for every propagated polyp frame whose presence gate is
-open, the cosine distance between its object prototype and the last accepted one,
-with the frame's IoU. The gate is the given percentile of that distance over
-correctly tracked frames (IoU >= 0.5): at most (100 - percentile)% of good frames
-are rejected.
+For every propagated polyp frame whose presence gate is open, take the cosine
+distance between its object prototype and the last accepted one, with the frame's
+IoU. The gate is the given percentile of that distance over correctly tracked
+frames (IoU >= 0.5): at most (100 - percentile)% of good frames are rejected.
+
+Two sources:
+- ``--from_run``: real videos. An ``infer.py`` Kalman run with the gate off
+  (``masks/diagnostics`` + ``evaluation/metrics_per_frame.csv``), restricted to the
+  dev sequences of ``datasets/splits/polypgen/protocol_a.json``.
+- otherwise: validation pseudo-videos built from the frames ``train_kalman.py``
+  holds out (every 10th single frame and negative sequence).
 """
 
 from __future__ import annotations
@@ -35,7 +39,9 @@ def main():
     parser.add_argument("--config", type=Path, default=ROOT / "configs/polypgen.yaml")
     parser.add_argument("--polypgen_root", type=Path, default=ROOT / "data/PolypGen2021_MultiCenterData_v3")
     parser.add_argument("--exclude_list", type=Path, default=ROOT / "datasets/splits/polypgen/single_frame_test_overlap.txt")
-    parser.add_argument("--kalman_checkpoint", type=Path, required=True)
+    parser.add_argument("--from_run", type=Path, default=None, help="Kalman infer.py run (gate off) on real videos.")
+    parser.add_argument("--split", default="dev", help="protocol_a.json part used with --from_run.")
+    parser.add_argument("--kalman_checkpoint", type=Path, default=None)
     parser.add_argument("--skip_absent", action="store_true")
     parser.add_argument("--clips", type=int, default=200)
     parser.add_argument("--percentile", type=float, default=95.0)
@@ -43,6 +49,29 @@ def main():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--output", type=Path, required=True, help="JSON with the gate and the distance statistics.")
     args = parser.parse_args()
+    if args.from_run is not None:
+        distances, ious = run_distances(args.from_run, args.split)
+    else:
+        distances, ious = pseudo_video_distances(args)
+    report(distances, ious, args)
+
+
+def run_distances(run: Path, split: str):
+    import pandas as pd
+
+    sequences = {f"seq{n}" for n in json.loads((ROOT / "datasets/splits/polypgen/protocol_a.json").read_text())[split]}
+    metrics = pd.read_csv(run / "evaluation/metrics_per_frame.csv")
+    metrics = metrics[metrics.sequence.isin(sequences) & (metrics.frames_after_prompt >= 1) & metrics.gt_present]
+    diagnostics = pd.concat([
+        pd.read_csv(path).assign(sequence=path.stem)
+        for path in sorted((run / "masks/diagnostics").glob("seq*.csv")) if path.stem in sequences
+    ])
+    frames = metrics.merge(diagnostics, on=["sequence", "frame"])
+    frames = frames[(frames.presence > 0.5) & (frames.kalman_status == "accepted")]
+    return frames.innovation_distance.to_numpy(), frames.iou.to_numpy()
+
+
+def pseudo_video_distances(args):
     config = json.loads(args.config.read_text())
 
     frames = list_single_frames(args.polypgen_root, excluded=load_excluded_paths(args.exclude_list))[::10]
@@ -67,13 +96,17 @@ def main():
                 union = (predicted | target).sum()
                 ious.append(float((predicted & target).sum() / union) if union else 0.0)
                 distances.append(float(kalman["distance"].mean()))
-    distances, ious = np.array(distances), np.array(ious)
+    return np.array(distances), np.array(ious)
+
+
+def report(distances, ious, args):
     good, wrong = distances[ious >= 0.5], distances[ious < 0.1]
     gate = float(np.percentile(good, args.percentile))
     report = {
         "gate": gate,
         "percentile": args.percentile,
         "skip_absent": args.skip_absent,
+        "source": f"{args.from_run} ({args.split})" if args.from_run else "validation pseudo-videos",
         "frames": len(distances),
         "good_frames": len(good),
         "wrong_frames": len(wrong),

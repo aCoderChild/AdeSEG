@@ -272,6 +272,10 @@ def parse_args():
     parser.add_argument("-i", "--base_video_dir", type=Path, default=PROJECT_ROOT / str(config["data_root"]))
     parser.add_argument("--yolo_checkpoint", type=Path, default=PROJECT_ROOT / str(config["yolo_checkpoint"]))
     parser.add_argument("--seq_nums", type=int, nargs="*", default=None)
+    parser.add_argument(
+        "--split", choices=["dev", "test"], default=None,
+        help="Run only this part of datasets/splits/polypgen/protocol_a.json (overrides --seq_nums).",
+    )
     parser.add_argument("-o", "--output_mask_dir", type=Path, required=True)
     parser.add_argument("--device", choices=["auto", "cuda", "mps", "cpu"], default=config["device"])
     parser.add_argument("--yolo_conf", type=float, default=config["yolo_conf"])
@@ -321,7 +325,7 @@ def parse_args():
     )
     parser.add_argument(
         "--presence_fusion", type=Path, default=None,
-        help="Presence-fusion checkpoint from scripts/train_presence_fusion.py (needs --observation_detector).",
+        help="Presence-fusion checkpoint from scripts/train_presence_fusion.py (detector-free if no --observation_detector).",
     )
     parser.add_argument(
         "--observation_box_only", action="store_true",
@@ -335,25 +339,26 @@ def parse_args():
 
 
 def build_predictor(args):
-    """MedSAM2 video predictor for ``--memory_backend``, with detector observations if requested."""
+    """MedSAM2 video predictor for ``--memory_backend``, with detector observations and/or presence fusion."""
     observed = args.observation_detector is not None
+    uses_presence = observed or args.presence_fusion is not None
     target = {
         ("native", False): None,
         ("kalman", False): "modeling.kalman_memory.KalmanMemoryVideoPredictor",
         ("native", True): "modeling.detector_observation.ObservedVideoPredictor",
         ("kalman", True): "modeling.detector_observation.ObservedKalmanVideoPredictor",
-    }[args.memory_backend, observed]
+    }[args.memory_backend, uses_presence]
     predictor = build_video_predictor(args.sam2_cfg, args.sam2_checkpoint, args.device, predictor_target=target)
     if args.memory_backend == "kalman":
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
         predictor.kalman_skip_absent = args.skip_absent
         predictor.kalman_gate = args.innovation_gate
+    if args.presence_fusion is not None:
+        predictor.presence_fusion = load_presence_fusion(args.presence_fusion, predictor.device)
     if observed:
         predictor.observation_presence = not args.observation_box_only
         predictor.observation_clean = not args.observation_on_memory
         predictor.observation_conf = args.observation_conf
-        if args.presence_fusion is not None:
-            predictor.presence_fusion = load_presence_fusion(args.presence_fusion, predictor.device)
         if args.presence_fusion_unmeasured is not None:
             predictor.presence_fusion_unmeasured = load_presence_fusion(args.presence_fusion_unmeasured, predictor.device)
     if args.native_memory_frames is not None:
@@ -380,6 +385,9 @@ def main():
 
     yolo_model = load_yolo_model(args.yolo_checkpoint) if args.prompt_source == "yolo" else None
     observation_detector = load_yolo_model(args.observation_detector) if args.observation_detector else None
+    if args.split is not None:
+        split_file = PROJECT_ROOT / "datasets/splits/polypgen/protocol_a.json"
+        args.seq_nums = json.loads(split_file.read_text())[args.split]
     videos = select_video_names(args.base_video_dir, args.seq_nums)
     if not videos:
         raise RuntimeError(f"No sequences found under {args.base_video_dir}")
@@ -431,6 +439,7 @@ def main():
         "skip_absent": args.skip_absent,
         "innovation_gate": args.innovation_gate,
         "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
+        "split": args.split,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),
         "yolo_checkpoint": str(args.yolo_checkpoint),

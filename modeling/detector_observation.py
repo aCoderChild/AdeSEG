@@ -14,6 +14,8 @@ resulting mask is written to memory as that frame's observation.
   variance to the object score that gates the mask and the memory. Frames the
   detector did not run on (not in ``observations``) use
   ``presence_fusion_unmeasured``, a head fitted without the detector feature.
+  Without any detector (``observations`` is None) every frame uses
+  ``presence_fusion``, with the detector feature at 0.
 """
 
 from __future__ import annotations
@@ -82,7 +84,8 @@ class DetectorObservationMixin:
     def _run_single_frame_inference(self, *args, **kwargs):
         if kwargs["point_inputs"] is not None or kwargs["is_init_cond_frame"]:
             return super()._run_single_frame_inference(*args, **kwargs)
-        measured = kwargs["frame_idx"] in (self.observations or {})
+        detector_free = self.observations is None
+        measured = not detector_free and kwargs["frame_idx"] in self.observations
         box, confidence = self.observations[kwargs["frame_idx"]] if measured else (None, 0.0)
         observed = box is not None and confidence >= self.observation_conf
         if observed:
@@ -92,7 +95,7 @@ class DetectorObservationMixin:
                 self._mark_clean_observation(kwargs)
         trace = {"observed": int(observed)}
         logit = detector_logit(confidence) if measured else 0.0
-        fusion = getattr(self, "presence_fusion" if measured else "presence_fusion_unmeasured", None)
+        fusion = getattr(self, "presence_fusion" if measured or detector_free else "presence_fusion_unmeasured", None)
 
         def hook(object_score, ious):
             step = getattr(self, "_kalman_step", None) or {}

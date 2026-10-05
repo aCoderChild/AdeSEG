@@ -54,7 +54,10 @@ def main():
     parser.add_argument("--config", type=Path, default=ROOT / "configs/polypgen.yaml")
     parser.add_argument("--polypgen_root", type=Path, default=ROOT / "data/PolypGen2021_MultiCenterData_v3")
     parser.add_argument("--exclude_list", type=Path, default=ROOT / "datasets/splits/polypgen/single_frame_test_overlap.txt")
-    parser.add_argument("--detectors", type=Path, nargs="+", required=True, help="best.pt of fold 0, 1, ...")
+    parser.add_argument(
+        "--detectors", type=Path, nargs="*", default=[],
+        help="best.pt of fold 0, 1, ...; none for a detector-free pipeline (two folds by centre).",
+    )
     parser.add_argument("--memory_backend", choices=["kalman", "native"], default="kalman")
     parser.add_argument("--kalman_checkpoint", type=Path, default=None)
     parser.add_argument("--output", type=Path, required=True, help="CSV of per-frame features and labels.")
@@ -67,7 +70,7 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
-    folds = len(args.detectors)
+    folds = len(args.detectors) or 2
 
     kalman = args.memory_backend == "kalman"
     predictor = build_video_predictor(
@@ -88,8 +91,8 @@ def main():
     with open(args.output, "w", newline="") as handle, torch.inference_mode():
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
-        for fold, weights in enumerate(args.detectors):
-            detector = load_yolo_model(weights)
+        for fold in range(folds):
+            detector = load_yolo_model(args.detectors[fold]) if args.detectors else None
             generator = PseudoVideoGenerator(
                 [f for f in frames if (int(f.center[1:]) - 1) % folds == fold],
                 [seq for i, seq in enumerate(sequences) if i % folds == fold],
@@ -100,7 +103,7 @@ def main():
                 with tempfile.TemporaryDirectory() as directory:
                     times = write_clip(clip, Path(directory))
                     names = sorted(Path(directory).glob("*.jpg"))
-                    observations = dict(enumerate(top_detections(detector, names[1:]), start=1))
+                    observations = dict(enumerate(top_detections(detector, names[1:]), start=1)) if detector else None
                     state = predictor.init_state(video_path=directory, offload_video_to_cpu=True)
                 if kalman:
                     state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": 0})

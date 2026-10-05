@@ -1,0 +1,5 @@
+{
+  "description": "Protocol (a): PolypGen positive sequences split by centre. dev = seq1-15 (centres C1-C5) for calibration, training and every design or setting choice; test = seq16-23 (centre C6, confirmed by frame names), run once with the frozen pipeline. Single frames and negativeOnly remain training data.",
+  "dev": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "test": [16, 17, 18, 19, 20, 21, 22, 23]
+}
