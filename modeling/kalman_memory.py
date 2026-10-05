@@ -228,6 +228,9 @@ class KalmanMemoryMixin:
         # Optional d_ref: camera motion as measurement noise. R scales per pixel with the image-feature change
         # since the previous frame divided by d_ref (its dev mean), so frames taken during a jump write less.
         self.kalman_motion_measurement = None
+        # Diagnostic upper bound, never a method: {frame_idx: binary ground-truth mask}. A frame is written only
+        # if it is correct (IoU >= 0.5 with the ground truth, or correctly empty); otherwise K = 0.
+        self.kalman_oracle_masks = None
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -340,6 +343,13 @@ class KalmanMemoryMixin:
             status = "absent"
         elif self.kalman_gate is not None and not step.get("observation") and bool((distance > self.kalman_gate).all()):
             status = "rejected"
+        if self.kalman_oracle_masks is not None and frame_idx in self.kalman_oracle_masks:
+            truth = self.kalman_oracle_masks[frame_idx]
+            predicted = current_out["pred_masks"][0, 0] > 0
+            truth = F.interpolate(truth[None, None].float(), size=predicted.shape, mode="nearest")[0, 0] > 0
+            union = (predicted | truth).sum()
+            correct = (not truth.any() and not predicted.any()) or (union > 0 and (predicted & truth).sum() / union >= 0.5)
+            status = "accepted" if correct else "rejected"
         reliability = None
         if self.kalman_reliability is not None:
             slope, offset = self.kalman_reliability

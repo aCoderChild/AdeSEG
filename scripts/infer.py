@@ -126,6 +126,7 @@ def vos_inference(
     prompt_source="yolo",
     observation_detector=None,
     observation_stride=1,
+    oracle_gate=False,
 ):
     started = time.perf_counter()
     video_dir = get_video_frame_dir(base_video_dir, video_name)
@@ -196,6 +197,14 @@ def vos_inference(
         box=prompt_box,
     )
 
+    if oracle_gate:
+        sequence_number = video_name.removeprefix("seq")
+        mask_dir = Path(base_video_dir) / video_name / f"masks_seq{sequence_number}"
+        predictor.kalman_oracle_masks = {
+            index: torch.from_numpy(load_binary_mask(path)).to(predictor.device)
+            for index, name in enumerate(frame_names)
+            if (path := resolve_mask_path(mask_dir, name)) is not None
+        }
     observations = {}
     if observation_detector is not None:
         measured = range(prompt_frame_idx + observation_stride, len(frame_names), observation_stride)
@@ -320,6 +329,10 @@ def parse_args():
         help="Kalman: d_ref; observation noise per pixel scaled by feature change / d_ref (camera motion as measurement noise).",
     )
     parser.add_argument(
+        "--oracle_gate", action="store_true",
+        help="Diagnostic upper bound only: Kalman writes a frame only if it matches the ground truth (K = 0 otherwise).",
+    )
+    parser.add_argument(
         "--fixed_gain", type=Path, default=None,
         help="Ablation: JSON with g_present / g_absent; constant gains instead of the Kalman gain (gated EMA).",
     )
@@ -435,6 +448,7 @@ def main():
             prompt_source=args.prompt_source,
             observation_detector=observation_detector,
             observation_stride=args.observation_stride,
+            oracle_gate=args.oracle_gate,
         )
         if prompt is not None:
             used_prompts[output_name] = prompt
@@ -466,6 +480,7 @@ def main():
         "motion_noise": args.motion_noise,
         "fixed_gain": str(args.fixed_gain) if args.fixed_gain else None,
         "motion_measurement": args.motion_measurement,
+        "oracle_gate": args.oracle_gate,
         "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
         "split": args.split,
         "sequences": videos,
