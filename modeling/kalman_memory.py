@@ -121,8 +121,10 @@ class KalmanMemoryUpdate(nn.Module):
 
     def update(
         self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability,
-        detection_logit=None,
+        detection_logit=None, reliability=None,
     ):
+        """``reliability``: calibrated probability [B] that the frame is correctly tracked. When given, the
+        observation noise is q * (1 - rho) / rho, so rho = 0.5 trusts the frame as much as the memory."""
         if mean.shape != candidate.shape or mean.ndim != 4:
             raise ValueError("mean and candidate must be matching [B, C, H, W] tensors.")
         batch, _, height, width = mean.shape
@@ -136,9 +138,11 @@ class KalmanMemoryUpdate(nn.Module):
             mask_probability,
             presence.expand(batch, 1, height, width),
         ], dim=1))
-        observation_noise = (self.observation_noise + self.absence_noise * (1.0 - presence)) * self.correction(
-            spatial - spatial.mean(dim=(2, 3), keepdim=True)
-        )
+        base = self.observation_noise + self.absence_noise * (1.0 - presence)
+        if reliability is not None:
+            rho = reliability.reshape(batch, 1, 1, 1).clamp(1e-3, 1.0 - 1e-3)
+            base = self.process_noise * (1.0 - rho) / rho
+        observation_noise = base * self.correction(spatial - spatial.mean(dim=(2, 3), keepdim=True))
         if detection_logit is not None:
             trust = self.detection_trust(torch.full((batch, 1), detection_logit, device=mean.device))
             observation_noise = observation_noise * self.correction(trust).view(batch, 1, 1, 1)
@@ -191,6 +195,9 @@ class KalmanMemoryMixin:
         # this cosine distance from the last accepted one is rejected; confident detections are never gated.
         self.kalman_skip_absent = False
         self.kalman_gate = None
+        # Optional (a, c): reliability rho = sigmoid(a * object score + c), calibrated on dev videos
+        # (scripts/calibrate_reliability.py); replaces the presence-only observation noise.
+        self.kalman_reliability = None
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -295,6 +302,10 @@ class KalmanMemoryMixin:
             status = "absent"
         elif self.kalman_gate is not None and not step.get("observation") and bool((distance > self.kalman_gate).all()):
             status = "rejected"
+        reliability = None
+        if self.kalman_reliability is not None:
+            slope, offset = self.kalman_reliability
+            reliability = torch.sigmoid(slope * object_score_logits.float() + offset)
         updated = self.memory_update.update(
             state.mean,
             step["prior_variance"],
@@ -303,6 +314,7 @@ class KalmanMemoryMixin:
             torch.sigmoid(current_out["pred_masks"].float()),
             presence,
             step["observation_logit"],
+            reliability,
         )
         if status != "accepted":  # missing measurement: keep the mean, let the variance grow
             updated.update(mean=state.mean, variance=step["prior_variance"], gain=torch.zeros_like(updated["gain"]))

@@ -316,6 +316,10 @@ def parse_args():
         help="Kalman: treat a frame whose presence gate is closed as a missing measurement (predict only).",
     )
     parser.add_argument(
+        "--reliability", type=Path, default=None,
+        help="Kalman: JSON from scripts/calibrate_reliability.py; observation noise from calibrated reliability.",
+    )
+    parser.add_argument(
         "--innovation_gate", type=float, default=None,
         help="Kalman: reject tracker frames whose object prototype is farther than this cosine distance.",
     )
@@ -353,6 +357,9 @@ def build_predictor(args):
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
         predictor.kalman_skip_absent = args.skip_absent
         predictor.kalman_gate = args.innovation_gate
+        if args.reliability is not None:
+            calibration = json.loads(args.reliability.read_text())
+            predictor.kalman_reliability = (calibration["slope"], calibration["offset"])
     if args.presence_fusion is not None:
         predictor.presence_fusion = load_presence_fusion(args.presence_fusion, predictor.device)
     if observed:
@@ -438,6 +445,7 @@ def main():
         "observation_stride": args.observation_stride,
         "skip_absent": args.skip_absent,
         "innovation_gate": args.innovation_gate,
+        "reliability": str(args.reliability) if args.reliability else None,
         "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
         "split": args.split,
         "sequences": videos,
