@@ -43,7 +43,7 @@ def append_native_object_pointers(
         if t < 0 or (num_frames is not None and t >= num_frames):
             break
         output = output_dict["non_cond_frame_outputs"].get(t, unselected_cond.get(t))
-        if output is not None:
+        if output is not None and not output.get("kalman_rejected", False):  # Kalman-gated frames add no pointer
             positions_and_pointers.append((frame_distance, output["obj_ptr"]))
     if not positions_and_pointers:
         return 0

@@ -308,6 +308,14 @@ def parse_args():
     parser.add_argument("--observation_conf", type=float, default=0.5, help="Detections at or above prompt the decoder.")
     parser.add_argument("--observation_stride", type=int, default=1, help="Run the detector on every n-th frame only.")
     parser.add_argument(
+        "--skip_absent", action="store_true",
+        help="Kalman: treat a frame whose presence gate is closed as a missing measurement (predict only).",
+    )
+    parser.add_argument(
+        "--innovation_gate", type=float, default=None,
+        help="Kalman: reject tracker frames whose object prototype is farther than this cosine distance.",
+    )
+    parser.add_argument(
         "--presence_fusion_unmeasured", type=Path, default=None,
         help="Fusion head without the detector feature, for frames the detector did not run on.",
     )
@@ -338,6 +346,8 @@ def build_predictor(args):
     predictor = build_video_predictor(args.sam2_cfg, args.sam2_checkpoint, args.device, predictor_target=target)
     if args.memory_backend == "kalman":
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
+        predictor.kalman_skip_absent = args.skip_absent
+        predictor.kalman_gate = args.innovation_gate
     if observed:
         predictor.observation_presence = not args.observation_box_only
         predictor.observation_clean = not args.observation_on_memory
@@ -418,6 +428,8 @@ def main():
         "observation_on_memory": args.observation_on_memory,
         "presence_fusion": str(args.presence_fusion) if args.presence_fusion else None,
         "observation_stride": args.observation_stride,
+        "skip_absent": args.skip_absent,
+        "innovation_gate": args.innovation_gate,
         "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
         "sequences": videos,
         "sam2_checkpoint": str(args.sam2_checkpoint),

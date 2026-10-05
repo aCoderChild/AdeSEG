@@ -61,6 +61,8 @@ def main():
     parser.add_argument("--clips_per_fold", type=int, default=300)
     parser.add_argument("--clip_difficulty", choices=sorted(DIFFICULTIES), default="hard")
     parser.add_argument("--observation_conf", type=float, default=0.5)
+    parser.add_argument("--skip_absent", action="store_true")
+    parser.add_argument("--innovation_gate", type=float, default=None)
     parser.add_argument("--device", default="mps")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
@@ -74,6 +76,8 @@ def main():
     )
     if kalman:
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, args.device)
+        predictor.kalman_skip_absent = args.skip_absent
+        predictor.kalman_gate = args.innovation_gate
     predictor.observation_conf = args.observation_conf
 
     frames = list_single_frames(args.polypgen_root, excluded=load_excluded_paths(args.exclude_list))

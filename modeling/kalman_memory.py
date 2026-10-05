@@ -151,10 +151,16 @@ class KalmanMemoryUpdate(nn.Module):
         }
 
 
-class KalmanState:
-    """Anchor slot plus Kalman mean/variance."""
+def mask_prototype(features: torch.Tensor, mask_logits: torch.Tensor) -> torch.Tensor:
+    """Mask-weighted mean of a memory map [B, C, H, W]: the object's appearance, independent of position."""
+    weights = F.interpolate(torch.sigmoid(mask_logits.float()), size=features.shape[-2:], mode="area")
+    return (features.float() * weights).sum(dim=(2, 3)) / weights.sum(dim=(2, 3)).clamp_min(1e-6)
 
-    def __init__(self, anchor, position, frame_idx, update: KalmanMemoryUpdate):
+
+class KalmanState:
+    """Anchor slot plus Kalman mean/variance, and the prototype of the last accepted object memory."""
+
+    def __init__(self, anchor, position, frame_idx, update: KalmanMemoryUpdate, prototype):
         self.anchor = anchor.float()
         self.position = position.float()
         self.mean = self.anchor
@@ -162,6 +168,7 @@ class KalmanState:
         self.last_frame_idx = frame_idx
         self.updates = 0
         self.detection = None
+        self.prototype = prototype
 
     def tensors(self) -> list[torch.Tensor]:
         tensors = [self.anchor, self.position, self.mean, self.variance]
@@ -179,6 +186,11 @@ class KalmanMemoryMixin:
         self._kalman_step = None
         self.kalman_observation_frame = False
         self.kalman_observation_logit = None
+        # Off by default (the reported DOK-Mem). skip_absent: a frame whose presence gate is closed is a
+        # missing measurement (predict only). gate: a tracker frame whose object prototype is farther than
+        # this cosine distance from the last accepted one is rejected; confident detections are never gated.
+        self.kalman_skip_absent = False
+        self.kalman_gate = None
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -271,10 +283,18 @@ class KalmanMemoryMixin:
         if step["init"]:
             output_dict["kalman_state"] = KalmanState(
                 candidate, current_out["maskmem_pos_enc"][-1], frame_idx, self.memory_update,
+                mask_prototype(candidate, current_out["pred_masks"]),
             )
             return
         state = output_dict["kalman_state"]
         presence = torch.sigmoid(object_score_logits.float())
+        prototype = mask_prototype(candidate, current_out["pred_masks"])
+        distance = 1.0 - F.cosine_similarity(prototype, state.prototype, dim=1)
+        status = "accepted"
+        if self.kalman_skip_absent and bool((presence <= 0.5).all()):
+            status = "absent"
+        elif self.kalman_gate is not None and not step.get("observation") and bool((distance > self.kalman_gate).all()):
+            status = "rejected"
         updated = self.memory_update.update(
             state.mean,
             step["prior_variance"],
@@ -284,15 +304,20 @@ class KalmanMemoryMixin:
             presence,
             step["observation_logit"],
         )
+        if status != "accepted":  # missing measurement: keep the mean, let the variance grow
+            updated.update(mean=state.mean, variance=step["prior_variance"], gain=torch.zeros_like(updated["gain"]))
         if not (torch.isfinite(updated["mean"]).all() and torch.isfinite(updated["variance"]).all()):
             raise FloatingPointError(f"Kalman state became non-finite at frame {frame_idx}.")
         state.mean, state.variance = updated["mean"], updated["variance"]
-        if step.get("observation") and bool((presence > 0.5).all()):
-            state.detection = candidate.float()
+        if status == "accepted" and bool((presence > 0.5).all()):
+            state.prototype = prototype
+            if step.get("observation"):
+                state.detection = candidate.float()
         state.last_frame_idx = frame_idx
         state.updates += 1
-        updated.update(presence=presence, prior_variance=step["prior_variance"])
+        updated.update(presence=presence, prior_variance=step["prior_variance"], status=status, distance=distance)
         current_out["kalman"] = updated
+        current_out["kalman_rejected"] = status == "rejected"
         self.kalman_last_step = updated
 
 
@@ -320,8 +345,10 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
         anchor = outputs["cond_frame_outputs"][anchor_idx]
         device = anchor["obj_ptr"].device
         _wait_for_offload(device)
+        features = anchor["maskmem_features"].to(device)
         outputs["kalman_state"] = KalmanState(
-            anchor["maskmem_features"].to(device), anchor["maskmem_pos_enc"][-1].to(device), anchor_idx, self.memory_update,
+            features, anchor["maskmem_pos_enc"][-1].to(device), anchor_idx, self.memory_update,
+            mask_prototype(features, anchor["pred_masks"].to(device)),
         )
         anchor["maskmem_features"] = None
         anchor["maskmem_pos_enc"] = None
@@ -337,7 +364,10 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
         if step is not None and not kwargs["is_init_cond_frame"]:
             current_out["maskmem_features"] = None
             current_out["maskmem_pos_enc"] = None
+            current_out["kalman_rejected"] = step["status"] == "rejected"
             current_out["kalman_trace"] = {
+                "kalman_status": step["status"],
+                "innovation_distance": float(step["distance"].mean()),
                 "presence": float(step["presence"].mean()),
                 "gain_mean": float(step["gain"].mean()),
                 "prior_variance_mean": float(step["prior_variance"].mean()),
