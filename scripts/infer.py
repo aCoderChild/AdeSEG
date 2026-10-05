@@ -316,6 +316,10 @@ def parse_args():
         help="Kalman: treat a frame whose presence gate is closed as a missing measurement (predict only).",
     )
     parser.add_argument(
+        "--motion_noise", type=float, default=None,
+        help="Kalman: d_ref; process noise per pixel = q * feature change / d_ref (camera-motion-aware predict).",
+    )
+    parser.add_argument(
         "--reliability", type=Path, default=None,
         help="Kalman: JSON from scripts/calibrate_reliability.py; observation noise from calibrated reliability.",
     )
@@ -357,6 +361,7 @@ def build_predictor(args):
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
         predictor.kalman_skip_absent = args.skip_absent
         predictor.kalman_gate = args.innovation_gate
+        predictor.kalman_motion_noise = args.motion_noise
         if args.reliability is not None:
             calibration = json.loads(args.reliability.read_text())
             predictor.kalman_reliability = (calibration["slope"], calibration["offset"])
@@ -446,6 +451,7 @@ def main():
         "skip_absent": args.skip_absent,
         "innovation_gate": args.innovation_gate,
         "reliability": str(args.reliability) if args.reliability else None,
+        "motion_noise": args.motion_noise,
         "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
         "split": args.split,
         "sequences": videos,

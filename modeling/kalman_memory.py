@@ -116,8 +116,10 @@ class KalmanMemoryUpdate(nn.Module):
     def readout(self, mean: torch.Tensor, variance: torch.Tensor) -> torch.Tensor:
         return mean + self.uncertainty_embedding.view(1, -1, 1, 1) * torch.log1p(variance)
 
-    def predict(self, variance):
-        return (variance + self.process_noise).clamp(self.min_variance, self.max_variance)
+    def predict(self, variance, noise_scale=None):
+        """``noise_scale``: optional per-pixel factor on q (e.g. measured feature change / its dev mean)."""
+        process_noise = self.process_noise if noise_scale is None else self.process_noise * noise_scale
+        return (variance + process_noise).clamp(self.min_variance, self.max_variance)
 
     def update(
         self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability,
@@ -161,6 +163,20 @@ def mask_prototype(features: torch.Tensor, mask_logits: torch.Tensor) -> torch.T
     return (features.float() * weights).sum(dim=(2, 3)) / weights.sum(dim=(2, 3)).clamp_min(1e-6)
 
 
+def anchor_signals(memory, mask_logits, pointer, image_feature) -> dict[str, torch.Tensor]:
+    """Object descriptors compared with the prompt frame's (diagnostics: memory, pointer and image appearance)."""
+    return {
+        "memory": mask_prototype(memory, mask_logits),
+        "pointer": pointer.float(),
+        "image": mask_prototype(image_feature, mask_logits),
+    }
+
+
+def vision_feature_map(current_vision_feats, feat_sizes) -> torch.Tensor:
+    feature = current_vision_feats[-1]
+    return feature.permute(1, 2, 0).reshape(feature.size(1), -1, *feat_sizes[-1])
+
+
 class KalmanState:
     """Anchor slot plus Kalman mean/variance, and the prototype of the last accepted object memory."""
 
@@ -173,6 +189,8 @@ class KalmanState:
         self.updates = 0
         self.detection = None
         self.prototype = prototype
+        self.anchor_signals = None  # prompt-frame descriptors for the anchor distances (diagnostics)
+        self.previous_feature = None  # image features of the previous frame, for the camera-motion measure
 
     def tensors(self) -> list[torch.Tensor]:
         tensors = [self.anchor, self.position, self.mean, self.variance]
@@ -198,6 +216,9 @@ class KalmanMemoryMixin:
         # Optional (a, c): reliability rho = sigmoid(a * object score + c), calibrated on dev videos
         # (scripts/calibrate_reliability.py); replaces the presence-only observation noise.
         self.kalman_reliability = None
+        # Optional d_ref: q scales per pixel with the change of MedSAM2's image features since the previous frame
+        # (1 - cosine per pixel) divided by d_ref, its mean on dev videos; camera jumps then raise P where the view changed.
+        self.kalman_motion_noise = None
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -230,7 +251,14 @@ class KalmanMemoryMixin:
         state = output_dict["kalman_state"]
         if frame_idx != state.last_frame_idx + 1:
             raise ValueError("Kalman memory requires consecutive forward frames.")
-        step["prior_variance"] = self.memory_update.predict(state.variance)
+        feature = vision_feature_map(current_vision_feats, feat_sizes).float()
+        change = None
+        if state.previous_feature is not None:
+            change = 1.0 - F.cosine_similarity(feature, state.previous_feature, dim=1).unsqueeze(1)
+        state.previous_feature = feature
+        step["feature_change"] = change
+        scale = None if change is None or self.kalman_motion_noise is None else change / self.kalman_motion_noise
+        step["prior_variance"] = self.memory_update.predict(state.variance, scale)
         step["observation"] = self.kalman_observation_frame
         step["observation_logit"] = self.kalman_observation_logit if step["observation"] else None
         if step["observation"]:
@@ -292,6 +320,7 @@ class KalmanMemoryMixin:
                 candidate, current_out["maskmem_pos_enc"][-1], frame_idx, self.memory_update,
                 mask_prototype(candidate, current_out["pred_masks"]),
             )
+            output_dict["kalman_state"].previous_feature = vision_feature_map(current_vision_feats, feat_sizes).float()
             return
         state = output_dict["kalman_state"]
         presence = torch.sigmoid(object_score_logits.float())
@@ -328,6 +357,14 @@ class KalmanMemoryMixin:
         state.last_frame_idx = frame_idx
         state.updates += 1
         updated.update(presence=presence, prior_variance=step["prior_variance"], status=status, distance=distance)
+        if step.get("feature_change") is not None:
+            updated["feature_change"] = step["feature_change"]
+        if state.anchor_signals is not None:
+            current = anchor_signals(candidate, current_out["pred_masks"], current_out["obj_ptr"],
+                                     vision_feature_map(current_vision_feats, feat_sizes))
+            updated["anchor_distance"] = {
+                name: 1.0 - F.cosine_similarity(current[name], state.anchor_signals[name], dim=1) for name in current
+            }
         current_out["kalman"] = updated
         current_out["kalman_rejected"] = status == "rejected"
         self.kalman_last_step = updated
@@ -362,6 +399,12 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
             features, anchor["maskmem_pos_enc"][-1].to(device), anchor_idx, self.memory_update,
             mask_prototype(features, anchor["pred_masks"].to(device)),
         )
+        _, _, vision_feats, _, feat_sizes = self._get_image_feature(inference_state, anchor_idx, 1)
+        anchor_feature = vision_feature_map(vision_feats, feat_sizes)
+        outputs["kalman_state"].anchor_signals = anchor_signals(
+            features, anchor["pred_masks"].to(device), anchor["obj_ptr"].to(device), anchor_feature,
+        )
+        outputs["kalman_state"].previous_feature = anchor_feature.float()
         anchor["maskmem_features"] = None
         anchor["maskmem_pos_enc"] = None
 
@@ -380,9 +423,11 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
             current_out["kalman_trace"] = {
                 "kalman_status": step["status"],
                 "innovation_distance": float(step["distance"].mean()),
+                **{f"anchor_distance_{name}": float(value.mean()) for name, value in step.get("anchor_distance", {}).items()},
                 "presence": float(step["presence"].mean()),
                 "gain_mean": float(step["gain"].mean()),
                 "prior_variance_mean": float(step["prior_variance"].mean()),
+                "feature_change_mean": float(step["feature_change"].mean()) if "feature_change" in step else float("nan"),
                 "variance_mean": float(step["variance"].mean()),
                 "observation_noise_mean": float(step["observation_noise"].mean()),
             }
