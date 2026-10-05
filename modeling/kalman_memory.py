@@ -231,6 +231,9 @@ class KalmanMemoryMixin:
         # Diagnostic upper bound, never a method: {frame_idx: binary ground-truth mask}. A frame is written only
         # if it is correct (IoU >= 0.5 with the ground truth, or correctly empty); otherwise K = 0.
         self.kalman_oracle_masks = None
+        # Optional tau: measurement validation. A frame whose object-score logit is below tau is not written
+        # (K = 0, the state is kept and its variance grows), as an outlier-rejecting Kalman filter does.
+        self.kalman_score_gate = None
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -342,6 +345,8 @@ class KalmanMemoryMixin:
         if self.kalman_skip_absent and bool((presence <= 0.5).all()):
             status = "absent"
         elif self.kalman_gate is not None and not step.get("observation") and bool((distance > self.kalman_gate).all()):
+            status = "rejected"
+        if self.kalman_score_gate is not None and float(object_score_logits.float().mean()) < self.kalman_score_gate:
             status = "rejected"
         if self.kalman_oracle_masks is not None and frame_idx in self.kalman_oracle_masks:
             truth = self.kalman_oracle_masks[frame_idx]
