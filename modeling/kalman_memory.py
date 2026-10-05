@@ -123,10 +123,11 @@ class KalmanMemoryUpdate(nn.Module):
 
     def update(
         self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability,
-        detection_logit=None, reliability=None,
+        detection_logit=None, reliability=None, noise_scale=None,
     ):
         """``reliability``: calibrated probability [B] that the frame is correctly tracked. When given, the
-        observation noise is q * (1 - rho) / rho, so rho = 0.5 trusts the frame as much as the memory."""
+        observation noise is q * (1 - rho) / rho, so rho = 0.5 trusts the frame as much as the memory.
+        ``noise_scale``: optional per-pixel factor on the observation noise (e.g. camera motion)."""
         if mean.shape != candidate.shape or mean.ndim != 4:
             raise ValueError("mean and candidate must be matching [B, C, H, W] tensors.")
         batch, _, height, width = mean.shape
@@ -145,6 +146,8 @@ class KalmanMemoryUpdate(nn.Module):
             rho = reliability.reshape(batch, 1, 1, 1).clamp(1e-3, 1.0 - 1e-3)
             base = self.process_noise * (1.0 - rho) / rho
         observation_noise = base * self.correction(spatial - spatial.mean(dim=(2, 3), keepdim=True))
+        if noise_scale is not None:
+            observation_noise = observation_noise * noise_scale
         if detection_logit is not None:
             trust = self.detection_trust(torch.full((batch, 1), detection_logit, device=mean.device))
             observation_noise = observation_noise * self.correction(trust).view(batch, 1, 1, 1)
@@ -222,6 +225,9 @@ class KalmanMemoryMixin:
         # Ablation (g_present, g_absent): replace the Kalman gain by constant gains, chosen by presence > 0.5 only,
         # i.e. a presence-gated exponential moving average of the frame memories.
         self.kalman_fixed_gain = None
+        # Optional d_ref: camera motion as measurement noise. R scales per pixel with the image-feature change
+        # since the previous frame divided by d_ref (its dev mean), so frames taken during a jump write less.
+        self.kalman_motion_measurement = None
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -347,6 +353,8 @@ class KalmanMemoryMixin:
             presence,
             step["observation_logit"],
             reliability,
+            None if self.kalman_motion_measurement is None or step.get("feature_change") is None
+            else step["feature_change"] / self.kalman_motion_measurement,
         )
         if self.kalman_fixed_gain is not None:
             constant = self.kalman_fixed_gain[0] if bool((presence > 0.5).all()) else self.kalman_fixed_gain[1]
