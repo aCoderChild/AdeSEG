@@ -98,6 +98,7 @@ class DetectorObservationMixin:
         fusion = getattr(self, "presence_fusion" if measured or detector_free else "presence_fusion_unmeasured", None)
 
         def hook(object_score, ious):
+            self.raw_object_score = float(object_score.float().mean())  # before fusion, for the Kalman score gate
             step = getattr(self, "_kalman_step", None) or {}
             variance = step.get("prior_variance")
             features = torch.stack([
@@ -121,6 +122,7 @@ class DetectorObservationMixin:
             current_out, pred_masks = super()._run_single_frame_inference(*args, **kwargs)
         finally:
             self.object_score_hook = None
+            self.raw_object_score = None
             self.kalman_observation_frame = False
             self.kalman_observation_logit = None
         current_out["presence_trace"] = trace

@@ -347,7 +347,9 @@ class KalmanMemoryMixin:
             status = "absent"
         elif self.kalman_gate is not None and not step.get("observation") and bool((distance > self.kalman_gate).all()):
             status = "rejected"
-        score = float(object_score_logits.float().mean())
+        # The gate is calibrated on MedSAM2's raw object score; a presence fusion may have replaced it.
+        raw = getattr(self, "raw_object_score", None)
+        score = raw if raw is not None else float(object_score_logits.float().mean())
         if self.kalman_score_gate is not None and score < self.kalman_score_gate:
             if not self.kalman_score_gate_present_only or score > 0:
                 status = "rejected"
