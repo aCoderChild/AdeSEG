@@ -1,40 +1,4 @@
-"""Uncertainty-aware Kalman spatial memory for frozen MedSAM2.
-
-Replaces MedSAM2's memory bank with two constant-size slots:
-
-- anchor slot: the prompt-frame memory, never overwritten;
-- Kalman state: a mean memory map ``S`` and a per-pixel variance ``P``.
-
-Per frame ``t`` (predict -> read -> observe -> update, as in RKN / KalmanNet)::
-
-    predict:  P_prior = P_{t-1} + q
-    read:     memory attention sees S_{t-1} + u * log1p(P_prior)
-    observe:  C_t = MedSAM2 memory encoder(F_t, predicted mask_t)
-    update:   R_t = (r + a * (1 - p_t)) * c(D_t - mean(D_t)) * [c(g(logit d_t)) on detector frames]
-              D_t = R_net(C_t, normalize(C_t - S_{t-1}), F_t, mask_t, p_t)
-              K_t = P_prior / (P_prior + R_t)
-              S_t = S_{t-1} + K_t * (C_t - S_{t-1})
-              P_t = (1 - K_t) * P_prior
-
-The transition is identity, the covariance is diagonal and shared across channels
-at each pixel, and the observation model is identity (RKN's update with H = I).
-The overall write level is hand-set: q, r and the absence noise a (an absent
-frame writes about 17% of a present one). Learning only redistributes it, with
-bounded corrections c(x) = range ** tanh(x):
-
-- R_net's map is centred per frame, so it decides where in the frame the new
-  observation is trusted (polyp vs. highlights, occluders, blur), not how much
-  the frame is written overall;
-- g maps the detector confidence d_t to how much a detector observation is trusted.
-
-Both start at zero (c = 1), so the untrained module is the hand-set filter.
-Pseudo-videos made from single frames cannot teach how fast appearance changes,
-which is why the overall write level is not learned.
-``KalmanMemoryMixin`` hooks MedSAM2's ``_prepare_memory_conditioned_features``
-(predict + read) and ``_encode_memory_in_output`` (update), which both the video
-predictor and ``SAM2Train`` call on every frame, so training and inference share
-one implementation.
-"""
+"""Uncertainty-aware Kalman spatial memory for frozen MedSAM2."""
 
 from __future__ import annotations
 
@@ -47,7 +11,8 @@ from torch.nn import functional as F
 from modeling.native_pointers import append_native_object_pointers
 from sam2.sam2_video_predictor import SAM2VideoPredictor
 
-CHECKPOINT_FORMAT = "adseg_kalman_memory_v4"
+CHECKPOINT_FORMAT = "adseg_kalman_memory_v5"
+LEGACY_CHECKPOINT_FORMAT = "adseg_kalman_memory_v4"
 
 
 def _noise_head(in_channels: int, hidden: int) -> nn.Sequential:
@@ -98,9 +63,6 @@ class KalmanMemoryUpdate(nn.Module):
         self.log_noise_range = math.log(noise_range)
         self.image_projection = nn.Conv2d(image_channels, projection_channels, 1)
         self.observation_head = _noise_head(2 * memory_channels + projection_channels + 2, hidden_channels)
-        self.detection_trust = nn.Linear(1, 1)
-        nn.init.zeros_(self.detection_trust.weight)
-        nn.init.zeros_(self.detection_trust.bias)
         self.register_buffer("log_initial_variance", torch.tensor(math.log(initial_variance)))
         self.uncertainty_embedding = nn.Parameter(torch.zeros(memory_channels))
 
@@ -123,7 +85,7 @@ class KalmanMemoryUpdate(nn.Module):
 
     def update(
         self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability,
-        detection_logit=None, reliability=None, noise_scale=None,
+        reliability=None, noise_scale=None,
     ):
         """``reliability``: calibrated probability [B] that the frame is correctly tracked. When given, the
         observation noise is q * (1 - rho) / rho, so rho = 0.5 trusts the frame as much as the memory.
@@ -148,9 +110,6 @@ class KalmanMemoryUpdate(nn.Module):
         observation_noise = base * self.correction(spatial - spatial.mean(dim=(2, 3), keepdim=True))
         if noise_scale is not None:
             observation_noise = observation_noise * noise_scale
-        if detection_logit is not None:
-            trust = self.detection_trust(torch.full((batch, 1), detection_logit, device=mean.device))
-            observation_noise = observation_noise * self.correction(trust).view(batch, 1, 1, 1)
         gain = prior_variance / (prior_variance + observation_noise)
         return {
             "mean": mean + gain * innovation,
@@ -190,14 +149,12 @@ class KalmanState:
         self.variance = update.initial_variance(self.mean)
         self.last_frame_idx = frame_idx
         self.updates = 0
-        self.detection = None
         self.prototype = prototype
         self.anchor_signals = None  # prompt-frame descriptors for the anchor distances (diagnostics)
         self.previous_feature = None  # image features of the previous frame, for the camera-motion measure
 
     def tensors(self) -> list[torch.Tensor]:
-        tensors = [self.anchor, self.position, self.mean, self.variance]
-        return tensors if self.detection is None else tensors + [self.detection]
+        return [self.anchor, self.position, self.mean, self.variance]
 
 
 class KalmanMemoryMixin:
@@ -209,32 +166,16 @@ class KalmanMemoryMixin:
         self.kalman_enabled = True
         self.kalman_last_step = None
         self._kalman_step = None
-        self.kalman_observation_frame = False
-        self.kalman_observation_logit = None
-        # Off by default (the reported DOK-Mem). skip_absent: a frame whose presence gate is closed is a
-        # missing measurement (predict only). gate: a tracker frame whose object prototype is farther than
-        # this cosine distance from the last accepted one is rejected; confident detections are never gated.
         self.kalman_skip_absent = False
         self.kalman_gate = None
-        # Optional (a, c): reliability rho = sigmoid(a * object score + c), calibrated on dev videos
-        # (scripts/calibrate_reliability.py); replaces the presence-only observation noise.
         self.kalman_reliability = None
-        # Optional d_ref: q scales per pixel with the change of MedSAM2's image features since the previous frame
-        # (1 - cosine per pixel) divided by d_ref, its mean on dev videos; camera jumps then raise P where the view changed.
         self.kalman_motion_noise = None
-        # Ablation (g_present, g_absent): replace the Kalman gain by constant gains, chosen by presence > 0.5 only,
-        # i.e. a presence-gated exponential moving average of the frame memories.
         self.kalman_fixed_gain = None
-        # Optional d_ref: camera motion as measurement noise. R scales per pixel with the image-feature change
-        # since the previous frame divided by d_ref (its dev mean), so frames taken during a jump write less.
         self.kalman_motion_measurement = None
-        # Diagnostic upper bound, never a method: {frame_idx: binary ground-truth mask}. A frame is written only
-        # if it is correct (IoU >= 0.5 with the ground truth, or correctly empty); otherwise K = 0.
         self.kalman_oracle_masks = None
-        # Optional tau: measurement validation. A frame whose object-score logit is below tau is not written
-        # (K = 0, the state is kept and its variance grows), as an outlier-rejecting Kalman filter does.
         self.kalman_score_gate = None
-        self.kalman_score_gate_present_only = False  # gate only frames called present (0 < score < tau)
+        self.kalman_score_gate_present_only = False
+        self.kalman_score_scale = None  # (alpha, beta): gain *= sigmoid(alpha * object_score + beta)
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -275,20 +216,10 @@ class KalmanMemoryMixin:
         step["feature_change"] = change
         scale = None if change is None or self.kalman_motion_noise is None else change / self.kalman_motion_noise
         step["prior_variance"] = self.memory_update.predict(state.variance, scale)
-        step["observation"] = self.kalman_observation_frame
-        step["observation_logit"] = self.kalman_observation_logit if step["observation"] else None
-        if step["observation"]:
-            # Detector-prompted frame: decode on memory-free features, as on a prompt frame.
-            step["pix_feat"] = super()._prepare_memory_conditioned_features(
-                frame_idx, True, current_vision_feats, current_vision_pos_embeds,
-                feat_sizes, output_dict, num_frames, track_in_reverse,
-            )
-            self._kalman_step = step
-            return step["pix_feat"]
         dtype = current_vision_feats[-1].dtype
         memory_chunks, position_chunks = kalman_memory_tokens(
             self, state.anchor, self.memory_update.readout(state.mean, step["prior_variance"]),
-            state.position, dtype, state.detection,
+            state.position, dtype,
         )
         num_obj_ptr_tokens = append_native_object_pointers(
             self, frame_idx, output_dict, num_frames, track_in_reverse,
@@ -345,11 +276,9 @@ class KalmanMemoryMixin:
         status = "accepted"
         if self.kalman_skip_absent and bool((presence <= 0.5).all()):
             status = "absent"
-        elif self.kalman_gate is not None and not step.get("observation") and bool((distance > self.kalman_gate).all()):
+        elif self.kalman_gate is not None and bool((distance > self.kalman_gate).all()):
             status = "rejected"
-        # The gate is calibrated on MedSAM2's raw object score; a presence fusion may have replaced it.
-        raw = getattr(self, "raw_object_score", None)
-        score = raw if raw is not None else float(object_score_logits.float().mean())
+        score = float(object_score_logits.float().mean())
         if self.kalman_score_gate is not None and score < self.kalman_score_gate:
             if not self.kalman_score_gate_present_only or score > 0:
                 status = "rejected"
@@ -371,7 +300,6 @@ class KalmanMemoryMixin:
             step["projection"],
             torch.sigmoid(current_out["pred_masks"].float()),
             presence,
-            step["observation_logit"],
             reliability,
             None if self.kalman_motion_measurement is None or step.get("feature_change") is None
             else step["feature_change"] / self.kalman_motion_measurement,
@@ -380,6 +308,16 @@ class KalmanMemoryMixin:
             constant = self.kalman_fixed_gain[0] if bool((presence > 0.5).all()) else self.kalman_fixed_gain[1]
             gain = torch.full_like(updated["gain"], constant)
             updated.update(mean=state.mean + gain * (candidate.float() - state.mean), gain=gain)
+        if self.kalman_score_scale is not None:
+            # Soft score-scaled gain: K <- K * sigmoid(alpha * object_score + beta).
+            # Shrinks K smoothly for low-score (likely wrong-object) frames; preserves the
+            # Kalman adaptive gain structure instead of hard-zeroing like score_gate.
+            alpha, beta = self.kalman_score_scale
+            scale = torch.sigmoid(alpha * object_score_logits.float() + beta).reshape(-1, 1, 1, 1)
+            gain = updated["gain"] * scale
+            updated.update(mean=state.mean + gain * (candidate.float() - state.mean), gain=gain,
+                           variance=((1.0 - gain) * step["prior_variance"]).clamp(
+                               self.memory_update.min_variance, self.memory_update.max_variance))
         if status != "accepted":  # missing measurement: keep the mean, let the variance grow
             updated.update(mean=state.mean, variance=step["prior_variance"], gain=torch.zeros_like(updated["gain"]))
         if not (torch.isfinite(updated["mean"]).all() and torch.isfinite(updated["variance"]).all()):
@@ -387,8 +325,6 @@ class KalmanMemoryMixin:
         state.mean, state.variance = updated["mean"], updated["variance"]
         if status == "accepted" and bool((presence > 0.5).all()):
             state.prototype = prototype
-            if step.get("observation"):
-                state.detection = candidate.float()
         state.last_frame_idx = frame_idx
         state.updates += 1
         updated.update(presence=presence, prior_variance=step["prior_variance"], status=status, distance=distance)
@@ -469,17 +405,12 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
         return current_out, pred_masks
 
 
-def kalman_memory_tokens(model, anchor, state_readout, position, dtype=None, detection=None):
-    """Anchor (and detection slot) with the conditioning-frame temporal code, state with the latest-frame code."""
+def kalman_memory_tokens(model, anchor, state_readout, position, dtype=None):
     dtype = dtype or anchor.dtype
     anchor_position = position + model.maskmem_tpos_enc[model.num_maskmem - 1].view(1, -1, 1, 1)
     state_position = position + model.maskmem_tpos_enc[0].view(1, -1, 1, 1)
     tokens = lambda tensor: tensor.to(dtype).flatten(2).permute(2, 0, 1)
-    memory, positions = [tokens(anchor), tokens(state_readout)], [tokens(anchor_position), tokens(state_position)]
-    if detection is not None:
-        memory.insert(1, tokens(detection))
-        positions.insert(1, tokens(anchor_position))
-    return memory, positions
+    return [tokens(anchor), tokens(state_readout)], [tokens(anchor_position), tokens(state_position)]
 
 
 def save_memory_update(update: KalmanMemoryUpdate, path) -> None:
@@ -495,10 +426,14 @@ def save_memory_update(update: KalmanMemoryUpdate, path) -> None:
 def load_memory_update(path, model, device) -> KalmanMemoryUpdate:
     """Kalman update from ``save_memory_update``, checked against ``model``'s MedSAM2 widths."""
     checkpoint = torch.load(path, map_location=device, weights_only=True)
-    if checkpoint.get("format") != CHECKPOINT_FORMAT:
+    checkpoint_format = checkpoint.get("format")
+    if checkpoint_format not in (CHECKPOINT_FORMAT, LEGACY_CHECKPOINT_FORMAT):
         raise ValueError(f"{path} is not a {CHECKPOINT_FORMAT} checkpoint.")
     if (checkpoint["memory_channels"], checkpoint["image_channels"]) != (model.mem_dim, model.hidden_dim):
         raise ValueError(f"{path} does not match this MedSAM2 model.")
     update = KalmanMemoryUpdate(model.mem_dim, model.hidden_dim, **checkpoint["update_config"]).to(device)
-    update.load_state_dict(checkpoint["state_dict"])
+    state_dict = dict(checkpoint["state_dict"])
+    state_dict.pop("detection_trust.weight", None)
+    state_dict.pop("detection_trust.bias", None)
+    update.load_state_dict(state_dict)
     return update.eval()

@@ -46,8 +46,9 @@ replaced by the fixed prompt-frame memory plus one Kalman spatial state with a
 per-pixel variance: each frame's memory is fused into the state with gain
 `K = P⁻ / (P⁻ + R)`, where the measurement noise `R` grows when MedSAM2 calls
 the object absent. Optional, off-by-default variants treat absent frames as
-missing measurements (`--skip_absent`) or reject frames by measurement
-validation on the object score (`--score_gate`).
+missing measurements (`--skip_absent`), reject frames by measurement
+validation on the object score (`--score_gate`), or shrink the gain smoothly
+with the object score (`--score_scale ALPHA BETA`).
 
 Current findings (`EXPERIMENTS.md`):
 
@@ -72,31 +73,16 @@ design, data protocol, verification, and baseline results.
 - **MedSAM2 wrapper:** `modeling/medsam2.py` and the bundled upstream code under
   `MedSAM2/`.
 - **Kalman spatial memory:** `modeling/kalman_memory.py` (checkpoint format
-  `adseg_kalman_memory_v4`; ablation and diagnostic options listed by
-  `scripts/infer.py --help`). `modeling/native_pointers.py` reproduces
-  MedSAM2's object-pointer selection (`scripts/verify_native_pointers.py`).
-- **Detector observations and presence fusion (DOK-Mem):**
-  `modeling/detector_observation.py`, `scripts/build_detector_dataset.py`,
-  `scripts/train_detector.py`, `scripts/build_fusion_data.py`,
-  `scripts/train_presence_fusion.py`. The presence fusion also runs without a
-  detector.
-- **Calibration on real dev videos:** `scripts/calibrate_innovation_gate.py`
-  and `scripts/calibrate_reliability.py`.
+  `adseg_kalman_memory_v5`; compatible with existing v4 checkpoints).
 - **Frozen-backbone training:** `training/kalman_trainer.py` and
-  `scripts/train_kalman.py`, reusing MedSAM2's `SAM2Train`, loss, and batch
-  format, on single-frame pseudo-videos from `datasets/pseudo_video.py`. Only
-  the Kalman update is trainable.
-- **Verification:** `scripts/verify_kalman_parity.py` compares the training and
-  inference trajectories; `scripts/check_split_overlap.py` finds training
-  frames that duplicate test frames.
-- **Proxy evaluation:** `scripts/infer.py` for video inference (`native` or
-  `kalman`; YOLO or GT-box prompts; `--split dev|test` for protocol (a)),
-  `evaluation/temporal.py` for presence- and reappearance-stratified metrics,
-  and `scripts/run_refuge2.py` for REFUGE2 image evaluation.
-- **Second video dataset:** `scripts/prepare_cholecseg8k.py` converts one
-  CholecSeg8k class into the same sequence layout.
-- **Measurement utilities:** `evaluation/measurement.py`,
-  `evaluation/ratio.py`, and `evaluation/refuge2.py`.
+  `scripts/train_kalman.py`. Both consume one dataset-neutral JSONL manifest
+  with ordered video frames and indexed semantic masks. Only the Kalman update
+  is trainable.
+- **Inference:** `scripts/infer.py` runs native or Kalman memory from that same
+  manifest. It uses a first annotated-frame box prompt for evaluation and has
+  no detector, detector observation, or learned presence fusion.
+- **Measurement utilities:** `evaluation/measurement.py` and
+  `evaluation/ratio.py` support downstream two-region measurements.
 
 There is currently no annotated adenoid dataset adapter, clinical obstruction
 ratio protocol, or complete adenoid video runner in this repository. The
@@ -160,17 +146,8 @@ methods only under the same checkpoint, prompts, evaluator, and protocol.
 ### CholecSeg8k
 
 [CholecSeg8k](https://arxiv.org/abs/2012.12453) (CC BY-NC-SA 4.0, no access
-request) has 101 clips of 80 consecutive laparoscopic frames from 17 Cholec80
-videos with dense masks. Place it at `data/CholecSeg8k` and convert one class:
-
-```bash
-python3 scripts/prepare_cholecseg8k.py --target gallbladder \
-  --output data/CholecSeg8k_gallbladder
-```
-
-This writes `seqN/images_seqN`, `seqN/masks_seqN`, `sequences.csv`, and a
-dev/test `split.json` that splits whole surgical videos. Gallbladder tracking is
-easy for every method (native dev Dice 0.916).
+request) remains a useful research reference, but its converter is not part of
+the current manifest-based Kalman workflow.
 
 ### REFUGE2
 
@@ -197,47 +174,34 @@ Spearman agreement against ground truth. Per-image outputs also include ratio
 absolute errors and allow analysis of segmentation Dice versus downstream
 measurement error.
 
-Run the full REFUGE2 oracle evaluation with:
-
-```bash
-python3 scripts/run_refuge2.py \
-  --split val \
-  --output_dir outputs/refuge2_val
-```
-
-The run writes `metrics_per_image.csv` and `summary.json`.
+The static REFUGE2 runner was removed with the older dataset-specific script
+path; the active workflow is annotated video segmentation through a manifest.
 
 ## Kalman spatial memory experiment
 
-MedSAM2 stays frozen. Only the Kalman update has parameters; the untrained
-checkpoint (`K` from fixed noise) is the main configuration, and training on
-single-frame pseudo-videos is optional (`data_C1`..`data_C6` single frames minus
-test duplicates, plus `sequenceData/negativeOnly`).
+MedSAM2 stays frozen. Only the Kalman update has parameters. The dataset is a
+JSONL manifest with `split`, `video_id`, `frame_index`, `image`, and `mask`
+fields. The mask is indexed (`0` background; `1` for a binary target, or, for
+example, `1` adenoid and `2` airway). Split by video or patient, never by frame.
 
-Protocol (a) on PolypGen, no detector:
+Train and infer without detectors or learned fusion:
 
 ```bash
-# optional training of the update
-python3 scripts/check_split_overlap.py
-python3 scripts/train_kalman.py --device cuda --output_dir outputs/kalman
-python3 scripts/verify_kalman_parity.py --kalman_checkpoint outputs/kalman/kalman_memory.pt
+python3 scripts/train_kalman.py \
+  --sam2_cfg configs/sam2.1_hiera_t512.yaml \
+  --sam2_checkpoint checkpoints/MedSAM2_latest.pt \
+  --manifest data/adenoid/frames.jsonl --label_ids 1 2 \
+  --output_dir outputs/kalman
 
-# dev runs: native baseline and Kalman memory
-python3 scripts/infer.py --split dev --prompt_source gt_box -o outputs/native_dev/masks
-python3 scripts/infer.py --split dev --prompt_source gt_box --memory_backend kalman \
-  --kalman_checkpoint outputs/kalman/kalman_memory.pt -o outputs/kalman_dev/masks
-python3 evaluation/temporal.py --output_mask_dir outputs/kalman_dev/masks
-
-# once a design is frozen on dev: the same command with --split test
+python3 scripts/infer.py \
+  --sam2_cfg configs/sam2.1_hiera_t512.yaml \
+  --sam2_checkpoint checkpoints/MedSAM2_latest.pt \
+  --manifest data/adenoid/frames.jsonl --split test --label_ids 1 2 \
+  --memory_backend kalman --kalman_checkpoint outputs/kalman/kalman_memory.pt \
+  --output_dir outputs/kalman_test
 ```
 
-CholecSeg8k uses the same commands with
-`-i data/CholecSeg8k_gallbladder --seq_nums <dev or test from split.json>` for
-inference and `--data_root data/CholecSeg8k_gallbladder` for
-`evaluation/temporal.py`.
-
-`scripts/summarize_kalman_runs.py` collects runs into CSV tables. The
-checkpoint format is `adseg_kalman_memory_v4`. Results go to Google Drive
+The checkpoint format is `adseg_kalman_memory_v5`. Results go to Google Drive
 (`AdeSEG/outputs/Kalman`); `EXPERIMENTS.md` has the update equations, every
 run, and the folder names.
 
