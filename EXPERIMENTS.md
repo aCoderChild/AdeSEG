@@ -1,10 +1,21 @@
 # Experiment record
 
-PolypGen is a proxy dataset for the adenoid videos. All numbers below are on
-the 23 `sequenceData/positive` sequences (2,012 propagated frames: 1,689 with a
-polyp, 323 empty), prompted with the tight box of the first non-empty
-ground-truth mask, MedSAM2 frozen, one seed. Results are on Google Drive under
-`outputs/Kalman/<run>/`.
+PolypGen is a proxy dataset for the adenoid videos. Unless a section says
+otherwise, numbers are on the 23 `sequenceData/positive` sequences (2,012
+propagated frames: 1,689 with a polyp, 323 empty), prompted with the tight box
+of the first non-empty ground-truth mask, MedSAM2 frozen, one seed. Results are
+on Google Drive under `outputs/Kalman/<run>/`.
+
+Two protocols were used, in this order:
+
+1. **All 23 sequences as the test set** (sections "Current architecture" to
+   "Training the Kalman update"). Several design choices were informed by these
+   sequences (see Caveats).
+2. **Protocol (a)** (`datasets/splits/polypgen/protocol_a.json`): dev =
+   seq1–15 (centres C1–C5) for every calibration and design choice; test =
+   seq16–23 (centre C6, confirmed by frame names), run once per frozen method.
+   Section "Protocol (a): the Kalman memory without a detector". A second real-video
+   dataset, CholecSeg8k, is in its own section.
 
 ## Current architecture: DOK-Mem (detection-observed Kalman memory)
 
@@ -117,10 +128,14 @@ prediction and 0 otherwise. 95% intervals resample sequences.
 | Kalman + detector observations (`kalman_detobs_full`) | 0.658 [0.544, 0.779] | 0.600 | 0.724 | 0.690 | 0.977 | 0.859 | 0.689 | 1.13 MiB | 13.5 |
 | native + detector + fusion (`native_detobs_fusion`) | 0.690 [0.583, 0.803] | 0.634 | 0.724 | 0.486 | 0.917 | 0.886 | 0.693 | grows | 12.4 |
 | **DOK-Mem** (`kalman_detobs_fusion`) | **0.689 [0.590, 0.796]** | **0.633** | 0.716 | **0.449** | 0.941 | **0.893** | 0.681 | 1.13 MiB | 13.5 |
-| DOK-Mem, trained Kalman (`kalman_dok_trained_v2`) | 0.689 [0.593, 0.793] | 0.640 | 0.677 | 0.251 | 0.891 | 0.902 | 0.626 | 1.00 MiB | 13.2 |
+| DOK-Mem, trained Kalman (`kalman_dok_trained_v2`, absence 1.0, step 200) | 0.689 [0.593, 0.793] | 0.640 | 0.677 | 0.251 | 0.891 | 0.902 | 0.626 | 1.00 MiB | 13.2 |
+| DOK-Mem, trained Kalman (absence 0.1, step 100) | 0.698 | 0.646 | 0.687 | 0.245 | 0.895 | — | 0.636 | 1.00 MiB | — |
 
-Native "Memory" is reported as stored by the code (36.3 MiB); MedSAM2 attends
-to 7 frame memories, so that number overstates what a trimmed bank needs.
+Memory: native "grows" is what the code stores (36.3 MiB on average). MedSAM2
+attends to only 7 frame memories, and one is 64×32×32 bf16 = 0.125 MiB, so a
+trimmed bank needs about 0.875 MiB, the same as the Kalman memory
+(0.88–1.13 MiB). The Kalman memory is constant in video length but saves no
+memory over a trimmed bank.
 
 Per-sequence paired tests (21 sequences with a polyp, 17 with empty frames;
 Wilcoxon signed-rank; bootstrap 95% interval of the mean difference):
@@ -199,10 +214,210 @@ the observation, how much to trust the detector) with the overall write level
 fixed is what made training stop hurting; it did not yet make it help on real
 video.
 
-Running: `kalman_dok_aw0.1` (absence weight 0.1), selected with a rule fixed
+Absence weight 0.1 (`22_dokmem_trained_absence0.1`), checkpoint selection fixed
 beforehand: the highest validation polyp-frame Dice among checkpoints whose
-empty-frame FP is not above the untrained model's, across this run and v2;
-tested once only if a trained checkpoint is selected.
+empty-frame FP is not above the untrained model's.
+
+| Step | Validation Dice | Polyp-frame Dice | Empty-frame FP |
+|---|---|---|---|
+| 0 (untrained) | 0.5801 | 0.6507 | 0.568 |
+| 100 | 0.5804 | 0.6510 | 0.568 |
+| 200 | 0.5701 | 0.6543 | 0.606 |
+| 300 | 0.5607 | 0.6543 | 0.635 |
+| 400 | 0.5489 | 0.6492 | 0.661 |
+
+The rule selects step 100, indistinguishable from untrained on validation. Its
+test run (`23_dokmem_trained_absence0.1_step100`, fusion refitted): Dice 0.698,
+IoU 0.646, polyp-frame Dice 0.687, empty-frame FP 0.245. Paired against
+untrained DOK-Mem: Dice +0.006 (p = 0.37), IoU +0.008 (p = 0.13), polyp-frame
+Dice −0.016 (p = 0.45), empty-frame FP −0.077 (p = 0.062). Against native
+MedSAM2: Dice +0.090 [+0.012, +0.176], 17/21, p = 0.009; IoU +0.088, p = 0.013.
+
+Control: untrained DOK-Mem with a fusion head refitted by the same (current)
+code (`24_dokmem_untrained_refit_fusion`) reproduces untrained DOK-Mem exactly
+(Dice 0.6892, empty-frame FP 0.4489). So the step-100 difference comes from the
+100 training steps, not from refitting the fusion; it is a trade-off (fewer
+false positives, worse polyp frames), not a significant Dice gain.
+
+Summary: with single-frame pseudo-videos, training moves the model along the
+false-positive / polyp-tracking trade-off (absence 1.0 one way, absence 0.1 the
+other) but does not improve both.
+
+## Protocol (a): the Kalman memory without a detector
+
+Here the memory is the only difference from native MedSAM2 (no detector).
+Untrained Kalman checkpoint: `20_dokmem_untrained/kalman_memory_untrained.pt`.
+
+All 23 sequences, propagated frames (computed before protocol (a) was adopted):
+
+| Run | Dice | IoU | Polyp-frame Dice | Empty-frame FP | Polyp frames detected | ≥10 frames after reappearance |
+|---|---|---|---|---|---|---|
+| `01_native_medsam2` | 0.5072 | 0.4661 | 0.5373 | 0.6502 | 0.9065 | 0.4518 |
+| `02_native_medsam2_prompt_plus_1frame` | 0.5132 | 0.4692 | 0.5515 | 0.6873 | 0.9260 | 0.4660 |
+| `10_kalman_memory` | 0.5313 | 0.4867 | 0.5743 | 0.6935 | 0.9266 | 0.5193 |
+| `11_kalman_memory_skip_absent` | 0.5255 | 0.4805 | 0.5763 | 0.7399 | 0.9408 | 0.5182 |
+| `12_kalman_memory_skip_absent_gate` (prototype gate 0.4446) | 0.5312 | 0.4839 | 0.5872 | 0.7616 | 0.9248 | 0.5463 |
+| `03_native_medsam2_fusion` (detector-free presence fusion) | 0.5526 | 0.5125 | 0.5506 | 0.4365 | 0.7217 | — |
+| `13_kalman_memory_skip_absent_fusion` | 0.5451 | 0.5043 | 0.5339 | 0.3963 | 0.6998 | — |
+
+Absence skip: a frame whose presence gate is closed is a missing measurement
+(predict only). Without it, ten consecutive empty frames leave only 7% of the
+polyp's memory (gain rises from 0.10 to 0.27 per empty frame).
+
+Paired: Kalman + skip vs native, polyp-frame Dice +0.023 [+0.006, +0.046],
+15/21, p = 0.026 (vs prompt + 1 frame +0.031, p = 0.003), overall Dice not
+significant. Detector-free presence fusion on native memory: Dice +0.026
+[+0.009, +0.045], p = 0.017; IoU +0.026, p = 0.013; FP −0.19, p = 0.014.
+Kalman + skip + fusion vs native + fusion: Dice −0.008, p = 0.73.
+
+**Error accumulation** (lost episode = consecutive polyp frames with Dice < 0.1):
+
+| All 23 sequences | Polyp frames lost | Mean episode (frames) | Episodes recovered | Lost until the end |
+|---|---|---|---|---|
+| native | 0.374 | 25.3 | 0.60 | 0.36 |
+| native, prompt + 1 frame | 0.326 | 19.0 | 0.55 | 0.31 |
+| Kalman | 0.304 | 16.1 | 0.75 | 0.22 |
+| Kalman + skip | 0.300 | 14.9 | 0.68 | 0.21 |
+| Kalman + skip + gate | 0.285 | 10.9 | 0.80 | 0.18 |
+
+Lost-frame fraction, Kalman + skip vs native −0.032 (8/2, p = 0.037), vs prompt +
+1 frame −0.033 (9/0, p = 0.004). These metrics were defined after earlier
+results; all frames more than 100 frames after the prompt are in dev sequences
+(seq5, seq11–15), and the C6 videos are short.
+
+**Dev (seq1–15) vs C6 test, frozen plain Kalman memory:**
+
+| | Dice | Polyp frames lost | Mean episode | Recovered | Lost until end |
+|---|---|---|---|---|---|
+| dev native | 0.481 | 0.403 | 39.6 | 0.57 | 0.36 |
+| dev prompt + 1 frame | 0.488 | 0.343 | 23.6 | 0.60 | 0.25 |
+| dev Kalman | 0.514 | 0.318 | 19.9 | 0.82 | 0.14 |
+| C6 native | 0.621 | 0.247 | 7.1 | 0.64 | 0.36 |
+| C6 prompt + 1 frame | 0.623 | 0.253 | 8.9 | 0.44 | 0.44 |
+| C6 Kalman | 0.609 | 0.244 | 7.7 | 0.60 | 0.40 |
+
+C6, Kalman vs native: Dice −0.014 (7/8 sequences better, one collapse,
+p = 0.20); lost fraction +0.001 (p = 0.88). The dev error-accumulation benefit
+does not show on the short C6 videos.
+
+**Camera motion.** Motion = per-pixel change of MedSAM2's image features since
+the previous frame (1 − cosine), logged by the Kalman runs. Dev terciles (cuts
+0.033 / 0.117), polyp frames:
+
+| Dev | Low motion: Dice / lost | Medium | High |
+|---|---|---|---|
+| native | 0.612 / 0.300 | 0.541 / 0.376 | 0.400 / 0.538 |
+| prompt + 1 frame | 0.614 / 0.221 | 0.558 / 0.326 | 0.429 / 0.484 |
+| Kalman | 0.628 / 0.210 | 0.581 / 0.303 | 0.466 / 0.444 |
+
+High-motion polyp Dice, Kalman vs native: +0.033, 9/12, p = 0.052. On C6 with
+the dev cut fixed beforehand (high > 0.117): native 0.539, Kalman 0.559,
++0.016, 6/8, p = 0.25; lost fraction unchanged. Camera motion is a major failure
+cause for native MedSAM2 on both splits.
+
+**Is the Kalman gain responsible?** The untrained gain is nearly constant on
+present frames (PolypGen dev mean 0.835, std 0.144; CholecSeg8k 0.911, std
+0.033): with constant q and presence-only R the variance converges and a
+steady-state Kalman filter is an exponential moving average. Ablation
+`19_kalman_fixed_gain_ema`: constant gains measured on dev (present 0.835,
+absent 0.266):
+
+| | dev Dice | dev lost | dev mean episode | dev high-motion Dice | C6 Dice | C6 lost |
+|---|---|---|---|---|---|---|
+| Kalman | 0.514 | 0.318 | 19.9 | 0.464 | 0.609 | 0.244 |
+| moving average | 0.504 | 0.350 | 26.7 | 0.460 | 0.607 | 0.231 |
+
+Kalman vs moving average, dev: lost −0.012 (p = 0.63), Dice +0.004 (p = 0.41),
+high-motion −0.004 (p = 0.79); C6 no difference. Pre-set rule (Kalman must beat
+it on dev lost fraction and high-motion Dice): not met.
+
+Attempts to make the gain informative (each judged on dev by a rule fixed
+beforehand; none went to C6):
+
+| Gain change | Dev result | Verdict |
+|---|---|---|
+| R from calibrated reliability ρ = σ(0.423·s − 2.619) of the object score s (LOSO AUROC 0.745) | Dice 0.493, lost 0.348 | worse than Kalman + skip |
+| Process noise ∝ per-pixel feature change (d_ref 0.0958) | Dice 0.490, lost 0.339, high-motion 0.437 | worse |
+| Measurement noise ∝ feature change (`20_dev_kalman_motion_measurement`) | Dice 0.502, lost 0.353, high-motion 0.457 (vs Kalman −0.012, 11/12 worse, p = 0.009) | worse |
+| Prototype innovation gate | real-video AUROC 0.43 (gate 0.085 on real dev vs 0.4446 on pseudo-video) | uninformative |
+| Prompt-anchor distances (memory, pointer, image) | pooled AUROC 0.76 / 0.63 / 0.74; inverted in seq13; no gain over the object score in LOSO | uninformative |
+| Object score (raw logit) | AUROC 0.887 overall, 0.88–0.98 within sequences | the best available signal |
+
+**Oracle gain** (`21_dev_kalman_oracle_gain`, diagnostic only): a frame is
+written only if it matches the ground truth (IoU ≥ 0.5 or correctly empty),
+otherwise K = 0. Dev: Dice 0.614, IoU 0.559, polyp-frame Dice 0.685, empty-frame
+FP 0.749, lost 0.183, mean episode 6.1. Against the moving average: Dice +0.056
+(8/5, p = 0.19), lost −0.081; against native: Dice +0.072 (10/3, p = 0.048).
+An informed gain is worth about +0.11 pooled Dice and half the lost frames over
+a constant gain on PolypGen; it is worth nothing on CholecSeg8k (below).
+
+**Measurement-validation gain** (object score below τ ⇒ K = 0; τ = 5.74 from
+dev by Youden's J = 0.494, keeps 75% of correct frames, rejects 74% of wrong
+ones):
+
+| Dev | Dice | IoU | Polyp-frame Dice | Empty-frame FP | Lost | Mean episode |
+|---|---|---|---|---|---|---|
+| `22_kalman_score_gate` (all frames) | 0.527 | 0.479 | 0.613 | 0.914 | 0.277 | 14.1 |
+| `23_kalman_score_gate_present_only` (0 < s < τ) | 0.497 | 0.454 | 0.556 | 0.809 | 0.336 | 13.2 |
+
+The all-frames gate recovers 21% of the oracle's pooled Dice headroom and 44% of
+its lost-frame headroom over the moving average, but per sequence it is not
+better (Dice −0.022, p = 0.74; lost ≈0, p = 0.84) because it also stops writing
+empty frames, so the memory keeps the polyp and empty-frame FP rises to 0.91.
+The present-only variant loses the tracking gain too. Both fail the rule.
+
+`25_kalman_score_gate_presence_fusion_dev` (gate + detector-free fusion) is
+**invalid**: the gate compared the fused score with τ calibrated on raw scores,
+so all 1,640 frames were rejected; its fusion data were also generated without
+the gate. Fixed in `09287e8` (the gate always uses the raw object score;
+`build_fusion_data.py --score_gate`). Not rerun yet.
+
+## CholecSeg8k (second real-video dataset)
+
+`scripts/prepare_cholecseg8k.py` converts CholecSeg8k (CC BY-NC-SA 4.0; 101
+clips × 80 consecutive laparoscopic frames, 17 Cholec80 videos, dense masks)
+into the sequence layout for one target class. Gallbladder (watershed value
+22, checked on the files): 88 sequences from 16 videos, 191 of 7,040 frames
+empty; split by whole video: dev 60 sequences, test 28 (6 videos;
+`data/CholecSeg8k_gallbladder/split.json`). Runs under
+`outputs/Kalman/cholecseg8k/`.
+
+| | dev Dice | dev IoU | test Dice | test IoU |
+|---|---|---|---|---|
+| native | 0.916 | 0.868 | 0.856 | 0.805 |
+| prompt + 1 frame | 0.926 | 0.877 | 0.872 | 0.822 |
+| Kalman | 0.925 | 0.877 | 0.873 | 0.823 |
+| moving average (gains 0.911 / 0.284 from CholecSeg8k dev) | 0.926 | 0.877 | 0.875 | 0.825 |
+| oracle gain (dev only) | 0.920 | 0.871 | — | — |
+| score gate τ = 5.74 | 0.915 | — | 0.878 | — |
+
+Kalman vs native: dev +0.009 (38/60, p = 0.22), high-motion +0.017 (p = 0.054);
+test +0.016 (p = 0.26). Kalman vs prompt + 1 frame: dev −0.0004 (19/60 better,
+p = 0.007). Kalman vs moving average: no difference. Tracking almost never
+fails here (lost polyp frames 0.2–1.5%), so no gain policy has room to help.
+
+**Across both datasets:** a 1-slot memory beats MedSAM2's 7-frame bank
+(consistently, mostly not significantly per test); the Kalman gain as built
+equals a moving average; an informed gain has large headroom only where the
+tracker drifts (PolypGen), and no realizable gain has captured it without a
+false-positive cost.
+
+## Drive folders
+
+| Folder | Run |
+|---|---|
+| `01_native_medsam2`, `02_native_medsam2_prompt_plus_1frame`, `03_native_medsam2_fusion` | native baselines |
+| `10`–`13_kalman_memory*` | Kalman memory without a detector |
+| `14`, `16`, `17`, `20`, `21` (`*_dev*`) | dev-only Kalman variants and diagnostics |
+| `18_test_kalman_motion_logged` | C6 rerun of the frozen Kalman memory with motion logging |
+| `19_kalman_fixed_gain_ema`, `22`/`23_kalman_score_gate*`, `25_*` (invalid) | gain ablations |
+| `20_dokmem_untrained`, `21_dokmem_trained_absence1.0`, `22_dokmem_trained_absence0.1`, `23_dokmem_trained_absence0.1_step100`, `24_dokmem_untrained_refit_fusion` | DOK-Mem (with detector) |
+| `detectors`, `cholecseg8k/`, `summary_before_renaming` | detectors, CholecSeg8k runs, old tables |
+
+The numbering overlaps between the two families (`20`–`24`); the full names
+are unambiguous. Ablation and baseline folders from the first protocol
+(stride, threshold, no-variance, no-clean, native + detector) were deleted;
+their numbers are kept above.
 
 ## Negative results
 
@@ -213,6 +428,10 @@ tested once only if a trained checkpoint is selected.
 | Presence verifier from tracker signals alone | leave-one-sequence-out at chance |
 | Two memory paths chosen by predicted IoU | 0.531 → 0.511 |
 | Prototype re-localisation in frozen features | lands on the polyp in 53% of polyp frames |
+| Training the Kalman update on single-frame pseudo-videos (4 variants) | no Dice gain on test; moves the FP / tracking trade-off only |
+| Hand-designed informative gains (reliability R, motion process or measurement noise, prototype gate, anchor signals) | none beats a constant gain on dev |
+| Score gates (`22`, `23`) | trade tracking against false positives; fail per sequence |
+| Kalman memory with the detector (DOK-Mem) vs native memory with the detector | tie (Dice −0.001, p = 1.0) |
 
 Diagnostics behind the design: with the ground-truth box on every frame, frozen
 MedSAM2 reaches 0.906 Dice on polyp frames, against 0.574 when tracking; 514 of
@@ -227,7 +446,9 @@ segments a different object.
 - `scripts/verify_native_pointers.py`: object-pointer tokens identical to native
   MedSAM2 (count and values, 50 frames).
 - Code changes that should not change behaviour were checked by reproducing
-  DOK-Mem on seq20 / seq23 (0.3649 / 0.6345) exactly.
+  DOK-Mem on seq20 / seq23 (0.3649 / 0.6345) exactly, and the plain Kalman runs
+  (run 16 reproduces run 10 on dev, run 18 on C6). Every new Kalman option is
+  off by default and was checked to leave the default output unchanged.
 
 ## Caveats
 
@@ -235,11 +456,21 @@ segments a different object.
   on two test sequences (seq20, seq23). They contain no tuned value, but the
   design was informed by the test set. The presence fusion and the training
   were not.
-- One proxy dataset, 21 sequences with a polyp, one seed. The adenoid data is
-  the clean test of the frozen design.
+- The all-23-sequence results informed later designs; protocol (a) keeps C6
+  for one run per frozen method, but C6 values of runs 01/02/10 had been seen
+  in all-sequence tables before the split. C6 is 8 short videos, so it cannot
+  test long-term error accumulation.
+- The protocol (a) dev analyses (error accumulation, camera motion) use metrics
+  chosen after earlier results.
+- One proxy dataset plus CholecSeg8k (laparoscopy, easy for every method), one
+  seed. The adenoid data is the clean test of a frozen design.
 - An earlier inference bug on MPS (MedSAM2's non-blocking offload read before
   the copy finished) corrupted earlier results; fixed in `f96742d` (state stays
   on the device on non-CUDA). All numbers above are after the fix. An earlier
   feasibility check fed YOLO RGB arrays instead of BGR; the detector baselines
   above use file paths.
-- Missing baselines: SAMURAI (Kalman filter on boxes), SAM2Long, DAM4SAM.
+- Missing baselines: SAMURAI (Kalman filter on boxes), SAM2Long, DAM4SAM,
+  EMA-SAM.
+- Google Drive for desktop intermittently fails reads (`Operation canceled`)
+  when the disk is nearly full; analyses read local copies under
+  `~/Library/Caches/adseg_work`.
