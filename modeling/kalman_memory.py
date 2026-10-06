@@ -234,6 +234,7 @@ class KalmanMemoryMixin:
         # Optional tau: measurement validation. A frame whose object-score logit is below tau is not written
         # (K = 0, the state is kept and its variance grows), as an outlier-rejecting Kalman filter does.
         self.kalman_score_gate = None
+        self.kalman_score_gate_present_only = False  # gate only frames called present (0 < score < tau)
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -346,8 +347,10 @@ class KalmanMemoryMixin:
             status = "absent"
         elif self.kalman_gate is not None and not step.get("observation") and bool((distance > self.kalman_gate).all()):
             status = "rejected"
-        if self.kalman_score_gate is not None and float(object_score_logits.float().mean()) < self.kalman_score_gate:
-            status = "rejected"
+        score = float(object_score_logits.float().mean())
+        if self.kalman_score_gate is not None and score < self.kalman_score_gate:
+            if not self.kalman_score_gate_present_only or score > 0:
+                status = "rejected"
         if self.kalman_oracle_masks is not None and frame_idx in self.kalman_oracle_masks:
             truth = self.kalman_oracle_masks[frame_idx]
             predicted = current_out["pred_masks"][0, 0] > 0

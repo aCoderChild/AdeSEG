@@ -333,6 +333,10 @@ def parse_args():
         help="Kalman measurement validation: frames with object-score logit below this are not written (K = 0).",
     )
     parser.add_argument(
+        "--score_gate_present_only", action="store_true",
+        help="Apply --score_gate only to frames called present (0 < score < tau); empty frames are written as usual.",
+    )
+    parser.add_argument(
         "--oracle_gate", action="store_true",
         help="Diagnostic upper bound only: Kalman writes a frame only if it matches the ground truth (K = 0 otherwise).",
     )
@@ -389,6 +393,7 @@ def build_predictor(args):
         predictor.kalman_motion_noise = args.motion_noise
         predictor.kalman_motion_measurement = args.motion_measurement
         predictor.kalman_score_gate = args.score_gate
+        predictor.kalman_score_gate_present_only = args.score_gate_present_only
         if args.fixed_gain is not None:
             gains = json.loads(args.fixed_gain.read_text())
             predictor.kalman_fixed_gain = (gains["g_present"], gains["g_absent"])
@@ -487,6 +492,7 @@ def main():
         "motion_measurement": args.motion_measurement,
         "oracle_gate": args.oracle_gate,
         "score_gate": args.score_gate,
+        "score_gate_present_only": args.score_gate_present_only,
         "presence_fusion_unmeasured": str(args.presence_fusion_unmeasured) if args.presence_fusion_unmeasured else None,
         "split": args.split,
         "sequences": videos,
