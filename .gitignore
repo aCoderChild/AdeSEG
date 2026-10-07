@@ -55,3 +55,4 @@ scripts/eval_outputs/
 # External projects not committed here
 external/WTNet/
 external/PraNet/
+.codex-docs-trusted-read/
