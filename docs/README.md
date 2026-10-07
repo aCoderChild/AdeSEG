@@ -100,6 +100,10 @@ design, data protocol, verification, and baseline results.
 - **Evaluation:** `evaluation/temporal.py` (per-frame, presence-stratified and
   drift metrics; `--no_overlays` for metrics only), plus
   `scripts/analyze_reappearance.py` and `scripts/analyze_illumination.py`.
+- **Two-region path:** `scripts/build_mask_manifest.py` (grey-coded masks to
+  indexed masks + manifest) and `evaluation/two_region.py` (per-region Dice/IoU,
+  ratio error, grade agreement). `tests/test_data_pipeline.py` guards frame
+  order and mask decoding (`python3 -m pytest tests`).
 - **Measurement utilities:** `evaluation/measurement.py` and
   `evaluation/ratio.py` support downstream two-region measurements.
 
@@ -176,13 +180,38 @@ manifest built before commit `c8df175` are invalid.
 request) was used as a second real-video dataset in archived runs; its
 converter is not part of the current manifest-based workflow.
 
-### Two-region measurement
+### Two-region measurement (REFUGE as the two-label stand-in)
 
-`evaluation/ratio.py` and `evaluation/measurement.py` compute the candidate
-adenoid ratios (`adenoid / airway`, `adenoid / (adenoid + airway)`) and report
-per-region Dice/IoU next to ratio MAE, RMSE, Pearson and Spearman agreement.
-The REFUGE2 proxy that exercised this path was removed with the old
-dataset-specific scripts; it will be validated on adenoid data.
+The target adenoid data are expected to follow Cai et al. 2024 (fiberoptic
+nasopharyngoscopy, 3-class grey masks: 0 background, 128 nasopharyngeal
+airway, 255 adenoid; graded by the A/N ratio, <50% / 50–75% / >75%). REFUGE
+(`data/REFUGE`, fundus images) uses the same 0/128/255 grey coding (255
+background, 128 optic-disc rim, 0 cup) with two adjacent regions, so it
+exercises the same two-label path: mask decoding, two-label inference, per-region
+Dice/IoU and the area ratio cup / (cup + rim), which has the form of an A/N ratio.
+It is static images, so it does not test the video memory.
+
+`scripts/build_mask_manifest.py` converts a grey-coded image/mask folder into
+indexed masks (nearest-value mapping, so JPEG noise cannot create classes) and a
+manifest; `evaluation/two_region.py` scores `infer.py` predictions per region and
+on the ratio (MAE, RMSE, Pearson, Spearman; grade accuracy and Cohen's kappa
+with `--grade_thresholds`; the median ratio per video for multi-frame videos).
+
+```bash
+python3 scripts/build_mask_manifest.py --root data/REFUGE --splits train val test \
+  --value_map 255:0 128:1 0:2 --output_dir data/refuge     # adenoid: 0:0 128:1 255:2
+python3 scripts/infer.py --sam2_cfg configs/sam2.1_hiera_t512.yaml \
+  --sam2_checkpoint checkpoints/MedSAM2_latest.pt --manifest data/refuge/manifest.jsonl \
+  --split val --label_ids 1 2 --memory_backend native --output_dir runs/refuge_val
+python3 evaluation/two_region.py --manifest data/refuge/manifest.jsonl --split val \
+  --pred_dir runs/refuge_val --region_a cup:2 --region_b rim:1 --ratio_mode fraction_of_total
+```
+
+REFUGE val (400 images, native MedSAM2 with GT-box prompts; results in
+`AdeSEG/outputs/REFUGE/native_val_two_region/`): cup Dice 0.734, rim Dice 0.886,
+ratio MAE 0.109 (Pearson 0.74, Spearman 0.86). Dice of 0.73–0.89 still leaves an
+11-point ratio error, enough to change an A/N grade near a threshold, so the
+adenoid evaluation must report ratio error, not only Dice.
 
 ## Kalman spatial memory experiment
 
