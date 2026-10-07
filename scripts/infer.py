@@ -115,6 +115,7 @@ def main():
             predictor.mem_dim, predictor.hidden_dim, args.fixed_gain[0], args.fixed_gain[1])
     elif args.memory_backend == "kalman":
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
+    if args.memory_backend == "kalman":
         predictor.kalman_skip_absent = args.skip_absent
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = {
