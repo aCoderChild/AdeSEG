@@ -60,15 +60,20 @@ MedSAM2's conditioning-frame temporal code (`maskmem_tpos_enc[num_maskmem−1]`)
 the state the most-recent-frame code (`maskmem_tpos_enc[0]`). Retained memory:
 about 0.88 MiB per object, constant in video length.
 
-Optional variants on the gain (`modeling/kalman_memory.py` attributes;
-`scripts/infer.py` flags):
+Options (`scripts/infer.py` flags):
 
 | Flag | Effect |
 |---|---|
-| `--skip_absent` | A frame called empty is a missing measurement (`K = 0`, variance grows). |
-| `--score_gate TAU` | Hard measurement-validation gate: `K = 0` when the object-score logit is below `tau`. |
-| `--score_gate_present_only` | Only applies the hard gate to frames with `s > 0`. |
-| `--score_scale ALPHA BETA` | Soft score-scaled gain: `K *= sigmoid(alpha · score + beta)` (see "Soft score-scaled gain" below). |
+| `--skip_absent` | A frame MedSAM2 calls empty is a missing measurement (`K = 0`, variance grows). |
+| `--fixed_gain PRESENT ABSENT` | EMA baseline: the constant-gain memory in `modeling/ema_memory.py` instead of the Kalman update. |
+
+The constant-gain EMA baseline (`ConstantGainMemory`) shares the Kalman read
+path but replaces the adaptive gain with a fixed present/absent gain, with the
+variance kept consistent (`P ← (1 − k)P⁻`). Exploratory gain variants that did
+not beat the baseline (soft score-scaled gain, hard score gates, reliability-
+weighted and motion-scaled noise, the oracle and prototype gates) were removed
+from the code; their earlier runs remain on Google Drive and are summarised
+under "Protocol (a)" below.
 
 ## Data protocol
 
@@ -82,6 +87,34 @@ frame.
 | Positives (training frames) | `data_C1`..`data_C6` single frames (1,399 after excluding 12 frames that duplicate test frames) |
 | Absences (training) | `sequenceData/negativeOnly` (23 sequences, 4,275 frames) |
 | Test | all 23 `sequenceData/positive` sequences |
+
+## Held-out test (protocol (a), C6 = seq16–23)
+
+Frozen native, EMA and Kalman run once on the held-out C6 test split with the
+current clean pipeline (`outputs/Kalman/heldout_test/`, 8 sequences, 432
+propagated frames). EMA gains (present 0.798, absent 0.261) are from the dev
+split, so the test stays held out. Per-sequence means; paired Wilcoxon (n = 8).
+
+| Method | Dice | IoU | Polyp-frame Dice | Empty-frame FP |
+|---|---|---|---|---|
+| native MedSAM2 (7-frame bank) | **0.640** | **0.595** | 0.608 | **0.425** |
+| EMA (constant-gain 1-slot) | 0.621 | 0.577 | 0.637 | 0.507 |
+| Kalman (adaptive-gain 1-slot) | 0.619 | 0.574 | **0.640** | 0.540 |
+
+| Comparison | Metric | Mean diff | Better/worse | p |
+|---|---|---|---|---|
+| Kalman vs native | Dice | −0.020 | 5/3 | 0.84 |
+| | polyp-frame Dice | +0.031 | 5/3 | 0.20 |
+| | empty-frame FP (lower better) | +0.115 | 2/4 | 0.31 |
+| Kalman vs EMA | Dice | −0.002 | 3/5 | 0.64 |
+
+On the 8 short C6 videos the 1-slot memories improve polyp-frame tracking over
+native's bank (Kalman +0.031 polyp-frame Dice) but add empty-frame false
+positives (no presence module), netting slightly below native overall; the
+Kalman adaptive gain ties the constant-gain EMA (−0.002, p = 0.64). This
+reproduces the archived C6 result (native 0.621 vs Kalman 0.609). C6 is short
+and cannot test the long-term error accumulation where the dev analysis shows
+the 1-slot memory helping. Full table: `outputs/Kalman/heldout_test/comparison.md`.
 
 ## Main results — plain Kalman memory (no detector, no fusion)
 
@@ -210,39 +243,11 @@ The all-frames gate recovers 21% of the oracle's pooled Dice headroom but
 also stops writing empty frames, so empty-frame FP rises to 0.91 and the per
 sequence paired test is not better. Both variants fail the pre-registered rule.
 
-## Soft score-scaled gain (new; code implemented, inference pending)
-
-Hard gates set `K = 0` below τ. A soft alternative shrinks `K` smoothly:
-
-```text
-K_t ← K_t · sigmoid(alpha · object_score_t + beta)
-```
-
-Implemented as `kalman_score_scale` in `modeling/kalman_memory.py`; CLI flag
-`--score_scale ALPHA BETA` in `scripts/infer.py`.
-
-Dev calibration (`scripts/soft_gain_calibrate.py`, joining the dev object-score
-diagnostics with the `10_kalman_memory` per-frame CSV; "correctly tracked" =
-polyp frame with Dice ≥ 0.5, or correctly empty frame):
-
-| Fit | alpha | beta | AUROC on dev |
-|---|---|---|---|
-| all frames | 0.237 | −1.166 | 0.755 |
-| polyp frames only (Dice ≥ 0.5) | 0.633 | −3.300 | 0.889 |
-
-The present-only fit matches the reported object-score AUROC 0.887.
-
-**Pre-registered selection rule** (same shape as the EMA ablation): the
-chosen (α, β) must beat `10_kalman_memory` on both
-
-- dev lost-polyp-frame fraction, and
-- dev high-motion polyp-frame Dice (motion > 0.117, dev tercile cut fixed
-  beforehand).
-
-Only one C6 run is permitted, and only if the rule is met on dev.
-
-`scripts/run_soft_gain.sh` runs the two dev variants. **Status: not run yet;
-requires rebuilding the JSONL manifest the current `scripts/infer.py` expects.**
+A soft score-scaled gain (`K ← K · sigmoid(α·score + β)`, calibrated on dev)
+was also tried against this rule and **failed**: on dev neither the all-frames
+fit (α 0.245, β −1.145) nor the present-only fit (α 0.727, β −3.417) beat the
+plain Kalman run on both lost-frame fraction and high-motion Dice (Dice −0.003
+and −0.008 respectively). It was removed from the code with the other gates.
 
 ## Robustness analyses (no re-inference)
 
