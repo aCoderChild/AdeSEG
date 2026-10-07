@@ -334,7 +334,7 @@ Một ``đoạn mất'' là các khung polyp liên tiếp có Dice $<0.1$ (khung
 
 Dice gộp theo khung trên tập phát triển: native 0.481, prompt + 1 khung 0.488, Kalman 0.514; trên C6: 0.621, 0.623, 0.609. Tỷ lệ khung mất / độ dài đoạn mất / tỷ lệ khôi phục trên tập phát triển: native 0.403 / 39.6 / 0.57, Kalman 0.318 / 19.9 / 0.82; trên C6: native 0.247 / 7.1 / 0.64, Kalman 0.244 / 7.7 / 0.60.
 
-Trên các video dài của tập phát triển, Kalman rút ngắn đoạn mất (39.6 xuống 19.9 khung) và tăng tỷ lệ khôi phục (0.57 lên 0.82), nhưng theo chuỗi thì không có ý nghĩa (Dice $+0.020$, $p=0.46$; tỷ lệ mất $-0.040$, $p=0.19$). Trên C6, video ngắn, đoạn mất vốn đã ngắn (khoảng 7 khung) và không còn khác biệt.
+Trên các video dài của tập phát triển, Kalman rút ngắn đoạn mất (39.6 xuống 19.9 khung) và tăng tỷ lệ khôi phục (0.57 lên 0.82), nhưng theo chuỗi thì không có ý nghĩa (Dice $+0.020$, $p=0.45$; tỷ lệ mất $-0.040$, $p=0.19$). Trên C6, video ngắn, đoạn mất vốn đã ngắn (khoảng 7 khung) và không còn khác biệt.
 
 \paragraph{So sánh native, EMA và Kalman trên C6.} Bảng~\ref{tab:c6} là kết quả chính trên C6 (dựng lại chính xác bằng \texttt{analyze\_runs.py}); ``mất'' là tỷ lệ khung polyp có Dice $<0.1$, ``tái xuất hiện'' là Dice ở 1--10 khung sau một đoạn vắng mặt, ``chuyển động cao'' là khung polyp có mức thay đổi đặc trưng ảnh lớn hơn 0.117 (ngưỡng tercile cố định từ tập phát triển).
 
@@ -352,7 +352,7 @@ EMA (1 khe, gain hằng) & 0.603 & \textbf{0.623} & 0.587 & \textbf{0.268} & \te
 Kalman (1 khe, gain thích nghi) & 0.602 & 0.613 & 0.555 & 0.284 & 0.483 & 0.579 \\
 \hline
 Native + gate & \textbf{0.628} & 0.573 & \textbf{0.332} & 0.326 & 0.391 & 0.516 \\
-EMA + gate & 0.621 & \textbf{0.607} & 0.433 & \textbf{0.289} & \textbf{0.493} & \textbf{0.574} \\
+EMA + gate & 0.620 & \textbf{0.607} & 0.433 & \textbf{0.288} & \textbf{0.493} & \textbf{0.574} \\
 Kalman + gate & \textbf{0.628} & 0.598 & 0.388 & 0.303 & 0.457 & 0.558 \\
 \hline
 \end{tabular}}
@@ -381,7 +381,7 @@ Với $n=8$, không khác biệt nào có ý nghĩa thống kê; cổng hiện d
 
 \subsubsection{Gain Kalman có đóng góp gì không?}
 
-Từ phân tích trạng thái dừng, gain chưa huấn luyện gần như hằng trên khung có đối tượng (trung bình 0.835, độ lệch chuẩn 0.144 trên PolypGen; 0.911, độ lệch chuẩn 0.033 trên CholecSeg8k). Thay gain thích nghi bằng gain hằng đo trên tập phát triển (EMA 0.835/0.266) cho Dice gộp trên tập phát triển 0.504 so với 0.514 của Kalman, tỷ lệ mất 0.350 so với 0.318, Dice chuyển động cao 0.460 so với 0.464; trên C6, Dice 0.607 so với 0.609.
+Từ phân tích trạng thái dừng, gain chưa huấn luyện gần như hằng trên khung có đối tượng (trung bình 0.835, độ lệch chuẩn 0.144 trên PolypGen; 0.911, độ lệch chuẩn 0.033 trên toàn bộ CholecSeg8k). Thay gain thích nghi bằng gain hằng đo trên tập phát triển (EMA 0.835/0.266) cho Dice gộp trên tập phát triển 0.504 so với 0.514 của Kalman, tỷ lệ mất 0.350 so với 0.318, Dice chuyển động cao 0.460 so với 0.464; trên C6, Dice 0.607 so với 0.609.
 
 Trên tập phát triển, Kalman so với EMA: tỷ lệ mất $-0.012$ ($p=0.63$), Dice $+0.004$ ($p=0.41$). Quy tắc định trước (Kalman phải hơn EMA cả về tỷ lệ mất và Dice chuyển động cao trên tập phát triển) không đạt. Kiểm định thứ hai với \texttt{--skip\_absent} (Kalman+skip so với EMA+skip gain 0.833) cũng định trước: Dice $+0.006$ ($p=0.24$), FP khung rỗng $-0.031$ và tỷ lệ mất $-0.016$ (Kalman thấp hơn ở cả 4 chuỗi có khác biệt, $p=0.13$), nhưng Dice tái xuất hiện không đổi; quy tắc (tái xuất hiện tăng \emph{và} tỷ lệ mất giảm) không đạt nên không chạy trên C6. Đây là phép thử trực tiếp phần riêng của dạng Kalman, và nó không cho lợi ích đo được (các lần chạy này không còn trên Drive).
 
@@ -412,7 +412,7 @@ Dữ liệu VA dự kiến theo Cai và cộng sự \cite{cai2024} dùng mặt n
 Prompt & Dice cup & Dice vành & MAE tỷ số & RMSE tỷ số & Pearson & Spearman \\
 \hline
 Mỗi nhãn một lượt (hộp vành = hộp đĩa) & 0.734 & 0.886 & 0.109 & 0.138 & 0.74 & 0.86 \\
-\texttt{--nested\_labels} (đĩa và cup; vành = đĩa $-$ cup) & \textbf{0.918} & \textbf{0.924} & \textbf{0.019} & \textbf{0.024} & \textbf{0.98} & \textbf{0.98} \\
+\texttt{--nested\_labels} (đĩa và cup; vành = đĩa $-$ cup) & \textbf{0.917} & \textbf{0.924} & \textbf{0.019} & \textbf{0.024} & \textbf{0.98} & \textbf{0.98} \\
 \hline
 \end{tabular}}
 \end{table}

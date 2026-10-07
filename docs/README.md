@@ -35,7 +35,7 @@ whole manifest by `evaluation/two_region.py`. It reports per-region Dice/IoU,
 predicted ratio, ground-truth ratio, and absolute ratio error for an explicitly
 selected ratio protocol. On the REFUGE stand-in there is **no** mismatch so far:
 prompting the outer and inner regions (`--nested_labels`) gives cup / rim Dice
-0.918 / 0.924 and a ratio error of 0.019. An earlier figure (Dice 0.734 / 0.886,
+0.917 / 0.924 and a ratio error of 0.019. An earlier figure (Dice 0.734 / 0.886,
 ratio error 0.109) came from a flawed prompting design (see "Proxy datasets").
 
 A measurement-aware loss is **not implemented yet**. It should only be added
@@ -229,7 +229,7 @@ REFUGE val (400 images, native MedSAM2, ground-truth box prompts):
 | Prompting | Cup Dice | Rim Dice | Ratio MAE |
 |---|---|---|---|
 | one pass per label (rim box = disc box) | 0.734 | 0.886 | 0.109 |
-| `--nested_labels` (disc and cup; rim = disc − cup) | 0.918 | 0.924 | 0.019 |
+| `--nested_labels` (disc and cup; rim = disc − cup) | 0.917 | 0.924 | 0.019 |
 
 Without `--nested_labels`, the rim's box is the whole disc's box and the rim
 pass absorbs the cup: the predicted cup fraction was too low on all 400 images.

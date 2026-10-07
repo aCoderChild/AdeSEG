@@ -225,7 +225,7 @@ result.**
 | Kalman | 0.653 / 0.514 | 0.706 / 0.559 | 0.318 | 19.9 | 0.82 | 0.14 |
 | EMA | 0.649 / 0.504 | 0.705 / 0.551 | 0.350 | 26.7 | 0.78 | 0.17 |
 
-Kalman − native on dev: Dice +0.020 (7/6), p = 0.46; lost fraction −0.040 (1/4),
+Kalman − native on dev: Dice +0.020 (7/6), p = 0.45; lost fraction −0.040 (1/4),
 p = 0.19; high-motion polyp Dice +0.033 (9/3), p = 0.052. Kalman − EMA on dev:
 Dice +0.004, p = 0.41; lost −0.012, p = 0.63; reappearance −0.015 (1/9),
 p = 0.020 (EMA better). Pre-set rule (Kalman must beat EMA on dev lost fraction
@@ -316,7 +316,7 @@ the form of A/N. Masks converted with `build_mask_manifest.py --value_map 255:0
 | REFUGE val (400 images) | Cup Dice | Rim Dice | Ratio MAE | RMSE | Pearson | Spearman |
 |---|---|---|---|---|---|---|
 | one pass per label (rim box = disc box) | 0.734 | 0.886 | 0.109 | 0.138 | 0.74 | 0.86 |
-| `--nested_labels` (prompt disc and cup; rim = disc − cup) | **0.918** | **0.924** | **0.019** | **0.024** | **0.98** | **0.98** |
+| `--nested_labels` (prompt disc and cup; rim = disc − cup) | **0.917** | **0.924** | **0.019** | **0.024** | **0.98** | **0.98** |
 
 The first design is flawed: the rim's ground-truth box is the whole disc's box,
 and with one pass per label and "highest logit wins" the rim prediction absorbs
