@@ -10,8 +10,9 @@ The repository scope was trimmed on 2026-10-06: the detector observations,
 presence fusion, and all DOK-Mem code and runs were removed. What remains is
 the plain Kalman spatial memory replacing MedSAM2's 7-frame FIFO bank, and the
 constant-gain EMA baseline it is compared with (`modeling/ema_memory.py`).
-**The current results are in "Held-out test" below**; later sections record
-the archived runs and analyses that led to them.
+**The current results are in "Held-out test" and "Two-region stand-in:
+REFUGE" below**; later sections record the archived runs and analyses that
+led to them.
 
 Two protocols were used, in this order:
 
@@ -112,7 +113,7 @@ native 1.557, EMA 0.651, Kalman 1.078). Per-sequence means; paired Wilcoxon (n =
 
 | Comparison | Dice | Polyp-frame Dice | Empty-frame FP | Reappearance |
 |---|---|---|---|---|
-| Kalman − native | −0.014 (Kalman better in 7/8, one collapse), p = 0.20 | +0.015, p = 0.31 | +0.069, p = 0.50 | +0.021, p = 0.58 |
+| Kalman − native | −0.014 (Kalman better in 7/8; the loss is seq21's empty tail), p = 0.20 | +0.015, p = 0.31 | +0.069, p = 0.50 | +0.021, p = 0.58 |
 | Kalman − EMA | −0.001, p = 0.20 | −0.010, p = 0.74 | −0.032, p = 0.25 | −0.042, p = 0.22 |
 | Kalman+gate − native+gate | −0.000, p = 0.94 | +0.025, p = 0.30 | +0.056, p = 0.50 | +0.066, p = 0.69 |
 
@@ -152,6 +153,33 @@ selected ρ = 0.01, τ = 1.63) but on C6 it was worse than the per-frame gate
 (Dice −0.005, FP +0.107, worse in 3/8 sequences and better in none): the heavy
 smoothing reacts slowly when the polyp leaves. The per-frame gate remains the
 presence module.
+
+## Two-region stand-in: REFUGE (current)
+
+The target adenoid data are expected to follow Cai et al. 2024: fiberoptic
+nasopharyngoscopy images (516×531), 3-class grey masks (0 background, 128
+unobstructed nasopharyngeal airway, 255 adenoid), graded by the A/N ratio
+(<50% small, 50–75% medium, >75% large). REFUGE (`data/REFUGE`, fundus images,
+400 per split) uses the same 0/128/255 coding (255 background, 128 optic-disc
+rim, 0 cup) with two adjacent regions, so cup / (cup + rim) has the form of an
+A/N ratio. It tests the two-label path (mask conversion, two-label inference,
+per-region scores, ratio error) but, as static images, not the video memory.
+
+Masks converted with `scripts/build_mask_manifest.py --value_map 255:0 128:1 0:2`
+(all 1,200 images contain background, rim and cup); native MedSAM2 with a GT box
+per region; scored by `evaluation/two_region.py --region_a cup:2 --region_b rim:1
+--ratio_mode fraction_of_total`. Results: `outputs/REFUGE/native_val_two_region/`.
+
+| REFUGE val (400 images) | Cup Dice | Rim Dice | Cup IoU | Rim IoU | Ratio MAE | Ratio RMSE | Pearson | Spearman |
+|---|---|---|---|---|---|---|---|---|
+| native MedSAM2, GT-box prompts | 0.734 | 0.886 | 0.589 | 0.801 | 0.109 | 0.138 | 0.74 | 0.86 |
+
+Dice of 0.73–0.89 still leaves an 11-point ratio error on a 0–1 scale, enough
+to change an A/N grade near the 0.50 or 0.75 thresholds: first evidence, on a
+stand-in, of the Dice–measurement mismatch that motivates a measurement-aware
+objective. The Kalman memory also runs the two-label path (checked on three
+images). Before evaluating Kalman on adenoid data, the data must be video: Cai
+et al.'s dataset is single images, which gives the memory nothing to propagate.
 
 ## Main results — plain Kalman memory (no detector, no fusion)
 
@@ -203,8 +231,9 @@ Untrained Kalman checkpoint: `outputs/Kalman/kalman_memory_untrained.pt`.
 | C6 prompt + 1 frame | 0.623 | 0.253 | 8.9 | 0.44 | 0.44 |
 | C6 Kalman | 0.609 | 0.244 | 7.7 | 0.60 | 0.40 |
 
-C6, Kalman vs native: Dice −0.014 (7 / 8 sequences better, one collapse,
-p = 0.20); lost fraction +0.001 (p = 0.88). The dev error-accumulation benefit
+C6, Kalman vs native: Dice −0.014 (7 / 8 sequences better; the loss is
+seq21's empty tail, see the held-out section, p = 0.20); lost fraction +0.001
+(p = 0.88). The dev error-accumulation benefit
 does not reach significance on the short C6 videos.
 
 **Error accumulation** (lost episode = consecutive polyp frames with
@@ -347,6 +376,7 @@ headroom only where the tracker drifts (PolypGen).
 
 | Folder | Run |
 |---|---|
+| `../REFUGE/native_val_two_region/` | **current results**: two-region REFUGE val run (`summary.json`, `per_frame.csv`) |
 | `heldout_test/` | **current results**: frozen native / EMA / Kalman on C6 with the corrected manifest (`comparison.md`, `summary.json`, per-method metrics and diagnostics) |
 | `01_native_medsam2`, `02_native_medsam2_prompt_plus_1frame` | archived native baselines (older pipeline) |
 | `10_kalman_memory` | archived plain Kalman memory |

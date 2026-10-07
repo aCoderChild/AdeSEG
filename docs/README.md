@@ -30,9 +30,12 @@ frame selection, and aggregation.
 
 The first required experiment is a diagnostic: determine whether good regional
 Dice can still produce a poor obstruction measurement. The repository provides
-`evaluation.evaluate_two_region_measurement()` for this comparison. It reports
-per-region Dice/IoU, predicted ratio, ground-truth ratio, and absolute ratio
-error for an explicitly selected ratio protocol.
+`evaluation.evaluate_two_region_measurement()` for this comparison, run over a
+whole manifest by `evaluation/two_region.py`. It reports per-region Dice/IoU,
+predicted ratio, ground-truth ratio, and absolute ratio error for an explicitly
+selected ratio protocol. A first run on the REFUGE stand-in already shows the
+mismatch: cup / rim Dice 0.734 / 0.886 but a ratio error of 0.109 (see "Proxy
+datasets").
 
 A measurement-aware loss is **not implemented yet**. It should only be added
 if the diagnostic demonstrates a real Dice--measurement mismatch and after the
@@ -63,14 +66,21 @@ Current findings (held-out C6, 8 sequences; `docs/EXPERIMENTS.md`):
 
 - The 1-slot memory raises polyp-frame and high-motion Dice over native's bank
   (Kalman beats native on Dice in 7 of 8 sequences) but also raises
-  empty-frame false positives; one collapsed sequence leaves its mean Dice
-  slightly below native. On the longer dev videos it loses fewer polyp frames
+  empty-frame false positives, which leaves its mean Dice slightly below
+  native. The one sequence behind that gap (seq21) is not a tracking collapse:
+  Kalman tracks its polyp frames as well as or better than native and loses on
+  a 21-frame empty tail. On the longer dev videos it loses fewer polyp frames
   (archived: 0.40 → 0.32).
 - The Kalman update rule does not beat the constant-gain EMA, including a
   pre-registered test with `--skip_absent` designed to favour it on
   reappearance. Its gain is nearly constant, so the filter behaves like an EMA.
-- An output presence gate on MedSAM2's object score lowers false positives
-  for every method.
+- False positives are a presence problem, not a tracking one: MedSAM2's
+  object score calls 71–74% of dev empty frames present for every method,
+  native included. An output presence gate on that score lowers false
+  positives for every method; a scalar Kalman filter on the presence log-odds
+  over time did not beat the per-frame gate on C6.
+- On REFUGE (the two-label stand-in), Dice of 0.73–0.89 still leaves a ratio
+  error of 0.109, so the adenoid evaluation must report ratio error.
 - None of the C6 differences is significant with 8 sequences.
 
 It is not yet a validated component of the adenoid clinical pipeline.
@@ -218,7 +228,8 @@ adenoid evaluation must report ratio error, not only Dice.
 MedSAM2 stays frozen. Only the Kalman update has parameters. The dataset is a
 JSONL manifest with `split`, `video_id`, `frame_index`, `image`, and `mask`
 fields. The mask is indexed (`0` background; `1` for a binary target, or, for
-example, `1` adenoid and `2` airway). Split by video or patient, never by frame.
+example, `1` airway and `2` adenoid, as in Cai et al.'s 128/255 coding). Split by
+video or patient, never by frame.
 
 Train and infer without detectors or learned fusion:
 

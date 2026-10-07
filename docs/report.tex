@@ -67,7 +67,7 @@ Tôi xin chân thành cảm ơn các giảng viên của Trường Đại học 
 \addcontentsline{toc}{section}{Mở đầu}
 Đánh giá phì đại VA từ video nội soi mũi họng đòi hỏi thông tin theo thời gian, không chỉ một ảnh đơn lẻ. Mục tiêu dài hạn của dự án AdeSEG là phân đoạn đồng thời vùng VA (adenoid) và vùng đường thở mũi họng (nasopharynx airway), chọn các khung hình hợp lệ và ổn định về lâm sàng, tính chỉ số tắc nghẽn cho từng khung hình, rồi tổng hợp thành đánh giá ở mức video và mức độ phì đại.
 
-Ở thời điểm báo cáo, kho mã nguồn chưa có bộ dữ liệu VA đã gán nhãn, bộ chuyển đổi dữ liệu VA, giao thức định nghĩa chỉ số tắc nghẽn, hay ngưỡng phân độ lâm sàng. Vì vậy, báo cáo không tuyên bố kết quả lâm sàng trên VA. Phần đã cài đặt gồm hạ tầng phân đoạn video theo manifest, các tiện ích đo hai vùng, và một hướng thử nghiệm về bộ nhớ không gian Kalman cho MedSAM2. Các thử nghiệm hiện có được thực hiện trên PolypGen như tập dữ liệu thay thế để đánh giá lan truyền theo thời gian; chúng không thay thế cho đánh giá trên dữ liệu VA.
+Ở thời điểm báo cáo, kho mã nguồn chưa có bộ dữ liệu VA đã gán nhãn, giao thức định nghĩa chỉ số tắc nghẽn đã được xác nhận, hay ngưỡng phân độ lâm sàng. Vì vậy, báo cáo không tuyên bố kết quả lâm sàng trên VA. Phần đã cài đặt gồm hạ tầng phân đoạn video theo manifest, bộ nhớ không gian Kalman cho MedSAM2 cùng baseline EMA để đối chứng, bộ chuyển đổi mặt nạ mã hóa mức xám (như dữ liệu VA của Cai và cộng sự \cite{cai2024}) và bộ đánh giá hai vùng. Các thử nghiệm được thực hiện trên hai tập thay thế: PolypGen để đánh giá lan truyền theo thời gian của bộ nhớ, và REFUGE để kiểm tra đường xử lý hai vùng cùng sai số tỷ số; chúng không thay thế cho đánh giá trên dữ liệu VA.
 
 \section{Giới thiệu chung}
 \subsection{Giới thiệu công việc}
@@ -80,7 +80,7 @@ AdeSEG xây dựng chuỗi xử lý dự kiến:
 \rightarrow \text{tổng hợp theo video} \rightarrow \text{phân độ}.
 \end{gathered}
 \]
-Công việc tập trung vào ba phần. Thứ nhất là biểu diễn dữ liệu video bằng một manifest JSONL dùng chung cho huấn luyện và suy luận, trong đó mặt nạ ngữ nghĩa có thể chứa nhãn nền $0$, VA $1$ và đường thở $2$. Thứ hai là đánh giá phân đoạn hai vùng và sai số của chỉ số đo với định nghĩa tỷ số được truyền tường minh. Thứ ba là khảo sát bộ nhớ không gian Kalman một khe thay cho ngân hàng bộ nhớ FIFO của MedSAM2; đây là thành phần thử nghiệm, không phải một thành phần đã được kiểm chứng cho chuỗi xử lý VA.
+Công việc tập trung vào ba phần. Thứ nhất là biểu diễn dữ liệu video bằng một manifest JSONL dùng chung cho huấn luyện và suy luận, trong đó mặt nạ ngữ nghĩa có thể chứa nhãn nền $0$, đường thở $1$ và VA $2$ (khớp với mã hóa mức xám 0/128/255 của Cai và cộng sự). Thứ hai là đánh giá phân đoạn hai vùng và sai số của chỉ số đo với định nghĩa tỷ số được truyền tường minh. Thứ ba là khảo sát bộ nhớ không gian Kalman một khe thay cho ngân hàng bộ nhớ FIFO của MedSAM2; đây là thành phần thử nghiệm, không phải một thành phần đã được kiểm chứng cho chuỗi xử lý VA.
 
 \subsection{Giới thiệu bài toán}
 Với một video gồm các khung hình $I_1,\ldots,I_T$, mô hình cần dự đoán hai mặt nạ cho mỗi khung hình: $A_t$ cho VA và $B_t$ cho đường thở mũi họng. Một khung hình chỉ được dùng để đo khi cả hai mặt nạ có cùng kích thước, là mặt nạ hai chiều, có diện tích đủ lớn và tỷ số đo là hữu hạn. Từ các khung hình hợp lệ, hệ thống có thể tổng hợp tỷ số bằng trung vị hoặc trung bình.
@@ -116,9 +116,9 @@ P^-_t=P_{t-1}+q,\qquad K_t=\frac{P^-_t}{P^-_t+R_t},
 \[
 S_t=S_{t-1}+K_t(C_t-S_{t-1}),\qquad P_t=(1-K_t)P^-_t.
 \]
-Trong mã nguồn, nhiễu quan sát tăng khi MedSAM2 dự đoán đối tượng vắng mặt. Trạng thái duy trì có kích thước cố định theo độ dài video; báo cáo thực nghiệm ghi nhận xấp xỉ 0.88 MiB mỗi đối tượng. Các biến thể tùy chọn gồm không cập nhật ở khung vắng mặt, ngưỡng theo điểm đối tượng, và co mềm gain theo điểm đối tượng. Các biến thể này đều tắt mặc định.
+Trong mã nguồn, nhiễu quan sát $R_t=(r+a(1-p_t))\,c(\cdot)$ tăng khi MedSAM2 dự đoán đối tượng vắng mặt ($p_t$ là xác suất hiện diện). Trạng thái duy trì có kích thước cố định theo độ dài video, xấp xỉ 0.88 MiB mỗi đối tượng. Tùy chọn duy nhất là \texttt{--skip\_absent} (tắt mặc định): khung bị gọi là vắng mặt được xem là thiếu quan sát, chỉ chạy bước dự đoán nên phương sai tăng và gain tăng khi đối tượng xuất hiện lại. Baseline đối chứng là EMA (\texttt{modeling/ema\_memory.py}): cùng trạng thái một khe và đường đọc, nhưng gain hằng.
 
-Kết quả hiện có cho thấy gain Kalman chưa được huấn luyện gần như hằng trên các khung có đối tượng; do đó bộ lọc hoạt động gần với trung bình trượt mũ. Vì vậy, đóng góp đã được hỗ trợ bởi thực nghiệm là cấu trúc bộ nhớ lặp một khe trong một số video PolypGen dài, không phải ưu thế đã được chứng minh của gain Kalman thích nghi.
+Kết quả hiện có cho thấy bộ nhớ một khe theo dõi tốt hơn bank 7 khung trên các khung có đối tượng, nhưng gain Kalman chưa được huấn luyện gần như hằng trên các khung đó nên bộ lọc hoạt động gần với trung bình trượt mũ, và EMA cho kết quả tương đương. Vì vậy, lợi ích đã được thực nghiệm hỗ trợ là của bộ nhớ lặp một khe theo công thức Kalman, chưa phải ưu thế riêng của gain Kalman thích nghi.
 
 \subsection{Đo hai vùng và tổng hợp theo video}
 Mô-đun \texttt{adenoid/measurement.py} chỉ nhận các mặt nạ cùng kích thước và dùng diện tích pixel để tính tỷ số. Hàm \texttt{select\_valid\_frames()} loại các bản ghi không hợp lệ hoặc có tỷ số không hữu hạn. Hàm tổng hợp tỷ số của video dùng trung vị hoặc trung bình. Mô-đun \texttt{adenoid/grading.py} chuyển một tỷ số hữu hạn thành nhãn thứ bậc khi được cung cấp ngưỡng, nhưng không chứa bất kỳ ngưỡng lâm sàng nào.
@@ -131,19 +131,22 @@ Các thành phần chính của hệ thống hiện tại là:
     \item \texttt{datasets/}: giao diện manifest video và xử lý mặt nạ ngữ nghĩa;
     \item \texttt{modeling/}: bộ dựng MedSAM2, xử lý object pointer, bộ nhớ Kalman (\texttt{kalman\_memory.py}) và baseline EMA gain hằng (\texttt{ema\_memory.py});
     \item \texttt{training/}: huấn luyện bộ cập nhật Kalman với backbone MedSAM2 đông lạnh;
-    \item \texttt{evaluation/}: chỉ số phân đoạn, chỉ số thời gian, tỷ số và đánh giá hai vùng;
-    \item \texttt{scripts/}: dựng manifest, suy luận, huấn luyện và các phân tích phân tầng (chiếu sáng, tái xuất hiện).
+    \item \texttt{evaluation/}: chỉ số phân đoạn, chỉ số thời gian (\texttt{temporal.py}), tỷ số và đánh giá hai vùng theo manifest (\texttt{two\_region.py});
+    \item \texttt{scripts/}: dựng manifest (PolypGen theo thứ tự số khung; mặt nạ mã hóa mức xám qua \texttt{build\_mask\_manifest.py}), suy luận, huấn luyện và các phân tích phân tầng (chiếu sáng, tái xuất hiện);
+    \item \texttt{tests/}: kiểm thử đường dữ liệu (thứ tự khung, giải mã mặt nạ, chuyển đổi ba lớp, điểm hai vùng).
 \end{itemize}
-Baseline EMA được tách thành mô-đun riêng \texttt{ema\_memory.py} để đối chứng rõ ràng với phương pháp Kalman: nó dùng chung đường đọc bộ nhớ nhưng thay gain thích nghi bằng gain hằng hiện diện/vắng mặt, với phương sai cập nhật nhất quán $P\leftarrow(1-K)P^-$. Bộ nhớ Kalman được giữ ở dạng gọn gồm cập nhật lõi và tùy chọn \texttt{--skip\_absent}, để phần cài đặt dễ kiểm chứng. Hàm tải mặt nạ phân biệt mặt nạ nhị phân JPEG của PolypGen với mặt nạ PNG có nhãn chỉ số. Nhờ đó, cùng giao diện có thể dùng cho đối tượng nhị phân trong tập thay thế và cho dữ liệu hai vùng VA/đường thở khi bộ dữ liệu đích được cung cấp.
+Baseline EMA được tách thành mô-đun riêng \texttt{ema\_memory.py} để đối chứng rõ ràng với phương pháp Kalman: nó dùng chung đường đọc bộ nhớ nhưng thay gain thích nghi bằng gain hằng hiện diện/vắng mặt, với phương sai cập nhật nhất quán $P\leftarrow(1-K)P^-$. Bộ nhớ Kalman được giữ ở dạng gọn gồm cập nhật lõi và tùy chọn \texttt{--skip\_absent}, để phần cài đặt dễ kiểm chứng. Hàm tải mặt nạ phân biệt mặt nạ nhị phân JPEG của PolypGen với mặt nạ PNG có nhãn chỉ số. Mặt nạ ba lớp mã hóa mức xám (0/128/255) không được đọc trực tiếp: nếu đọc như mặt nạ nhị phân, đường thở và VA sẽ bị gộp thành một lớp. Vì vậy \texttt{build\_mask\_manifest.py} chuyển chúng thành PNG chỉ số bằng ánh xạ giá trị xám sang nhãn (gán theo giá trị gần nhất, để nhiễu nén JPEG không tạo lớp mới), ví dụ \texttt{0:0 128:1 255:2} cho dữ liệu kiểu Cai và cộng sự.
 
 \subsection{Quy trình chạy}
-Khi có manifest và checkpoint MedSAM2, huấn luyện hoặc suy luận nhận danh sách nhãn qua \texttt{--label\_ids}; ví dụ nhãn $1$ và $2$ cho VA và đường thở. Suy luận có thể chạy bộ nhớ gốc hoặc backend Kalman. Các tệp kết quả bao gồm mặt nạ dự đoán và bản ghi chẩn đoán theo khung hình. Hiện chưa có manifest dữ liệu VA phù hợp trong kho nên lệnh minh họa trong tài liệu không được xem là một quy trình lâm sàng hoàn chỉnh.
+Khi có manifest và checkpoint MedSAM2, huấn luyện hoặc suy luận nhận danh sách nhãn qua \texttt{--label\_ids}; ví dụ nhãn $1$ và $2$ cho đường thở và VA. Suy luận chạy bộ nhớ gốc, bộ nhớ Kalman (tùy chọn \texttt{--skip\_absent}) hoặc EMA (\texttt{--fixed\_gain}); mỗi nhãn được lan truyền trong một lượt riêng rồi gộp theo logit lớn nhất. Đầu ra gồm mặt nạ dự đoán và tệp CSV chẩn đoán theo khung hình. Video PolypGen được đánh giá bằng \texttt{evaluation/temporal.py}; dữ liệu hai vùng bằng \texttt{evaluation/two\_region.py}, cho Dice/IoU từng vùng, sai số tỷ số, và khi có ngưỡng thì độ chính xác phân độ và hệ số kappa. Các kiểm thử chạy bằng \texttt{python3 -m pytest tests}. Chưa có dữ liệu VA trong kho nên quy trình này chưa phải là một quy trình lâm sàng hoàn chỉnh.
 
 \section{Kết quả đạt được và hướng phát triển}
 \subsection{Kết quả trên dữ liệu thay thế}
-Trên tập kiểm tra giữ kín C6 của PolypGen (seq16--seq23, 8 chuỗi, 372 khung lan truyền, một seed, MedSAM2 đông lạnh, prompt là hộp bao chặt của mặt nạ thật đầu tiên), ba phương pháp đã đóng băng được so sánh: MedSAM2 gốc, EMA gain hằng một khe và bộ nhớ Kalman một khe. Dice trung bình theo chuỗi lần lượt là $0.617$, $0.603$ và $0.602$. Bộ nhớ Kalman tốt hơn native về Dice ở 7/8 chuỗi và cải thiện Dice ở khung có polyp (0.613 so với 0.599), nhưng làm tăng dương tính giả trên khung rỗng (0.555 so với 0.486) và một chuỗi bị mất theo dõi, nên Dice trung bình không vượt native. Gain Kalman thích nghi hòa với EMA gain hằng ($-0.001$). Khi thêm cổng hiện diện ở đầu ra, Kalman hòa native về Dice (0.628) và giảm dương tính giả xuống 0.388. Chi tiết ở mục kết quả kiểm tra C6.
+Trên tập kiểm tra giữ kín C6 của PolypGen (seq16--seq23, 8 chuỗi, 372 khung lan truyền, một seed, MedSAM2 đông lạnh, prompt là hộp bao chặt của mặt nạ thật đầu tiên), ba phương pháp đã đóng băng được so sánh: MedSAM2 gốc, EMA gain hằng một khe và bộ nhớ Kalman một khe. Dice trung bình theo chuỗi lần lượt là $0.617$, $0.603$ và $0.602$. Bộ nhớ Kalman tốt hơn native về Dice ở 7/8 chuỗi và cải thiện Dice ở khung có polyp (0.613 so với 0.599) và ở khung chuyển động cao (0.579 so với 0.563), nhưng làm tăng dương tính giả trên khung rỗng (0.555 so với 0.486). Chuỗi duy nhất kéo Dice trung bình xuống (seq21) không phải do mất theo dõi: ở các khung có polyp Kalman bằng hoặc tốt hơn native, còn thiệt hại đến từ dương tính giả trên 21 khung rỗng cuối chuỗi. Gain Kalman thích nghi hòa với EMA gain hằng ($-0.001$). Khi thêm cổng hiện diện ở đầu ra, Kalman hòa native về Dice (0.628) và giảm dương tính giả xuống 0.388. Chi tiết ở mục kết quả kiểm tra C6.
 
-Những số liệu này giới hạn kết luận: trên tập giữ kín C6, bộ nhớ một khe cải thiện theo dõi khung polyp nhưng chưa cải thiện Dice tổng thể và chưa giảm dương tính giả nếu không có mô-đun hiện diện; chúng không xác nhận hiệu quả lâm sàng trên VA.
+Trên REFUGE, dùng làm dữ liệu thay thế hai vùng, đường xử lý hai nhãn chạy trọn vẹn: Dice cup 0.734, Dice rim 0.886, nhưng sai số tuyệt đối trung bình của tỷ số diện tích vẫn là 0.109. Dice khá tốt vẫn để lại sai số tỷ số đủ lớn để đổi mức phân độ gần ngưỡng.
+
+Những số liệu này giới hạn kết luận: bộ nhớ một khe cải thiện theo dõi khung polyp, còn dương tính giả là bài toán hiện diện cần mô-đun riêng; chúng không xác nhận hiệu quả lâm sàng trên VA.
 
 \subsection{Kiến thức và kỹ năng thu nhận}
 Đề tài đã hình thành một quy trình làm việc có thể kiểm tra được cho phân đoạn video: quản lý chia tách theo video, biểu diễn nhãn ngữ nghĩa, đánh giá Dice/IoU theo từng vùng, liên kết sai số phân đoạn với sai số chỉ số đo, và đánh giá hiện tượng mất theo dõi theo thời gian. Việc ghi nhận cả kết quả âm và giới hạn của gain Kalman giúp tránh diễn giải quá mức từ các tập dữ liệu thay thế.
@@ -151,21 +154,21 @@ Những số liệu này giới hạn kết luận: trên tập giữ kín C6, b
 \subsection{Hướng phát triển}
 Các bước tiếp theo cần hoàn thành theo thứ tự sau:
 \begin{enumerate}
-    \item tích hợp bộ dữ liệu VA đã chú thích, xác nhận cách mã hóa hai vùng và chia dữ liệu theo bệnh nhân/video;
-    \item nhận giao thức lâm sàng xác định công thức tỷ số tắc nghẽn, cách chọn khung ổn định và ngưỡng phân độ;
-    \item chạy baseline MedSAM2 và bộ nhớ một khe trên dữ liệu VA theo một giao thức cố định;
-    \item kiểm tra chẩn đoán xem Dice vùng và sai số tỷ số có lệch đáng kể hay không trước khi đề xuất loss nhận biết phép đo;
-    \item chỉ phát triển gain thích nghi khi nó vượt baseline gain hằng trên dữ liệu phát triển mà không làm tăng dương tính giả;
-    \item thử một cơ chế hiện diện dùng chính phương sai $P$ của bộ lọc Kalman để chặn \emph{đầu ra} mặt nạ khi độ bất định cao, nhằm đồng thời giữ theo dõi tốt (phương sai thấp) và giảm dương tính giả trên khung rỗng (phương sai cao sau khoảng vắng mặt).
+    \item thu thập dữ liệu VA dạng \emph{video} nội soi (dù chỉ một số khung được chú thích): bộ nhớ Kalman cần chuỗi khung theo thời gian, trong khi bộ dữ liệu của Cai và cộng sự là ảnh đơn;
+    \item chuyển dữ liệu VA về manifest bằng \texttt{build\_mask\_manifest.py}, chia theo bệnh nhân/video, và xác nhận định nghĩa tỷ số A/N (giả định hiện tại: VA / (VA + đường thở));
+    \item chốt trước giao thức đánh giá: cách đặt prompt, cách chọn khung ổn định, ngưỡng phân độ, và chạy native, EMA, Kalman (mỗi phương pháp có cổng hiện diện) đúng một lần trên tập kiểm tra;
+    \item đưa cổng hiện diện thành tùy chọn của \texttt{scripts/infer.py}, với ngưỡng hiệu chỉnh trên tập phát triển;
+    \item tìm tín hiệu hiện diện tốt hơn object score của MedSAM2, ví dụ một bộ phân loại khung hợp lệ học trên dữ liệu VA, vì object score gọi 71--74\% khung rỗng của tập phát triển PolypGen là có đối tượng với mọi phương pháp;
+    \item dùng kết quả hai vùng (Dice tốt nhưng sai số tỷ số lớn, như trên REFUGE) để quyết định có cần loss nhận biết phép đo hay không.
 \end{enumerate}
-Ý tưởng cuối xuất phát từ một quan sát xuyên suốt các thí nghiệm: dương tính giả là bài toán hiện diện tách khỏi bài toán theo dõi. Các mẹo tác động vào bước ghi bộ nhớ chỉ đổi theo dõi lấy FP; để cải thiện cả hai cần một tín hiệu hiện diện gắn vào đầu ra. Phương sai $P$ của bộ lọc là một tín hiệu như vậy và mang bản chất Kalman; trong bộ hợp nhất hiện diện đã gỡ trước đây, biến \emph{log phương sai tiên nghiệm} từng có trọng số âm mạnh và việc bỏ nó làm tăng FP, cho thấy hướng này đáng thử một cách có kiểm soát trên tập phát triển trước khi chạy C6.
+Các hướng này xuất phát từ một quan sát xuyên suốt: dương tính giả là bài toán hiện diện, tách khỏi bài toán theo dõi mà bộ nhớ Kalman giải quyết. Hai cách làm hiện diện theo thời gian đã thử trên dữ liệu thay thế đều không đạt (bộ lọc Kalman vô hướng trên log-odds hiện diện, xem mục kết quả C6), nên cổng hiện diện theo từng khung được giữ làm mô-đun phụ.
 
 \section{Thiết kế thực nghiệm và phân tích kết quả}
 \subsection{Nguyên tắc diễn giải kết quả}
 
-Mục tiêu của phần thực nghiệm hiện tại không phải là khẳng định một phương pháp chẩn đoán phì đại VA. PolypGen là tập thay thế để kiểm tra sự lan truyền của phân đoạn qua video; không có cấu trúc giải phẫu nào trong tập này được xem là tương đương với VA hoặc đường thở mũi họng.
+Mục tiêu của phần thực nghiệm hiện tại không phải là khẳng định một phương pháp chẩn đoán phì đại VA. PolypGen là tập thay thế để kiểm tra sự lan truyền của phân đoạn qua video; REFUGE là tập thay thế ảnh tĩnh để kiểm tra đường xử lý hai vùng và sai số tỷ số. Không có cấu trúc giải phẫu nào trong các tập này được xem là tương đương với VA hoặc đường thở mũi họng.
 
-Mọi kết quả so sánh bộ nhớ được diễn giải theo cùng một nguyên tắc: chỉ thay đổi cách lưu và cập nhật bộ nhớ, trong khi checkpoint MedSAM2, prompt, bộ đánh giá và giao thức dữ liệu được giữ nhất quán. Các số liệu không được dùng để suy ra hiệu quả trên dữ liệu VA. Các bảng được đối chiếu với hồ sơ \texttt{docs/EXPERIMENTS.md} và các đầu ra đã lưu dưới thư mục Google Drive \texttt{AdeSEG/outputs/Kalman}. Manifest JSONL cho PolypGen đã được dựng bằng \texttt{scripts/build\_polypgen\_manifest.py}, nên bảng kiểm tra C6 trong báo cáo này được chạy lại trực tiếp từ trạng thái kho hiện tại (xem mục kết quả kiểm tra C6 chạy lại).
+Mọi kết quả so sánh bộ nhớ được diễn giải theo cùng một nguyên tắc: chỉ thay đổi cách lưu và cập nhật bộ nhớ, trong khi checkpoint MedSAM2, prompt, bộ đánh giá và giao thức dữ liệu được giữ nhất quán. Các số liệu không được dùng để suy ra hiệu quả trên dữ liệu VA. Các bảng được đối chiếu với hồ sơ \texttt{docs/EXPERIMENTS.md} và các đầu ra đã lưu dưới thư mục Google Drive \texttt{AdeSEG/outputs/Kalman}. Manifest JSONL cho PolypGen được dựng bằng \texttt{scripts/build\_polypgen\_manifest.py} với các khung sắp theo số thứ tự khung. Một phiên bản trước sắp tên tệp theo bảng chữ cái, làm 18/23 chuỗi bị đưa vào sai thứ tự thời gian (ví dụ khung 104 trước khung 69); mọi kết quả từ phiên bản đó đã bị loại bỏ, và một kiểm thử trong \texttt{tests/} khóa thứ tự đúng. Pipeline hiện tại tái lập chính xác Dice của các lần chạy lưu trữ (tập phát triển: native 0.481, Kalman 0.514; C6: native 0.621, Kalman 0.609), nên các bảng dưới đây chạy trực tiếp từ trạng thái kho hiện tại.
 
 \subsection{Giao thức PolypGen}
 
@@ -232,16 +235,40 @@ Kalman + gate -- native + gate & $-0.000$, $p=0.94$ & $+0.025$, $p=0.30$ & $+0.0
 \end{tabular}}
 \end{table}
 
-Các điểm cần ghi nhận trung thực. Thứ nhất, bộ nhớ Kalman tốt hơn native về Dice ở 7/8 chuỗi, nhưng một chuỗi bị mất theo dõi hoàn toàn kéo Dice trung bình xuống thấp hơn native ($-0.014$). Thứ hai, bộ nhớ một khe (cả Kalman và EMA) cải thiện Dice ở khung polyp và ở khung chuyển động cao so với bank 7 khung của native, nhưng làm tăng dương tính giả trên khung rỗng, vì trạng thái lặp duy nhất vẫn giữ đối tượng qua các đoạn rỗng. Thứ ba, gain Kalman thích nghi \emph{hòa} với EMA gain hằng ($-0.001$): trên dữ liệu này, lợi ích theo dõi đến từ cấu trúc lặp một khe chứ không phải tính thích nghi của gain. Thứ tư, cổng hiện diện (mô-đun phụ) giảm dương tính giả cho mọi phương pháp; khi có cổng, Kalman hòa native về Dice và có Dice khung polyp cao hơn, trong khi native giữ tỷ lệ dương tính giả thấp nhất. Không chênh lệch nào đạt ý nghĩa thống kê với $n=8$; C6 gồm 8 video ngắn nên công suất thống kê thấp và không kiểm tra được tích lũy lỗi dài hạn.
+Các điểm cần ghi nhận trung thực. Thứ nhất, bộ nhớ Kalman tốt hơn native về Dice ở 7/8 chuỗi, nhưng một chuỗi (seq21) kéo Dice trung bình xuống thấp hơn native ($-0.014$); phân tích bên dưới cho thấy đó là dương tính giả chứ không phải mất theo dõi. Thứ hai, bộ nhớ một khe (cả Kalman và EMA) cải thiện Dice ở khung polyp và ở khung chuyển động cao so với bank 7 khung của native, nhưng làm tăng dương tính giả trên khung rỗng, vì trạng thái lặp duy nhất vẫn giữ đối tượng qua các đoạn rỗng. Thứ ba, gain Kalman thích nghi \emph{hòa} với EMA gain hằng ($-0.001$): trên dữ liệu này, lợi ích theo dõi đến từ cấu trúc lặp một khe chứ không phải tính thích nghi của gain. Thứ tư, cổng hiện diện (mô-đun phụ) giảm dương tính giả cho mọi phương pháp; khi có cổng, Kalman hòa native về Dice và có Dice khung polyp cao hơn, trong khi native giữ tỷ lệ dương tính giả thấp nhất. Không chênh lệch nào đạt ý nghĩa thống kê với $n=8$; C6 gồm 8 video ngắn nên công suất thống kê thấp và không kiểm tra được tích lũy lỗi dài hạn.
 
 \paragraph{Kiểm tra riêng quy tắc cập nhật Kalman (tập phát triển).} Với \texttt{--skip\_absent}, khung bị gọi là vắng mặt được xem là thiếu quan sát: phương sai Kalman tăng trong đoạn vắng mặt nên gain tăng vọt khi đối tượng xuất hiện lại, điều mà gain hằng không làm được. So sánh Kalman+skip với EMA+skip (gain hằng 0.833, bằng gain trung bình của Kalman+skip) trên tập phát triển: Dice $+0.006$ ($p=0.24$), tỷ lệ mất $-0.016$ và dương tính giả $-0.031$ (Kalman thấp hơn ở cả 4/4 chuỗi có khác biệt, $p=0.13$), nhưng Dice tái xuất hiện không đổi ($0.000$). Quy tắc định trước (tăng Dice tái xuất hiện và giảm tỷ lệ mất) không đạt, nên biến thể này không được chạy trên C6.
 
+\paragraph{Phân tích lỗi trên seq21.} Đây là chuỗi C6 mà Kalman thấp hơn native nhiều nhất (0.448 so với 0.685). Theo từng khung, ở các khung có polyp Kalman bằng hoặc tốt hơn native (ví dụ 0.86 so với 0.15 và 0.86 so với 0.32): bộ nhớ không mất theo dõi. Thiệt hại nằm ở 21 khung rỗng cuối chuỗi, nơi object score của native chuyển âm và native dự đoán rỗng, còn bộ nhớ một khe giữ object score dương nên tiếp tục xuất mặt nạ. Trên toàn tập phát triển, object score của MedSAM2 gọi 71--74\% khung rỗng là có đối tượng với cả ba phương pháp, kể cả native; trên C6 tỷ lệ này là 38\% (native), 62\% (EMA) và 57\% (Kalman) trên 56 khung rỗng, trong đó 21 khung thuộc đoạn cuối seq21.
+
+\paragraph{Bộ lọc Kalman trên tín hiệu hiện diện (không được dùng).} Một bộ lọc Kalman vô hướng trên log-odds hiện diện theo thời gian ($x^-=x$, $P^-=P+\rho$, $K=P^-/(P^-+1)$, xuất mặt nạ khi $x_t>\tau$; $\rho=\infty$ chính là cổng theo từng khung) được chọn bằng leave-one-sequence-out trên tập phát triển, với quy tắc định trước: phải vượt cổng theo từng khung về Dice và dương tính giả. Trên bộ nhớ Kalman, nó đạt sát ngưỡng ở tập phát triển (Dice $+0.0005$, dương tính giả $-0.010$; chọn $\rho=0.01$, $\tau=1.63$) nhưng trên C6 lại kém cổng theo từng khung (Dice $-0.005$, dương tính giả $+0.107$, kém ở 3/8 chuỗi và không tốt hơn ở chuỗi nào): làm trơn mạnh khiến bộ lọc phản ứng chậm khi polyp rời khỏi khung hình. Cổng theo từng khung được giữ làm mô-đun hiện diện.
+
 Nguyên nhân khiến Kalman chưa đồng thời tăng Dice khung polyp và giảm dương tính giả là: dương tính giả trên khung rỗng là bài toán \emph{hiện diện}, tách khỏi bài toán theo dõi. Trạng thái lặp một khe giữ diện mạo đối tượng, nên khi đọc ở một khung rỗng nó vẫn có xu hướng dự đoán đối tượng. Vì vậy cổng hiện diện ở đầu ra, chứ không phải việc chặn bước ghi bộ nhớ, là cách giảm dương tính giả.
+
+\subsection{Đánh giá hai vùng trên REFUGE}
+
+Dữ liệu VA dự kiến theo mô tả của Cai và cộng sự \cite{cai2024}: ảnh nội soi mũi họng ống mềm (516$\times$531 điểm ảnh), mặt nạ ba lớp mã hóa mức xám (0 nền, 128 đường thở mũi họng không bị che, 255 VA), phân độ theo tỷ số VA/mũi họng (A/N): nhỏ ($<50\%$), trung bình (50--75\%), lớn ($>75\%$). REFUGE \cite{refuge} (ảnh đáy mắt, \texttt{data/REFUGE}) dùng cùng mã hóa 0/128/255 (255 nền, 128 vành đĩa thị, 0 cup) với hai vùng kề nhau không chồng lấn, nên tỷ số diện tích cup/(cup + vành) có cùng dạng với tỷ số A/N. Vì vậy REFUGE kiểm tra đúng đường xử lý mà dữ liệu VA sẽ dùng: chuyển đổi mặt nạ, suy luận hai nhãn, Dice/IoU từng vùng và sai số tỷ số. REFUGE là ảnh tĩnh nên không kiểm tra bộ nhớ theo thời gian.
+
+Mặt nạ được chuyển bằng \texttt{build\_mask\_manifest.py} với ánh xạ \texttt{255:0 128:1 0:2} (nền, vành, cup); MedSAM2 gốc được prompt bằng hộp bao từ nhãn thật cho từng vùng; \texttt{two\_region.py} chấm điểm với tỷ số \texttt{fraction\_of\_total} = cup/(cup + vành). Bộ nhớ Kalman cũng chạy trọn đường xử lý hai nhãn này (kiểm tra trên ba ảnh). Kết quả lưu tại \texttt{outputs/REFUGE/native\_val\_two\_region/}.
+
+\begin{table}[H]
+\centering
+\caption{Đánh giá hai vùng trên REFUGE val (400 ảnh, MedSAM2 gốc, prompt hộp bao từ nhãn thật).}
+\begin{tabular}{lrrrrrr}
+\hline
+ & Dice cup & Dice vành & MAE tỷ số & RMSE tỷ số & Pearson & Spearman \\
+\hline
+MedSAM2 gốc & 0.734 & 0.886 & 0.109 & 0.138 & 0.74 & 0.86 \\
+\hline
+\end{tabular}
+\end{table}
+
+Dù Dice từng vùng đạt 0.73--0.89, sai số tỷ số trung bình vẫn khoảng 11 điểm phần trăm trên thang 0--1, đủ để đổi mức phân độ A/N khi tỷ số gần ngưỡng 50\% hoặc 75\%. Đây là bằng chứng ban đầu, trên dữ liệu thay thế, cho việc đánh giá VA phải báo cáo sai số tỷ số chứ không chỉ Dice, và là cơ sở để chẩn đoán xem có cần loss nhận biết phép đo.
 
 \section{Giới hạn, rủi ro hiệu lực và kế hoạch xác nhận trên VA}
 \subsection{Giới hạn của mã nguồn và dữ liệu hiện tại}
 
-Có bốn giới hạn nền tảng. Thứ nhất, không có adapter dữ liệu VA có chú thích hoặc manifest dữ liệu đích trong kho. Thứ hai, không có định nghĩa được xác nhận cho tỷ số tắc nghẽn, quy tắc chọn khung ổn định hoặc ngưỡng phân độ. Thứ ba, suy luận thay thế dùng GT-box ở khung đầu, nên không đánh giá bước phát hiện/prompt tự động. Thứ tư, các số liệu hiện có đến từ các lần suy luận trước trên Google Drive và một seed; chúng chưa thể chạy lại từ trạng thái kho hiện tại do thiếu manifest.
+Có bốn giới hạn nền tảng. Thứ nhất, chưa có dữ liệu VA có chú thích trong kho; bộ chuyển đổi đã sẵn sàng cho mặt nạ kiểu Cai và cộng sự nhưng chưa được kiểm tra trên dữ liệu thật. Nếu dữ liệu VA chỉ gồm ảnh đơn như của Cai và cộng sự, bộ nhớ Kalman không có chiều thời gian để hoạt động và đóng góp chính không thể được đánh giá; cần video. Thứ hai, không có định nghĩa được xác nhận cho tỷ số tắc nghẽn, quy tắc chọn khung ổn định hoặc ngưỡng phân độ. Thứ ba, suy luận thay thế dùng hộp bao từ nhãn thật, nên không đánh giá bước phát hiện/prompt tự động. Thứ tư, mọi kết quả dùng một seed và tập kiểm tra C6 nhỏ.
 
 Ngoài ra, C6 chỉ có tám video ngắn, nên công suất thống kê của kiểm định theo chuỗi thấp và giao thức không thích hợp để kiểm tra mất theo dõi trong thời gian dài. Một lỗi inference MPS trước đây, liên quan đến đọc offload non-blocking của MedSAM2 trước khi copy hoàn thành, đã làm hỏng các kết quả cũ; tất cả số liệu trong báo cáo này là sau khi lỗi được sửa.
 
@@ -249,7 +276,7 @@ Ngoài ra, C6 chỉ có tám video ngắn, nên công suất thống kê của k
 
 Một Dice cao không tự động cho sai số tỷ số thấp. Lỗi cục bộ ở biên, đặc biệt nếu xảy ra tại vùng hẹp của đường thở, có thể thay đổi tỷ số diện tích nhiều hơn mức mà Dice gộp thể hiện. Ngược lại, sai số đo nhỏ trong dữ liệu thay thế không chứng minh giá trị lâm sàng. Vì vậy, mô-đun đánh giá buộc người dùng chỉ rõ \texttt{ratio\_mode} thay vì chọn một công thức mặc định, và báo cáo tách chỉ số theo từng vùng khỏi sai số tỷ số.
 
-Một nguy cơ khác là xem tập thay thế như bằng chứng về VA. PolypGen đánh giá polyp, chỉ hỗ trợ kiểm tra kỹ thuật phân đoạn/lan truyền. Nó không cung cấp ngưỡng phân loại VA, không cung cấp định nghĩa tắc nghẽn mũi họng, và không đánh giá tính phù hợp của khung hình theo lâm sàng.
+Một nguy cơ khác là xem tập thay thế như bằng chứng về VA. PolypGen đánh giá polyp, chỉ hỗ trợ kiểm tra kỹ thuật lan truyền; REFUGE đánh giá cấu trúc đáy mắt, chỉ hỗ trợ kiểm tra đường xử lý hai vùng. Chúng không cung cấp ngưỡng phân loại VA, không cung cấp định nghĩa tắc nghẽn mũi họng, và không đánh giá tính phù hợp của khung hình theo lâm sàng.
 
 \subsection{Kế hoạch nghiên cứu trên dữ liệu đích}
 
@@ -257,12 +284,12 @@ Khi dữ liệu VA có sẵn, nghiên cứu nên bắt đầu bằng kiểm kê 
 
 Baseline đầu tiên nên là native MedSAM2 với cùng cách prompt trên toàn bộ phương pháp; nếu mục tiêu là hệ thống tự động, bước phát hiện/prompt phải được đánh giá riêng. Sau khi baseline hoạt động, cần báo cáo Dice/IoU từng vùng, tỷ số dự đoán và thật, MAE tỷ số, số khung hợp lệ và sự ổn định của tỷ số theo video. Nếu chẩn đoán cho thấy Dice và sai số tỷ số lệch đáng kể, khi đó mới có cơ sở thực nghiệm để đề xuất loss nhận biết phép đo. Nếu không có lệch, thêm loss phức tạp là không có động cơ từ dữ liệu.
 
-Đối với bộ nhớ Kalman, kế hoạch đúng là đóng băng thiết kế sau tập phát triển, so sánh ít nhất native, prompt + 1 frame, EMA gain hằng và Kalman, rồi chạy test một lần. Bất kỳ gain dựa trên score, chuyển động hoặc tín hiệu khác phải chứng minh được lợi ích so với EMA và không làm xấu FP trên khung không có đối tượng. Điều này biến các kết quả âm hiện tại thành tiêu chí thiết kế rõ ràng cho các thử nghiệm tiếp theo.
+Đối với bộ nhớ Kalman, kế hoạch đúng là đóng băng thiết kế sau tập phát triển, so sánh native, EMA gain hằng và Kalman, mỗi phương pháp có cổng hiện diện hiệu chỉnh trên tập phát triển, rồi chạy tập kiểm tra một lần. Dữ liệu kiểu Cai và cộng sự được chuyển bằng \texttt{build\_mask\_manifest.py --value\_map 0:0 128:1 255:2} và chấm bằng \texttt{two\_region.py --region\_a adenoid:2 --region\_b airway:1 --ratio\_mode fraction\_of\_total}, với ngưỡng phân độ lấy từ giao thức lâm sàng (tham chiếu: 0.50 và 0.75 của Cai và cộng sự). Bất kỳ gain dựa trên score, chuyển động hoặc tín hiệu khác phải chứng minh được lợi ích so với EMA và không làm xấu dương tính giả trên khung không có đối tượng. Điều này biến các kết quả âm hiện tại thành tiêu chí thiết kế rõ ràng cho các thử nghiệm tiếp theo.
 
 \section{Phụ lục: Đặc tả giao diện và tái lập}
 \subsection{Dạng dữ liệu manifest}
 
-Một bản ghi manifest chứa split, mã video, chỉ số khung, đường dẫn ảnh và đường dẫn mask. Các khung phải được sắp theo \texttt{frame\_index} trong từng \texttt{video\_id}. Mặt nạ có thể là nhị phân hoặc ngữ nghĩa: mặt nạ JPEG nhị phân được threshold để tránh nhiễu nén, trong khi PNG chỉ số giữ lại giá trị nhãn. Điều này quan trọng vì mask VA/đường thở cần giữ hai nhãn riêng thay vì gộp toàn bộ foreground.
+Một bản ghi manifest chứa split, mã video, chỉ số khung, đường dẫn ảnh và đường dẫn mask. Các khung phải được sắp theo \texttt{frame\_index} trong từng \texttt{video\_id}. Mặt nạ có thể là nhị phân hoặc ngữ nghĩa: mặt nạ JPEG nhị phân được threshold để tránh nhiễu nén, trong khi PNG chỉ số giữ lại giá trị nhãn. Mặt nạ ba lớp mã hóa mức xám phải được chuyển sang PNG chỉ số bằng \texttt{build\_mask\_manifest.py} trước khi dùng. Điều này quan trọng vì mask VA/đường thở cần giữ hai nhãn riêng thay vì gộp toàn bộ foreground. Với video, tên tệp khung phải được sắp theo số thứ tự khung, không theo bảng chữ cái.
 
 Trong suy luận đa vùng, mỗi nhãn được dự đoán theo quy trình MedSAM2 dùng cùng video. Các mask theo nhãn có thể được chuyển thành hai bản đồ nhị phân có tên trước khi đưa vào \texttt{evaluate\_two\_region\_measurement()}. Hàm này kiểm tra tập tên vùng giữa dự đoán và nhãn thật, tính Dice/IoU cho mỗi vùng, rồi tính hai tỷ số với chính cùng \texttt{ratio\_mode}. Nhờ vậy không thể vô tình so sánh tỷ số dự đoán và tỷ số thật được định nghĩa khác nhau.
 
@@ -278,12 +305,14 @@ Tại mỗi cập nhật, quan sát mới được tạo từ memory encoder c�
 
 \section*{Kết luận}
 \addcontentsline{toc}{section}{Kết luận}
-AdeSEG đã xác định bài toán đánh giá phì đại VA ở mức video như một chuỗi phân đoạn hai vùng, đo theo khung hình và tổng hợp theo video. Kho mã nguồn hiện cung cấp hạ tầng manifest, tiện ích đo có cấu hình, đánh giá sai số tỷ số, và bộ nhớ không gian Kalman thử nghiệm cho MedSAM2 cùng baseline EMA tách riêng. Trên tập kiểm tra giữ kín C6, bộ nhớ một khe cải thiện Dice ở khung có polyp nhưng làm tăng dương tính giả trên khung rỗng nên không vượt native về Dice tổng thể, và gain Kalman thích nghi hòa với EMA gain hằng. Các kết quả này chưa chứng minh lợi ích của gain Kalman thích nghi và chưa phải là bằng chứng cho ứng dụng VA. Bước quyết định tiếp theo là đánh giá trên dữ liệu VA cùng giao thức đo và phân độ lâm sàng đã được xác định.
+AdeSEG đã xác định bài toán đánh giá phì đại VA ở mức video như một chuỗi phân đoạn hai vùng, đo theo khung hình và tổng hợp theo video. Kho mã nguồn hiện cung cấp hạ tầng manifest, bộ nhớ không gian Kalman cho MedSAM2 cùng baseline EMA tách riêng, bộ chuyển đổi mặt nạ mã hóa mức xám, bộ đánh giá hai vùng và các kiểm thử đường dữ liệu. Trên tập kiểm tra giữ kín C6 của PolypGen, bộ nhớ Kalman một khe tốt hơn native về Dice ở 7/8 chuỗi và cải thiện Dice ở khung có polyp và khung chuyển động cao; điểm yếu của nó là dương tính giả trên khung rỗng, một bài toán hiện diện mà cổng hiện diện ở đầu ra (mô-đun phụ) giảm đáng kể. Gain Kalman thích nghi hòa với EMA gain hằng, nên lợi ích theo dõi được quy cho bộ nhớ lặp một khe. Trên REFUGE, đường xử lý hai vùng chạy trọn vẹn và cho thấy Dice tốt vẫn có thể để lại sai số tỷ số lớn. Các kết quả này chưa phải là bằng chứng cho ứng dụng VA. Bước quyết định tiếp theo là đánh giá trên \emph{video} VA cùng giao thức đo và phân độ lâm sàng được chốt trước.
 
 \newpage
 \addcontentsline{toc}{section}{Tài liệu tham khảo}
 \begin{thebibliography}{9}
 \bibitem{medsam2} MedSAM2. \emph{Segment Anything in 3D Medical Images and Videos}. \url{https://arxiv.org/abs/2504.03600}.
 \bibitem{polypgen} PolypGen. \emph{A multi-center polyp segmentation dataset}. \url{https://arxiv.org/abs/2106.04463}.
+\bibitem{cai2024} Cai và cộng sự (2024). \emph{Deep Learning-Based Quantification of Adenoid Hypertrophy and Its Correlation with Apnea-Hypopnea Index in Pediatric Obstructive Sleep Apnea}. \url{https://pmc.ncbi.nlm.nih.gov/articles/PMC11687100/}.
+\bibitem{refuge} REFUGE. \emph{Retinal Fundus Glaucoma Challenge}: phân đoạn đĩa thị và cup trên ảnh đáy mắt.
 \end{thebibliography}
 \end{document}
