@@ -70,7 +70,7 @@ Options (`scripts/infer.py` flags):
 The constant-gain EMA baseline (`ConstantGainMemory`) shares the Kalman read
 path but replaces the adaptive gain with a fixed present/absent gain, with the
 variance kept consistent (`P ← (1 − k)P⁻`). Exploratory gain variants that did
-not beat the baseline (soft score-scaled gain, hard score gates, reliability-
+not beat the baseline (hard score gates, reliability-
 weighted and motion-scaled noise, the oracle and prototype gates) were removed
 from the code; their earlier runs remain on Google Drive and are summarised
 under "Protocol (a)" below.
@@ -90,31 +90,48 @@ frame.
 
 ## Held-out test (protocol (a), C6 = seq16–23)
 
-Frozen native, EMA and Kalman run once on the held-out C6 test split with the
-current clean pipeline (`outputs/Kalman/heldout_test/`, 8 sequences, 432
-propagated frames). EMA gains (present 0.798, absent 0.261) are from the dev
-split, so the test stays held out. Per-sequence means; paired Wilcoxon (n = 8).
+Frozen native, EMA and Kalman run once on C6 with the manifest pipeline
+(`outputs/Kalman/heldout_test/`, 8 sequences, 372 propagated frames). Frames
+are in numeric temporal order: an earlier manifest sorted frame files
+alphabetically and fed 18 of 23 sequences out of order, so all results from it
+were discarded (fixed in `c8df175`). The corrected pipeline reproduces the
+archived runs exactly (pooled propagated-frame Dice: dev native 0.481 / Kalman
+0.514; C6 native 0.621 / Kalman 0.609). EMA uses the Kalman update's own dev
+gains (present 0.835, absent 0.266). "+ gate" is an output presence gate (empty
+mask when MedSAM2's object score < τ, τ calibrated on each method's dev run:
+native 1.557, EMA 0.651, Kalman 1.078). Per-sequence means; paired Wilcoxon (n = 8).
 
-| Method | Dice | IoU | Polyp-frame Dice | Empty-frame FP |
+| Method | Dice | Polyp-frame Dice | Empty-frame FP | Lost | Reappearance | High motion |
+|---|---|---|---|---|---|---|
+| native (7-frame bank) | **0.617** | 0.599 | 0.486 | 0.283 | 0.462 | 0.563 |
+| EMA (constant-gain 1-slot) | 0.603 | **0.623** | 0.587 | **0.268** | **0.525** | **0.588** |
+| Kalman (adaptive-gain 1-slot) | 0.602 | 0.613 | 0.555 | 0.284 | 0.483 | 0.579 |
+| native + gate | **0.628** | 0.573 | **0.332** | 0.326 | 0.391 | 0.516 |
+| EMA + gate | 0.621 | **0.607** | 0.433 | **0.289** | **0.493** | **0.574** |
+| Kalman + gate | **0.628** | 0.598 | 0.388 | 0.303 | 0.457 | 0.558 |
+
+| Comparison | Dice | Polyp-frame Dice | Empty-frame FP | Reappearance |
 |---|---|---|---|---|
-| native MedSAM2 (7-frame bank) | **0.640** | **0.595** | 0.608 | **0.425** |
-| EMA (constant-gain 1-slot) | 0.621 | 0.577 | 0.637 | 0.507 |
-| Kalman (adaptive-gain 1-slot) | 0.619 | 0.574 | **0.640** | 0.540 |
+| Kalman − native | −0.014 (Kalman better in 7/8, one collapse), p = 0.20 | +0.015, p = 0.31 | +0.069, p = 0.50 | +0.021, p = 0.58 |
+| Kalman − EMA | −0.001, p = 0.20 | −0.010, p = 0.74 | −0.032, p = 0.25 | −0.042, p = 0.22 |
+| Kalman+gate − native+gate | −0.000, p = 0.94 | +0.025, p = 0.30 | +0.056, p = 0.50 | +0.066, p = 0.69 |
 
-| Comparison | Metric | Mean diff | Better/worse | p |
-|---|---|---|---|---|
-| Kalman vs native | Dice | −0.020 | 5/3 | 0.84 |
-| | polyp-frame Dice | +0.031 | 5/3 | 0.20 |
-| | empty-frame FP (lower better) | +0.115 | 2/4 | 0.31 |
-| Kalman vs EMA | Dice | −0.002 | 3/5 | 0.64 |
+The 1-slot memories track polyp frames and high-motion frames slightly better
+than native's bank but raise empty-frame false positives, ending slightly below
+native on overall Dice. The Kalman adaptive gain ties the constant-gain EMA. The
+output presence gate lowers false positives for every method; with it, Kalman
+ties native on Dice with better polyp-frame Dice, while native keeps the lowest
+false-positive rate. Nothing is significant at n = 8.
 
-On the 8 short C6 videos the 1-slot memories improve polyp-frame tracking over
-native's bank (Kalman +0.031 polyp-frame Dice) but add empty-frame false
-positives (no presence module), netting slightly below native overall; the
-Kalman adaptive gain ties the constant-gain EMA (−0.002, p = 0.64). This
-reproduces the archived C6 result (native 0.621 vs Kalman 0.609). C6 is short
-and cannot test the long-term error accumulation where the dev analysis shows
-the 1-slot memory helping. Full table: `outputs/Kalman/heldout_test/comparison.md`.
+**Update-rule test (dev, pre-registered; failed, not run on C6).** With
+`--skip_absent`, absent frames are missing measurements, so the Kalman variance
+grows during an absence and the gain jumps on reappearance, which a constant
+gain cannot do. Kalman+skip vs EMA+skip (constant gain 0.833, Kalman+skip's mean
+present-frame gain): Dice +0.006 (p = 0.24), polyp-frame Dice +0.004, empty-frame
+FP −0.031 and lost fraction −0.016 (Kalman lower in every one of the 4 differing
+sequences, p = 0.13), reappearance Dice 0.000. The rule (reappearance up and lost
+fraction down) fails. Without skip, EMA beats Kalman on reappearance (−0.015,
+9/10 sequences, p = 0.02).
 
 ## Main results — plain Kalman memory (no detector, no fusion)
 
@@ -242,12 +259,6 @@ is the headroom any new gain scheme must try to realize.
 The all-frames gate recovers 21% of the oracle's pooled Dice headroom but
 also stops writing empty frames, so empty-frame FP rises to 0.91 and the per
 sequence paired test is not better. Both variants fail the pre-registered rule.
-
-A soft score-scaled gain (`K ← K · sigmoid(α·score + β)`, calibrated on dev)
-was also tried against this rule and **failed**: on dev neither the all-frames
-fit (α 0.245, β −1.145) nor the present-only fit (α 0.727, β −3.417) beat the
-plain Kalman run on both lost-frame fraction and high-motion Dice (Dice −0.003
-and −0.008 respectively). It was removed from the code with the other gates.
 
 ## Robustness analyses (no re-inference)
 

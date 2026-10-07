@@ -141,7 +141,7 @@ Khi có manifest và checkpoint MedSAM2, huấn luyện hoặc suy luận nhận
 
 \section{Kết quả đạt được và hướng phát triển}
 \subsection{Kết quả trên dữ liệu thay thế}
-Trên tập kiểm tra giữ kín C6 của PolypGen (seq16--seq23, 8 chuỗi, 432 khung lan truyền, một seed, MedSAM2 đông lạnh, prompt là hộp bao chặt của mặt nạ thật đầu tiên), ba phương pháp đã đóng băng được so sánh: MedSAM2 gốc, EMA gain hằng một khe và bộ nhớ Kalman một khe. Dice trung bình theo chuỗi lần lượt là $0.640$, $0.621$ và $0.619$. Bộ nhớ Kalman cải thiện Dice ở khung có polyp (0.640 so với 0.608 của native) nhưng làm tăng dương tính giả trên khung rỗng (0.540 so với 0.425), nên Dice tổng thể không vượt native. Gain Kalman thích nghi hòa với EMA gain hằng ($-0.002$, $p=0.64$). Chi tiết ở mục kết quả kiểm tra C6.
+Trên tập kiểm tra giữ kín C6 của PolypGen (seq16--seq23, 8 chuỗi, 372 khung lan truyền, một seed, MedSAM2 đông lạnh, prompt là hộp bao chặt của mặt nạ thật đầu tiên), ba phương pháp đã đóng băng được so sánh: MedSAM2 gốc, EMA gain hằng một khe và bộ nhớ Kalman một khe. Dice trung bình theo chuỗi lần lượt là $0.617$, $0.603$ và $0.602$. Bộ nhớ Kalman tốt hơn native về Dice ở 7/8 chuỗi và cải thiện Dice ở khung có polyp (0.613 so với 0.599), nhưng làm tăng dương tính giả trên khung rỗng (0.555 so với 0.486) và một chuỗi bị mất theo dõi, nên Dice trung bình không vượt native. Gain Kalman thích nghi hòa với EMA gain hằng ($-0.001$). Khi thêm cổng hiện diện ở đầu ra, Kalman hòa native về Dice (0.628) và giảm dương tính giả xuống 0.388. Chi tiết ở mục kết quả kiểm tra C6.
 
 Những số liệu này giới hạn kết luận: trên tập giữ kín C6, bộ nhớ một khe cải thiện theo dõi khung polyp nhưng chưa cải thiện Dice tổng thể và chưa giảm dương tính giả nếu không có mô-đun hiện diện; chúng không xác nhận hiệu quả lâm sàng trên VA.
 
@@ -171,7 +171,7 @@ Mọi kết quả so sánh bộ nhớ được diễn giải theo cùng một ng
 
 PolypGen gồm các chuỗi nội soi có mask polyp. MedSAM2 được giữ đông lạnh. Hộp bao chặt của mask thật ở khung có polyp đầu tiên được dùng làm prompt. Do prompt có nguồn gốc từ nhãn thật, kết quả phản ánh chất lượng lan truyền sau prompt, không phản ánh hiệu năng của hệ thống phát hiện hoặc đặt prompt tự động.
 
-Giao thức tách theo trung tâm: tập phát triển là seq1--seq15 (các trung tâm C1--C5) dùng cho mọi hiệu chỉnh và lựa chọn thiết kế, như đo gain EMA; tập kiểm tra giữ kín là seq16--seq23 (trung tâm C6, 8 chuỗi, 432 khung lan truyền). Mỗi phương pháp đã đóng băng chỉ được chạy một lần trên C6. Vì C6 chỉ gồm các video ngắn, giao thức này đánh giá chất lượng lan truyền trên tập giữ kín nhưng không đủ mạnh để xác nhận lợi ích tích lũy lỗi dài hạn.
+Giao thức tách theo trung tâm: tập phát triển là seq1--seq15 (các trung tâm C1--C5) dùng cho mọi hiệu chỉnh và lựa chọn thiết kế, như đo gain EMA; tập kiểm tra giữ kín là seq16--seq23 (trung tâm C6, 8 chuỗi, 372 khung lan truyền). Mỗi phương pháp đã đóng băng chỉ được chạy một lần trên C6. Vì C6 chỉ gồm các video ngắn, giao thức này đánh giá chất lượng lan truyền trên tập giữ kín nhưng không đủ mạnh để xác nhận lợi ích tích lũy lỗi dài hạn.
 
 \begin{table}[H]
 \centering
@@ -196,41 +196,47 @@ Dice và IoU được báo cáo trên mặt nạ. Dice trên khung polyp chỉ x
 
 \subsection{Kết quả kiểm tra C6}
 
-Ba phương pháp đã đóng băng được chạy một lần trên tập kiểm tra giữ kín C6 (seq16--seq23, 8 chuỗi, 432 khung lan truyền): MedSAM2 gốc, EMA gain hằng và bộ nhớ Kalman. Bộ nhớ Kalman rút gọn còn cập nhật lõi cộng tùy chọn \texttt{--skip\_absent}; EMA là mô-đun riêng \texttt{modeling/ema\_memory.py} với gain hằng (hiện diện 0.798, vắng mặt 0.261) đo trên tập phát triển nên C6 vẫn là tập giữ kín. Kết quả lưu tại \texttt{outputs/Kalman/heldout\_test/}. Các số liệu dưới đây là trung bình theo chuỗi và kiểm định Wilcoxon theo cặp trên 8 chuỗi.
+Ba phương pháp đã đóng băng được chạy một lần trên tập kiểm tra giữ kín C6 (seq16--seq23, 8 chuỗi, 372 khung lan truyền): MedSAM2 gốc, EMA gain hằng và bộ nhớ Kalman. EMA là mô-đun riêng \texttt{modeling/ema\_memory.py}, dùng chính gain trung bình của cập nhật Kalman trên tập phát triển (hiện diện 0.835, vắng mặt 0.266), nên hai phương pháp chỉ khác nhau ở tính thích nghi của gain và C6 vẫn là tập giữ kín. Các khung được đưa vào theo đúng thứ tự thời gian (sắp theo số khung); pipeline tái lập đúng các lần chạy lưu trữ trước đây (Dice gộp trên khung lan truyền: native 0.621, Kalman 0.609 trên C6). Mô-đun phụ là cổng hiện diện đầu ra (``+ gate''): mặt nạ đầu ra bị đặt rỗng khi object score của MedSAM2 thấp hơn ngưỡng $\tau$, với $\tau$ hiệu chỉnh trên tập phát triển của từng phương pháp (native 1.557, EMA 0.651, Kalman 1.078). Kết quả lưu tại \texttt{outputs/Kalman/heldout\_test/}. Các số liệu dưới đây là trung bình theo chuỗi; ``mất'' là tỷ lệ khung polyp có Dice dưới 0.1, ``tái xuất hiện'' là Dice ở 1--10 khung sau một đoạn vắng mặt, ``chuyển động cao'' là các khung polyp có thay đổi feature ảnh lớn hơn 0.117.
 
 \begin{table}[H]
 \centering
-\caption{Kiểm tra C6 chạy lại: native, EMA và Kalman, pipeline hiện tại.}
-\resizebox{0.92\textwidth}{!}{%
-\begin{tabular}{lrrrr}
+\caption{Kiểm tra C6: native, EMA và Kalman, có và không có cổng hiện diện.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrr}
 \hline
-Phương pháp & Dice & IoU & Dice khung polyp & FP khung rỗng \\
+Phương pháp & Dice & Dice khung polyp & FP khung rỗng & Mất & Tái xuất hiện & Chuyển động cao \\
 \hline
-Native MedSAM2 (bank 7 khung) & 0.640 & 0.595 & 0.608 & 0.425 \\
-EMA (1 khe, gain hằng) & 0.621 & 0.577 & 0.637 & 0.507 \\
-Kalman (1 khe, gain thích nghi) & 0.619 & 0.574 & 0.640 & 0.540 \\
+Native MedSAM2 (bank 7 khung) & 0.617 & 0.599 & 0.486 & 0.283 & 0.462 & 0.563 \\
+EMA (1 khe, gain hằng) & 0.603 & 0.623 & 0.587 & 0.268 & 0.525 & 0.588 \\
+Kalman (1 khe, gain thích nghi) & 0.602 & 0.613 & 0.555 & 0.284 & 0.483 & 0.579 \\
+\hline
+Native + gate & 0.628 & 0.573 & 0.332 & 0.326 & 0.391 & 0.516 \\
+EMA + gate & 0.621 & 0.607 & 0.433 & 0.289 & 0.493 & 0.574 \\
+Kalman + gate & 0.628 & 0.598 & 0.388 & 0.303 & 0.457 & 0.558 \\
 \hline
 \end{tabular}}
 \end{table}
 
 \begin{table}[H]
 \centering
-\caption{So sánh cặp theo chuỗi trên C6 chạy lại ($n=8$).}
-\begin{tabular}{p{0.30\textwidth}p{0.30\textwidth}p{0.14\textwidth}p{0.10\textwidth}}
+\caption{So sánh cặp theo chuỗi trên C6 ($n=8$, kiểm định Wilcoxon).}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lllll}
 \hline
-So sánh & Chỉ số & Chênh lệch & $p$ \\
+So sánh & Dice & Dice khung polyp & FP khung rỗng & Tái xuất hiện \\
 \hline
-Kalman -- native & Dice & $-0.020$ (5/3) & 0.84 \\
-Kalman -- native & Dice khung polyp & $+0.031$ (5/3) & 0.20 \\
-Kalman -- native & FP khung rỗng (thấp hơn tốt hơn) & $+0.115$ (2/4) & 0.31 \\
-Kalman -- EMA & Dice & $-0.002$ (3/5) & 0.64 \\
+Kalman -- native & $-0.014$ (tốt hơn 7/8), $p=0.20$ & $+0.015$, $p=0.31$ & $+0.069$, $p=0.50$ & $+0.021$, $p=0.58$ \\
+Kalman -- EMA & $-0.001$, $p=0.20$ & $-0.010$, $p=0.74$ & $-0.032$, $p=0.25$ & $-0.042$, $p=0.22$ \\
+Kalman + gate -- native + gate & $-0.000$, $p=0.94$ & $+0.025$, $p=0.30$ & $+0.056$, $p=0.50$ & $+0.066$, $p=0.69$ \\
 \hline
-\end{tabular}
+\end{tabular}}
 \end{table}
 
-Ba điểm cần ghi nhận trung thực. Thứ nhất, trên C6 \emph{native có Dice tổng thể cao nhất}; bộ nhớ Kalman không vượt native về Dice gộp trên tập giữ kín này. Thứ hai, bộ nhớ một khe (cả Kalman và EMA) cải thiện Dice ở khung polyp so với bank 7 khung của native (Kalman $+0.031$ Dice khung polyp) nhưng làm tăng dương tính giả trên khung rỗng ($+0.115$), vì không có mô-đun hiện diện nên trạng thái lặp duy nhất vẫn giữ đối tượng qua các đoạn rỗng; hai hiệu ứng này triệt tiêu lẫn nhau khiến Dice tổng thể thấp hơn native. Thứ ba, gain Kalman thích nghi \emph{hòa} với EMA gain hằng ($-0.002$, $p=0.64$): trên dữ liệu này, lợi ích theo dõi đến từ cấu trúc lặp một khe chứ không phải tính thích nghi của gain. Không chênh lệch nào đạt ý nghĩa thống kê với $n=8$; C6 gồm 8 video ngắn nên công suất thống kê thấp và không kiểm tra được tích lũy lỗi dài hạn.
+Các điểm cần ghi nhận trung thực. Thứ nhất, bộ nhớ Kalman tốt hơn native về Dice ở 7/8 chuỗi, nhưng một chuỗi bị mất theo dõi hoàn toàn kéo Dice trung bình xuống thấp hơn native ($-0.014$). Thứ hai, bộ nhớ một khe (cả Kalman và EMA) cải thiện Dice ở khung polyp và ở khung chuyển động cao so với bank 7 khung của native, nhưng làm tăng dương tính giả trên khung rỗng, vì trạng thái lặp duy nhất vẫn giữ đối tượng qua các đoạn rỗng. Thứ ba, gain Kalman thích nghi \emph{hòa} với EMA gain hằng ($-0.001$): trên dữ liệu này, lợi ích theo dõi đến từ cấu trúc lặp một khe chứ không phải tính thích nghi của gain. Thứ tư, cổng hiện diện (mô-đun phụ) giảm dương tính giả cho mọi phương pháp; khi có cổng, Kalman hòa native về Dice và có Dice khung polyp cao hơn, trong khi native giữ tỷ lệ dương tính giả thấp nhất. Không chênh lệch nào đạt ý nghĩa thống kê với $n=8$; C6 gồm 8 video ngắn nên công suất thống kê thấp và không kiểm tra được tích lũy lỗi dài hạn.
 
-Nguyên nhân khiến Kalman chưa đồng thời tăng Dice khung polyp và giảm dương tính giả là: dương tính giả trên khung rỗng là bài toán \emph{hiện diện}, tách khỏi bài toán theo dõi. Trạng thái lặp một khe giữ diện mạo đối tượng, nên khi đọc ở một khung rỗng nó vẫn có xu hướng dự đoán đối tượng. Vì vậy hướng phát triển (mục trên) đề xuất dùng chính phương sai $P$ của bộ lọc Kalman làm tín hiệu hiện diện để chặn đầu ra khi độ bất định cao, thay vì chỉ tác động vào bước ghi bộ nhớ.
+\paragraph{Kiểm tra riêng quy tắc cập nhật Kalman (tập phát triển).} Với \texttt{--skip\_absent}, khung bị gọi là vắng mặt được xem là thiếu quan sát: phương sai Kalman tăng trong đoạn vắng mặt nên gain tăng vọt khi đối tượng xuất hiện lại, điều mà gain hằng không làm được. So sánh Kalman+skip với EMA+skip (gain hằng 0.833, bằng gain trung bình của Kalman+skip) trên tập phát triển: Dice $+0.006$ ($p=0.24$), tỷ lệ mất $-0.016$ và dương tính giả $-0.031$ (Kalman thấp hơn ở cả 4/4 chuỗi có khác biệt, $p=0.13$), nhưng Dice tái xuất hiện không đổi ($0.000$). Quy tắc định trước (tăng Dice tái xuất hiện và giảm tỷ lệ mất) không đạt, nên biến thể này không được chạy trên C6.
+
+Nguyên nhân khiến Kalman chưa đồng thời tăng Dice khung polyp và giảm dương tính giả là: dương tính giả trên khung rỗng là bài toán \emph{hiện diện}, tách khỏi bài toán theo dõi. Trạng thái lặp một khe giữ diện mạo đối tượng, nên khi đọc ở một khung rỗng nó vẫn có xu hướng dự đoán đối tượng. Vì vậy cổng hiện diện ở đầu ra, chứ không phải việc chặn bước ghi bộ nhớ, là cách giảm dương tính giả.
 
 \section{Giới hạn, rủi ro hiệu lực và kế hoạch xác nhận trên VA}
 \subsection{Giới hạn của mã nguồn và dữ liệu hiện tại}
@@ -279,6 +285,5 @@ AdeSEG đã xác định bài toán đánh giá phì đại VA ở mức video n
 \begin{thebibliography}{9}
 \bibitem{medsam2} MedSAM2. \emph{Segment Anything in 3D Medical Images and Videos}. \url{https://arxiv.org/abs/2504.03600}.
 \bibitem{polypgen} PolypGen. \emph{A multi-center polyp segmentation dataset}. \url{https://arxiv.org/abs/2106.04463}.
-\bibitem{adeSEGdocs} AdeSEG repository documentation: \texttt{docs/README.md} và \texttt{docs/EXPERIMENTS.md}.
 \end{thebibliography}
 \end{document}
