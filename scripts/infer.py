@@ -153,7 +153,8 @@ def main():
             writer = csv.DictWriter(
                 handle,
                 fieldnames=("frame_idx", "frame", "status", "object_score", "presence",
-                            "gain_mean", "feature_change_mean", "kalman_status"),
+                            "gain_mean", "prior_variance_mean", "variance_mean",
+                            "feature_change_mean", "kalman_status"),
                 extrasaction="ignore",
             )
             writer.writeheader()
