@@ -71,14 +71,12 @@ Current findings (held-out C6, 8 sequences; `docs/EXPERIMENTS.md`):
   Kalman tracks its polyp frames as well as or better than native and loses on
   a 21-frame empty tail. On the longer dev videos it loses fewer polyp frames
   (archived: 0.40 → 0.32).
-- The Kalman update rule does not beat the constant-gain EMA, including a
-  pre-registered test with `--skip_absent` designed to favour it on
-  reappearance. Its gain is nearly constant, so the filter behaves like an EMA.
+- The Kalman update rule does not beat the constant-gain EMA. Its gain is
+  nearly constant, so the filter behaves like an EMA.
 - False positives are a presence problem, not a tracking one: MedSAM2's
   object score calls 71–74% of dev empty frames present for every method,
   native included. An output presence gate on that score lowers false
-  positives for every method; a scalar Kalman filter on the presence log-odds
-  over time did not beat the per-frame gate on C6.
+  positives for every method.
 - On REFUGE (the two-label stand-in), Dice of 0.73–0.89 still leaves a ratio
   error of 0.109, so the adenoid evaluation must report ratio error.
 - None of the C6 differences is significant with 8 sequences.

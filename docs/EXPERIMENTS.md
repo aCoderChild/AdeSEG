@@ -143,17 +143,6 @@ score is a weak presence signal in general: on dev it calls 71–74% of empty
 frames present for every method, native included (C6: native 38%, EMA 62%,
 Kalman 57%, of 56 empty frames, 21 of them seq21's tail).
 
-**Presence Kalman filter (pre-registered; failed on C6, not adopted).** A
-scalar Kalman filter on the object-score log-odds over time (`x⁻ = x`,
-`P⁻ = P + ρ`, `K = P⁻/(P⁻+1)`, emit the mask iff `x_t > τ`; `ρ = ∞` is the
-per-frame gate), selected by leave-one-sequence-out on dev. Rule: beat the
-per-frame gate on dev Dice and FP without losing more than 0.005 polyp-frame
-Dice. On the Kalman memory it passed narrowly on dev (Dice +0.0005, FP −0.010;
-selected ρ = 0.01, τ = 1.63) but on C6 it was worse than the per-frame gate
-(Dice −0.005, FP +0.107, worse in 3/8 sequences and better in none): the heavy
-smoothing reacts slowly when the polyp leaves. The per-frame gate remains the
-presence module.
-
 ## Two-region stand-in: REFUGE (current)
 
 The target adenoid data are expected to follow Cai et al. 2024: fiberoptic
