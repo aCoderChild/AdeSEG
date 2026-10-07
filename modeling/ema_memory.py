@@ -1,16 +1,4 @@
 """Constant-gain (EMA) memory baseline for frozen MedSAM2.
-
-This is the ablation the Kalman memory is compared against: the same single
-recursive spatial state and the same memory read path, but the adaptive Kalman
-gain ``K = P⁻ / (P⁻ + R)`` is replaced by a fixed present/absent gain. If the
-Kalman filter cannot beat this, its benefit is the recursive 1-slot structure,
-not the adaptive gain (see ``docs/EXPERIMENTS.md``).
-
-It implements the same interface ``KalmanMemoryMixin`` expects of a memory
-update module (``project_image``, ``initial_variance``, ``readout``, ``predict``,
-``update``), so it drops into the predictor in place of ``KalmanMemoryUpdate``
-with no change to the mixin. The read path matches the untrained Kalman module
-(zero uncertainty embedding), so the two differ only in the write gain.
 """
 
 from __future__ import annotations

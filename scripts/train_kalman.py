@@ -144,6 +144,8 @@ def main():
         "train_promptable_clips": len(train_clips),
         "validation_promptable_clips": len(validation_clips),
         "medsam2_frozen": True,
+        "detector_observations": False,
+        "learned_presence_fusion": False,
         "checkpoint_selection": "max validation present-frame Dice with empty-frame FP <= step 0",
     })
     (args.output_dir / "setup.json").write_text(json.dumps(setup, indent=2) + "\n", encoding="utf-8")
@@ -164,7 +166,7 @@ def main():
                 batch = video_batch(clip["images"].to(args.device), masks)
                 student, teacher = run_clip(model, batch, run_teacher)
                 loss, stats = criterion(student, teacher, masks)
-                if loss.requires_grad:  # false when no propagated frame contributes to the loss
+                if loss.requires_grad:  # false when every frame was decoded from a detector box
                     (loss / args.accumulate).backward()
                 stats.update(frame_stats(student, masks))
                 stats.update({
