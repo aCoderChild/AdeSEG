@@ -33,9 +33,10 @@ Dice can still produce a poor obstruction measurement. The repository provides
 `evaluation.evaluate_two_region_measurement()` for this comparison, run over a
 whole manifest by `evaluation/two_region.py`. It reports per-region Dice/IoU,
 predicted ratio, ground-truth ratio, and absolute ratio error for an explicitly
-selected ratio protocol. A first run on the REFUGE stand-in already shows the
-mismatch: cup / rim Dice 0.734 / 0.886 but a ratio error of 0.109 (see "Proxy
-datasets").
+selected ratio protocol. On the REFUGE stand-in there is **no** mismatch so far:
+prompting the outer and inner regions (`--nested_labels`) gives cup / rim Dice
+0.918 / 0.924 and a ratio error of 0.019. An earlier figure (Dice 0.734 / 0.886,
+ratio error 0.109) came from a flawed prompting design (see "Proxy datasets").
 
 A measurement-aware loss is **not implemented yet**. It should only be added
 if the diagnostic demonstrates a real Dice--measurement mismatch and after the
@@ -44,19 +45,21 @@ adenoid protocol defines the clinical ratio.
 ### C3: Kalman spatial memory (experimental)
 
 The repository contains an experimental replacement for MedSAM2's 7-frame
-FIFO memory bank, evaluated on PolypGen (proxy). The bank is replaced by the
-fixed prompt-frame memory plus one Kalman spatial state with a per-pixel
-variance: each frame's memory is fused into the state with gain
-`K = P⁻ / (P⁻ + R)`, where the measurement noise `R` grows when MedSAM2 calls
-the object absent. `--skip_absent` (off by default) treats a frame called
-absent as a missing measurement. The constant-gain EMA baseline
-(`modeling/ema_memory.py`, `--fixed_gain PRESENT ABSENT`) keeps the same
-single state and read path but uses a fixed gain, which isolates what the
-Kalman update itself contributes.
+FIFO memory bank, evaluated on PolypGen (proxy): the fixed prompt-frame memory
+plus **one recursive memory state** written with a Kalman gain
+`K = P⁻ / (P⁻ + R)`, where `R` rises when MedSAM2 calls the object absent. The
+code can learn a per-pixel correction of `R` and read the variance, but in every
+reported run these parts are untrained (zero), so as run the method is a
+**scalar, presence-switched filter on a 1-slot memory**. `--skip_absent` treats
+a frame called absent as a missing measurement. The constant-gain EMA baseline
+(`modeling/ema_memory.py`, `--fixed_gain 0.835 0.266`) keeps the same single
+state and read path with the Kalman run's own mean gains, so the two can only
+differ in the gain transient after a presence switch, soft versus hard presence,
+and `--skip_absent`.
 
-Current findings (held-out C6, 8 sequences; `docs/EXPERIMENTS.md`):
+Current findings (`docs/EXPERIMENTS.md`; C6 = seq16–23, 8 sequences):
 
-| | Dice | Polyp-frame Dice | Empty-frame FP |
+| C6 | Dice | Polyp-frame Dice | Empty-frame FP |
 |---|---|---|---|
 | native MedSAM2 | 0.617 | 0.599 | 0.486 |
 | EMA (constant gain) | 0.603 | 0.623 | 0.587 |
@@ -64,27 +67,29 @@ Current findings (held-out C6, 8 sequences; `docs/EXPERIMENTS.md`):
 | Kalman + output presence gate | 0.628 | 0.598 | 0.388 |
 | native + output presence gate | 0.628 | 0.573 | 0.332 |
 
-- The 1-slot memory raises polyp-frame and high-motion Dice over native's bank
-  (Kalman beats native on Dice in 7 of 8 sequences) but also raises
-  empty-frame false positives, which leaves its mean Dice slightly below
-  native. The one sequence behind that gap (seq21) is not a tracking collapse:
-  Kalman tracks its polyp frames as well as or better than native and loses on
-  a 21-frame empty tail. On the longer dev videos it loses fewer polyp frames
-  (archived: 0.40 → 0.32).
-- The Kalman update rule does not beat the constant-gain EMA. Its gain is
-  nearly constant, so the filter behaves like an EMA.
-- False positives are a presence problem, not a tracking one: MedSAM2's
-  object score calls 71–74% of dev empty frames present for every method,
-  native included. An output presence gate on that score lowers false
-  positives for every method.
-- On REFUGE (the two-label stand-in), Dice of 0.73–0.89 still leaves a ratio
-  error of 0.109, so the adenoid evaluation must report ratio error.
-- None of the C6 differences is significant with 8 sequences.
+- **A 1-slot recurrent memory; the Kalman form adds nothing measurable.** On C6
+  no difference from native or EMA is significant. The `--skip_absent` test of
+  what is specific to the Kalman form failed on dev, and a presence Kalman filter
+  on the object score failed on C6.
+- The 1-slot memory raises polyp-frame Dice slightly and raises empty-frame
+  false positives; on C6 it loses as many polyp frames as native (0.244 vs
+  0.247). On the longer dev videos it loses fewer (pooled 0.32 vs 0.40), but
+  that is a development observation and is not significant per sequence
+  (p = 0.19 on dev, p = 0.21 on all 23).
+- False positives are a presence problem: MedSAM2's object score calls 71–74%
+  of dev empty frames present for every method. An output presence gate lowers
+  them for every method; its thresholds came from dev runs that were not saved.
+- C6 is not a pristine test set: it was seen in the first all-sequence
+  protocol and used for several frozen comparisons, and the gate was designed
+  after a C6 run.
+- Closest prior work, not yet run: EMA-SAM (moving-average memory for medical
+  SAM2), plus SAMURAI, SAM2Long, DAM4SAM and a trimmed 7-slot bank.
 
-It is not yet a validated component of the adenoid clinical pipeline.
+It is not a validated component of the adenoid clinical pipeline.
 
 Native MedSAM2 remains the primary baseline. `EXPERIMENTS.md` records the
-design, data protocol, verification, and baseline results.
+design, data protocol, verification, and every result, marked as regenerated
+by `scripts/analyze_runs.py` or archived.
 
 ## What is implemented now
 
@@ -95,19 +100,24 @@ design, data protocol, verification, and baseline results.
 - **EMA baseline:** `modeling/ema_memory.py`, a constant-gain memory with the
   same read path, used for the ablation.
 - **Frozen-backbone training:** `training/kalman_trainer.py` and
-  `scripts/train_kalman.py`. Both consume one dataset-neutral JSONL manifest
-  with ordered video frames and indexed semantic masks. Only the Kalman update
-  is trainable.
-- **Inference:** `scripts/infer.py` runs native, Kalman (`--skip_absent`
-  optional) or EMA (`--fixed_gain`) memory from that manifest, with a first
-  annotated-frame box prompt. It writes masks and a per-frame diagnostics CSV
-  (object score, presence, gain, camera motion).
+  `scripts/train_kalman.py` train only the Kalman update on natural clips from a
+  manifest's `train` and `val` splits. No reported result uses a trained update,
+  and the PolypGen manifest has no such splits.
+- **Inference:** `scripts/infer.py` runs native, Kalman (`--untrained` or a
+  checkpoint; `--skip_absent` optional) or EMA (`--fixed_gain`) memory from that
+  manifest, with a first annotated-frame box prompt (`--nested_labels` prompts
+  label k as the union of labels >= k). It writes masks, a per-frame diagnostics
+  CSV per label (object score, presence, gain, camera motion), and retained
+  memory and FPS in `setup.json`.
 - **PolypGen manifest:** `scripts/build_polypgen_manifest.py` writes
   `data/polypgen_sequence.jsonl` for protocol (a), with frames in numeric
   temporal order.
 - **Evaluation:** `evaluation/temporal.py` (per-frame, presence-stratified and
-  drift metrics; `--no_overlays` for metrics only), plus
-  `scripts/analyze_reappearance.py` and `scripts/analyze_illumination.py`.
+  drift metrics; `--no_overlays` for metrics only); `scripts/analyze_runs.py`
+  rebuilds every PolypGen table (per-sequence and pooled metrics, lost episodes,
+  high motion, output gate, paired Wilcoxon and bootstrap intervals) from saved
+  per-frame CSVs; `scripts/analyze_reappearance.py` and
+  `scripts/analyze_illumination.py` give the robustness analyses.
 - **Two-region path:** `scripts/build_mask_manifest.py` (grey-coded masks to
   indexed masks + manifest) and `evaluation/two_region.py` (per-region Dice/IoU,
   ratio error, grade agreement). `tests/test_data_pipeline.py` guards frame
@@ -123,19 +133,17 @@ the clinical task executable without the target data and protocol.
 ## Method interpretation and novelty boundary
 
 Related work this memory builds on or must be compared with: RDE-VOS
-(recurrent constant-size memory), LiVOS (gated recurrent memory), SAMURAI
-(Kalman filtering of box motion, not of memory), EMA-SAM (confidence-weighted
-moving-average memory for medical SAM2), SAM2Long and DAM4SAM (memory
-selection), and TinySAM 2 (memory-token compression). Related Kalman work: KalmanNet and
-RKN (learned Kalman gains), KEEP (Kalman-inspired feature propagation for
-video), and SAM2Plus (Kalman filter on SAM2 box IoU). The candidate technical
-contribution is the per-pixel Kalman update of MedSAM2's spatial memory with
-presence-dependent measurement noise. On PolypGen its benefit over MedSAM2's
-bank (better polyp-frame tracking, fewer lost frames on long videos) is matched
-by a constant-gain moving average, so it comes from the single recursive
-state rather than the adaptive gain. A gain that adds to that would need an
-informative per-frame measurement noise, which no proxy signal has provided.
-These are claims to test against the baselines above, not established results.
+(recurrent constant-size memory), LiVOS (gated recurrent memory), EMA-SAM
+(confidence-weighted moving-average memory for medical SAM2, the closest
+method), SAMURAI (Kalman filtering of box motion, not of memory), SAM2Long and
+DAM4SAM (memory selection), and TinySAM 2 (memory-token compression). Related
+Kalman work: KalmanNet and RKN (learned Kalman gains), KEEP (Kalman-inspired
+feature propagation for video), and SAM2Plus (Kalman filter on SAM2 box IoU).
+As run, the method is a 1-slot recurrent memory with a presence-switched scalar
+gain; it matches a constant-gain EMA, and the per-pixel parts of the code have
+never been trained. Any claim beyond "a 1-slot recurrent memory can replace the
+7-frame bank" needs an informative write decision (the archived oracle gain
+shows room for one) and a comparison with EMA-SAM.
 
 The project-level contribution remains the **video-level two-region adenoid
 assessment formulation**: segmentation of adenoid and nasopharyngeal airway
@@ -186,7 +194,8 @@ manifest built before commit `c8df175` are invalid.
 
 [CholecSeg8k](https://arxiv.org/abs/2012.12453) (CC BY-NC-SA 4.0, no access
 request) was used as a second real-video dataset in archived runs; its
-converter is not part of the current manifest-based workflow.
+converter (`scripts/prepare_cholecseg8k.py`) was removed and is in commit
+`9bb801a`. Tracking rarely fails there, and all 1-slot variants tie.
 
 ### Two-region measurement (REFUGE as the two-label stand-in)
 
@@ -210,16 +219,23 @@ python3 scripts/build_mask_manifest.py --root data/REFUGE --splits train val tes
   --value_map 255:0 128:1 0:2 --output_dir data/refuge     # adenoid: 0:0 128:1 255:2
 python3 scripts/infer.py --sam2_cfg configs/sam2.1_hiera_t512.yaml \
   --sam2_checkpoint checkpoints/MedSAM2_latest.pt --manifest data/refuge/manifest.jsonl \
-  --split val --label_ids 1 2 --memory_backend native --output_dir runs/refuge_val
+  --split val --label_ids 1 2 --nested_labels --memory_backend native --output_dir runs/refuge_val
 python3 evaluation/two_region.py --manifest data/refuge/manifest.jsonl --split val \
   --pred_dir runs/refuge_val --region_a cup:2 --region_b rim:1 --ratio_mode fraction_of_total
 ```
 
-REFUGE val (400 images, native MedSAM2 with GT-box prompts; results in
-`AdeSEG/outputs/REFUGE/native_val_two_region/`): cup Dice 0.734, rim Dice 0.886,
-ratio MAE 0.109 (Pearson 0.74, Spearman 0.86). Dice of 0.73–0.89 still leaves an
-11-point ratio error, enough to change an A/N grade near a threshold, so the
-adenoid evaluation must report ratio error, not only Dice.
+REFUGE val (400 images, native MedSAM2, ground-truth box prompts):
+
+| Prompting | Cup Dice | Rim Dice | Ratio MAE |
+|---|---|---|---|
+| one pass per label (rim box = disc box) | 0.734 | 0.886 | 0.109 |
+| `--nested_labels` (disc and cup; rim = disc − cup) | 0.918 | 0.924 | 0.019 |
+
+Without `--nested_labels`, the rim's box is the whole disc's box and the rim
+pass absorbs the cup: the predicted cup fraction was too low on all 400 images.
+With it (the same structure as A/N, where nasopharynx = adenoid + airway), the
+ratio error is small and REFUGE shows no Dice–measurement mismatch. Results:
+`AdeSEG/outputs/refuge/val_nested/`.
 
 ## Kalman spatial memory experiment
 
@@ -246,8 +262,8 @@ python3 scripts/infer.py \
   --output_dir outputs/kalman_test
 ```
 
-Reproduce the PolypGen held-out comparison (run each method once on `--split
-test`; use `--split dev` with seq1–15 for any calibration):
+Reproduce the PolypGen C6 comparison (use `--split dev` with seq1–15 for any
+calibration):
 
 ```bash
 python3 scripts/build_polypgen_manifest.py   # data/polypgen_sequence.jsonl
@@ -257,18 +273,28 @@ COMMON="--sam2_cfg configs/sam2.1_hiera_t512.yaml \
   --manifest data/polypgen_sequence.jsonl --split test --label_ids 1"
 python3 scripts/infer.py $COMMON --memory_backend native --output_dir runs/native
 python3 scripts/infer.py $COMMON --memory_backend kalman --fixed_gain 0.835 0.266 --output_dir runs/ema
-python3 scripts/infer.py $COMMON --memory_backend kalman \
-  --kalman_checkpoint kalman_memory_untrained.pt --output_dir runs/kalman
+python3 scripts/infer.py $COMMON --memory_backend kalman --untrained --output_dir runs/kalman
 
-python3 evaluation/temporal.py --output_mask_dir runs/kalman/masks \
-  --sequences seq16 seq17 seq18 seq19 seq20 seq21 seq22 seq23 --no_overlays
+for m in native ema kalman; do
+  python3 evaluation/temporal.py --output_mask_dir runs/$m/masks \
+    --sequences seq16 seq17 seq18 seq19 seq20 seq21 seq22 seq23 --no_overlays
+done
+python3 scripts/analyze_runs.py --run native=runs/native --run ema=runs/ema \
+  --run kalman=runs/kalman --motion_run kalman \
+  --tau native=1.5568 --tau ema=0.6514 --tau kalman=1.0780 \
+  --compare kalman:native kalman:ema kalman+gate:native+gate
 ```
 
+This reproduces the saved C6 runs frame for frame (`--untrained` equals the
+earlier untrained checkpoint) and the C6 tables exactly. The robustness
+analyses run on the all-23 runs: `scripts/analyze_reappearance.py
+--analysis_dir <outputs>/polypgen/all23` (same for `analyze_illumination.py`).
+
 The EMA gains 0.835 / 0.266 are the untrained Kalman update's mean gains on
-present / absent dev frames. The untrained checkpoint is
-`AdeSEG/outputs/Kalman/kalman_memory_untrained.pt` on Google Drive. The
-checkpoint format is `adseg_kalman_memory_v5`. Results go to Google Drive
-(`AdeSEG/outputs/Kalman`); `EXPERIMENTS.md` has the update equations, every
+present / absent dev frames. The gate thresholds τ are the reported ones; the
+dev runs they were fitted on were not saved. The checkpoint format is
+`adseg_kalman_memory_v5`. Results go to Google Drive
+(`AdeSEG/outputs/`, indexed by its `README.md`); `EXPERIMENTS.md` has the update equations, every
 run, and the folder names.
 
 ## Reference papers and implementations

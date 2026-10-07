@@ -82,18 +82,17 @@ def run_clip(model, batch, run_teacher):
             model.kalman_enabled = True
     return student, teacher
 
-# TODO: careful check
 class KalmanLoss(torch.nn.Module):
     """MedSAM2 fine-tuning loss on frames t >= 1, with the object-score term split by class.
 
-    Mask terms reuse ``MultiStepMultiMasksAndIous`` with MedSAM2's focal/Dice weights
-    (``sam2.1_hiera_tiny_finetune512.yaml``), applied only where the object is present
-    and the presence gate is open (a closed gate is a presence error, left to the BCE).
-    The IoU term is off by default: the IoU head is frozen and is not an output.
-    They supervise the output mask (the candidate MedSAM2's frozen IoU head selects)
-    rather than the best-matching of the candidate masks. Its object-score term is replaced by BCE averaged separately over present frames
-    (weight 1) and empty frames (``absence_weight``), so the ratio does not depend on
-    how many frames are empty.
+    Focal and Dice terms reuse ``MultiStepMultiMasksAndIous`` with MedSAM2's weights
+    (``sam2.1_hiera_tiny_finetune512.yaml``) on the output mask (the candidate the frozen
+    IoU head selects), only on frames where the object is present and the presence gate
+    is open; a closed gate there is a presence error, left to the BCE. They are summed
+    over those frames and divided by all propagated frames. The IoU term is off by
+    default because the IoU head is frozen. The object-score BCE is averaged separately
+    over present frames (weight 1) and empty frames (``absence_weight``), so the balance
+    does not depend on how many frames are empty.
     """
 
     def __init__(self, absence_weight=1.0, distill_weight=0.0, focal=20.0, dice=1.0, iou=0.0):

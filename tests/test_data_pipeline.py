@@ -28,6 +28,25 @@ def test_polypgen_frames_are_in_numeric_order():
     assert [int(p.stem.rsplit("_", 1)[1]) for p in order(paths)] == [7, 69, 104, 1000]
 
 
+def test_inference_and_evaluation_use_the_same_frame_order(tmp_path):
+    """infer.py follows the manifest (numeric_order); temporal.py sorts mask files with
+    natural_sort_key. Reappearance metrics depend on row order, so the two must agree."""
+    order = load_script("build_polypgen_manifest").numeric_order
+    from evaluation.temporal import frame_stem, image_files, sequence_directories
+
+    for stem in ("seq1_C6_10", "seq1_C6_9", "seq1_C6_100", "seq1_C6_0"):
+        (tmp_path / f"{stem}.jpg").touch()
+        (tmp_path / f"{stem}_mask.jpg").touch()
+    images = [p for p in tmp_path.iterdir() if not p.stem.endswith("_mask")]
+    masks = [p for p in image_files(tmp_path) if p.stem.endswith("_mask")]
+    assert [p.stem for p in order(images)] == [frame_stem(p) for p in masks]
+
+    root = ROOT / "data/PolypGen2021_MultiCenterData_v3/sequenceData/positive"
+    for sequence in sorted(root.glob("seq*")) if root.is_dir() else []:
+        image_dir, mask_dir = sequence_directories(root, sequence.name)
+        assert [p.stem for p in order(image_dir.glob("*.jpg"))] == [frame_stem(p) for p in image_files(mask_dir)]
+
+
 def test_binary_jpeg_masks_load_as_zero_one(tmp_path):
     mask = np.zeros((64, 64), np.uint8)
     mask[16:48, 16:48] = 255

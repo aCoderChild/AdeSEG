@@ -66,20 +66,21 @@ def paired(diff_by_sequence):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--analysis_dir", type=Path, required=True)
+    parser.add_argument("--analysis_dir", type=Path, required=True,
+                        help="folder with native, native_prompt_plus_1frame, kalman and ema runs (outputs/polypgen/all23)")
     parser.add_argument("--split", choices=("dev", "test", "all"), default="all")
     parser.add_argument("--window", type=int, default=10)
-    parser.add_argument("--min_preceding", type=int, default=3,
+    parser.add_argument("--min_preceding", type=int, default=1,
                         help="Only count reappearances after at least this many absent frames.")
     args = parser.parse_args()
 
     sequences = {"dev": DEV_SEQUENCES, "test": TEST_SEQUENCES,
                  "all": DEV_SEQUENCES | TEST_SEQUENCES}[args.split]
     runs = {
-        "native": "01_native_medsam2.csv",
-        "native_k1": "02_native_medsam2_prompt_plus_1frame.csv",
-        "kalman": "10_kalman_memory.csv",
-        "ema": "19_kalman_fixed_gain_ema.csv",
+        "native": "native/evaluation/metrics_per_frame.csv",
+        "native_k1": "native_prompt_plus_1frame/evaluation/metrics_per_frame.csv",
+        "kalman": "kalman/evaluation/metrics_per_frame.csv",
+        "ema": "ema/evaluation/metrics_per_frame.csv",
     }
 
     def present_bucket(row):

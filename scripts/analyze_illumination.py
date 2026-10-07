@@ -74,7 +74,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--polypgen_root", type=Path,
                         default=Path("data/PolypGen2021_MultiCenterData_v3"))
-    parser.add_argument("--analysis_dir", type=Path, required=True)
+    parser.add_argument("--analysis_dir", type=Path, required=True,
+                        help="folder with native, native_prompt_plus_1frame, kalman and ema runs (outputs/polypgen/all23)")
     parser.add_argument("--split", choices=("dev", "test", "all"), default="all")
     parser.add_argument("--terciles", type=float, nargs=2, default=None,
                         help="Luminance terciles; if omitted, compute from the selected sequences.")
@@ -87,10 +88,10 @@ def main():
     stats = build_frame_stats(args.polypgen_root, sequences, cache)
 
     runs = {
-        "native": "01_native_medsam2.csv",
-        "native_k1": "02_native_medsam2_prompt_plus_1frame.csv",
-        "kalman": "10_kalman_memory.csv",
-        "ema": "19_kalman_fixed_gain_ema.csv",
+        "native": "native/evaluation/metrics_per_frame.csv",
+        "native_k1": "native_prompt_plus_1frame/evaluation/metrics_per_frame.csv",
+        "kalman": "kalman/evaluation/metrics_per_frame.csv",
+        "ema": "ema/evaluation/metrics_per_frame.csv",
     }
 
     # Compute terciles over polyp frames in the selected sequences, from the native CSV.

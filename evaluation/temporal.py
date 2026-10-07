@@ -173,8 +173,6 @@ def evaluate_sequence(
     prompt_index = prompt_indices[0] if prompt_indices else None
     rows: list[dict[str, object]] = []
     missing_predictions = 0
-    previous_prediction: np.ndarray | None = None
-    previous_frame_index: int | None = None
 
     for ground_truth_path in ground_truth_files:
         stem = frame_stem(ground_truth_path)
@@ -201,11 +199,6 @@ def evaluate_sequence(
             frames_after_prompt = int(frame_index) - prompt_index
         except (TypeError, ValueError):
             frames_after_prompt = None
-        try:
-            current_frame_index = int(frame_index)
-        except (TypeError, ValueError):
-            current_frame_index = None
-        is_propagated = frames_after_prompt is not None and frames_after_prompt >= 1
         rows.append(
             {
                 "sequence": sequence_name,
@@ -217,9 +210,6 @@ def evaluate_sequence(
                 **scores,
             }
         )
-        if current_frame_index is not None and frames_after_prompt is not None and frames_after_prompt >= 0:
-            previous_prediction = prediction
-            previous_frame_index = current_frame_index
 
     annotate_reappearance(rows)
     sequence_row: dict[str, object] = {
@@ -399,7 +389,6 @@ def write_memory_confidence_statistics(
         stats_rows,
     )
 
-# TODO: review
 def write_drift_statistics(evaluation_dir: Path, frame_rows: list[dict[str, object]]) -> None:
     """Write Dice and IoU grouped by frames elapsed after the prompt."""
     propagated_rows = [

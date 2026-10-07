@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Train detector-free Kalman memory from any labelled video dataset.
-
-``--manifest`` is JSON Lines, one row per annotated frame.  Required fields are
-``split``, ``video_id``, ``frame_index``, ``image``, and ``mask``; paths are
-relative to the manifest. ``valid: false`` excludes an ungradable frame rather
-than treating it as an empty target. Masks are indexed semantic images: use
-``--label_ids 1`` for a binary target, or ``--label_ids 1 2`` to sample each of
-two labels as a separate object. Train/validation video IDs must not overlap.
-
-MedSAM2 is frozen. Only ``KalmanMemoryUpdate`` is trained from the frame-0 prompt
-and propagated frames; this path has no detector observations or learned
-presence-fusion input. ``kalman_memory.pt`` is selected by validation present-frame
-Dice without exceeding the untrained empty-frame false-positive rate.
+"""Train Kalman memory update from any labelled video dataset.
 """
 
 from __future__ import annotations
@@ -144,8 +132,6 @@ def main():
         "train_promptable_clips": len(train_clips),
         "validation_promptable_clips": len(validation_clips),
         "medsam2_frozen": True,
-        "detector_observations": False,
-        "learned_presence_fusion": False,
         "checkpoint_selection": "max validation present-frame Dice with empty-frame FP <= step 0",
     })
     (args.output_dir / "setup.json").write_text(json.dumps(setup, indent=2) + "\n", encoding="utf-8")
@@ -166,7 +152,7 @@ def main():
                 batch = video_batch(clip["images"].to(args.device), masks)
                 student, teacher = run_clip(model, batch, run_teacher)
                 loss, stats = criterion(student, teacher, masks)
-                if loss.requires_grad:  # false when every frame was decoded from a detector box
+                if loss.requires_grad:  # false when no propagated frame contributes to the loss
                     (loss / args.accumulate).backward()
                 stats.update(frame_stats(student, masks))
                 stats.update({
@@ -201,7 +187,8 @@ def main():
                 scores = {"step": step, **validate()}
                 validation_log.append(scores)
                 print(f"step {step} validation: {scores}", flush=True)
-                if scores["absent_fp_rate"] <= fp_limit and scores["present_dice"] > best["present_dice"]:
+                fp_ok = fp_limit is None or scores["absent_fp_rate"] <= fp_limit
+                if fp_ok and scores["present_dice"] > best["present_dice"]:
                     best = scores
                     save(args.output_dir / "kalman_memory.pt")
     save(args.output_dir / "kalman_memory_last.pt")

@@ -56,3 +56,11 @@ scripts/eval_outputs/
 external/WTNet/
 external/PraNet/
 .codex-docs-trusted-read/
+
+# LaTeX build files (they record local paths)
+docs/*.aux
+docs/*.fls
+docs/*.fdb_latexmk
+docs/*.log
+docs/*.toc
+docs/*.synctex.gz
