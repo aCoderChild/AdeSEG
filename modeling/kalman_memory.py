@@ -78,18 +78,17 @@ class KalmanMemoryUpdate(nn.Module):
     def readout(self, mean: torch.Tensor, variance: torch.Tensor) -> torch.Tensor:
         return mean + self.uncertainty_embedding.view(1, -1, 1, 1) * torch.log1p(variance)
 
-    def predict(self, variance, noise_scale=None):
-        """``noise_scale``: optional per-pixel factor on q (e.g. measured feature change / its dev mean)."""
-        process_noise = self.process_noise if noise_scale is None else self.process_noise * noise_scale
-        return (variance + process_noise).clamp(self.min_variance, self.max_variance)
+    def predict(self, variance):
+        """Kalman predict: P⁻ = P + q (identity transition)."""
+        return (variance + self.process_noise).clamp(self.min_variance, self.max_variance)
 
-    def update(
-        self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability,
-        reliability=None, noise_scale=None,
-    ):
-        """``reliability``: calibrated probability [B] that the frame is correctly tracked. When given, the
-        observation noise is q * (1 - rho) / rho, so rho = 0.5 trusts the frame as much as the memory.
-        ``noise_scale``: optional per-pixel factor on the observation noise (e.g. camera motion)."""
+    def update(self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability):
+        """Kalman update with presence-dependent measurement noise.
+
+        R_t = (r + a·(1 − p_t)) · c(spatial map), so an absent frame (p_t → 0) is
+        trusted far less than a present one; c = 10^tanh starts at 1 (untrained).
+        K = P⁻/(P⁻ + R); S ← S + K(C_t − S); P ← (1 − K)P⁻.
+        """
         if mean.shape != candidate.shape or mean.ndim != 4:
             raise ValueError("mean and candidate must be matching [B, C, H, W] tensors.")
         batch, _, height, width = mean.shape
@@ -104,12 +103,7 @@ class KalmanMemoryUpdate(nn.Module):
             presence.expand(batch, 1, height, width),
         ], dim=1))
         base = self.observation_noise + self.absence_noise * (1.0 - presence)
-        if reliability is not None:
-            rho = reliability.reshape(batch, 1, 1, 1).clamp(1e-3, 1.0 - 1e-3)
-            base = self.process_noise * (1.0 - rho) / rho
         observation_noise = base * self.correction(spatial - spatial.mean(dim=(2, 3), keepdim=True))
-        if noise_scale is not None:
-            observation_noise = observation_noise * noise_scale
         gain = prior_variance / (prior_variance + observation_noise)
         return {
             "mean": mean + gain * innovation,
@@ -119,38 +113,21 @@ class KalmanMemoryUpdate(nn.Module):
         }
 
 
-def mask_prototype(features: torch.Tensor, mask_logits: torch.Tensor) -> torch.Tensor:
-    """Mask-weighted mean of a memory map [B, C, H, W]: the object's appearance, independent of position."""
-    weights = F.interpolate(torch.sigmoid(mask_logits.float()), size=features.shape[-2:], mode="area")
-    return (features.float() * weights).sum(dim=(2, 3)) / weights.sum(dim=(2, 3)).clamp_min(1e-6)
-
-
-def anchor_signals(memory, mask_logits, pointer, image_feature) -> dict[str, torch.Tensor]:
-    """Object descriptors compared with the prompt frame's (diagnostics: memory, pointer and image appearance)."""
-    return {
-        "memory": mask_prototype(memory, mask_logits),
-        "pointer": pointer.float(),
-        "image": mask_prototype(image_feature, mask_logits),
-    }
-
-
 def vision_feature_map(current_vision_feats, feat_sizes) -> torch.Tensor:
     feature = current_vision_feats[-1]
     return feature.permute(1, 2, 0).reshape(feature.size(1), -1, *feat_sizes[-1])
 
 
 class KalmanState:
-    """Anchor slot plus Kalman mean/variance, and the prototype of the last accepted object memory."""
+    """Fixed prompt anchor slot plus the Kalman mean/variance of the spatial memory."""
 
-    def __init__(self, anchor, position, frame_idx, update: KalmanMemoryUpdate, prototype):
+    def __init__(self, anchor, position, frame_idx, update: KalmanMemoryUpdate):
         self.anchor = anchor.float()
         self.position = position.float()
         self.mean = self.anchor
         self.variance = update.initial_variance(self.mean)
         self.last_frame_idx = frame_idx
         self.updates = 0
-        self.prototype = prototype
-        self.anchor_signals = None  # prompt-frame descriptors for the anchor distances (diagnostics)
         self.previous_feature = None  # image features of the previous frame, for the camera-motion measure
 
     def tensors(self) -> list[torch.Tensor]:
@@ -166,15 +143,7 @@ class KalmanMemoryMixin:
         self.kalman_enabled = True
         self.kalman_last_step = None
         self._kalman_step = None
-        self.kalman_skip_absent = False
-        self.kalman_gate = None
-        self.kalman_reliability = None
-        self.kalman_motion_noise = None
-        self.kalman_motion_measurement = None
-        self.kalman_oracle_masks = None
-        self.kalman_score_gate = None
-        self.kalman_score_gate_present_only = False
-        self.kalman_score_scale = None  # (alpha, beta): gain *= sigmoid(alpha * object_score + beta)
+        self.kalman_skip_absent = False  # treat an absent frame as a missing measurement (K = 0)
 
     def _kalman_active(self) -> bool:
         return self.kalman_enabled and self.memory_update is not None
@@ -212,9 +181,8 @@ class KalmanMemoryMixin:
         if state.previous_feature is not None:
             change = 1.0 - F.cosine_similarity(feature, state.previous_feature, dim=1).unsqueeze(1)
         state.previous_feature = feature
-        step["feature_change"] = change
-        scale = None if change is None or self.kalman_motion_noise is None else change / self.kalman_motion_noise
-        step["prior_variance"] = self.memory_update.predict(state.variance, scale)
+        step["feature_change"] = change  # camera motion, logged for the motion-stratified analysis
+        step["prior_variance"] = self.memory_update.predict(state.variance)
         dtype = current_vision_feats[-1].dtype
         memory_chunks, position_chunks = kalman_memory_tokens(
             self, state.anchor, self.memory_update.readout(state.mean, step["prior_variance"]),
@@ -264,34 +232,12 @@ class KalmanMemoryMixin:
         if step["init"]:
             output_dict["kalman_state"] = KalmanState(
                 candidate, current_out["maskmem_pos_enc"][-1], frame_idx, self.memory_update,
-                mask_prototype(candidate, current_out["pred_masks"]),
             )
             output_dict["kalman_state"].previous_feature = vision_feature_map(current_vision_feats, feat_sizes).float()
             return
         state = output_dict["kalman_state"]
         presence = torch.sigmoid(object_score_logits.float())
-        prototype = mask_prototype(candidate, current_out["pred_masks"])
-        distance = 1.0 - F.cosine_similarity(prototype, state.prototype, dim=1)
-        status = "accepted"
-        if self.kalman_skip_absent and bool((presence <= 0.5).all()):
-            status = "absent"
-        elif self.kalman_gate is not None and bool((distance > self.kalman_gate).all()):
-            status = "rejected"
-        score = float(object_score_logits.float().mean())
-        if self.kalman_score_gate is not None and score < self.kalman_score_gate:
-            if not self.kalman_score_gate_present_only or score > 0:
-                status = "rejected"
-        if self.kalman_oracle_masks is not None and frame_idx in self.kalman_oracle_masks:
-            truth = self.kalman_oracle_masks[frame_idx]
-            predicted = current_out["pred_masks"][0, 0] > 0
-            truth = F.interpolate(truth[None, None].float(), size=predicted.shape, mode="nearest")[0, 0] > 0
-            union = (predicted | truth).sum()
-            correct = (not truth.any() and not predicted.any()) or (union > 0 and (predicted & truth).sum() / union >= 0.5)
-            status = "accepted" if correct else "rejected"
-        reliability = None
-        if self.kalman_reliability is not None:
-            slope, offset = self.kalman_reliability
-            reliability = torch.sigmoid(slope * object_score_logits.float() + offset)
+        status = "absent" if self.kalman_skip_absent and bool((presence <= 0.5).all()) else "accepted"
         updated = self.memory_update.update(
             state.mean,
             step["prior_variance"],
@@ -299,38 +245,17 @@ class KalmanMemoryMixin:
             step["projection"],
             torch.sigmoid(current_out["pred_masks"].float()),
             presence,
-            reliability,
-            None if self.kalman_motion_measurement is None or step.get("feature_change") is None
-            else step["feature_change"] / self.kalman_motion_measurement,
         )
-        if self.kalman_score_scale is not None:
-            # Soft score-scaled gain: K <- K * sigmoid(alpha * object_score + beta).
-            # Shrinks K smoothly for low-score (likely wrong-object) frames; preserves the
-            # Kalman adaptive gain structure instead of hard-zeroing like score_gate.
-            alpha, beta = self.kalman_score_scale
-            scale = torch.sigmoid(alpha * object_score_logits.float() + beta).reshape(-1, 1, 1, 1)
-            gain = updated["gain"] * scale
-            updated.update(mean=state.mean + gain * (candidate.float() - state.mean), gain=gain,
-                           variance=((1.0 - gain) * step["prior_variance"]).clamp(
-                               self.memory_update.min_variance, self.memory_update.max_variance))
         if status != "accepted":  # missing measurement: keep the mean, let the variance grow
             updated.update(mean=state.mean, variance=step["prior_variance"], gain=torch.zeros_like(updated["gain"]))
         if not (torch.isfinite(updated["mean"]).all() and torch.isfinite(updated["variance"]).all()):
             raise FloatingPointError(f"Kalman state became non-finite at frame {frame_idx}.")
         state.mean, state.variance = updated["mean"], updated["variance"]
-        if status == "accepted" and bool((presence > 0.5).all()):
-            state.prototype = prototype
         state.last_frame_idx = frame_idx
         state.updates += 1
-        updated.update(presence=presence, prior_variance=step["prior_variance"], status=status, distance=distance)
+        updated.update(presence=presence, prior_variance=step["prior_variance"], status=status)
         if step.get("feature_change") is not None:
             updated["feature_change"] = step["feature_change"]
-        if state.anchor_signals is not None:
-            current = anchor_signals(candidate, current_out["pred_masks"], current_out["obj_ptr"],
-                                     vision_feature_map(current_vision_feats, feat_sizes))
-            updated["anchor_distance"] = {
-                name: 1.0 - F.cosine_similarity(current[name], state.anchor_signals[name], dim=1) for name in current
-            }
         current_out["kalman"] = updated
         current_out["kalman_rejected"] = status == "rejected"
         self.kalman_last_step = updated
@@ -363,14 +288,9 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
         features = anchor["maskmem_features"].to(device)
         outputs["kalman_state"] = KalmanState(
             features, anchor["maskmem_pos_enc"][-1].to(device), anchor_idx, self.memory_update,
-            mask_prototype(features, anchor["pred_masks"].to(device)),
         )
         _, _, vision_feats, _, feat_sizes = self._get_image_feature(inference_state, anchor_idx, 1)
-        anchor_feature = vision_feature_map(vision_feats, feat_sizes)
-        outputs["kalman_state"].anchor_signals = anchor_signals(
-            features, anchor["pred_masks"].to(device), anchor["obj_ptr"].to(device), anchor_feature,
-        )
-        outputs["kalman_state"].previous_feature = anchor_feature.float()
+        outputs["kalman_state"].previous_feature = vision_feature_map(vision_feats, feat_sizes).float()
         anchor["maskmem_features"] = None
         anchor["maskmem_pos_enc"] = None
 
@@ -388,8 +308,6 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
             current_out["kalman_rejected"] = step["status"] == "rejected"
             current_out["kalman_trace"] = {
                 "kalman_status": step["status"],
-                "innovation_distance": float(step["distance"].mean()),
-                **{f"anchor_distance_{name}": float(value.mean()) for name, value in step.get("anchor_distance", {}).items()},
                 "presence": float(step["presence"].mean()),
                 "gain_mean": float(step["gain"].mean()),
                 "prior_variance_mean": float(step["prior_variance"].mean()),

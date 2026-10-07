@@ -4,43 +4,29 @@
 \usepackage{graphicx}
 \usepackage{tikz}
 \usepackage{tocloft}
-\usepackage{lipsum} % chỉ để sinh text mẫu
-\usepackage{cite}
 \usepackage{indentfirst}
 \usepackage{amsmath}
 \usepackage{url}
 \usepackage{float}
-
+\setlength{\emergencystretch}{3em}
 
 \begin{document}
 \begin{titlepage}
-    % Vẽ viền ngoài trang
     \begin{tikzpicture}[remember picture,overlay]
         \draw[line width=1pt]
             ([xshift=2cm,yshift=-2cm]current page.north west)
             rectangle
             ([xshift=-2cm,yshift=2cm]current page.south east);
     \end{tikzpicture}
-
     \begin{center}
         {\bfseries ĐẠI HỌC QUỐC GIA HÀ NỘI} \\
         {\bfseries TRƯỜNG ĐẠI HỌC CÔNG NGHỆ} \\
-    \end{center}
-    
-    % Logo
-    \begin{center}
         \vspace*{0.5cm}
-        \includegraphics[width=4cm]{logo.png} \\[1cm] % thay logo.png bằng file logo trường bạn
+        \IfFileExists{logo.png}{\includegraphics[width=4cm]{logo.png}\\[1cm]}{}
         {\LARGE \bfseries Báo cáo Thực tập chuyên ngành} \\[0.7cm]
-        
-        % Đề tài đóng khung + gạch dưới
-        {\bfseries Sử dụng SAT SCL encoding để giải No-hole Anti-k-Labeling Problem} \\[-0.3cm]
-
+        {\bfseries Đánh giá phì đại VA mức video từ nội soi mũi họng với phân đoạn hai vùng} \\
     \end{center}
-
     \vspace{2cm}
-    % Thông tin GV - SV (2 cột)
-    \noindent
     \begin{center}
         \setlength{\tabcolsep}{20pt}
         \begin{tabular}{l l}
@@ -51,565 +37,368 @@
             Mã sinh viên: & 23021469 \\
         \end{tabular}
     \end{center}
-
     \vfill
-    \begin{center}
-        {\large Hà Nội, 2026}
-    \end{center}
+    \begin{center}{\large Hà Nội, 2026}\end{center}
 \end{titlepage}
 
-% ========== TUỲ CHỈNH MỤC LỤC ==========
 \renewcommand{\contentsname}{}
-
-% Kiểu chữ
 \renewcommand{\cftsecfont}{\bfseries}
 \renewcommand{\cftsecpagefont}{\normalfont}
 \renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
-
-% Đánh số: 1, 2, 3; 1.1; 1.1.1
 \renewcommand\thesection{\arabic{section}}
 \renewcommand\thesubsection{\thesection.\arabic{subsection}}
 \renewcommand\thesubsubsection{\thesubsection.\arabic{subsubsection}}
-
-% Khoảng cách giữa các dòng mục lục
 \setlength{\cftbeforesecskip}{8pt}
 \setlength{\cftbeforesubsecskip}{4pt}
 \setlength{\cftbeforesubsubsecskip}{2pt}
-
 \setcounter{tocdepth}{3}
 \setcounter{secnumdepth}{3}
-
-% ========== MỤC LỤC ==========
-\begin{center}
-    {\Huge \textbf{MỤC LỤC}}
-\end{center}
+\begin{center}{\Huge \textbf{MỤC LỤC}}\end{center}
 \vspace{-0.5cm}
 \tableofcontents
 \newpage
 
-% ========== NỘI DUNG ==========
-\section*{\huge Mở đầu}
-\addcontentsline{toc}{section}{Mở đầu}
-\setlength{\parskip}{6pt} % khoảng cách giữa các đoạn
+\section*{Lời cảm ơn}
+\addcontentsline{toc}{section}{Lời cảm ơn}
+Tôi xin chân thành cảm ơn các giảng viên của Trường Đại học Công nghệ, đặc biệt là Dr. Lê Đức Trọng và Dr. Đỗ Thành Công, đã hướng dẫn và góp ý cho quá trình thực hiện đề tài. Tôi cũng cảm ơn các bạn và những người đã hỗ trợ trao đổi chuyên môn trong thời gian thực tập.
 
-SAT (Boolean Satisfiability Problem) không chỉ là bài toán quyết định cơ bản trong logic mệnh đề mà còn là công cụ mạnh mẽ để giải các bài toán tối ưu tổ hợp. Bằng cách mã hóa ràng buộc dưới dạng công thức logic, nhiều vấn đề phức tạp có thể được chuyển đổi sang SAT và giải quyết hiệu quả nhờ các SAT solver hiện đại~\cite{biere2009handbook}. Hướng nghiên cứu này đang ngày càng được quan tâm do khả năng ứng dụng rộng rãi trong lập lịch, thiết kế mạch, phân tích hệ thống và các bài toán gán nhãn đồ thị~\cite{malik2009boolean}.
-
-Anti-Bandwidth Problem (ABP) là một bài toán gán nhãn đồ thị, trong đó mỗi đỉnh được gán một nhãn nguyên khác nhau, và mục tiêu là cực đại hóa khoảng cách nhỏ nhất giữa các nhãn của các đỉnh kề nhau~\cite{fox1967anti}. Từ ý tưởng này, No-hole Anti-K-Labeling Problem (NAKLP) được phát triển như một biến thể, trong đó các nhãn được lấy từ tập liên tiếp $\{1,2,\dots,k\}$ và không để xuất hiện “lỗ hổng” trong dãy nhãn sử dụng~\cite{guan2019anti}. Mục tiêu vẫn là cực đại hóa chênh lệch nhỏ nhất giữa các nhãn kề nhau, phản ánh các tình huống thực tế như phân bổ tài nguyên liên tục hoặc thiết kế phổ tần số.
-
-Nghiên cứu về SAT và các biến thể gán nhãn đồ thị như NHAKL mang lại ý nghĩa cả về khoa học lẫn thực tiễn. Về mặt khoa học, nghiên cứu giúp phát triển các phương pháp giải các bài toán tổ hợp phức tạp, hiểu rõ cấu trúc đồ thị và ràng buộc logic. Về mặt thực tiễn, các kết quả có thể ứng dụng trong lập lịch, phân bổ tài nguyên liên tục, thiết kế phổ tần số, giảm nhiễu trong mạng thông tin. Phạm vi nghiên cứu tập trung vào xây dựng mô hình SAT cho bài toán NHAKL, đồng thời đánh giá hiệu quả của các SAT solver hiện đại trong việc tìm nghiệm tối ưu.
-
-Cấu trúc bài báo cáo gồm $4$ chương chính. Chương $1$ và $2$ chủ yếu giới thiệu về bài toán và nêu những cơ sở lý thuyết sẽ được sử dụng trong phần tiếp theo. Chương $3$ là trọng tâm với việc đi sâu vào việc mô hình hóa giải quyết bài toán. Cuối cùng chương $4$ sẽ sử dụng những công thức đó để đi vào thực nghiệm thực tế và đánh giá kết quả đạt được. 
 \newpage
-\section{Giới thiệu}
+\section*{Mở đầu}
+\addcontentsline{toc}{section}{Mở đầu}
+Đánh giá phì đại VA từ video nội soi mũi họng đòi hỏi thông tin theo thời gian, không chỉ một ảnh đơn lẻ. Mục tiêu dài hạn của dự án AdeSEG là phân đoạn đồng thời vùng VA (adenoid) và vùng đường thở mũi họng (nasopharynx airway), chọn các khung hình hợp lệ và ổn định về lâm sàng, tính chỉ số tắc nghẽn cho từng khung hình, rồi tổng hợp thành đánh giá ở mức video và mức độ phì đại.
 
-% Giới thiệu bài toán gốc
+Ở thời điểm báo cáo, kho mã nguồn chưa có bộ dữ liệu VA đã gán nhãn, bộ chuyển đổi dữ liệu VA, giao thức định nghĩa chỉ số tắc nghẽn, hay ngưỡng phân độ lâm sàng. Vì vậy, báo cáo không tuyên bố kết quả lâm sàng trên VA. Phần đã cài đặt gồm hạ tầng phân đoạn video theo manifest, các tiện ích đo hai vùng, và một hướng thử nghiệm về bộ nhớ không gian Kalman cho MedSAM2. Các thử nghiệm hiện có được thực hiện trên PolypGen và CholecSeg8k như các tập dữ liệu thay thế để đánh giá lan truyền theo thời gian; chúng không thay thế cho đánh giá trên dữ liệu VA.
 
-\subsection{Giới thiệu bài toán gốc}
-
-Anti-Bandwidth Problem (ABP) là một biến thể quan trọng trong họ các bài toán gán nhãn đồ thị (graph labeling problem). Với một đồ thị $G=(V,E)$ và một phép gán nhãn $f: V \to \{1,2,\ldots,|V|\}$, \emph{anti-bandwidth} của một đỉnh $v \in V$ được định nghĩa là:
+\section{Giới thiệu chung}
+\subsection{Giới thiệu công việc}
+AdeSEG xây dựng chuỗi xử lý dự kiến:
 \[
-AB(v,f) = \min_{(v,u)\in E} |f(v) - f(u)|.
+\begin{gathered}
+\text{video nội soi} \rightarrow \text{phân đoạn VA và đường thở}
+\rightarrow \text{chọn khung hình hợp lệ} \\
+\rightarrow \text{đo tắc nghẽn theo khung hình}
+\rightarrow \text{tổng hợp theo video} \rightarrow \text{phân độ}.
+\end{gathered}
 \]
+Công việc tập trung vào ba phần. Thứ nhất là biểu diễn dữ liệu video bằng một manifest JSONL dùng chung cho huấn luyện và suy luận, trong đó mặt nạ ngữ nghĩa có thể chứa nhãn nền $0$, VA $1$ và đường thở $2$. Thứ hai là đánh giá phân đoạn hai vùng và sai số của chỉ số đo với định nghĩa tỷ số được truyền tường minh. Thứ ba là khảo sát bộ nhớ không gian Kalman một khe thay cho ngân hàng bộ nhớ FIFO của MedSAM2; đây là thành phần thử nghiệm, không phải một thành phần đã được kiểm chứng cho chuỗi xử lý VA.
 
-Nói cách khác, $AB(v,f)$ đo khoảng cách nhãn nhỏ nhất giữa đỉnh $v$ và các đỉnh kề nó theo phép gán $f$. Từ đó, \emph{anti-bandwidth} của cả đồ thị $G$ với phép gán $f$ được xác định là:
+\subsection{Giới thiệu bài toán}
+Với một video gồm các khung hình $I_1,\ldots,I_T$, mô hình cần dự đoán hai mặt nạ cho mỗi khung hình: $A_t$ cho VA và $B_t$ cho đường thở mũi họng. Một khung hình chỉ được dùng để đo khi cả hai mặt nạ có cùng kích thước, là mặt nạ hai chiều, có diện tích đủ lớn và tỷ số đo là hữu hạn. Từ các khung hình hợp lệ, hệ thống có thể tổng hợp tỷ số bằng trung vị hoặc trung bình.
+
+Kho mã nguồn hỗ trợ hai tỷ số diện tích tổng quát:
 \[
-AB(G,f) = \min_{v \in V} AB(v,f).
+r_t=\frac{|A_t|}{|A_t|+|B_t|}
+\quad\text{hoặc}\quad
+r_t=\frac{|A_t|}{|B_t|}.
 \]
+Đây là các lựa chọn kỹ thuật trong mã nguồn, không phải định nghĩa lâm sàng đã được xác nhận. Công thức tắc nghẽn và các ngưỡng biến tỷ số thành mức độ phì đại phải được cung cấp bởi giao thức chú thích và lâm sàng của bộ dữ liệu VA.
 
-Mục tiêu của bài toán Anti-Bandwidth là tìm một hoán vị gán nhãn $f$ sao cho giá trị $AB(G,f)$ được \textit{tối đa hóa}:
+\section{Yêu cầu bài toán}
+\subsection{Phạm vi và đầu ra}
+Đầu vào mong muốn là video nội soi đã được sắp theo thứ tự khung hình. Mỗi dòng manifest mô tả một khung hình với các trường \texttt{split}, \texttt{video\_id}, \texttt{frame\_index}, \texttt{image} và \texttt{mask}. Việc chia dữ liệu phải theo video hoặc bệnh nhân, không chia theo từng khung hình, để tránh rò rỉ giữa các tập.
+
+Đầu ra ở mức khung hình bao gồm mặt nạ từng vùng, diện tích từng vùng, tỷ số, kiểu tỷ số và cờ \texttt{valid\_frame}. Đầu ra mức video là tỷ số tổng hợp từ các khung hợp lệ. Một nhãn phân độ chỉ có thể được tạo khi giao thức lâm sàng cung cấp một dãy ngưỡng tăng chặt chẽ.
+
+\subsection{Tiêu chí đánh giá}
+Chất lượng phân đoạn được báo cáo riêng cho từng vùng bằng Dice và IoU. Hàm \texttt{evaluate\_two\_region\_measurement()} đồng thời trả về tỷ số dự đoán, tỷ số từ nhãn thật và sai số tuyệt đối của tỷ số. Cách báo cáo này kiểm tra trực tiếp khả năng xảy ra tình huống Dice vùng tốt nhưng sai số đo tắc nghẽn lớn.
+
+Với thành phần nhớ theo thời gian, cần so sánh trong cùng checkpoint, prompt, bộ đánh giá và giao thức dữ liệu. Các chỉ số theo thời gian đã được dùng trong thí nghiệm thay thế gồm Dice, IoU, tỷ lệ khung hình mất đối tượng, độ dài chuỗi mất theo dõi, tỷ lệ khôi phục và dương tính giả ở khung hình rỗng.
+
+\section{Cơ sở lý thuyết và giải pháp}
+\subsection{Phân đoạn video với MedSAM2}
+MedSAM2 là nền tảng phân đoạn được giữ đông lạnh trong các thí nghiệm hiện tại. Suy luận dùng một hộp bao từ khung hình có chú thích đầu tiên làm prompt đánh giá. Điều này là giao thức đánh giá có prompt từ nhãn thật, không phải bộ phát hiện tự động. Mã nguồn bọc MedSAM2 trong \texttt{modeling/medsam2.py}; suy luận cho từng nhãn được thực hiện bởi \texttt{scripts/infer.py}.
+
+\subsection{Bộ nhớ không gian Kalman một khe}
+Trong hướng thử nghiệm, ngân hàng bộ nhớ FIFO của MedSAM2 được thay bằng một khung hình prompt cố định và một trạng thái không gian gồm trung bình $S$ cùng phương sai theo pixel $P$. Với quan sát bộ nhớ mới $C_t$, bước dự đoán và cập nhật có dạng:
 \[
-\max_{f} AB(G,f).
+P^-_t=P_{t-1}+q,\qquad K_t=\frac{P^-_t}{P^-_t+R_t},
 \]
-
-Trực giác, ABP đối nghịch với \emph{Bandwidth Problem}, trong đó người ta muốn \emph{giảm thiểu} khoảng cách lớn nhất giữa các đỉnh kề nhau \cite{chinn1982bandwidth}. Trong khi Bandwidth Problem thường được ứng dụng trong tối ưu hoá lưu trữ ma trận và giảm thiểu độ phức tạp trong tính toán, thì ABP lại hướng đến việc \emph{phân tán} các nhãn của những đỉnh kề nhau càng xa càng tốt. Do đó, ABP có thể được ứng dụng trong các bài toán thực tế như phân bổ tần số trong mạng thông tin không dây để giảm nhiễu, lập lịch các tiến trình hoặc thiết kế cơ sở dữ liệu \cite{marevcek2007antibandwidth,laguna2010heuristics}.
-
-ABP được chứng minh là một bài toán NP-khó \cite{fernandez2013variable}, điều này đồng nghĩa với việc khó có thể tìm được lời giải tối ưu trong thời gian đa thức khi kích thước đồ thị tăng lớn. Vì vậy, nhiều nghiên cứu đã tập trung phát triển các phương pháp heuristic, metaheuristic, cũng như các tiếp cận dựa trên quy hoạch nguyên (Integer Programming) và SAT/SMT để giải quyết ABP trên các đồ thị quy mô lớn. Các tiếp cận điển hình bao gồm heuristic xây dựng ban đầu dựa trên BFS/DFS \cite{laguna2010heuristics}, giải thuật di truyền, GRASP, và gần đây là SAT encoding để khai thác sức mạnh của các solver hiện đại.
-
-Nhìn chung, Anti-Bandwidth Problem đóng vai trò như một cầu nối giữa nghiên cứu lý thuyết trong tối ưu tổ hợp và các ứng dụng thực tiễn trong khoa học máy tính và kỹ thuật. Sự khó khăn về mặt tính toán cùng tính ứng dụng rộng rãi khiến ABP trở thành một hướng nghiên cứu hấp dẫn, thu hút sự quan tâm của cả cộng đồng lý thuyết và ứng dụng.
-
-\subsection{Định nghĩa bài toán NAKLP}
-
-Như đã trình bày, Anti-Bandwidth Problem (ABP) tìm cách gán nhãn cho các đỉnh của một đồ thị $G=(V,E)$ bằng các số nguyên phân biệt từ $1$ đến $|V|$, nhằm tối đa hóa khoảng cách nhãn nhỏ nhất giữa các đỉnh kề nhau \cite{chinn1982bandwidth,laguna2010heuristics,fernandez2013variable}. Có thể xem ABP như một trường hợp đặc biệt của một bài toán tổng quát hơn, đó là \emph{Anti-$k$-Labeling Problem (AKL)}.
-
-Trong bài toán AKL, thay vì giới hạn ở $|V|$ nhãn, ta cho phép sử dụng một tập nhãn $\{1,2,\ldots,k\}$ với $|V| \geq k \geq 1$ \cite{guan2019anti}. Một ánh xạ 
 \[
-\psi: V(G) \to \{1,2,\ldots,k\}
+S_t=S_{t-1}+K_t(C_t-S_{t-1}),\qquad P_t=(1-K_t)P^-_t.
 \]
-được gọi là một \emph{anti-$k$-labeling} của $G$. Với mỗi cạnh $e=uv \in E(G)$, ta định nghĩa:
-\[
-w_\psi(e) = |\psi(u) - \psi(v)|.
-\]
-Từ đó, anti-$k$-labeling value của $G$ đối với $\psi$ là:
-\[
-w_\psi(G) = \min_{e \in E(G)} w_\psi(e),
-\]
-và \emph{anti-$k$-labeling number} được xác định là:
-\[
-\lambda_k(G) = \max_{\psi} w_\psi(G).
-\]
+Trong mã nguồn, nhiễu quan sát tăng khi MedSAM2 dự đoán đối tượng vắng mặt. Trạng thái duy trì có kích thước cố định theo độ dài video; báo cáo thực nghiệm ghi nhận xấp xỉ 0.88 MiB mỗi đối tượng. Các biến thể tùy chọn gồm không cập nhật ở khung vắng mặt, ngưỡng theo điểm đối tượng, và co mềm gain theo điểm đối tượng. Các biến thể này đều tắt mặc định.
 
-Tuy nhiên, một nhược điểm của anti-$k$-labeling là ánh xạ $\psi$ có thể bỏ trống một số nhãn trong tập $\{1,2,\ldots,k\}$, dẫn đến tình huống không khai thác hết phạm vi nhãn. Để khắc phục điều này, Guan (2019) \cite{guan2019anti} đã giới thiệu khái niệm \emph{No-Hole Anti-$k$-Labeling (NHAKL)}. Một ánh xạ $\psi$ được gọi là \emph{no-hole} nếu nó sử dụng \textbf{tất cả} các nhãn từ $1$ đến $k$ mà không bỏ sót nhãn nào. Khi đó, ta định nghĩa:
-\[
-\lambda^{nh}_k(G) = \max_{\psi \ \text{là no-hole}} w_\psi(G).
-\]
+Kết quả hiện có cho thấy gain Kalman chưa được huấn luyện gần như hằng trên các khung có đối tượng; do đó bộ lọc hoạt động gần với trung bình trượt mũ. Vì vậy, đóng góp đã được hỗ trợ bởi thực nghiệm là cấu trúc bộ nhớ lặp một khe trong một số video PolypGen dài, không phải ưu thế đã được chứng minh của gain Kalman thích nghi.
 
-Rõ ràng, khi $k = |V|$, bài toán NHAKL trở thành đúng bài toán Anti-Bandwidth Problem cổ điển. Như vậy, ABP có thể được xem là một trường hợp đặc biệt của NHAKL. Sự tổng quát này cho phép áp dụng khung NHAKL để nghiên cứu nhiều lớp đồ thị và bài toán gán nhãn khác nhau trong thực tế \cite{guan2019anti}.
+\subsection{Đo hai vùng và tổng hợp theo video}
+Mô-đun \texttt{adenoid/measurement.py} chỉ nhận các mặt nạ cùng kích thước và dùng diện tích pixel để tính tỷ số. Hàm \texttt{select\_valid\_frames()} loại các bản ghi không hợp lệ hoặc có tỷ số không hữu hạn. Hàm tổng hợp tỷ số của video dùng trung vị hoặc trung bình. Mô-đun \texttt{adenoid/grading.py} chuyển một tỷ số hữu hạn thành nhãn thứ bậc khi được cung cấp ngưỡng, nhưng không chứa bất kỳ ngưỡng lâm sàng nào.
 
-
-\subsection{Ứng dụng}
-
-Bài toán No-Hole Anti-$k$-Labeling (NHAKL) không chỉ mang ý nghĩa lý thuyết trong lĩnh vực tối ưu tổ hợp, mà còn có nhiều ứng dụng quan trọng trong thực tiễn. Các ứng dụng chủ yếu có thể kể đến:
-
+\section{Mô tả phần mềm cài đặt}
+\subsection{Cấu trúc mã nguồn}
+Các thành phần chính của hệ thống hiện tại là:
 \begin{itemize}
-    \item[] Gán tần số trong mạng không dây: Trong các hệ thống truyền thông vô tuyến, mỗi đỉnh của đồ thị biểu diễn một trạm phát hoặc một nút mạng, còn cạnh biểu diễn mối liên hệ giao tiếp trực tiếp. Việc gán nhãn có thể hiểu là gán tần số phát sóng. Bài toán NHAKL đảm bảo rằng mọi tần số từ $1$ đến $k$ đều được sử dụng (không để “lỗ hổng” trong phổ tần số), đồng thời tối đa hóa khoảng cách nhỏ nhất giữa các tần số kề nhau để giảm thiểu nhiễu sóng \cite{guan2019anti}.
-
-    \item[] Ứng dụng trong lập lịch: Bài toán NHAKL cũng có thể được sử dụng trong các bài toán lập lịch (ví dụ: lập lịch thi, lập lịch sử dụng tài nguyên), nơi các nhãn biểu diễn khoảng thời gian hoặc phiên làm việc. No-hole đảm bảo toàn bộ quỹ thời gian được khai thác, còn tiêu chí cực đại hóa khoảng cách nhỏ nhất giúp giảm thiểu xung đột giữa các phiên gần nhau.
+    \item \texttt{adenoid/}: tiện ích đo, tổng hợp tỷ số và ánh xạ tỷ số sang phân độ có ngưỡng đầu vào;
+    \item \texttt{datasets/}: giao diện manifest video và xử lý mặt nạ ngữ nghĩa;
+    \item \texttt{modeling/}: bộ dựng MedSAM2, xử lý object pointer và bộ nhớ Kalman;
+    \item \texttt{training/}: huấn luyện bộ cập nhật Kalman với backbone MedSAM2 đông lạnh;
+    \item \texttt{evaluation/}: chỉ số phân đoạn, chỉ số thời gian, tỷ số và đánh giá hai vùng;
+    \item \texttt{scripts/}: suy luận, huấn luyện và các phân tích chẩn đoán.
 \end{itemize}
+Hàm tải mặt nạ phân biệt mặt nạ nhị phân JPEG của PolypGen với mặt nạ PNG có nhãn chỉ số. Nhờ đó, cùng giao diện có thể dùng cho đối tượng nhị phân trong tập thay thế và cho dữ liệu hai vùng VA/đường thở khi bộ dữ liệu đích được cung cấp.
 
-Như vậy, NHAKL không chỉ là sự mở rộng lý thuyết của Anti-Bandwidth Problem, mà còn đóng vai trò là công cụ quan trọng trong nhiều lĩnh vực ứng dụng viễn thông \cite{guan2019anti}.
+\subsection{Quy trình chạy}
+Khi có manifest và checkpoint MedSAM2, huấn luyện hoặc suy luận nhận danh sách nhãn qua \texttt{--label\_ids}; ví dụ nhãn $1$ và $2$ cho VA và đường thở. Suy luận có thể chạy bộ nhớ gốc hoặc backend Kalman. Các tệp kết quả bao gồm mặt nạ dự đoán và bản ghi chẩn đoán theo khung hình. Hiện chưa có manifest dữ liệu VA phù hợp trong kho nên lệnh minh họa trong tài liệu không được xem là một quy trình lâm sàng hoàn chỉnh.
 
+\section{Kết quả đạt được và hướng phát triển}
+\subsection{Kết quả trên dữ liệu thay thế}
+Trên 23 chuỗi PolypGen dương tính (2,012 khung được lan truyền, một seed, MedSAM2 đông lạnh và prompt là hộp bao chặt của mặt nạ thật đầu tiên), bộ nhớ Kalman một khe đạt Dice $0.531$ và IoU $0.487$. Các baseline MedSAM2 gốc và ``prompt cộng một khung'' lần lượt đạt Dice $0.507$ và $0.513$. Tỷ lệ khung polyp bị mất giảm từ $0.374$ ở baseline gốc xuống $0.304$ với Kalman; kiểm định theo chuỗi báo cáo chênh lệch $-0.070$ với $p=0.016$.
 
+Tuy nhiên, cải thiện Dice tổng thể Kalman so với baseline gốc không có ý nghĩa thống kê trong báo cáo hiện có ($p=0.137$). Tỷ lệ dương tính giả trên khung rỗng cũng không giảm (0.694 so với 0.650). Ở tập C6 ngắn hơn của giao thức tách dev/test, lợi ích về tích lũy lỗi không đạt ý nghĩa thống kê. Trên CholecSeg8k, các phương pháp gần tương đương vì việc theo dõi hiếm khi mất đối tượng. Những kết quả này giới hạn kết luận ở khả năng giảm tích lũy lỗi trên một số video PolypGen dài; chúng không xác nhận hiệu quả lâm sàng trên VA.
 
-\section{Cơ sở lý thuyết}
-\subsection{Mệnh đề logic}
+\subsection{Kiến thức và kỹ năng thu nhận}
+Đề tài đã hình thành một quy trình làm việc có thể kiểm tra được cho phân đoạn video: quản lý chia tách theo video, biểu diễn nhãn ngữ nghĩa, đánh giá Dice/IoU theo từng vùng, liên kết sai số phân đoạn với sai số chỉ số đo, và đánh giá hiện tượng mất theo dõi theo thời gian. Việc ghi nhận cả kết quả âm và giới hạn của gain Kalman giúp tránh diễn giải quá mức từ các tập dữ liệu thay thế.
 
-Mệnh đề logic (propositional logic) là một nhánh cơ bản của logic toán học, được sử dụng để biểu diễn và suy luận các phát biểu có giá trị đúng hoặc sai. Một mệnh đề là một câu khẳng định có thể nhận một trong hai giá trị chân lý: đúng (true) hoặc sai (false)~\cite{russell2010artificial}.
+\subsection{Hướng phát triển}
+Các bước tiếp theo cần hoàn thành theo thứ tự sau:
+\begin{enumerate}
+    \item tích hợp bộ dữ liệu VA đã chú thích, xác nhận cách mã hóa hai vùng và chia dữ liệu theo bệnh nhân/video;
+    \item nhận giao thức lâm sàng xác định công thức tỷ số tắc nghẽn, cách chọn khung ổn định và ngưỡng phân độ;
+    \item chạy baseline MedSAM2 và bộ nhớ một khe trên dữ liệu VA theo một giao thức cố định;
+    \item kiểm tra chẩn đoán xem Dice vùng và sai số tỷ số có lệch đáng kể hay không trước khi đề xuất loss nhận biết phép đo;
+    \item chỉ phát triển gain thích nghi khi nó vượt baseline gain hằng trên dữ liệu phát triển mà không làm tăng dương tính giả.
+\end{enumerate}
 
-Trong logic mệnh đề, người ta sử dụng các biến mệnh đề như $p$, $q$, $r$, ... để biểu diễn các mệnh đề đơn giản. Các biến này được kết hợp với nhau thông qua các phép toán logic để tạo thành công thức phức tạp hơn, bao gồm:
+\section{Thiết kế thực nghiệm và phân tích kết quả}
+\subsection{Nguyên tắc diễn giải kết quả}
 
-\begin{itemize}
-    \item[] Phủ định (negation): $\neg p$, đảo ngược giá trị chân lý của $p$.
-    \item[] Hội (conjunction): $p \land q$, đúng khi cả $p$ và $q$ đều đúng.
-    \item[] Tuyển (disjunction): $p \lor q$, đúng khi ít nhất một trong hai mệnh đề đúng.
-    \item[] Kéo theo (implication): $p \rightarrow q$, sai chỉ khi $p$ đúng và $q$ sai.
-    \item[] Tương đương (biconditional): $p \leftrightarrow q$, đúng khi $p$ và $q$ có cùng giá trị chân lý.
-\end{itemize}
+Mục tiêu của phần thực nghiệm hiện tại không phải là khẳng định một phương pháp chẩn đoán phì đại VA. Hai tập dữ liệu được dùng ở đây có vai trò khác nhau: PolypGen là tập thay thế để kiểm tra sự lan truyền của phân đoạn qua video dài, còn CholecSeg8k là tập video thực thứ hai để kiểm tra liệu kết quả có lặp lại trong một bối cảnh hình ảnh khác hay không. Không có cấu trúc giải phẫu nào trong các tập này được xem là tương đương với VA hoặc đường thở mũi họng.
 
-Một công thức logic được gọi là hợp lệ nếu nó luôn đúng với mọi giá trị của các biến. Ngược lại, công thức được gọi là mâu thuẫn nếu nó luôn sai. Nếu tồn tại ít nhất một phép gán giá trị cho các biến làm cho công thức đúng, công thức đó được gọi là thoả mãn được~\cite{biere2009handbook}.
+Mọi kết quả so sánh bộ nhớ được diễn giải theo cùng một nguyên tắc: chỉ thay đổi cách lưu và cập nhật bộ nhớ, trong khi checkpoint MedSAM2, prompt, bộ đánh giá và giao thức dữ liệu được giữ nhất quán. Các số liệu không được dùng để suy ra hiệu quả trên dữ liệu VA. Các bảng được đối chiếu với hồ sơ \texttt{docs/EXPERIMENTS.md} và các đầu ra đã lưu dưới thư mục Google Drive \texttt{AdeSEG/outputs/Kalman}. Kho mã nguồn hiện tại vẫn chưa có manifest JSONL mà \texttt{scripts/infer.py} yêu cầu để chạy lại các thí nghiệm đó.
 
-Các công thức mệnh đề thường được biểu diễn dưới dạng chuẩn tắc, phổ biến nhất là dạng chuẩn hội (Conjunctive Normal Form - CNF). Một công thức ở dạng CNF là phép hội của các mệnh đề con, trong đó mỗi mệnh đề con là phép tuyển của các literal (một biến hoặc phủ định của biến). Ví dụ:
-\[
-(p \lor \neg q) \land (q \lor r \lor \neg s)
-\]
-Dạng CNF đặc biệt quan trọng trong các bài toán thỏa mãn logic (SAT), vì hầu hết các SAT solver hiện nay đều yêu cầu đầu vào ở dạng này để thực hiện kiểm tra tính thoả mãn~\cite{malik2009boolean}.
+\subsection{Giao thức PolypGen}
 
-Logic mệnh đề đóng vai trò nền tảng trong nhiều lĩnh vực của khoa học máy tính như trí tuệ nhân tạo, lập luận tự động và tối ưu tổ hợp. Nó cho phép biểu diễn các ràng buộc phức tạp bằng ngôn ngữ hình thức, là bước đầu tiên để chuyển các bài toán thực tế sang dạng có thể giải bằng máy tính.
+PolypGen gồm các chuỗi nội soi có mask polyp. Báo cáo hiện dùng 23 chuỗi dương tính, với 2,012 khung được lan truyền: 1,689 khung có polyp và 323 khung rỗng. MedSAM2 được giữ đông lạnh. Hộp bao chặt của mask thật ở khung có polyp đầu tiên được dùng làm prompt. Do prompt có nguồn gốc từ nhãn thật, kết quả phản ánh chất lượng lan truyền sau prompt, không phản ánh hiệu năng của hệ thống phát hiện hoặc đặt prompt tự động.
 
-\subsection{SAT}
-
-SAT (Boolean Satisfiability Problem) là một trong những bài toán nền tảng trong khoa học máy tính lý thuyết. Bài toán phát biểu: với một công thức logic mệnh đề gồm các biến Boolean, xác định xem có tồn tại một phép gán giá trị đúng hoặc sai cho các biến sao cho công thức trở nên đúng hay không~\cite{biere2009handbook,malik2009boolean}.
-
-Nếu tồn tại ít nhất một phép gán như vậy, công thức được gọi là thoả mãn được (satisfiable); ngược lại là không thoả mãn (unsatisfiable). Ví dụ,
-\[
-(p \lor q) \land (\neg p \lor r)
-\]
-là thoả mãn được vì có phép gán $p=\text{false}$, $q=\text{true}$, $r=\text{true}$ làm công thức đúng.
-
-SAT là bài toán đầu tiên được chứng minh NP-đầy đủ trong định lý Cook–Levin: Cook (1971) và độc lập Levin (1973) chỉ ra rằng mọi bài toán trong NP có thể quy về SAT trong thời gian đa thức~\cite{cook1971,levin1973}. Các tổng quan hiện đại cũng trình bày kết quả này và hệ quả của nó~\cite{biere2009handbook}. Do đó, việc nghiên cứu và cải thiện các phương pháp giải SAT có ý nghĩa cả lý thuyết lẫn thực tiễn.
-
-Trong thực tế, công thức SAT thường được đưa về dạng chuẩn hội (CNF) trước khi giải. Việc chuyển đổi tổng quát sang CNF thường sử dụng phép biến đổi Tseitin để tránh bùng nổ kích thước bằng cách thêm biến phụ~\cite{tseitin1968}. Ví dụ:
-\[
-(\neg x_1 \lor x_2) \land (x_1 \lor x_3 \lor \neg x_4)
-\]
-
-Việc biểu diễn các bài toán thực tế dưới dạng công thức SAT giúp hợp nhất mô hình hoá ràng buộc nhị phân và tận dụng trực tiếp sức mạnh của các bộ giải SAT~\cite{biere2009handbook}. Một ưu điểm nổi bật là khả năng tổng quát hoá: khi một bài toán đã được mô hình hoá bằng logic mệnh đề, các biến thể của nó có thể thu được bằng cách điều chỉnh ràng buộc.
-
-Nhiều bài toán tối ưu tổ hợp được chuyển sang SAT thông qua các sơ đồ mã hoá (encoding) khác nhau. Tiêu biểu có mã hoá trực tiếp và mã hoá hỗ trợ trong bối cảnh CSP→SAT~\cite{gent2002arc}; mã hoá thứ tự cho biến miền rời rạc nhiều giá trị~\cite{petke2011order}; và các mã hoá ràng buộc đếm như totalizer hoặc bộ đếm tuần tự cho các ràng buộc at-most/at-least-k~\cite{bailleux2003totalizer,sinz2005cardinality}. Mỗi dạng mã hoá có đánh đổi riêng giữa số biến/phần tử, mức độ lan truyền đơn vị và hiệu quả thực nghiệm.
-
-Tóm lại, SAT đóng vai trò cầu nối giữa lý thuyết và thực hành: vừa là ngôn ngữ chung để biểu diễn ràng buộc, vừa là nền tảng cho nhiều phương pháp giải tối ưu hiện đại.
-
-\subsection{SAT Solver}
-
-SAT solver là chương trình hoặc thuật toán được thiết kế để xác định tính thỏa mãn của một công thức logic mệnh đề, thường ở dạng chuẩn hội (CNF). Mục tiêu của SAT solver là tìm một phép gán giá trị cho các biến sao cho toàn bộ công thức trở nên đúng, hoặc chứng minh rằng không tồn tại phép gán nào như vậy~\cite{biere2009handbook,malik2009boolean}.
-
-Các SAT solver hiện đại được phát triển dựa trên nền tảng của hai dòng phương pháp chính: tìm kiếm quay lui (backtracking search) và học mệnh đề xung đột (conflict-driven clause learning). Trong đó, thuật toán Davis-Putnam-Logemann-Loveland (DPLL)~\cite{davis1962machine} được xem là cơ sở của hầu hết các solver hiện nay. DPLL hoạt động theo nguyên tắc gán thử giá trị cho các biến, rút gọn công thức theo luật suy diễn đơn vị (unit propagation), và quay lui khi gặp mâu thuẫn. Quá trình này được lặp lại cho đến khi tìm được nghiệm hoặc công thức trở nên vô nghiệm.
-
-Tuy nhiên, DPLL cơ bản gặp hạn chế khi phải xử lý các bài toán lớn với hàng triệu biến và mệnh đề. Để khắc phục, các SAT solver thế hệ mới đã mở rộng DPLL bằng cơ chế học mệnh đề xung đột, hình thành mô hình CDCL (Conflict-Driven Clause Learning). Trong CDCL, khi phát hiện xung đột, solver sẽ phân tích nguyên nhân và sinh ra một mệnh đề mới đại diện cho xung đột đó. Mệnh đề này được thêm vào công thức để ngăn solver lặp lại cùng một sai lầm trong tương lai~\cite{biere2009handbook}. Cơ chế này giúp rút ngắn không gian tìm kiếm và cải thiện đáng kể tốc độ hội tụ.
-
-Ngoài học xung đột, CDCL còn sử dụng kỹ thuật quay lui không tuần tự (non-chronological backtracking hay backjumping), cho phép solver quay lui trực tiếp đến cấp quyết định liên quan nhất đến xung đột, thay vì lần lượt quay lui từng bước như DPLL. Kết hợp với các heuristic chọn biến như VSIDS (Variable State Independent Decaying Sum)~\cite{een2003extensible}, và các chiến lược loại bỏ mệnh đề dư thừa (clause deletion), các SAT solver hiện nay có thể giải những bài toán thực tế có kích thước rất lớn trong thời gian ngắn.
-
-Một số SAT solver tiêu biểu bao gồm MiniSat~\cite{een2003extensible}, Glucose~\cite{audemard2009predicting}, và Lingeling~\cite{biere2009handbook}. Các solver này được sử dụng rộng rãi trong các cuộc thi SAT quốc tế (SAT Competition) và trở thành công cụ chuẩn trong các ứng dụng như kiểm chứng phần mềm, thiết kế mạch logic, tối ưu hóa ràng buộc, và lập lịch. Nhờ sự phát triển của các solver mạnh mẽ này, các bài toán vốn được xem là bất khả thi trong thập niên 1990 nay có thể được giải trong vài phút hoặc vài giây trên phần cứng phổ thông.
-
-Nhìn chung, SAT solver đóng vai trò trung tâm trong việc đưa lý thuyết SAT vào ứng dụng thực tế. Việc kết hợp giữa khả năng học xung đột, heuristic động, và quản lý mệnh đề thông minh đã biến SAT solver thành một trong những công cụ mạnh nhất hiện nay để giải các bài toán tối ưu tổ hợp phức tạp.
-
-\subsection{SCL Encoding}
-
-SCL (Sequential Counter-based Ladder Encoding) là một phương pháp mã hóa SAT được đề xuất bởi \textit{Trương Hiếu Xuân, Kiều Văn Thuyền và Tô Văn Khánh (2025)} ~\cite{2025sequential} nhằm biểu diễn ràng buộc Staircase At-Most-One (SCAMO) một cách hiệu quả hơn. SCAMO là tập hợp các ràng buộc \textit{At-Most-One (AMO)} liên tiếp có các biến chồng lấn nhau, hình thành cấu trúc bậc thang (\textit{staircase structure}). Mục tiêu của SCL là tận dụng sự trùng lặp giữa các ràng buộc này để giảm số lượng biến phụ và mệnh đề khi mã hóa sang dạng CNF.
-
-Giả sử có tập biến Boolean:
-\[
-\Omega = \{x_1, x_2, \ldots, x_n\}
-\]
-và một giá trị độ rộng \(w\) (với \(1 < w \le n\)), ràng buộc SCAMO được định nghĩa là:
-\[
-SCAMO(\Omega, w) = \bigwedge_{i=0}^{n-w} \left( \sum_{j=i+1}^{i+w} x_j \le 1 \right)
-\]
-Tức là trong mọi đoạn con gồm \(w\) biến liên tiếp, chỉ được phép có nhiều nhất một biến mang giá trị \texttt{TRUE}.  
-Ví dụ, với \(n = 10, w = 4\):
-\[
-(x_1 + x_2 + x_3 + x_4 \le 1) \land (x_2 + x_3 + x_4 + x_5 \le 1) \land (x_3 + x_4 + x_5 + x_6 \le 1)
-\]
-Ta nhận thấy các ràng buộc này chia sẻ nhiều biến chung, tạo thành chuỗi ``bậc thang'' có thể tái sử dụng trong quá trình mã hóa.
-
-Để biểu diễn SCAMO hiệu quả, SCL chia dãy biến \(\Omega\) thành các khối con (block) có độ rộng \(w\). Mỗi khối được mã hóa bằng Sequential Counter (SC) --- kỹ thuật được đề xuất bởi \textit{Sinz (2005)} ~\cite{sinz2005cardinality} để biểu diễn ràng buộc \textit{At-Most-One}.  
-Trong mỗi khối, các biến trung gian \(R_{i,j}\) được định nghĩa để biểu diễn tổng của \(j\) biến đầu tiên:
-\[
-R_{i,j} = 1 \iff \sum_{j'=1}^{j} x_{i,j'} = 1
-\]
-Các biến \(R_{i,j}\) giúp ghi nhớ trạng thái ``đã có một biến TRUE'' trong chuỗi, từ đó dễ dàng ngăn chặn việc xuất hiện thêm biến TRUE thứ hai.
-
-Ràng buộc trong mỗi khối được mô hình hóa bởi bốn nhóm công thức chính:
-\begin{equation}
-\bigwedge\limits_{i=1}^{n} \bigwedge\limits_{j=2}^{w}
-\left( x[i][j] \to R[i][j] \right)
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n} \bigwedge\limits_{j=2}^{w}
-\left( R[i][j-1] \to R[i][j] \right)
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n} \bigwedge\limits_{j=2}^{w}
-\left( \lnot x[i][j] \land \lnot R[i][j-1] \to \lnot R[i][j] \right)
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n} \bigwedge\limits_{j=2}^{w}
-\left( x[i][j] \to \lnot R[i][j-1] \right)
-\end{equation}
-Trong đó:
-\begin{itemize}
-    \item[] (1) và (2) đảm bảo rằng nếu một biến hoặc thanh ghi trước đó đã được kích hoạt, các thanh ghi sau sẽ giữ trạng thái TRUE.
-    \item[] (3) duy trì tính lan truyền FALSE trong chuỗi.
-    \item[] (4) đảm bảo tính At-Most-One, tức chỉ có duy nhất một biến nhận giá trị TRUE.
-\end{itemize}
-
-Khi kết nối các khối liên tiếp, SCL tận dụng mối quan hệ giữa biến cuối của khối trước và biến đầu của khối sau để duy trì tính \textit{staircase}. Các mệnh đề liên kết này có dạng:
-\[
-(\neg R_{i,w-1} \lor \neg x_{i+1,1}), \quad (\neg R_{i,w-2} \lor \neg R_{i+1,2}), \ldots
-\]
-giúp đảm bảo rằng các biến được chia sẻ giữa hai khối không vi phạm ràng buộc At-Most-One toàn cục.
-
-Phân tích lý thuyết trong~\cite{2025sequential} cho thấy SCL đạt độ phức tạp tuyến tính \(O(n)\) với số lượng biến phụ tối đa:
-\[
-2Mw - 3M - 2w + 4
-\]
-và số mệnh đề:
-\[
-8Mw - 8M - 7w + 7
-\]
-trong đó \(M = \lceil n/w \rceil\).  
-So với phương pháp Duplex Encoding dựa trên BDD, SCL giúp giảm hơn 40–50\% mệnh đề và cải thiện đáng kể tốc độ giải khi áp dụng cho các bài toán như Anti-Bandwidth Problem (ABP) và No-Hole Anti-k-Labeling Problem (NHAKL).
-
-Tóm lại, SCL Encoding là kỹ thuật mã hóa hiện đại kết hợp tính tuần tự của Sequential Counter với cấu trúc bậc thang của SCAMO, giúp giảm kích thước công thức CNF, nâng cao tốc độ giải và khả năng mở rộng của các mô hình SAT trong các bài toán tối ưu tổ hợp.
-
-
-
-\section{Phương pháp đề xuất cho bài toán NHAKL}
-\subsection{Tổng quan phương pháp}
-
-Để giải quyết bài toán NHAKL, phương pháp được đề xuất trong bài báo này dựa trên việc mã hóa quyết định gán nhãn của một đỉnh thành một dãy gồm $k$ phần tử với phần tử thứ $i$ đại diện cho nhãn thứ $i$. Sau khi đã mã hóa, dãy sẽ được chia nhỏ thành các khối gồm $\left\lfloor \frac{k - 1}{w} \right\rfloor$ phần tử. Mỗi khối sẽ được mã hóa theo $2$ chiều về bên trái và về bên phải nhằm để kết nối với khối trước hoặc khối sau. Sau đó các khối được ghép nối nhằm đảm bảo hiệu số nhãn của hai đỉnh liền kề $\ge w$ với $w$ là đáp án đang xét hiện tại.
-
-Phương pháp này đã được chứng minh là hiệu quả hơn so với phương pháp mã hóa trực tiếp. Vì vậy, để giải quyết bài báo, phương pháp SCL encoding sẽ được áp dụng. ~\cite{2025sequential} 
-
-\subsection{Mô tả các biến}
-
-Đầu vào của bài toán là một đồ thị vô hướng $G=(V,E)$ và số lượng nhãn được phép sử dụng $k$ sao cho $k \le |V|$. Bài toán được giải bằng cách xét các giá trị đáp án $w$ xem có thể thỏa mãn hay không. Bên cạnh đó cần sử dụng thêm một số các biến nhằm phục vụ việc mã hóa.
-
-\begin{itemize}
-    \item[] \quad $x[i][j]$: với $i\in\{1,\dots,n\}$ thể hiện đỉnh và $j\in\{1,\dots,k\}$ thể hiện nhãn. $x[i][j]=1$ khi và chỉ khi đỉnh $i$ được gán nhãn $j$, ngược lại $x[i][j]=0$
-    \item[] \quad $L[i][j][q]$ và $R[i][j][q]$: với $i\in\{1,\dots,n\}$ thể hiện đỉnh, $j\in\{1,\dots,\left\lfloor \frac{k - 1}{w} \right\rfloor\}$ thể hiện số chỉ block, $q\in\{1,\dots,w\}$ thể hiện số chỉ trong block $j$. Hai biến này dùng để mã hóa theo SCL
-\end{itemize}
-
-\subsection{Các loại mệnh đề}
-\subsubsection{Đảm bảo mỗi biến chỉ được gán duy nhất một nhãn}
-
-Để đảm bảo mỗi biến chỉ được gán duy nhất một nhãn cần đảm bảo mỗi biến được gán ít nhất $1$ nhãn và mỗi biến được gán nhiều nhất $1$ nhãn. 
-\begin{equation}
-\bigwedge\limits_{i=1}^{n} 
-\bigvee\limits_{j=1}^{k} x[i][j]
-\end{equation}
-
-Công thức số $(5)$ đảm bảo sẽ luôn có ít nhất một nhãn được gán cho mỗi đỉnh. Tuy nhiên công thức này vẫn cho phép đỉnh được nhận nhiều hơn $1$ nhãn, trên thực tế điều này là không đúng, vì vậy cần thêm công thức $(6)$ để đảm bảo chỉ có nhiều nhất $1$ nhãn được sử dụng cho mỗi đỉnh.
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n} \bigvee\limits_{j=1}^{k} \bigvee\limits_{j'=1, j != j'}^{k} x[i][j] \to \lnot x[i][j']
-\end{equation}
-
-\subsubsection{Đảm bảo mỗi nhãn phải được sử dụng ít nhất 1 lần}
-
-Để đảm bảo mỗi nhãn được sử dụng ít nhất $1$ lần ta sử dụng công thức số $(7)$
-
-\begin{equation}
-\bigwedge\limits_{j=1}^{k} 
-\bigvee\limits_{i=1}^{n} x[i][j]
-\end{equation}
-
-Công thức trên đảm bảo mỗi nhãn sẽ được sử dụng ít nhất tại một đỉnh trong $n$ đỉnh. Tuy nhiên vì yêu cầu đặc biệt của bài toán NHAKL cho phép lặp lại nhãn, nên không thể áp dụng số lượng tối đa như công thức $(6)$.
-
-\subsubsection{Đảm bảo hiệu số nhãn của hai đỉnh liền kề $\ge w$}
-
-Để thực hiện phương pháp đã nêu ở trên, cần mã hóa mỗi khối, với độ dài của mỗi khối là $m = \left\lfloor \frac{k - 1}{w} \right\rfloor$ về bên trái và phải. Công thức $(8) \to (12)$ thực hiện mã hóa về bên trái, trong khi công thức $(13) \to (17)$ thực hiện mã hóa về bên phải.
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\bigwedge\limits_{q=1}^{w}
-x[i][j \times w - q + 1] \rightarrow L[i][j][q]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\bigwedge\limits_{q=1}^{w-1}
-L[i][j][q] \rightarrow L[i][j][q+1]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\lnot x[i][j \times w] \rightarrow \lnot L[i][j][1]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\bigwedge\limits_{q=2}^{w}
-\lnot x[i][j \times w - q + 1] 
-\land \lnot L[i][j][q-1]
-\rightarrow \lnot L[i][j][q]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\bigwedge\limits_{q=2}^{w}
-x[i][j \times w - q + 1]
-\rightarrow \lnot L[i][j][q-1]
-\end{equation}
-
-% Tiếp theo là block right
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\bigwedge\limits_{q=1}^{w}
-x[i][j \times w + q] \rightarrow R[i][j][q]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\bigwedge\limits_{q=1}^{w-1}
-R[i][j][q] \rightarrow R[i][j][q+1]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\lnot x[i][j \times w + 1] \rightarrow \lnot R[i][j][1]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\bigwedge\limits_{q=2}^{w}
-\lnot x[i][j \times w + q] 
-\land \lnot R[i][j][q-1]
-\rightarrow \lnot R[i][j][q]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=1}^{n}
-\bigwedge\limits_{j=1}^{m}
-\bigwedge\limits_{q=2}^{w}
-x[i][j \times w + q]
-\rightarrow \lnot [i][j][q-1]
-\end{equation}
-
-Sau khi mã hóa xong, thực hiện việc xét các cặp đỉnh có cạnh nối trên đồ thị. Với mỗi cạnh $(u,v) \in E$ bất kì, sử dụng các công thức $(18),(19)$ để đảm bảo khi gán nhãn cho $2$ đỉnh $u$ và $v$ thì hiệu tuyệt đối luôn $\ge w$. Đặt $j = \left\lfloor \frac{i - 1}{w} \right\rfloor + 1$, $q = (i-1) \bmod w$.
-
-\begin{equation}
-\bigwedge\limits_{i=2}^{k-w+1}
-L[u][j][w - q] \to \lnot R[v][j][q] \wedge \lnot L[v][j][w - q]
-\end{equation}
-
-\begin{equation}
-\bigwedge\limits_{i=2}^{k-w+1}
-R[u][j][q] \to \lnot R[v][j][q] \wedge \lnot L[v][j][w - q]
-\end{equation}
-
-\subsection{Phá đối xứng}
-
-Theo Sinnl (2021)~\cite{sinnl2021note}, trong mọi phép gán nhãn $f$ của một đồ thị có $n$ đỉnh, luôn tồn tại một phép gán nhãn đối xứng $f'$ được xác định thông qua phép biến đổi tuyến tính:
-\[
-f'(v) = n + 1 - f(v)
-\]
-với mọi đỉnh $v \in V$. Phép biến đổi này tạo nên một ánh xạ một-một giữa các giá trị trong $f$ và $f'$, nghĩa là mỗi nhãn trong $f$ đều có một giá trị tương ứng duy nhất trong $f'$.  
-
-Dễ thấy rằng nếu phép gán $f$ thoả mãn các ràng buộc về đỉnh và nhãn của bài toán (ví dụ: mỗi đỉnh có đúng một nhãn và tất cả các nhãn đều được sử dụng), thì phép gán $f'$ cũng thoả mãn các ràng buộc tương tự. Hơn nữa, giá trị chênh lệch nhãn giữa hai đỉnh kề nhau vẫn được bảo toàn sau phép biến đổi này. Thật vậy:
-\[
-|f'(i) - f'(i')| = |(n + 1 - f(i)) - (n + 1 - f(i'))| = |f(i') - f(i)|
-\]
-Điều đó cho thấy $f$ và $f'$ là hai nghiệm đối xứng có cùng giá trị hàm mục tiêu.  
-
-Dựa trên nhận xét này, có thể áp dụng kỹ thuật phá đối xứng để giảm không gian tìm kiếm~\cite{gent2006symmetry}. Cụ thể, trong bài toán No-Hole Anti-$k$-Labeling, việc gán nhãn đối xứng như trên tạo ra nhiều nghiệm tương đương về giá trị tối ưu. Để loại bỏ các nghiệm trùng lặp này, mô hình SAT được bổ sung các mệnh đề ràng buộc loại trừ một hướng đối xứng nhất định.  
-
-Trong quá trình triển khai, thực hiện phá đối xứng bằng cách cố định nhãn của một đỉnh có nhiều đỉnh liền kề nhất chỉ nằm trong khoảng $1$ đến $\lceil \frac{k}{2} \rceil$, qua đó giới hạn chỉ xét một nửa không gian nghiệm có thể. Giả sử đỉnh $p$ là đỉnh được chọn, cố định đỉnh $p$ để phá vỡ tính đối xứng dựa trên công thức $(20)$.
-
-\begin{equation}
-\bigwedge\limits_{i=\lceil \frac{k}{2} \rceil + 1}^{k}
-\lnot x[p][i]
-\end{equation}
-
-Cách tiếp cận này giúp giảm đáng kể số lượng tổ hợp cần kiểm tra mà không ảnh hưởng đến tính chính xác của lời giải.
-
-\section{Kết quả thực nghiệm}
-\subsection{Môi trường thực nghiệm}
-Để chứng minh tính hiệu quả của việc sử dụng SCL, bài toán sẽ được so sánh kết quả thực nghiệm theo phương pháp SCL và phương pháp trực tiếp. Những thực nghiệm được thực hiện trên môi trường sử dụng CPU Intel i7-14700KF và 32 GB RAM, chạy trên hệ điều hành Window 11.
-
-Thực nghiệm sẽ được chạy trên bộ dữ liệu Harwell-Boeing Sparse Matrix Collection ~\cite{nist_harwellboeing}, bao gồm $12$ ma trận có kích thước bé đến vừa và $12$ ma trận có kích thước rất lớn.
+Có hai giao thức được ghi nhận. Giao thức thứ nhất đánh giá cả 23 chuỗi. Giao thức (a) cố định tập phát triển là seq1--seq15, thuộc các trung tâm C1--C5, và tập kiểm tra là seq16--seq23 thuộc trung tâm C6. Mọi lựa chọn hiệu chỉnh và thiết kế được thực hiện ở tập phát triển; một phương pháp đã đóng băng chỉ được chạy một lần trên C6. Do C6 chỉ có các video ngắn, giao thức này không đủ mạnh để xác nhận lợi ích về tích lũy lỗi dài hạn.
 
 \begin{table}[H]
 \centering
-\caption{Harwell-Boeing Sparse Matrix benchmark.}
-\resizebox{0.4\textwidth}{!}{%
+\caption{Vai trò của dữ liệu trong giao thức PolypGen.}
+\begin{tabular}{p{0.28\textwidth}p{0.59\textwidth}}
+\hline
+Thành phần & Nội dung được dùng \\
+\hline
+Huấn luyện khung dương & \texttt{data\_C1} đến \texttt{data\_C6}: 1,399 ảnh đơn sau khi loại 12 ảnh trùng với khung kiểm tra. \\
+Huấn luyện khung vắng mặt & \texttt{sequenceData/negativeOnly}: 23 chuỗi, 4,275 khung. \\
+Kiểm tra lan truyền & Toàn bộ 23 chuỗi \texttt{sequenceData/positive}. \\
+Giao thức (a) -- phát triển & seq1--seq15, các trung tâm C1--C5. \\
+Giao thức (a) -- kiểm tra & seq16--seq23, trung tâm C6. \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Các baseline và chỉ số}
+
+Ba cấu hình chính được so sánh. \emph{Native MedSAM2} dùng cơ chế bộ nhớ gốc. \emph{Prompt + 1 frame} là baseline có prompt cộng một bộ nhớ khung gần nhất. \emph{Kalman memory} giữ prompt anchor và một trạng thái không gian nén. Để không nhầm lẫn giữa kích thước lưu trữ và cơ chế attention, cần lưu ý MedSAM2 gốc vẫn chỉ attention đến tối đa bảy bộ nhớ khung; cụm từ ``grows'' trong bảng chỉ lượng trạng thái mà mã gốc lưu. Một bộ nhớ khung có kích thước $64\times 32\times 32$ ở bf16, xấp xỉ 0.125 MiB; bảy bộ nhớ đã cắt tỉa sẽ gần 0.875 MiB, gần kích thước 0.88 MiB của trạng thái Kalman.
+
+Dice và IoU được báo cáo trên mặt nạ. Dice trên khung polyp chỉ xét các khung có polyp thật. ``Empty-frame FP'' là tỷ lệ dương tính giả trên khung rỗng. Một episode mất theo dõi là dãy liên tiếp các khung có polyp thật nhưng Dice dưới 0.1. Bởi vậy, các chỉ số lost fraction, độ dài episode, recovered và lost until end mô tả đặc tính theo thời gian mà Dice gộp có thể che khuất.
+
+\subsection{Kết quả trên toàn bộ 23 chuỗi}
+
+\begin{table}[H]
+\centering
+\caption{Kết quả PolypGen trên các khung được lan truyền của cả 23 chuỗi.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrr}
+\hline
+Phương pháp & Dice & IoU & Dice khung polyp & FP khung rỗng & Phát hiện polyp & $\geq$10 khung sau xuất hiện lại & FPS \\
+\hline
+Native MedSAM2 & 0.507 & 0.466 & 0.537 & 0.650 & 0.906 & 0.452 & 13.3 \\
+Prompt + 1 frame & 0.513 & 0.469 & 0.552 & 0.687 & 0.926 & 0.466 & 15.7 \\
+Kalman 1 khe & 0.531 & 0.487 & 0.574 & 0.694 & 0.927 & 0.519 & 17.0 \\
+\hline
+\end{tabular}}
+\end{table}
+
+Kalman đạt Dice và IoU gộp cao nhất trong bảng này, đồng thời có tốc độ đo được cao nhất. Tuy nhiên, không được diễn giải chênh lệch điểm gộp là kết luận chắc chắn. So với native MedSAM2, chênh lệch Dice là $+0.025$ với khoảng tin cậy bootstrap 95\% $[-0.009,+0.063]$ và kiểm định Wilcoxon $p=0.137$. Vì khoảng tin cậy chứa 0 và $p$ vượt ngưỡng thông dụng, báo cáo không khẳng định Kalman cải thiện Dice tổng thể.
+
+\begin{table}[H]
+\centering
+\caption{So sánh cặp theo chuỗi trong PolypGen toàn bộ 23 chuỗi.}
+\begin{tabular}{p{0.28\textwidth}p{0.19\textwidth}p{0.25\textwidth}p{0.14\textwidth}}
+\hline
+So sánh & Chỉ số & Chênh lệch [KTC 95\%] & $p$ \\
+\hline
+Kalman -- native & Dice & $+0.025$ [$-0.009,+0.063$] & 0.137 \\
+Kalman -- native & Dice khung polyp & $+0.037$ [$+0.000,+0.080$] & 0.070 \\
+Kalman -- native & FP khung rỗng & $+0.044$ [$-0.019,+0.117$] & 0.325 \\
+Kalman -- prompt + 1 frame & Dice khung polyp & $+0.027$; 17/21 chuỗi tốt hơn & 0.014 \\
+\hline
+\end{tabular}
+\end{table}
+
+Kết quả dương rõ hơn nằm ở tích lũy lỗi. Tỷ lệ khung polyp mất giảm từ 0.374 của native xuống 0.304 với Kalman; độ dài episode trung bình giảm từ 25.3 xuống 16.1 khung; tỷ lệ episode được khôi phục tăng từ 0.60 lên 0.75; và tỷ lệ mất đến hết chuỗi giảm từ 0.36 xuống 0.22. Chênh lệch lost-frame fraction của Kalman so với native là $-0.070$ với $p=0.016$, và so với prompt + 1 frame là $-0.023$ với $p=0.011$. Đây là bằng chứng thực nghiệm được báo cáo cho lợi ích của cấu trúc một khe trên các video PolypGen dài.
+
+\begin{table}[H]
+\centering
+\caption{Phân tích tích lũy lỗi trên 23 chuỗi PolypGen.}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrr}
 \hline
-\textbf{Instance} & \textbf{|V|} & \textbf{|E|} & \textbf{LB} & \textbf{UB} \\
+Phương pháp & Tỷ lệ mất & Episode trung bình & Episode được khôi phục & Mất đến cuối \\
 \hline
-A-pores\_1   & 30  & 103  & 6   & 8   \\
-B-ibm32      & 32  & 90   & 9   & 9   \\
-C-bcspwr01   & 39  & 46   & 16  & 17  \\
-D-bcsstk01   & 48  & 176  & 8   & 9   \\
-E-bcspwr02   & 49  & 59   & 21  & 22  \\
-F-curtis54   & 54  & 124  & 12  & 13  \\
-G-will57     & 57  & 127  & 12  & 14  \\
-H-impcol\_b  & 59  & 281  & 8   & 8   \\
-I-ash85      & 85  & 219  & 19  & 27  \\
-J-nos4       & 100 & 247  & 32  & 40  \\
-K-dwt\_234   & 117 & 162  & 46  & 58  \\
-L-bcspwr03   & 118 & 179  & 39  & 39  \\
-M-bcsstk06   & 420 & 3720 & 28  & 72  \\
-N-bcsstk07   & 420 & 3720 & 28  & 72  \\
-O-impcol\_d  & 425 & 1267 & 91  & 173 \\
-P-can\_445   & 445 & 1682 & 78  & 120 \\
-Q-494\_bus   & 494 & 586  & 219 & 246 \\
-R-dwt\_503   & 503 & 2762 & 46  & 71  \\
-S-sherman4   & 546 & 1341 & 256 & 272 \\
-T-dwt\_592   & 592 & 2256 & 103 & 150 \\
-U-662\_bus   & 662 & 906  & 219 & 220 \\
-V-nos6       & 675 & 1290 & 326 & 337 \\
-W-685\_bus   & 685 & 1282 & 136 & 147 \\
-X-can\_715   & 715 & 2975 & 112 & 142 \\
+Native MedSAM2 & 0.374 & 25.3 & 0.60 & 0.36 \\
+Prompt + 1 frame & 0.326 & 19.0 & 0.55 & 0.31 \\
+Kalman 1 khe & 0.304 & 16.1 & 0.75 & 0.22 \\
 \hline
-\end{tabular}%
-}
+\end{tabular}}
 \end{table}
 
-Bảng 1 chứa thông tin về toàn bộ $24$ ma trận trong bộ dữ liệu, với $|V|$ là số lượng đỉnh, $|E|$ là số lượng cạnh. $LB$ và $UB$ tương ứng là cận dưới và cận trên của bài toán $ABP$ ~\cite{fox1967anti}, được lấy từ bài báo ~\cite{fazekas2020duplex}. Tuy nhiên do tính chất của bài toán NHAKL không sử dụng tất cả các nhãn như bài ABP nên trong thực nghiệm này, số lượng nhãn sử dụng được lấy đúng bằng $80\%$ so với số lượng nhãn trong đồ thị gốc. Bên cạnh đó, $LB$ cũng sẽ được lấy $80\%$ so với giá trị gốc để đảm bảo tính đồng bộ, tránh tốn quá nhiều thời gian giải. Bảng 2 biểu diễn dữ liệu thực tế được dùng trong thực nghiệm.
+\subsection{Kết quả của giao thức (a)}
+
+Giao thức (a) giúp tách quyết định thiết kế khỏi đánh giá trên C6. Ở tập phát triển, Kalman có Dice 0.514 so với 0.481 ở native và 0.488 ở prompt + 1 frame. Tỷ lệ mất polyp ở phát triển là 0.318, thấp hơn 0.403 và 0.343 tương ứng. Ở C6, kết quả không lặp lại một cách thuyết phục: Kalman có Dice 0.609, thấp hơn native 0.621 và prompt + 1 frame 0.623; chênh lệch Kalman--native là $-0.014$, $p=0.20$. Tỷ lệ mất trên C6 gần như không đổi ($+0.001$, $p=0.88$).
 
 \begin{table}[H]
 \centering
-\caption{Harwell-Boeing Sparse Matrix benchmark (Sau khi lấy tỉ lệ).}
-\resizebox{0.48\textwidth}{!}{%
+\caption{Giao thức (a): phát triển và kiểm tra C6, bộ nhớ là khác biệt duy nhất.}
+\resizebox{0.97\textwidth}{!}{%
 \begin{tabular}{lrrrrr}
 \hline
-\textbf{Instance} & \textbf{|V|} & \textbf{|E|} & \textbf{k} & \textbf{LB} & \textbf{UB} \\
+Tập/phương pháp & Dice & Tỷ lệ mất polyp & Episode trung bình & Khôi phục & Mất đến cuối \\
 \hline
-A-pores\_1   & 30  & 103  & 24  & 4   & 8   \\
-B-ibm32      & 32  & 90   & 25  & 7   & 9   \\
-C-bcspwr01   & 39  & 46   & 31  & 12  & 17  \\
-D-bcsstk01   & 48  & 176  & 38  & 6   & 9   \\
-E-bcspwr02   & 49  & 59   & 39  & 16  & 22  \\
-F-curtis54   & 54  & 124  & 43  & 9   & 13  \\
-G-will57     & 57  & 127  & 45  & 9   & 14  \\
-H-impcol\_b  & 59  & 281  & 47  & 6   & 8   \\
-I-ash85      & 85  & 219  & 68  & 15  & 27  \\
-J-nos4       & 100 & 247  & 80  & 25  & 40  \\
-K-dwt\_234   & 117 & 162  & 93  & 36  & 58  \\
-L-bcspwr03   & 118 & 179  & 94  & 31  & 39  \\
-M-bcsstk06   & 420 & 3720 & 336 & 22  & 72  \\
-N-bcsstk07   & 420 & 3720 & 336 & 22  & 72  \\
-O-impcol\_d  & 425 & 1267 & 340 & 72  & 173 \\
-P-can\_445   & 445 & 1682 & 356 & 62  & 120 \\
-Q-494\_bus   & 494 & 586  & 395 & 175 & 246 \\
-R-dwt\_503   & 503 & 2762 & 402 & 36  & 71  \\
-S-sherman4   & 546 & 1341 & 436 & 204 & 272 \\
-T-dwt\_592   & 592 & 2256 & 473 & 82  & 150 \\
-U-662\_bus   & 662 & 906  & 529 & 175 & 220 \\
-V-nos6       & 675 & 1290 & 540 & 260 & 337 \\
-W-685\_bus   & 685 & 1282 & 548 & 108 & 147 \\
-X-can\_715   & 715 & 2975 & 572 & 89  & 142 \\
+Phát triển: native & 0.481 & 0.403 & 39.6 & 0.57 & 0.36 \\
+Phát triển: prompt + 1 frame & 0.488 & 0.343 & 23.6 & 0.60 & 0.25 \\
+Phát triển: Kalman & 0.514 & 0.318 & 19.9 & 0.82 & 0.14 \\
+Kiểm tra C6: native & 0.621 & 0.247 & 7.1 & 0.64 & 0.36 \\
+Kiểm tra C6: prompt + 1 frame & 0.623 & 0.253 & 8.9 & 0.44 & 0.44 \\
+Kiểm tra C6: Kalman & 0.609 & 0.244 & 7.7 & 0.60 & 0.40 \\
 \hline
-\end{tabular}%
-}
+\end{tabular}}
 \end{table}
 
-\subsection{Kết quả thực nghiệm}
+Mâu thuẫn giữa lợi ích trên phát triển và kết quả C6 có ý nghĩa cho cách viết báo cáo: không được nói rằng phương pháp cải thiện ổn định trên mọi video. Diễn giải phù hợp là dữ liệu phát triển chứa các video dài nơi giảm tích lũy lỗi có thể quan sát được, trong khi C6 ngắn và không xác nhận hiệu ứng đó. Điều này cũng giải thích vì sao target dataset VA cần được đánh giá theo giao thức cố định trước khi bất kỳ cơ chế nhớ nào được gọi là cải thiện lâm sàng.
 
-Việc thực nghiệm cả hai phương án tiếp cận đều được chạy trên API SAT Solver Cadical 1.9.5 ~\cite{biere2019cadical} trong thư viện Python-Sat ~\cite{ignatiev2018pysat}. Toàn bộ $24$ đồ thị đều được chạy với thời gian tối đa để chạy của mỗi đồ thị là $1800$ giây. Nếu đồ thị nào không thể trả về kết quả trước thời gian quy định thì sẽ bị TO (quá thời gian).
+\subsection{Khả năng chịu chuyển động và tái xuất hiện}
+
+Độ chuyển động được định nghĩa trong thí nghiệm là thay đổi theo pixel của feature ảnh MedSAM2 từ khung trước đó, cụ thể là $1-\cos(\cdot,\cdot)$. Trên tập phát triển, ba ngưỡng tercile là 0.033 và 0.117. Với các khung polyp chuyển động cao, Dice lần lượt là 0.400 cho native, 0.429 cho prompt + 1 frame và 0.466 cho Kalman. Chênh lệch Kalman--native là $+0.033$, có 9/12 chuỗi tốt hơn và $p=0.052$. Trên C6, khi cố định ngưỡng cao $>0.117$ từ phát triển, chênh lệch là $+0.016$ với $p=0.25$. Vì thế, kết quả chỉ hỗ trợ theo hướng xu thế, không đủ để tuyên bố hiệu quả chắc chắn dưới chuyển động nhanh.
+
+Phân tích tái xuất hiện đo Dice trung bình trong cửa sổ 10 khung sau một khoảng rỗng. Native đạt 0.544, prompt + 1 frame đạt 0.561, Kalman đạt 0.554, còn EMA đạt 0.579. Không có so sánh nào trong phân tích này cho thấy gain Kalman thích nghi vượt EMA. Kết quả gợi ý rằng trạng thái lặp một khe có thể hỗ trợ trong giai đoạn tái xuất hiện, nhưng lựa chọn gain cụ thể chưa chứng minh được lợi thế.
+
+\section{Phân tích gain, kết quả âm và đối chứng}
+\subsection{Vì sao phải tách cấu trúc bộ nhớ khỏi gain Kalman}
+
+Khi $q$ cố định và nhiễu quan sát chủ yếu chỉ phụ thuộc vào trạng thái có/vắng đối tượng, phương sai có thể hội tụ và gain trở nên gần hằng. Trong PolypGen phát triển, gain Kalman chưa huấn luyện ở khung có đối tượng có trung bình 0.835 và độ lệch chuẩn 0.144. Trên CholecSeg8k, trung bình là 0.911 với độ lệch chuẩn 0.033. Đây là lý do cần đối chứng EMA gain hằng: nếu EMA cho kết quả tương đương, lợi ích quan sát được đến từ bộ nhớ lặp một khe chứ không phải tính thích nghi của cập nhật Kalman.
 
 \begin{table}[H]
 \centering
-\caption{Kết quả thực nghiệm so sánh SCL với Naive}
-\resizebox{0.85\textwidth}{!}{%
-\begin{tabular}{lrr|rr|rr}
+\caption{Đối chứng Kalman và EMA gain hằng trong giao thức (a).}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrr}
 \hline
-\textbf{Instance} & \textbf{LB} & \textbf{UB} &
-\multicolumn{2}{c|}{\textbf{SCL}} &
-\multicolumn{2}{c}{\textbf{Naive}} \\
-\cline{4-7}
- &  &  & \textbf{Obj-k} & \textbf{Time(s)} & \textbf{Obj-k} & \textbf{Time(s)} \\
+Phương pháp & Dice phát triển & Mất phát triển & Dice chuyển động cao & Dice C6 & Mất C6 \\
 \hline
-A-pores\_1   & 4  & 8   & 6  & 1.56  & 6  & 3.48  \\
-B-ibm32      & 7  & 9   & 7  & 2.83  & 7  & 0.30  \\
-C-bcspwr01   & 12 & 17  & 14 & TO  & 14 & TO  \\
-D-bcsstk01   & 6  & 9   & 7  & 1.54  & 7  & 2.19  \\
-E-bcspwr02   & 16 & 22  & 18 & TO  & 18 & TO  \\
-F-curtis54   & 9 & 13  & 10 & 1.4  & 10 & 2.28  \\
-G-will57     & 9 & 14  & 11 & 21.23  & 11 & 52.40  \\
-H-impcol\_b  & 6  & 8   & 6  & 1.12  & 6  & 0.23  \\
-I-ash85      & 15 & 27  & 19 & TO    & 19 & TO    \\
-J-nos4       & 25 & 40  & 29 & 25.19   & 29 & 74.12   \\
-K-dwt\_234   & 36 & 58  & 42 & TO    & 42 & TO    \\
-L-bcspwr03   & 31 & 39  & 31 & 2.32  & 31 & 0.69  \\
-M-bcsstk06   & 22 & 72  & 26 & TO    & 26 & TO    \\
-N-bcsstk07   & 22 & 72  & 26 & TO    & 26 & TO    \\
-O-impcol\_d  & 72 & 173 & 78 & TO   & 78 & TO   \\
-P-can\_445   & 62 & 120 & \textbf{67}  & TO   & 66  & TO   \\
-Q-494\_bus   & 175 & 246 & \textbf{176}  & TO   & 175  & TO   \\
-R-dwt\_503   & 36 & 71  & 38  & TO   & 38  & TO   \\
-S-sherman4   & 204 & 272 & -   & TO   & -   & TO   \\
-T-dwt\_592   & 82 & 150 & \textbf{82}  & TO   & -  & TO   \\
-U-662\_bus   & 175 & 220 & 177 & 593.74  & 177 & 1592.46  \\
-V-nos6       & 260 & 337 & -  & TO   & -  & TO   \\
-W-685\_bus   & 108 & 147 & \textbf{109} & 729.14   & 108 & TO   \\
-X-can\_715   & 89 & 142 & \textbf{89}  & TO   & -  & TO   \\
+Kalman & 0.514 & 0.318 & 0.464 & 0.609 & 0.244 \\
+EMA gain hằng & 0.504 & 0.350 & 0.460 & 0.607 & 0.231 \\
 \hline
-\end{tabular}%
-}
+\end{tabular}}
 \end{table}
 
-Phương pháp SCL encoding đã thể hiện sự vượt trội hơn so với Naive (trực tiếp) cả về thời gian giải lẫn đáp án tốt nhất tìm thấy. Đặc biệt là trong đồ thị khó W-685\_bus, phương pháp SCL encoding đã giải được đến kết quả cuối cùng.
+Trong báo cáo thí nghiệm, Kalman so với EMA trên phát triển có chênh lệch lost fraction $-0.012$ ($p=0.63$) và Dice $+0.004$ ($p=0.41$). Quy tắc định trước yêu cầu Kalman thắng EMA đồng thời ở lost fraction và Dice chuyển động cao; quy tắc này không đạt. Do đó, báo cáo này không mô tả gain Kalman như một đóng góp đã được thực nghiệm chứng minh vượt EMA.
 
-\newpage
-\section*{\huge Kết luận}
+\subsection{Các cách làm gain thích nghi đã thử}
 
-Bài báo này đã trình bày quá trình nghiên cứu và triển khai phương pháp Sequential Counter en-coding for Ladder constraints (SCL) nhằm giải quyết bài toán No-Hole Anti-k-Labeling Problem (NHAKL) bằng cách quy đổi về bài toán SAT (Boolean Satisfiability Problem). Phương pháp được xây dựng dựa trên ý tưởng mã hóa ràng buộc hiệu số nhãn thông qua cấu trúc bậc thang, giúp tối ưu số lượng biến và mệnh đề sinh ra so với cách mã hóa trực tiếp.
+Nhiều tín hiệu được thử trên tập phát triển trước khi chạy C6. Nhiễu quan sát được hiệu chỉnh từ độ tin cậy của object score, nhiễu quá trình tỷ lệ với thay đổi feature, nhiễu quan sát tỷ lệ với chuyển động, prototype innovation gate và các khoảng cách đến prompt anchor đều không vượt baseline Kalman/EMA theo quy tắc chọn đã nêu. Các tín hiệu anchor có AUROC gộp nhưng không cải thiện hơn object score trong đánh giá leave-one-sequence-out. Các kết quả này được giữ trong báo cáo để tránh chọn lọc chỉ các kết quả dương.
 
-Kết quả thực nghiệm trên bộ dữ liệu Harwell–Boeing Sparse Matrix Collection cho thấy SCL không chỉ giảm đáng kể thời gian chạy trung bình mà còn đạt được các nghiệm tốt hơn hoặc tương đương so với phương pháp mã hóa trực tiếp (Naive). Đặc biệt, trên các đồ thị có kích thước lớn, SCL thể hiện tính ổn định và khả năng mở rộng tốt, trong khi phương pháp Naive thường gặp tình trạng vượt quá giới hạn thời gian (TO).
+\begin{table}[H]
+\centering
+\caption{Tóm tắt các kết quả âm của gain thích nghi trên PolypGen phát triển.}
+\begin{tabular}{p{0.42\textwidth}p{0.47\textwidth}}
+\hline
+Ý tưởng & Kết luận ghi nhận \\
+\hline
+Nhiễu $R$ từ độ tin cậy object score & Dice 0.493, mất 0.348; kém Kalman gốc. \\
+Nhiễu quá trình theo thay đổi feature & Dice 0.490, mất 0.339; kém hơn. \\
+Nhiễu quan sát theo chuyển động & Dice 0.502, mất 0.353; kém hơn. \\
+Prototype innovation gate & AUROC video thật 0.43; không có thông tin phân biệt hữu ích. \\
+Khoảng cách prompt anchor & Không cải thiện hơn object score trong LOSO. \\
+Hard score gate & Đánh đổi theo dõi lấy dương tính giả; không đạt quy tắc theo chuỗi. \\
+\hline
+\end{tabular}
+\end{table}
 
-Các kết quả đạt được chứng minh rằng việc áp dụng kỹ thuật mã hóa SCL cho các ràng buộc at-most-one là một hướng tiếp cận hiệu quả trong việc giải các bài toán gán nhãn đồ thị phức tạp bằng SAT solver. Cách tiếp cận này có thể được mở rộng để giải các bài toán tối ưu tổ hợp khác, đặc biệt là những bài toán có cấu trúc tương tự như Anti-Bandwidth Problem hoặc Labeling Problems với các ràng buộc tuyến tính.
+\subsection{Oracle gain và khoảng trống cải thiện}
 
-Trong tương lai, nghiên cứu có thể được mở rộng theo hai hướng chính như: Tối ưu hơn nữa mô hình mã hóa SCL, chẳng hạn bằng cách kết hợp với kỹ thuật phá đối xứng nâng cao hoặc chiến lược heuristic trong quá trình giải. Và tích hợp nhiều SAT solver hiện đại (như Glucose, MiniSat, hoặc Kissat) để đánh giá khả năng tương thích và hiệu suất đa nền tảng của phương pháp.
+Một oracle diagnostic chỉ ghi bộ nhớ khi khung dự đoán khớp nhãn thật: IoU ít nhất 0.5 ở khung polyp hoặc dự đoán rỗng đúng ở khung rỗng. Oracle không phải thuật toán có thể triển khai vì nó dùng nhãn thật tại thời điểm suy luận. Tuy vậy, nó cho biết một gain có thông tin đầy đủ có thể đạt gì. Trên phát triển PolypGen, oracle đạt Dice 0.614 và tỷ lệ mất 0.183; so với EMA, Dice tăng 0.056, và so với native tăng 0.072 với kiểm định $p=0.048$. Tài liệu thực nghiệm diễn giải khoảng cách này là xấp xỉ $+0.11$ Dice gộp và một nửa số khung mất so với gain hằng.
 
-Tổng kết lại, kết quả của đề tài không chỉ khẳng định tính khả thi của việc giải NHAKL bằng SAT, mà còn góp phần mở ra hướng nghiên cứu mới trong việc áp dụng các kỹ thuật mã hóa tiên tiến như SCL vào các bài toán tối ưu đồ thị phức tạp hơn.
+Ý nghĩa của oracle không phải là hứa hẹn mức cải thiện đó trên VA. Nó chỉ là một chẩn đoán: nếu tracker thường cập nhật bộ nhớ bằng khung sai, một tín hiệu kiểm định chất lượng khung đủ tốt có thể hữu ích. Bất kỳ phương pháp mới nào phải được so sánh công bằng với EMA, được chọn trên phát triển và được kiểm tra trên tập chưa dùng để thiết kế.
 
+\subsection{Score gate và score scale}
+
+Hard score gate đặt $K=0$ khi object-score logit thấp hơn ngưỡng $\tau$. Với $\tau=5.74$ chọn theo Youden's J trên phát triển, biến thể gate tất cả khung đạt Dice 0.527 và tỷ lệ mất 0.277, nhưng FP khung rỗng tăng lên 0.914. Biến thể chỉ áp dụng trên khung được gọi là có đối tượng có Dice 0.497, tỷ lệ mất 0.336 và FP 0.809. Như vậy, gate có thể ngăn ghi một số quan sát xấu nhưng cũng ngăn ghi các khung rỗng cần thiết, làm tăng lỗi dương tính giả.
+
+Score scale là biến thể mềm với $K_t\leftarrow K_t\,\sigma(\alpha s_t+\beta)$. Mã đã có cờ \texttt{--score\_scale ALPHA BETA}. Hiệu chỉnh trên phát triển cho bộ tham số toàn bộ khung $(0.237,-1.166)$ với AUROC 0.755, và bộ tham số chỉ khung polyp $(0.633,-3.300)$ với AUROC 0.889. Tuy nhiên, các chạy suy luận này chưa thực hiện vì manifest JSONL cần bởi \texttt{scripts/infer.py} phải được xây dựng lại. Vì vậy, báo cáo không đưa ra bất kỳ kết quả hiệu năng nào cho score scale.
+
+\section{Đánh giá trên CholecSeg8k và khả năng khái quát}
+\subsection{Vai trò của CholecSeg8k}
+
+CholecSeg8k là tập video nội soi ổ bụng được dùng làm đối chứng video thực thứ hai, không phải dữ liệu đích của AdeSEG. Các chuỗi dùng một lớp túi mật; 88 chuỗi từ 16 video được chia theo toàn bộ video, với 60 chuỗi phát triển và 28 chuỗi kiểm tra từ 6 video. Trong 7,040 khung, có 191 khung rỗng. Do việc theo dõi ở đây rất dễ cho mọi phương pháp, không nên kỳ vọng gain tinh vi có nhiều không gian để cải thiện.
+
+\begin{table}[H]
+\centering
+\caption{Kết quả CholecSeg8k được lưu trong hồ sơ thực nghiệm.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrr}
+\hline
+Phương pháp & Dice phát triển & IoU phát triển & Dice kiểm tra & IoU kiểm tra \\
+\hline
+Native MedSAM2 & 0.916 & 0.868 & 0.856 & 0.805 \\
+Prompt + 1 frame & 0.926 & 0.877 & 0.872 & 0.822 \\
+Kalman & 0.925 & 0.877 & 0.873 & 0.823 \\
+EMA & 0.926 & 0.877 & 0.875 & 0.825 \\
+\hline
+\end{tabular}}
+\end{table}
+
+Kalman so với native cho Dice phát triển $+0.009$ ($p=0.22$) và Dice kiểm tra $+0.016$ ($p=0.26$); các kết quả không có ý nghĩa thống kê theo số liệu đã ghi. Kalman cũng không tốt hơn prompt + 1 frame ở phát triển một cách thực tế. Điều này củng cố kết luận thận trọng: lợi ích của một trạng thái lặp có thể phụ thuộc vào nơi tracker tích lũy lỗi; nó không phải một ưu thế phổ quát đã được chứng minh trên mọi video y tế.
+
+\section{Giới hạn, rủi ro hiệu lực và kế hoạch xác nhận trên VA}
+\subsection{Giới hạn của mã nguồn và dữ liệu hiện tại}
+
+Có bốn giới hạn nền tảng. Thứ nhất, không có adapter dữ liệu VA có chú thích hoặc manifest dữ liệu đích trong kho. Thứ hai, không có định nghĩa được xác nhận cho tỷ số tắc nghẽn, quy tắc chọn khung ổn định hoặc ngưỡng phân độ. Thứ ba, suy luận thay thế dùng GT-box ở khung đầu, nên không đánh giá bước phát hiện/prompt tự động. Thứ tư, các số liệu hiện có đến từ các lần suy luận trước trên Google Drive và một seed; chúng chưa thể chạy lại từ trạng thái kho hiện tại do thiếu manifest.
+
+Ngoài ra, một số phân tích trong giao thức (a), gồm bucket tái xuất hiện, chiếu sáng và chuyển động, được định nghĩa sau khi đã thấy kết quả trước đó. C6 chỉ có tám video ngắn, do đó không thích hợp để kiểm tra mất theo dõi trong thời gian dài. Một lỗi inference MPS trước đây, liên quan đến đọc offload non-blocking của MedSAM2 trước khi copy hoàn thành, đã làm hỏng các kết quả cũ; tài liệu ghi rằng tất cả số liệu trong báo cáo này là sau khi lỗi được sửa.
+
+\subsection{Nguy cơ diễn giải sai}
+
+Một Dice cao không tự động cho sai số tỷ số thấp. Lỗi cục bộ ở biên, đặc biệt nếu xảy ra tại vùng hẹp của đường thở, có thể thay đổi tỷ số diện tích nhiều hơn mức mà Dice gộp thể hiện. Ngược lại, sai số đo nhỏ trong dữ liệu thay thế không chứng minh giá trị lâm sàng. Vì vậy, mô-đun đánh giá buộc người dùng chỉ rõ \texttt{ratio\_mode} thay vì chọn một công thức mặc định, và báo cáo tách chỉ số theo từng vùng khỏi sai số tỷ số.
+
+Một nguy cơ khác là xem các proxy dataset như bằng chứng về VA. PolypGen đánh giá polyp, còn CholecSeg8k đánh giá túi mật; cả hai chỉ hỗ trợ kiểm tra kỹ thuật phân đoạn/lan truyền. Chúng không cung cấp ngưỡng phân loại VA, không cung cấp định nghĩa tắc nghẽn mũi họng, và không đánh giá tính phù hợp của khung hình theo lâm sàng.
+
+\subsection{Kế hoạch nghiên cứu trên dữ liệu đích}
+
+Khi dữ liệu VA có sẵn, nghiên cứu nên bắt đầu bằng kiểm kê chú thích: nhãn nào biểu diễn VA, đường thở, nền; mask có phải mặt nạ chỉ số không; video có thông tin bệnh nhân nào dùng để tách dữ liệu; và cách đánh dấu khung không hợp lệ. Sau đó cần xác định trước tỷ số lâm sàng, điều kiện diện tích tối thiểu, cách tổng hợp khung hợp lệ, và ngưỡng phân độ. Những quyết định này phải được chốt trước khi xem kết quả test.
+
+Baseline đầu tiên nên là native MedSAM2 với cùng cách prompt trên toàn bộ phương pháp; nếu mục tiêu là hệ thống tự động, bước phát hiện/prompt phải được đánh giá riêng. Sau khi baseline hoạt động, cần báo cáo Dice/IoU từng vùng, tỷ số dự đoán và thật, MAE tỷ số, số khung hợp lệ và sự ổn định của tỷ số theo video. Nếu chẩn đoán cho thấy Dice và sai số tỷ số lệch đáng kể, khi đó mới có cơ sở thực nghiệm để đề xuất loss nhận biết phép đo. Nếu không có lệch, thêm loss phức tạp là không có động cơ từ dữ liệu.
+
+Đối với bộ nhớ Kalman, kế hoạch đúng là đóng băng thiết kế sau tập phát triển, so sánh ít nhất native, prompt + 1 frame, EMA gain hằng và Kalman, rồi chạy test một lần. Bất kỳ gain dựa trên score, chuyển động hoặc tín hiệu khác phải chứng minh được lợi ích so với EMA và không làm xấu FP trên khung không có đối tượng. Điều này biến các kết quả âm hiện tại thành tiêu chí thiết kế rõ ràng cho các thử nghiệm tiếp theo.
+
+\section{Phụ lục: Đặc tả giao diện và tái lập}
+\subsection{Dạng dữ liệu manifest}
+
+Một bản ghi manifest chứa split, mã video, chỉ số khung, đường dẫn ảnh và đường dẫn mask. Các khung phải được sắp theo \texttt{frame\_index} trong từng \texttt{video\_id}. Mặt nạ có thể là nhị phân hoặc ngữ nghĩa: mặt nạ JPEG nhị phân được threshold để tránh nhiễu nén, trong khi PNG chỉ số giữ lại giá trị nhãn. Điều này quan trọng vì mask VA/đường thở cần giữ hai nhãn riêng thay vì gộp toàn bộ foreground.
+
+Trong suy luận đa vùng, mỗi nhãn được dự đoán theo quy trình MedSAM2 dùng cùng video. Các mask theo nhãn có thể được chuyển thành hai bản đồ nhị phân có tên trước khi đưa vào \texttt{evaluate\_two\_region\_measurement()}. Hàm này kiểm tra tập tên vùng giữa dự đoán và nhãn thật, tính Dice/IoU cho mỗi vùng, rồi tính hai tỷ số với chính cùng \texttt{ratio\_mode}. Nhờ vậy không thể vô tình so sánh tỷ số dự đoán và tỷ số thật được định nghĩa khác nhau.
+
+\subsection{Thông tin trạng thái Kalman được lưu}
+
+Trạng thái Kalman gồm anchor từ khung prompt, positional encoding tương ứng, trung bình không gian $S$, phương sai $P$, chỉ số khung gần nhất, số lần cập nhật và các tín hiệu chẩn đoán. Bộ nhớ attention đọc anchor cùng với biểu diễn $S+u\log(1+P)$, trong đó $u$ là embedding bất định. Khi lan truyền tiến, mã kiểm tra các khung liên tiếp; suy luận ngược không được hỗ trợ bởi bộ nhớ Kalman này. Các kiểm tra đó ngăn việc áp dụng công thức cập nhật vào thứ tự thời gian không hợp lệ.
+
+Tại mỗi cập nhật, quan sát mới được tạo từ memory encoder của MedSAM2. Nhiễu quan sát cơ sở là $r+a(1-p_t)$, với $p_t$ là xác suất hiện diện của đối tượng; một correction theo không gian có giới hạn được áp dụng lên nhiễu. Trong các chạy được báo cáo, các mức nhiễu chính được đặt tay ($q=1$, $r=0.1$, $a=10$, $P_0=1$); phần correction có thể huấn luyện nhưng chưa được huấn luyện trong các kết quả này. Nêu rõ trạng thái huấn luyện là cần thiết để không mô tả sai bộ lọc đang chạy là một gain học được hiệu quả.
+
+\subsection{Danh sách kiểm tra tái lập}
+
+Để tái lập một thí nghiệm mới trên VA, cần lưu cùng kết quả: commit mã nguồn; checkpoint MedSAM2 và checkpoint bộ nhớ; manifest cùng quy tắc chia bệnh nhân/video; các nhãn dùng trong \texttt{--label\_ids}; phương thức ratio; ngưỡng valid frame và ngưỡng grade; cách tạo prompt; seed; phần cứng; và mọi cờ backend Kalman. Các CSV chẩn đoán theo khung cần lưu object score, presence, gain trung bình, feature-change mean và trạng thái Kalman. Những bản ghi này cho phép phân biệt lỗi phân đoạn, lỗi chọn khung, lỗi đo và lỗi cập nhật bộ nhớ.
+
+\section*{Kết luận}
 \addcontentsline{toc}{section}{Kết luận}
-\newpage
-\bibliographystyle{unsrt}
-\bibliography{references}
+AdeSEG đã xác định bài toán đánh giá phì đại VA ở mức video như một chuỗi phân đoạn hai vùng, đo theo khung hình và tổng hợp theo video. Kho mã nguồn hiện cung cấp hạ tầng manifest, tiện ích đo có cấu hình, đánh giá sai số tỷ số, và bộ nhớ không gian Kalman thử nghiệm cho MedSAM2. Các thí nghiệm thay thế ủng hộ lợi ích của cấu trúc bộ nhớ một khe trong một số video dài, nhưng chưa chứng minh lợi ích của gain Kalman thích nghi và chưa phải là bằng chứng cho ứng dụng VA. Bước quyết định tiếp theo là đánh giá trên dữ liệu VA cùng giao thức đo và phân độ lâm sàng đã được xác định.
 
+\newpage
+\addcontentsline{toc}{section}{Tài liệu tham khảo}
+\begin{thebibliography}{9}
+\bibitem{medsam2} MedSAM2. \emph{Segment Anything in 3D Medical Images and Videos}. \url{https://arxiv.org/abs/2504.03600}.
+\bibitem{polypgen} PolypGen. \emph{A multi-center polyp segmentation dataset}. \url{https://arxiv.org/abs/2106.04463}.
+\bibitem{cholecseg8k} CholecSeg8k. \emph{A semantic segmentation dataset for laparoscopic videos}. \url{https://arxiv.org/abs/2012.12453}.
+\bibitem{adeSEGdocs} AdeSEG repository documentation: \texttt{docs/README.md} và \texttt{docs/EXPERIMENTS.md}.
+\end{thebibliography}
 \end{document}

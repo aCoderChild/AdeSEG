@@ -43,14 +43,8 @@ def parse_args():
     parser.add_argument("--kalman_checkpoint", type=Path, default=None)
     parser.add_argument("--device", choices=("auto", "cuda", "mps", "cpu"), default="auto")
     parser.add_argument("--output_dir", type=Path, required=True)
-    parser.add_argument("--score_scale", type=float, nargs=2, default=None, metavar=("ALPHA", "BETA"),
-                        help="Soft score-scaled Kalman gain: K *= sigmoid(alpha*object_score + beta).")
     parser.add_argument("--skip_absent", action="store_true",
                         help="Treat a frame MedSAM2 calls empty as a missing measurement (K=0).")
-    parser.add_argument("--score_gate", type=float, default=None, metavar="TAU",
-                        help="Hard measurement-validation gate: K=0 when the object-score logit < TAU.")
-    parser.add_argument("--score_gate_present_only", action="store_true",
-                        help="Apply --score_gate only to frames with object score > 0.")
     parser.add_argument("--fixed_gain", type=float, nargs=2, default=None, metavar=("PRESENT", "ABSENT"),
                         help="EMA baseline (modeling/ema_memory.py): constant-gain memory instead of the "
                              "Kalman update, with these present / absent gains. No checkpoint needed.")
@@ -121,17 +115,13 @@ def main():
             predictor.mem_dim, predictor.hidden_dim, args.fixed_gain[0], args.fixed_gain[1])
     elif args.memory_backend == "kalman":
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
-        if args.score_scale is not None:
-            predictor.kalman_score_scale = tuple(args.score_scale)
         predictor.kalman_skip_absent = args.skip_absent
-        if args.score_gate is not None:
-            predictor.kalman_score_gate = args.score_gate
-            predictor.kalman_score_gate_present_only = args.score_gate_present_only
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = {
         "manifest": str(args.manifest), "split": args.split, "label_ids": args.label_ids,
-        "memory_backend": args.memory_backend, "kalman_checkpoint": str(args.kalman_checkpoint) if args.kalman_checkpoint else None,
-        "score_scale": args.score_scale,
+        "memory_backend": args.memory_backend,
+        "kalman_checkpoint": str(args.kalman_checkpoint) if args.kalman_checkpoint else None,
+        "fixed_gain": args.fixed_gain, "skip_absent": args.skip_absent,
         "videos": {},
     }
     for video_id, frames in videos.items():

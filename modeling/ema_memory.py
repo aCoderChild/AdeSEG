@@ -54,13 +54,10 @@ class ConstantGainMemory:
     def readout(self, mean: torch.Tensor, variance: torch.Tensor) -> torch.Tensor:
         return mean  # matches the untrained Kalman read path (uncertainty embedding = 0)
 
-    def predict(self, variance: torch.Tensor, noise_scale=None) -> torch.Tensor:
+    def predict(self, variance: torch.Tensor) -> torch.Tensor:
         return (variance + self.process_noise).clamp(self.min_variance, self.max_variance)
 
-    def update(
-        self, mean, prior_variance, candidate, image_projection, mask_probability, presence,
-        reliability=None, noise_scale=None,
-    ):
+    def update(self, mean, prior_variance, candidate, image_projection, mask_probability, presence):
         constant = self.present_gain if bool((presence > 0.5).all()) else self.absent_gain
         gain = torch.full_like(prior_variance, constant)
         return {
