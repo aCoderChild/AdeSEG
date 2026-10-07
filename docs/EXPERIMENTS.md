@@ -8,10 +8,10 @@ truth mask, MedSAM2 frozen, one seed. Results are on Google Drive under
 
 The repository scope was trimmed on 2026-10-06: the detector observations,
 presence fusion, and all DOK-Mem code and runs were removed. What remains is
-the plain Kalman spatial memory replacing MedSAM2's 7-frame FIFO bank. Results
-in this document are only for the frozen plain Kalman memory and the native
-baselines. The removed-code runs are preserved on Google Drive for reference
-but their numbers are not re-stated here.
+the plain Kalman spatial memory replacing MedSAM2's 7-frame FIFO bank, and the
+constant-gain EMA baseline it is compared with (`modeling/ema_memory.py`).
+**The current results are in "Held-out test" below**; later sections record
+the archived runs and analyses that led to them.
 
 Two protocols were used, in this order:
 
@@ -170,7 +170,7 @@ a trimmed bank would hold about 0.875 MiB, close to the Kalman memory.
 ## Protocol (a): dev / C6 split
 
 Here the memory is the only difference from native MedSAM2.
-Untrained Kalman checkpoint: `20_dokmem_untrained/kalman_memory_untrained.pt`.
+Untrained Kalman checkpoint: `outputs/Kalman/kalman_memory_untrained.pt`.
 
 **Dev (seq1–15) vs C6 test, frozen plain Kalman memory:**
 
@@ -323,22 +323,24 @@ in Dice; it reduces error accumulation on long polyp videos; the Kalman
 adaptive gain as built equals a moving average; an informed gain has large
 headroom only where the tracker drifts (PolypGen).
 
-## Drive folders (trimmed)
+## Drive folders (`AdeSEG/outputs/Kalman/`)
 
 | Folder | Run |
 |---|---|
-| `01_native_medsam2`, `02_native_medsam2_prompt_plus_1frame` | native baselines |
-| `10_kalman_memory` | plain Kalman memory |
-| `14`, `16`, `17`, `20`, `21` (`*_dev*`) | dev-only Kalman variants and diagnostics |
-| `18_test_kalman_motion_logged` | C6 rerun of the frozen Kalman memory with motion logging |
-| `19_kalman_fixed_gain_ema`, `22`/`23_kalman_score_gate*` | gain ablations |
-| `cholecseg8k/` | CholecSeg8k runs |
+| `heldout_test/` | **current results**: frozen native / EMA / Kalman on C6 with the corrected manifest (`comparison.md`, `summary.json`, per-method metrics and diagnostics) |
+| `01_native_medsam2`, `02_native_medsam2_prompt_plus_1frame` | archived native baselines (older pipeline) |
+| `10_kalman_memory` | archived plain Kalman memory |
+| `14`, `16`, `17`, `20` (`*_dev*`) | archived dev-only Kalman variants and diagnostics |
+| `18_test_kalman_motion_logged` | archived C6 rerun of the Kalman memory with motion logging |
+| `19_kalman_fixed_gain_ema` | archived constant-gain EMA ablation |
+| `cholecseg8k/` | archived CholecSeg8k runs |
+| `summary_before_renaming/` | old summary tables |
 
-Earlier DOK-Mem folders (`03`, `11`–`13`, `15`, `20_dokmem_*`,
-`21_dokmem_*`, `22_dokmem_*`, `23_dokmem_*`, `24`, `25`), the detector
-training folders (`detectors/`), the fusion data, and the summary tables that
-mixed those runs are preserved on Google Drive but are not described above
-because the code that produced them has been removed from this repository.
+The archived folders come from the older pipeline, which ordered frames
+correctly; the corrected manifest pipeline reproduces their dev and C6 Dice.
+Folders for the oracle gain (`21`) and score gates (`22`, `23`) were removed;
+their numbers are kept in the sections above. `26_soft_gain_smoke_seq1` is a
+smoke test from the removed soft gain, made with the misordered manifest.
 
 ## Negative results (plain Kalman scope)
 
@@ -356,9 +358,11 @@ quantifies the room an informative gain has.
 
 ## Caveats
 
-- All results above come from prior inference runs on Google Drive. The
-  current repository expects a JSONL manifest for `scripts/infer.py` that
-  does not yet exist; rebuild it before re-running.
+- The held-out C6 section uses the current manifest pipeline
+  (`scripts/build_polypgen_manifest.py`, numeric frame order); every other
+  section reports archived runs from the older pipeline, which the current one
+  reproduces. Any run made with a manifest built before commit `c8df175`
+  (alphabetical frame order) is invalid.
 - The protocol (a) dev analyses (error accumulation, camera motion, the
   reappearance and illumination buckets) use metrics defined after earlier
   results.

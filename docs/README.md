@@ -41,27 +41,37 @@ adenoid protocol defines the clinical ratio.
 ### C3: Kalman spatial memory (experimental)
 
 The repository contains an experimental replacement for MedSAM2's 7-frame
-FIFO memory bank, evaluated on PolypGen (proxy) and CholecSeg8k. The bank is
-replaced by the fixed prompt-frame memory plus one Kalman spatial state with a
-per-pixel variance: each frame's memory is fused into the state with gain
+FIFO memory bank, evaluated on PolypGen (proxy). The bank is replaced by the
+fixed prompt-frame memory plus one Kalman spatial state with a per-pixel
+variance: each frame's memory is fused into the state with gain
 `K = P⁻ / (P⁻ + R)`, where the measurement noise `R` grows when MedSAM2 calls
-the object absent. Optional, off-by-default variants treat absent frames as
-missing measurements (`--skip_absent`), reject frames by measurement
-validation on the object score (`--score_gate`), or shrink the gain smoothly
-with the object score (`--score_scale ALPHA BETA`).
+the object absent. `--skip_absent` (off by default) treats a frame called
+absent as a missing measurement. The constant-gain EMA baseline
+(`modeling/ema_memory.py`, `--fixed_gain PRESENT ABSENT`) keeps the same
+single state and read path but uses a fixed gain, which isolates what the
+Kalman update itself contributes.
 
-Current findings (`EXPERIMENTS.md`):
+Current findings (held-out C6, 8 sequences; `docs/EXPERIMENTS.md`):
 
-- Without a detector, the 1-slot memory reduces error accumulation on the long
-  PolypGen dev videos (lost polyp frames 0.40 → 0.32, recovered episodes
-  0.57 → 0.82) and helps most under fast camera motion; on the short C6 test
-  videos it ties native MedSAM2.
-- The untrained gain is nearly constant, so the filter behaves like an
-  exponential moving average; a constant-gain ablation matches it.
-- An oracle gain (write only correct frames) shows large headroom on PolypGen
-  (dev Dice +0.11 over the moving average, half the lost frames) and none on
-  CholecSeg8k. No hand-designed or pseudo-video-trained gain has captured that
-  headroom without raising false positives.
+| | Dice | Polyp-frame Dice | Empty-frame FP |
+|---|---|---|---|
+| native MedSAM2 | 0.617 | 0.599 | 0.486 |
+| EMA (constant gain) | 0.603 | 0.623 | 0.587 |
+| Kalman | 0.602 | 0.613 | 0.555 |
+| Kalman + output presence gate | 0.628 | 0.598 | 0.388 |
+| native + output presence gate | 0.628 | 0.573 | 0.332 |
+
+- The 1-slot memory raises polyp-frame and high-motion Dice over native's bank
+  (Kalman beats native on Dice in 7 of 8 sequences) but also raises
+  empty-frame false positives; one collapsed sequence leaves its mean Dice
+  slightly below native. On the longer dev videos it loses fewer polyp frames
+  (archived: 0.40 → 0.32).
+- The Kalman update rule does not beat the constant-gain EMA, including a
+  pre-registered test with `--skip_absent` designed to favour it on
+  reappearance. Its gain is nearly constant, so the filter behaves like an EMA.
+- An output presence gate on MedSAM2's object score lowers false positives
+  for every method.
+- None of the C6 differences is significant with 8 sequences.
 
 It is not yet a validated component of the adenoid clinical pipeline.
 
@@ -74,13 +84,22 @@ design, data protocol, verification, and baseline results.
   `MedSAM2/`.
 - **Kalman spatial memory:** `modeling/kalman_memory.py` (checkpoint format
   `adseg_kalman_memory_v5`; compatible with existing v4 checkpoints).
+- **EMA baseline:** `modeling/ema_memory.py`, a constant-gain memory with the
+  same read path, used for the ablation.
 - **Frozen-backbone training:** `training/kalman_trainer.py` and
   `scripts/train_kalman.py`. Both consume one dataset-neutral JSONL manifest
   with ordered video frames and indexed semantic masks. Only the Kalman update
   is trainable.
-- **Inference:** `scripts/infer.py` runs native or Kalman memory from that same
-  manifest. It uses a first annotated-frame box prompt for evaluation and has
-  no detector, detector observation, or learned presence fusion.
+- **Inference:** `scripts/infer.py` runs native, Kalman (`--skip_absent`
+  optional) or EMA (`--fixed_gain`) memory from that manifest, with a first
+  annotated-frame box prompt. It writes masks and a per-frame diagnostics CSV
+  (object score, presence, gain, camera motion).
+- **PolypGen manifest:** `scripts/build_polypgen_manifest.py` writes
+  `data/polypgen_sequence.jsonl` for protocol (a), with frames in numeric
+  temporal order.
+- **Evaluation:** `evaluation/temporal.py` (per-frame, presence-stratified and
+  drift metrics; `--no_overlays` for metrics only), plus
+  `scripts/analyze_reappearance.py` and `scripts/analyze_illumination.py`.
 - **Measurement utilities:** `evaluation/measurement.py` and
   `evaluation/ratio.py` support downstream two-region measurements.
 
@@ -99,10 +118,12 @@ selection), and TinySAM 2 (memory-token compression). Related Kalman work: Kalma
 RKN (learned Kalman gains), KEEP (Kalman-inspired feature propagation for
 video), and SAM2Plus (Kalman filter on SAM2 box IoU). The candidate technical
 contribution is the per-pixel Kalman update of MedSAM2's spatial memory with
-presence-dependent measurement noise. So far its benefit over MedSAM2's bank
-is matched by a constant-gain moving average; a gain that adds to that is
-still open (see the oracle-gain results). These are claims to test against the
-baselines above, not established results.
+presence-dependent measurement noise. On PolypGen its benefit over MedSAM2's
+bank (better polyp-frame tracking, fewer lost frames on long videos) is matched
+by a constant-gain moving average, so it comes from the single recursive
+state rather than the adaptive gain. A gain that adds to that would need an
+informative per-frame measurement noise, which no proxy signal has provided.
+These are claims to test against the baselines above, not established results.
 
 The project-level contribution remains the **video-level two-region adenoid
 assessment formulation**: segmentation of adenoid and nasopharyngeal airway
@@ -118,16 +139,16 @@ material ratio errors.
 ## Repository layout
 
 - `adenoid/`: target-task measurement and grading helpers.
-- `datasets/`: common sample interface, PolypGen/REFUGE2 adapters, pseudo-video
-  generation, and PolypGen split lists.
-- `modeling/`: MedSAM2 construction, native-pointer preparation, and the Kalman
-  memory (update module, shared mixin, video predictor).
+- `datasets/`: the manifest-based video dataset (`video.py`) and the PolypGen
+  protocol (a) split.
+- `modeling/`: MedSAM2 construction, native-pointer preparation, the Kalman
+  memory (update module, shared mixin, video predictor) and the EMA baseline.
 - `training/`: `KalmanSAM2Train` (MedSAM2's `SAM2Train` with the Kalman mixin),
   batch construction, and the loss built on MedSAM2's `MultiStepMultiMasksAndIous`.
 - `evaluation/`: segmentation, temporal, ratio, and two-region measurement
   metrics.
-- `scripts/`: proxy inference, training, calibration, dataset conversion, and
-  parity commands.
+- `scripts/`: manifest building, inference, training, and the reappearance and
+  illumination analyses.
 - `MedSAM2/`: bundled upstream implementation.
 
 ## Proxy datasets
@@ -140,42 +161,28 @@ of frames in several sequences contain no polyp, and seq16–seq23 all come from
 center C6. With GT-box prompts on all 23 sequences, native MedSAM2 reaches Dice
 0.537 on frames with a polyp and predicts a polyp on 65% of empty frames
 (`EXPERIMENTS.md`). Protocol (a) (`datasets/splits/polypgen/protocol_a.json`)
-develops on seq1–15 and tests frozen methods once on C6 (seq16–23). Compare
-methods only under the same checkpoint, prompts, evaluator, and protocol.
+develops on seq1–15 and tests frozen methods once on C6 (seq16–23); seq1 and
+seq7 contain no polyp, so 13 dev sequences are propagated. Compare methods only
+under the same checkpoint, prompts, evaluator, and protocol.
+
+Frames must be in temporal order. PolypGen frame files carry numeric suffixes
+of different lengths, so an alphabetical sort is wrong (frame 104 sorts before
+69); `scripts/build_polypgen_manifest.py` sorts numerically. Results from a
+manifest built before commit `c8df175` are invalid.
 
 ### CholecSeg8k
 
 [CholecSeg8k](https://arxiv.org/abs/2012.12453) (CC BY-NC-SA 4.0, no access
-request) remains a useful research reference, but its converter is not part of
-the current manifest-based Kalman workflow.
+request) was used as a second real-video dataset in archived runs; its
+converter is not part of the current manifest-based workflow.
 
-### REFUGE2
+### Two-region measurement
 
-REFUGE2 is used as a static engineering proxy for the future two-region
-segmentation-to-measurement pipeline. The oracle protocol uses GT-derived disc
-and cup boxes, so it is not comparable to fully automatic challenge systems.
-
-Evaluation reports disc, cup, and derived disc-rim Dice/IoU. It keeps the
-standard vertical cup-to-disc ratio (vCDR) and also derives two non-overlapping
-area-ratio proxies from `cup` and `rim = disc - cup`:
-
-```text
-cup_rim_ratio = area(cup) / area(rim)
-cup_fraction  = area(cup) / (area(cup) + area(rim))
-```
-
-These exercise the same software paths as the candidate future adenoid ratios
-`adenoid / airway` and `adenoid / (adenoid + airway)`. REFUGE2 does not imply
-an anatomical or clinical equivalence between optic-disc structures and the
-adenoid/nasopharyngeal airway.
-
-For each structural ratio, the evaluator reports MAE, RMSE, Pearson, and
-Spearman agreement against ground truth. Per-image outputs also include ratio
-absolute errors and allow analysis of segmentation Dice versus downstream
-measurement error.
-
-The static REFUGE2 runner was removed with the older dataset-specific script
-path; the active workflow is annotated video segmentation through a manifest.
+`evaluation/ratio.py` and `evaluation/measurement.py` compute the candidate
+adenoid ratios (`adenoid / airway`, `adenoid / (adenoid + airway)`) and report
+per-region Dice/IoU next to ratio MAE, RMSE, Pearson and Spearman agreement.
+The REFUGE2 proxy that exercised this path was removed with the old
+dataset-specific scripts; it will be validated on adenoid data.
 
 ## Kalman spatial memory experiment
 
@@ -201,7 +208,28 @@ python3 scripts/infer.py \
   --output_dir outputs/kalman_test
 ```
 
-The checkpoint format is `adseg_kalman_memory_v5`. Results go to Google Drive
+Reproduce the PolypGen held-out comparison (run each method once on `--split
+test`; use `--split dev` with seq1–15 for any calibration):
+
+```bash
+python3 scripts/build_polypgen_manifest.py   # data/polypgen_sequence.jsonl
+
+COMMON="--sam2_cfg configs/sam2.1_hiera_t512.yaml \
+  --sam2_checkpoint checkpoints/MedSAM2_latest.pt \
+  --manifest data/polypgen_sequence.jsonl --split test --label_ids 1"
+python3 scripts/infer.py $COMMON --memory_backend native --output_dir runs/native
+python3 scripts/infer.py $COMMON --memory_backend kalman --fixed_gain 0.835 0.266 --output_dir runs/ema
+python3 scripts/infer.py $COMMON --memory_backend kalman \
+  --kalman_checkpoint kalman_memory_untrained.pt --output_dir runs/kalman
+
+python3 evaluation/temporal.py --output_mask_dir runs/kalman/masks \
+  --sequences seq16 seq17 seq18 seq19 seq20 seq21 seq22 seq23 --no_overlays
+```
+
+The EMA gains 0.835 / 0.266 are the untrained Kalman update's mean gains on
+present / absent dev frames. The untrained checkpoint is
+`AdeSEG/outputs/Kalman/kalman_memory_untrained.pt` on Google Drive. The
+checkpoint format is `adseg_kalman_memory_v5`. Results go to Google Drive
 (`AdeSEG/outputs/Kalman`); `EXPERIMENTS.md` has the update equations, every
 run, and the folder names.
 
