@@ -129,12 +129,12 @@ Các thành phần chính của hệ thống hiện tại là:
 \begin{itemize}
     \item \texttt{adenoid/}: tiện ích đo, tổng hợp tỷ số và ánh xạ tỷ số sang phân độ có ngưỡng đầu vào;
     \item \texttt{datasets/}: giao diện manifest video và xử lý mặt nạ ngữ nghĩa;
-    \item \texttt{modeling/}: bộ dựng MedSAM2, xử lý object pointer và bộ nhớ Kalman;
+    \item \texttt{modeling/}: bộ dựng MedSAM2, xử lý object pointer, bộ nhớ Kalman (\texttt{kalman\_memory.py}) và baseline EMA gain hằng (\texttt{ema\_memory.py});
     \item \texttt{training/}: huấn luyện bộ cập nhật Kalman với backbone MedSAM2 đông lạnh;
     \item \texttt{evaluation/}: chỉ số phân đoạn, chỉ số thời gian, tỷ số và đánh giá hai vùng;
-    \item \texttt{scripts/}: suy luận, huấn luyện và các phân tích chẩn đoán.
+    \item \texttt{scripts/}: dựng manifest, suy luận, huấn luyện và các phân tích phân tầng (chiếu sáng, tái xuất hiện).
 \end{itemize}
-Hàm tải mặt nạ phân biệt mặt nạ nhị phân JPEG của PolypGen với mặt nạ PNG có nhãn chỉ số. Nhờ đó, cùng giao diện có thể dùng cho đối tượng nhị phân trong tập thay thế và cho dữ liệu hai vùng VA/đường thở khi bộ dữ liệu đích được cung cấp.
+Baseline EMA được tách thành mô-đun riêng \texttt{ema\_memory.py} để đối chứng rõ ràng với phương pháp Kalman: nó dùng chung đường đọc bộ nhớ nhưng thay gain thích nghi bằng gain hằng hiện diện/vắng mặt, với phương sai cập nhật nhất quán $P\leftarrow(1-K)P^-$. Các biến thể gain thăm dò không vượt baseline (score gate cứng, score scale mềm, nhiễu $R$ theo độ tin cậy, nhiễu theo chuyển động, oracle gate và prototype gate) đã được gỡ khỏi mã để giữ phần cài đặt gọn và dễ kiểm chứng; các lần chạy cũ của chúng vẫn lưu trên Google Drive. Hàm tải mặt nạ phân biệt mặt nạ nhị phân JPEG của PolypGen với mặt nạ PNG có nhãn chỉ số. Nhờ đó, cùng giao diện có thể dùng cho đối tượng nhị phân trong tập thay thế và cho dữ liệu hai vùng VA/đường thở khi bộ dữ liệu đích được cung cấp.
 
 \subsection{Quy trình chạy}
 Khi có manifest và checkpoint MedSAM2, huấn luyện hoặc suy luận nhận danh sách nhãn qua \texttt{--label\_ids}; ví dụ nhãn $1$ và $2$ cho VA và đường thở. Suy luận có thể chạy bộ nhớ gốc hoặc backend Kalman. Các tệp kết quả bao gồm mặt nạ dự đoán và bản ghi chẩn đoán theo khung hình. Hiện chưa có manifest dữ liệu VA phù hợp trong kho nên lệnh minh họa trong tài liệu không được xem là một quy trình lâm sàng hoàn chỉnh.
@@ -155,15 +155,17 @@ Các bước tiếp theo cần hoàn thành theo thứ tự sau:
     \item nhận giao thức lâm sàng xác định công thức tỷ số tắc nghẽn, cách chọn khung ổn định và ngưỡng phân độ;
     \item chạy baseline MedSAM2 và bộ nhớ một khe trên dữ liệu VA theo một giao thức cố định;
     \item kiểm tra chẩn đoán xem Dice vùng và sai số tỷ số có lệch đáng kể hay không trước khi đề xuất loss nhận biết phép đo;
-    \item chỉ phát triển gain thích nghi khi nó vượt baseline gain hằng trên dữ liệu phát triển mà không làm tăng dương tính giả.
+    \item chỉ phát triển gain thích nghi khi nó vượt baseline gain hằng trên dữ liệu phát triển mà không làm tăng dương tính giả;
+    \item thử một cơ chế hiện diện dùng chính phương sai $P$ của bộ lọc Kalman để chặn \emph{đầu ra} mặt nạ khi độ bất định cao, nhằm đồng thời giữ theo dõi tốt (phương sai thấp) và giảm dương tính giả trên khung rỗng (phương sai cao sau khoảng vắng mặt).
 \end{enumerate}
+Ý tưởng cuối xuất phát từ một quan sát xuyên suốt các thí nghiệm: dương tính giả là bài toán hiện diện tách khỏi bài toán theo dõi. Các mẹo tác động vào bước ghi bộ nhớ chỉ đổi theo dõi lấy FP; để cải thiện cả hai cần một tín hiệu hiện diện gắn vào đầu ra. Phương sai $P$ của bộ lọc là một tín hiệu như vậy và mang bản chất Kalman; trong bộ hợp nhất hiện diện đã gỡ trước đây, biến \emph{log phương sai tiên nghiệm} từng có trọng số âm mạnh và việc bỏ nó làm tăng FP, cho thấy hướng này đáng thử một cách có kiểm soát trên tập phát triển trước khi chạy C6.
 
 \section{Thiết kế thực nghiệm và phân tích kết quả}
 \subsection{Nguyên tắc diễn giải kết quả}
 
 Mục tiêu của phần thực nghiệm hiện tại không phải là khẳng định một phương pháp chẩn đoán phì đại VA. Hai tập dữ liệu được dùng ở đây có vai trò khác nhau: PolypGen là tập thay thế để kiểm tra sự lan truyền của phân đoạn qua video dài, còn CholecSeg8k là tập video thực thứ hai để kiểm tra liệu kết quả có lặp lại trong một bối cảnh hình ảnh khác hay không. Không có cấu trúc giải phẫu nào trong các tập này được xem là tương đương với VA hoặc đường thở mũi họng.
 
-Mọi kết quả so sánh bộ nhớ được diễn giải theo cùng một nguyên tắc: chỉ thay đổi cách lưu và cập nhật bộ nhớ, trong khi checkpoint MedSAM2, prompt, bộ đánh giá và giao thức dữ liệu được giữ nhất quán. Các số liệu không được dùng để suy ra hiệu quả trên dữ liệu VA. Các bảng được đối chiếu với hồ sơ \texttt{docs/EXPERIMENTS.md} và các đầu ra đã lưu dưới thư mục Google Drive \texttt{AdeSEG/outputs/Kalman}. Kho mã nguồn hiện tại vẫn chưa có manifest JSONL mà \texttt{scripts/infer.py} yêu cầu để chạy lại các thí nghiệm đó.
+Mọi kết quả so sánh bộ nhớ được diễn giải theo cùng một nguyên tắc: chỉ thay đổi cách lưu và cập nhật bộ nhớ, trong khi checkpoint MedSAM2, prompt, bộ đánh giá và giao thức dữ liệu được giữ nhất quán. Các số liệu không được dùng để suy ra hiệu quả trên dữ liệu VA. Các bảng được đối chiếu với hồ sơ \texttt{docs/EXPERIMENTS.md} và các đầu ra đã lưu dưới thư mục Google Drive \texttt{AdeSEG/outputs/Kalman}. Manifest JSONL cho PolypGen đã được dựng bằng \texttt{scripts/build\_polypgen\_manifest.py}, nên bảng kiểm tra C6 trong báo cáo này được chạy lại trực tiếp từ trạng thái kho hiện tại (xem mục kết quả kiểm tra C6 chạy lại).
 
 \subsection{Giao thức PolypGen}
 
@@ -268,6 +270,42 @@ Kiểm tra C6: Kalman & 0.609 & 0.244 & 7.7 & 0.60 & 0.40 \\
 
 Mâu thuẫn giữa lợi ích trên phát triển và kết quả C6 có ý nghĩa cho cách viết báo cáo: không được nói rằng phương pháp cải thiện ổn định trên mọi video. Diễn giải phù hợp là dữ liệu phát triển chứa các video dài nơi giảm tích lũy lỗi có thể quan sát được, trong khi C6 ngắn và không xác nhận hiệu ứng đó. Điều này cũng giải thích vì sao target dataset VA cần được đánh giá theo giao thức cố định trước khi bất kỳ cơ chế nhớ nào được gọi là cải thiện lâm sàng.
 
+\subsection{Kết quả kiểm tra C6 chạy lại với pipeline hiện tại}
+
+Sau khi dựng lại manifest và đơn giản hóa mã nguồn (bộ nhớ Kalman rút gọn còn cập nhật lõi cộng tùy chọn \texttt{--skip\_absent}, và EMA tách thành mô-đun riêng \texttt{modeling/ema\_memory.py}), ba phương pháp đã đóng băng được chạy lại một lần trên tập kiểm tra C6 (seq16--seq23, 8 chuỗi, 432 khung lan truyền). Gain EMA (hiện diện 0.798, vắng mặt 0.261) được đo trên tập phát triển nên C6 vẫn là tập giữ kín. Kết quả lưu tại \texttt{outputs/Kalman/heldout\_test/}. Các số liệu dưới đây là trung bình theo chuỗi và kiểm định Wilcoxon theo cặp trên 8 chuỗi.
+
+\begin{table}[H]
+\centering
+\caption{Kiểm tra C6 chạy lại: native, EMA và Kalman, pipeline hiện tại.}
+\resizebox{0.92\textwidth}{!}{%
+\begin{tabular}{lrrrr}
+\hline
+Phương pháp & Dice & IoU & Dice khung polyp & FP khung rỗng \\
+\hline
+Native MedSAM2 (bank 7 khung) & 0.640 & 0.595 & 0.608 & 0.425 \\
+EMA (1 khe, gain hằng) & 0.621 & 0.577 & 0.637 & 0.507 \\
+Kalman (1 khe, gain thích nghi) & 0.619 & 0.574 & 0.640 & 0.540 \\
+\hline
+\end{tabular}}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{So sánh cặp theo chuỗi trên C6 chạy lại ($n=8$).}
+\begin{tabular}{p{0.30\textwidth}p{0.30\textwidth}p{0.14\textwidth}p{0.10\textwidth}}
+\hline
+So sánh & Chỉ số & Chênh lệch & $p$ \\
+\hline
+Kalman -- native & Dice & $-0.020$ (5/3) & 0.84 \\
+Kalman -- native & Dice khung polyp & $+0.031$ (5/3) & 0.20 \\
+Kalman -- native & FP khung rỗng (thấp hơn tốt hơn) & $+0.115$ (2/4) & 0.31 \\
+Kalman -- EMA & Dice & $-0.002$ (3/5) & 0.64 \\
+\hline
+\end{tabular}
+\end{table}
+
+Ba điểm cần ghi nhận trung thực. Thứ nhất, trên C6 \emph{native có Dice tổng thể cao nhất}; bộ nhớ Kalman không vượt native về Dice gộp trên tập giữ kín này. Thứ hai, bộ nhớ một khe (cả Kalman và EMA) cải thiện Dice ở khung polyp so với bank 7 khung của native (Kalman $+0.031$ Dice khung polyp) nhưng làm tăng dương tính giả trên khung rỗng ($+0.115$), vì không có mô-đun hiện diện nên trạng thái lặp duy nhất vẫn giữ đối tượng qua các đoạn rỗng; hai hiệu ứng này triệt tiêu lẫn nhau khiến Dice tổng thể thấp hơn native. Thứ ba, gain Kalman thích nghi \emph{hòa} với EMA gain hằng ($-0.002$, $p=0.64$), nhất quán với phân tích đối chứng ở mục sau. Không chênh lệch nào đạt ý nghĩa thống kê với $n=8$. Kết quả này lặp lại đúng chiều của lần chạy lưu trữ trước đây (native 0.621 so với Kalman 0.609), xác nhận pipeline hiện tại đúng đắn.
+
 \subsection{Khả năng chịu chuyển động và tái xuất hiện}
 
 Độ chuyển động được định nghĩa trong thí nghiệm là thay đổi theo pixel của feature ảnh MedSAM2 từ khung trước đó, cụ thể là $1-\cos(\cdot,\cdot)$. Trên tập phát triển, ba ngưỡng tercile là 0.033 và 0.117. Với các khung polyp chuyển động cao, Dice lần lượt là 0.400 cho native, 0.429 cho prompt + 1 frame và 0.466 cho Kalman. Chênh lệch Kalman--native là $+0.033$, có 9/12 chuỗi tốt hơn và $p=0.052$. Trên C6, khi cố định ngưỡng cao $>0.117$ từ phát triển, chênh lệch là $+0.016$ với $p=0.25$. Vì thế, kết quả chỉ hỗ trợ theo hướng xu thế, không đủ để tuyên bố hiệu quả chắc chắn dưới chuyển động nhanh.
@@ -312,6 +350,7 @@ Nhiễu quan sát theo chuyển động & Dice 0.502, mất 0.353; kém hơn. \\
 Prototype innovation gate & AUROC video thật 0.43; không có thông tin phân biệt hữu ích. \\
 Khoảng cách prompt anchor & Không cải thiện hơn object score trong LOSO. \\
 Hard score gate & Đánh đổi theo dõi lấy dương tính giả; không đạt quy tắc theo chuỗi. \\
+Soft score scale $K\,\sigma(\alpha s+\beta)$ & Dice theo chuỗi $-0.003$ và $-0.008$ so với Kalman thường; không đạt quy tắc. \\
 \hline
 \end{tabular}
 \end{table}
@@ -326,7 +365,9 @@ Một oracle diagnostic chỉ ghi bộ nhớ khi khung dự đoán khớp nhãn 
 
 Hard score gate đặt $K=0$ khi object-score logit thấp hơn ngưỡng $\tau$. Với $\tau=5.74$ chọn theo Youden's J trên phát triển, biến thể gate tất cả khung đạt Dice 0.527 và tỷ lệ mất 0.277, nhưng FP khung rỗng tăng lên 0.914. Biến thể chỉ áp dụng trên khung được gọi là có đối tượng có Dice 0.497, tỷ lệ mất 0.336 và FP 0.809. Như vậy, gate có thể ngăn ghi một số quan sát xấu nhưng cũng ngăn ghi các khung rỗng cần thiết, làm tăng lỗi dương tính giả.
 
-Score scale là biến thể mềm với $K_t\leftarrow K_t\,\sigma(\alpha s_t+\beta)$. Mã đã có cờ \texttt{--score\_scale ALPHA BETA}. Hiệu chỉnh trên phát triển cho bộ tham số toàn bộ khung $(0.237,-1.166)$ với AUROC 0.755, và bộ tham số chỉ khung polyp $(0.633,-3.300)$ với AUROC 0.889. Tuy nhiên, các chạy suy luận này chưa thực hiện vì manifest JSONL cần bởi \texttt{scripts/infer.py} phải được xây dựng lại. Vì vậy, báo cáo không đưa ra bất kỳ kết quả hiệu năng nào cho score scale.
+Score scale là biến thể mềm với $K_t\leftarrow K_t\,\sigma(\alpha s_t+\beta)$, nhằm giảm gain một cách trơn trên các khung có điểm số thấp thay vì đặt cứng $K=0$. Hiệu chỉnh trên phát triển cho bộ tham số toàn bộ khung $(0.245,-1.145)$ với AUROC 0.754, và bộ tham số chỉ khung polyp $(0.727,-3.417)$ với AUROC 0.914. Cả hai bộ tham số đã được chạy trên tập phát triển và đối chiếu với quy tắc định trước (phải vượt Kalman thường đồng thời ở lost fraction và Dice chuyển động cao). Kết quả: không bộ nào đạt; chênh lệch Dice theo chuỗi là $-0.003$ cho bộ toàn khung và $-0.008$ cho bộ chỉ khung polyp, nghĩa là score scale còn hơi kém Kalman thường. Vì vậy biến thể này đã bị loại khỏi mã nguồn cùng các gate khác; báo cáo ghi nhận nó như một kết quả âm, không chạy trên C6.
+
+Nguyên nhân sâu xa của cả score gate lẫn score scale là: dương tính giả trên khung rỗng là bài toán \emph{hiện diện}, không phải bài toán bộ nhớ. Việc chặn hay giảm ghi bộ nhớ không làm thay đổi điều bộ nhớ dự đoán khi đọc ở một khung rỗng, nên các mẹo tác động vào bước ghi chỉ đổi theo dõi lấy FP chứ không cải thiện cả hai. Hướng nhiều triển vọng hơn, nêu ở mục kế hoạch, là dùng chính phương sai $P$ của bộ lọc để chặn \emph{đầu ra} mặt nạ khi độ bất định cao.
 
 \section{Đánh giá trên CholecSeg8k và khả năng khái quát}
 \subsection{Vai trò của CholecSeg8k}
