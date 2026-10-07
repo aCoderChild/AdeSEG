@@ -10,6 +10,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def numeric_order(paths):
+    """Sort frame files by their trailing frame number; an alphabetical sort puts frame 104 before 69."""
+    return sorted(paths, key=lambda path: int(re.search(r"(\d+)$", path.stem).group(1)))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_root", type=Path, default=ROOT / "data/PolypGen2021_MultiCenterData_v3/sequenceData/positive")
@@ -24,9 +29,7 @@ def main():
             sequence = f"seq{number}"
             images = args.data_root / sequence / f"images_seq{number}"
             masks = args.data_root / sequence / f"masks_seq{number}"
-            # Numeric frame order: an alphabetical sort puts frame 104 before 69.
-            frames = sorted(images.glob("*.jpg"), key=lambda path: int(re.search(r"(\d+)$", path.stem).group(1)))
-            for index, image in enumerate(frames):
+            for index, image in enumerate(numeric_order(images.glob("*.jpg"))):
                 matches = sorted(path for path in masks.glob(f"{image.stem}_mask.*") if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"})
                 if len(matches) != 1:
                     raise FileNotFoundError(f"Expected one mask for {image}")
