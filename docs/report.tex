@@ -74,7 +74,7 @@ Phì đại VA (adenoid hypertrophy) là một nguyên nhân thường gặp gâ
 
 Trong đợt thực tập, công việc của tôi tập trung vào phần kỹ thuật cốt lõi của chuỗi xử lý đó: (i) hạ tầng dữ liệu video dùng chung cho huấn luyện, suy luận và đánh giá, kể cả bộ chuyển đổi mặt nạ mã hóa mức xám kiểu dữ liệu VA của Cai và cộng sự \cite{cai2024}; (ii) thiết kế và cài đặt bộ nhớ không gian Kalman một khe thay cho ngân hàng bộ nhớ FIFO bảy khung của MedSAM2 \cite{medsam2}, cùng baseline EMA để đối chứng; (iii) bộ đánh giá theo thời gian và bộ đánh giá hai vùng có sai số tỷ số; (iv) thiết kế giao thức thực nghiệm, chạy thí nghiệm, phân tích lỗi và ghi nhận trung thực cả các kết quả âm.
 
-Ở thời điểm báo cáo, dự án chưa có bộ dữ liệu video VA đã gán nhãn, cũng chưa có giao thức lâm sàng xác định công thức tắc nghẽn và ngưỡng phân độ. Vì vậy mọi thực nghiệm dùng dữ liệu thay thế: PolypGen \cite{polypgen} và CholecSeg8k \cite{cholecseg8k} cho bài toán lan truyền phân đoạn theo thời gian, REFUGE \cite{refuge} cho đường xử lý hai vùng và sai số tỷ số. Báo cáo không tuyên bố kết quả lâm sàng trên VA.
+Ở thời điểm báo cáo, dự án chưa có bộ dữ liệu video VA đã gán nhãn, cũng chưa có giao thức lâm sàng xác định công thức tắc nghẽn và ngưỡng phân độ. Vì vậy mọi thực nghiệm dùng dữ liệu thay thế: PolypGen \cite{polypgen} cho bài toán lan truyền phân đoạn theo thời gian, REFUGE \cite{refuge} cho đường xử lý hai vùng và sai số tỷ số. Báo cáo không tuyên bố kết quả lâm sàng trên VA.
 
 \subsection{Giới thiệu qua bài toán}
 
@@ -136,7 +136,7 @@ Dạng thứ nhất có cùng ý nghĩa với tỷ số A/N mà Cai và cộng s
 
 \subsection{Tiêu chí đánh giá}
 
-Phân đoạn được đo bằng Dice và IoU theo từng chuỗi rồi lấy trung bình, cùng Dice riêng trên các khung có đối tượng. Hiện diện được đo bằng tỷ lệ dương tính giả trên khung rỗng (FP khung rỗng). Tích lũy lỗi được đo bằng tỷ lệ khung có đối tượng bị ``mất'' (Dice $<0.1$), độ dài trung bình một đoạn mất, tỷ lệ đoạn được khôi phục và tỷ lệ mất tới cuối video. Độ bền được đo bằng Dice ở 1--10 khung sau khi đối tượng tái xuất hiện, ở khung chuyển động cao và theo mức chiếu sáng. Đo hai vùng dùng MAE, RMSE và tương quan Pearson/Spearman giữa tỷ số dự đoán và tỷ số thật, cùng độ chính xác phân độ và hệ số kappa khi có ngưỡng. So sánh cặp theo chuỗi dùng kiểm định Wilcoxon kèm khoảng tin cậy bootstrap theo chuỗi; trung bình theo chuỗi và trung bình gộp theo khung luôn được ghi rõ. Lý tưởng là tập kiểm tra chỉ được chạy một lần cho mỗi phương pháp đã đóng băng; mục~\ref{sec:results} ghi rõ C6 đã được dùng bao nhiêu lần.
+Phân đoạn được đo bằng Dice và IoU theo từng chuỗi rồi lấy trung bình, cùng Dice riêng trên các khung có đối tượng. Hiện diện được đo bằng tỷ lệ dương tính giả trên khung rỗng (FP khung rỗng). Tích lũy lỗi được đo bằng tỷ lệ khung có đối tượng bị ``mất'' (Dice $<0.1$), độ dài trung bình một đoạn mất, tỷ lệ đoạn được khôi phục và tỷ lệ mất tới cuối video. Độ bền được đo bằng Dice ở 1--10 khung sau khi đối tượng tái xuất hiện và ở khung chuyển động cao. Đo hai vùng dùng MAE, RMSE và tương quan Pearson/Spearman giữa tỷ số dự đoán và tỷ số thật, cùng độ chính xác phân độ và hệ số kappa khi có ngưỡng. So sánh cặp theo chuỗi dùng kiểm định Wilcoxon kèm khoảng tin cậy bootstrap theo chuỗi; trung bình theo chuỗi và trung bình gộp theo khung luôn được ghi rõ.
 
 %=====================================================================
 \section{Tóm tắt lý thuyết, giải pháp, thuật toán}
@@ -188,7 +188,7 @@ Phân đoạn được đo bằng Dice và IoU theo từng chuỗi rồi lấy t
 \label{fig:arch}
 \end{figure}
 
-\paragraph{Tùy chọn bỏ qua khung vắng mặt.} Với cờ \texttt{--skip\_absent}, khung mà MedSAM2 gọi là rỗng được xem là \emph{thiếu quan sát}: trạng thái không gian chỉ chạy bước dự đoán ($K=0$), nên phương sai tăng dần trong đoạn vắng mặt và gain tự động lớn khi đối tượng xuất hiện lại. Đây là hành vi mà một gain hằng không có, và là giả thuyết chính về ưu thế của cập nhật Kalman. Lưu ý: object pointer của khung vắng mặt vẫn đi vào memory attention theo chính sách của MedSAM2 (đúng với mọi lần chạy đã báo cáo).
+\paragraph{Tùy chọn bỏ qua khung vắng mặt.} Với cờ \texttt{--skip\_absent}, khung mà MedSAM2 gọi là rỗng được xem là \emph{thiếu quan sát}: trạng thái không gian chỉ chạy bước dự đoán ($K=0$), nên phương sai tăng dần trong đoạn vắng mặt và gain tự động lớn khi đối tượng xuất hiện lại. Đây là hành vi mà một gain hằng không có, và là giả thuyết chính về ưu thế của cập nhật Kalman. Khung vắng mặt cũng không đóng góp object pointer vào memory attention, nên đó là một quan sát thiếu hoàn toàn. Các kết quả chính không dùng chế độ này.
 
 \paragraph{Phân tích trạng thái dừng.} Với $q$ hằng và $R$ chỉ phụ thuộc vào trạng thái hiện diện, phương sai tiên nghiệm hội tụ về nghiệm của $M = MR/(M+R) + q$, tức
 \[
@@ -200,21 +200,19 @@ Với $q=1$: khi đối tượng có mặt ($R\approx 0.1$) thì $K^\ast\approx 
 
 Để tách đóng góp của \emph{cấu trúc một khe} khỏi đóng góp của \emph{gain thích nghi}, tôi cài đặt \texttt{modeling/ema\_memory.py}: cùng anchor, cùng trạng thái một khe và cùng đường đọc, nhưng gain là hằng số cho khung có mặt và khung vắng mặt, lấy đúng bằng gain trung bình của bộ lọc Kalman trên tập phát triển (0.835/0.266). Phương sai vẫn được cập nhật nhất quán $P\leftarrow(1-k)P^-$ để đường đọc $S+u\log(1+P)$ giống hệt. Vì gain của EMA lấy đúng từ gain trung bình của Kalman, việc hai phương pháp hòa nhau là điều \emph{được kỳ vọng theo cách xây dựng}; chúng chỉ khác ở (i) gain chuyển tiếp ngay sau khi trạng thái hiện diện đổi, (ii) xác suất hiện diện mềm $p_t$ (Kalman) so với ngưỡng cứng 0.5 (EMA), và (iii) chế độ \texttt{--skip\_absent}. Phép so sánh với \texttt{--skip\_absent} vì vậy mới là kiểm định đúng cho phần riêng của dạng Kalman.
 
-\subsubsection{Cổng hiện diện ở đầu ra}
-
-Phân tích lỗi cho thấy dương tính giả trên khung rỗng là bài toán \emph{hiện diện}, tách khỏi bài toán theo dõi. Tôi thêm một cổng đơn giản: mặt nạ đầu ra bị đặt rỗng khi object score của MedSAM2 thấp hơn ngưỡng $\tau$; $\tau$ được hiệu chỉnh riêng cho từng phương pháp trên tập phát triển (native 1.557, EMA 0.651, Kalman 1.078). Cổng chỉ tác động lên đầu ra, không lên bước ghi bộ nhớ. Cần ghi nhận hai điểm: cổng được thiết kế \emph{sau} khi một lần chạy trên C6 đã cho thấy dương tính giả là vấn đề; và các lần chạy trên tập phát triển dùng để hiệu chỉnh $\tau$ không được lưu, quy tắc hiệu chỉnh cũng không được ghi lại, nên các giá trị $\tau$ không tái lập được (các dòng ``+ gate'' tái lập được \emph{khi cho trước} $\tau$).
-
 \subsubsection{Huấn luyện bộ cập nhật}
 
-Bộ cập nhật có thể huấn luyện với MedSAM2 đông lạnh, tái sử dụng \texttt{SAM2Train} và hàm mất mát \texttt{MultiStepMultiMasksAndIous} của MedSAM2 (focal 20, Dice 1 trên khung có đối tượng) cộng BCE cho object score tách thành phần hiện diện và vắng mặt. Mã hiện tại (\texttt{scripts/train\_kalman.py}) huấn luyện trên các đoạn video tự nhiên từ tập \texttt{train} và \texttt{val} của một manifest; manifest PolypGen không có hai tập này, nên chưa có lần huấn luyện nào bằng mã hiện tại. Các lần huấn luyện \emph{lưu trữ} trước đây dùng một pipeline đã bị xóa (\texttt{datasets/pseudo\_video.py}): đoạn giả video ghép từ ảnh đơn \texttt{data\_C1}--\texttt{data\_C6} và chuỗi \texttt{negativeOnly}, kèm quan sát từ bộ phát hiện. Chúng cải thiện tập kiểm định giả video nhưng không cải thiện trên video thật; vì vậy mọi kết quả báo cáo dùng bộ lọc chưa huấn luyện (cờ \texttt{--untrained}).
+Bộ cập nhật có thể huấn luyện với MedSAM2 đông lạnh, tái sử dụng \texttt{SAM2Train} và hàm mất mát \texttt{MultiStepMultiMasksAndIous} của MedSAM2 (focal 20, Dice 1 trên khung có đối tượng) cộng BCE cho object score tách thành phần hiện diện và vắng mặt; chỉ tham số của bộ cập nhật Kalman nhận gradient. \texttt{scripts/train\_kalman.py} huấn luyện trên các đoạn video tự nhiên từ một manifest; với PolypGen, một số video của tập phát triển được giữ lại để kiểm định (\texttt{--train\_split dev --val\_videos seq13 seq14 seq15}). Prompt ở khung đầu là hộp bao chặt từ nhãn thật, giống hệt khi suy luận (\texttt{SAM2Train} mặc định thêm nhiễu vào hộp, nên lớp huấn luyện thay bằng hộp không nhiễu). Một lần chạy thử hai bước trên PolypGen xác nhận đường huấn luyện hoạt động; các kết quả trong báo cáo dùng bộ lọc chưa huấn luyện (cờ \texttt{--untrained}).
 
 \subsubsection{Hạ tầng dữ liệu và đánh giá}
 
-\paragraph{Manifest và thứ tự khung.} Tên tệp khung của PolypGen có hậu tố số với độ dài khác nhau, nên sắp theo bảng chữ cái là sai (khung 104 đứng trước khung 69). Phiên bản đầu của manifest mắc lỗi này và đưa 18/23 chuỗi vào sai thứ tự thời gian. Tôi phát hiện lỗi, sửa \texttt{build\_polypgen\_manifest.py} sắp theo số, loại bỏ mọi kết quả từ phiên bản cũ, thêm kiểm thử khóa thứ tự đúng, và xác nhận pipeline mới tái lập chính xác các lần chạy lưu trữ (Dice gộp: phát triển native 0.481/Kalman 0.514; C6 native 0.621/Kalman 0.609).
+\paragraph{Manifest và thứ tự khung.} Tên tệp khung của PolypGen có hậu tố số với độ dài khác nhau, nên sắp theo bảng chữ cái là sai (khung 104 đứng trước khung 69). Phiên bản đầu của manifest mắc lỗi này và đưa 18/23 chuỗi vào sai thứ tự thời gian. Tôi phát hiện lỗi, sửa \texttt{build\_polypgen\_manifest.py} sắp theo số, chạy lại toàn bộ thí nghiệm, và thêm kiểm thử khẳng định thứ tự khung khi suy luận và khi đánh giá luôn trùng nhau.
 
 \paragraph{Lỗi đồng bộ và kiểm chứng tương đương.} Trên Apple MPS, việc MedSAM2 offload trạng thái với \texttt{non\_blocking} đọc dữ liệu trước khi sao chép xong và làm hỏng các kết quả đầu; tôi sửa bằng cách giữ trạng thái trên thiết bị khi không dùng CUDA. Mã \texttt{native\_pointers.py} được kiểm chứng trùng khớp từng bit với object pointer của MedSAM2 gốc, nên khác biệt giữa các phương pháp chỉ đến từ bộ nhớ không gian.
 
-\paragraph{Tái lập kết quả.} \texttt{scripts/analyze\_runs.py} dựng lại mọi bảng PolypGen (trung bình theo chuỗi và gộp, đoạn mất, chuyển động cao, cổng hiện diện, kiểm định Wilcoxon và khoảng bootstrap) từ các CSV theo khung đã lưu, và tái lập chính xác bảng C6. Cờ \texttt{--untrained} tái lập từng khung của lần chạy Kalman trên C6 mà không cần tải checkpoint. Kiểm thử mới khẳng định thứ tự khung khi suy luận và khi đánh giá luôn trùng nhau. Khi đối chiếu, tôi phát hiện các bảng cũ trộn hai cách gộp (trung bình theo chuỗi và gộp theo khung) và hai giá trị $p$ không tái lập được; các chỗ này được sửa ở mục~\ref{sec:results}.
+\paragraph{Tái lập kết quả và tính độc lập với máy.} \texttt{scripts/analyze\_runs.py} dựng lại mọi bảng PolypGen (trung bình theo chuỗi và gộp, đoạn mất, chuyển động cao, kiểm định Wilcoxon và khoảng bootstrap) từ các CSV theo khung đã lưu. Cờ \texttt{--untrained} tạo bộ lọc chưa huấn luyện mà không cần tải checkpoint; vì lớp cuối khởi tạo bằng 0, kết quả không phụ thuộc seed. MedSAM2 chỉ lấp lỗ nhỏ trong mặt nạ khi có phần mở rộng biên dịch \texttt{\_C}; để kết quả không phụ thuộc máy, việc lấp lỗ được tắt tường minh. Chạy lại ba phương pháp trên C6 bằng mã hiện tại cho kết quả trùng từng khung với các lần chạy đã lưu.
+
+\paragraph{Kiểm tra mặt nạ đầu vào.} Mặt nạ được đọc kèm kiểm tra nhãn: giá trị phải là 0 hoặc thuộc \texttt{--label\_ids}, và mặt nạ JPEG mức xám nhiều lớp bị từ chối thay vì bị ngưỡng hóa thành nhị phân. Nếu không, một mặt nạ PNG 0/255 đọc với nhãn 1 sẽ không có hộp prompt và cho mặt nạ rỗng mà không báo lỗi.
 
 \paragraph{Mặt nạ hai vùng.} Mặt nạ ba lớp mã hóa mức xám (0/128/255) nếu đọc như mặt nạ nhị phân sẽ gộp đường thở và VA thành một lớp. \texttt{build\_mask\_manifest.py} chuyển chúng sang PNG chỉ số bằng ánh xạ giá trị gần nhất (để nhiễu nén JPEG không tạo lớp mới), ví dụ \texttt{0:0 128:1 255:2} cho dữ liệu kiểu Cai và cộng sự. \texttt{evaluation/two\_region.py} tính Dice/IoU từng vùng và tính tỷ số dự đoán và tỷ số thật bằng \emph{cùng} một \texttt{ratio\_mode}, nên không thể vô tình so sánh hai tỷ số định nghĩa khác nhau. Cờ \texttt{--nested\_labels} của \texttt{infer.py} prompt nhãn $k$ như hợp của các nhãn $\geq k$ (đĩa thị = vành + cup; mũi họng = VA + đường thở) rồi lấy vùng ngoài trừ vùng trong.
 
@@ -306,41 +304,38 @@ Thêm \texttt{--skip\_absent} để bật chế độ bỏ qua khung vắng mặ
 
 \subsubsection{Thiết lập thực nghiệm}
 
-PolypGen gồm 23 chuỗi nội soi đại tràng có mặt nạ polyp (2,012 khung lan truyền: 1,689 có polyp, 323 rỗng), chú thích thưa và có nhiều đoạn polyp ra khỏi khung hình. MedSAM2 giữ đông lạnh; prompt là hộp bao chặt của mặt nạ thật ở khung có polyp đầu tiên, nên kết quả phản ánh chất lượng \emph{lan truyền} sau prompt, không phải hiệu năng phát hiện tự động. Giao thức (a) tách theo trung tâm: tập phát triển seq1--seq15 (trung tâm C1--C5, 13 chuỗi có polyp) dùng cho mọi hiệu chỉnh và lựa chọn thiết kế; tập kiểm tra seq16--seq23 (trung tâm C6, 8 chuỗi, 372 khung lan truyền, 56 khung rỗng). C6 \emph{không} phải tập hoàn toàn chưa thấy: nó đã nằm trong giao thức 23 chuỗi trước khi giao thức (a) được định nghĩa, và sau đó được dùng cho nhiều so sánh đã đóng băng (một lần chạy lại có ghi chuyển động, một lần với manifest sai thứ tự, lần chạy đã sửa kèm cổng hiện diện, và bộ lọc Kalman trên tín hiệu hiện diện). Mọi số liệu dùng một seed.
-
-\subsubsection{Kết quả trên toàn bộ 23 chuỗi (giao thức đầu tiên)}
-
-Các lần chạy này đã định hướng thiết kế (chỉ số đoạn mất được định nghĩa sau khi xem kết quả), nên chỉ là bằng chứng phát triển.
+Thí nghiệm chính dùng tập C6 của PolypGen (seq16--seq23, trung tâm C6): 8 chuỗi nội soi đại tràng, 372 khung lan truyền, trong đó 56 khung không có polyp. Tập phát triển seq1--seq15 (trung tâm C1--C5) chỉ dùng để chọn thiết kế và đo gain của EMA (0.835/0.266). MedSAM2 giữ đông lạnh; prompt là hộp bao chặt của mặt nạ thật ở khung có polyp đầu tiên, nên kết quả phản ánh chất lượng \emph{lan truyền} sau prompt, không phải phát hiện tự động. Ba phương pháp được so sánh: MedSAM2 gốc (ngân hàng bảy khung), EMA gain hằng (một khe) và bộ nhớ Kalman chưa huấn luyện (một khe). Mọi lần chạy dùng một seed, không lấp lỗ mặt nạ, trên Apple MPS. C6 đã được xem trong quá trình phát triển, nên đây là đánh giá trên tập ngoài trung tâm phát triển chứ chưa phải một tập kiểm tra hoàn toàn chưa thấy.
 
 \begin{table}[htbp]
 \centering
-\caption{PolypGen, 23 chuỗi (trung bình theo chuỗi / gộp theo khung; các chỉ số đoạn mất gộp theo khung).}
+\caption{Các chuỗi C6: số khung lan truyền, số khung rỗng và Dice theo chuỗi.}
+\label{tab:c6seq}
+\small
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{lrrrrrrrr}
 \hline
-Phương pháp & Dice & Dice khung polyp & Khung mất & Đoạn mất & Khôi phục & Mất tới cuối \\
+ & & & \multicolumn{3}{c}{Dice} & \multicolumn{3}{c}{Dice khung polyp} \\
+Chuỗi & Khung & Rỗng & Native & EMA & Kalman & Native & EMA & Kalman \\
 \hline
-Native MedSAM2 & 0.627 / 0.507 & 0.652 / 0.537 & 0.374 & 25.3 & 0.60 & 0.36 \\
-Native, prompt + 1 khung & 0.616 / 0.513 & 0.644 / 0.552 & 0.326 & 19.0 & 0.55 & 0.31 \\
-Kalman & 0.634 / 0.531 & 0.671 / 0.574 & 0.304 & 16.1 & 0.75 & 0.22 \\
-EMA & 0.632 / 0.523 & 0.674 / 0.569 & 0.327 & 18.4 & 0.67 & 0.23 \\
+seq16 & 33 & 1 & 0.941 & 0.940 & 0.942 & 0.970 & 0.970 & 0.971 \\
+seq17 & 46 & 3 & 0.812 & 0.807 & 0.814 & 0.869 & 0.863 & 0.871 \\
+seq18 & 62 & 7 & 0.594 & 0.640 & 0.655 & 0.560 & 0.649 & 0.647 \\
+seq19 & 55 & 1 & 0.830 & 0.846 & 0.847 & 0.827 & 0.843 & 0.844 \\
+seq20 & 35 & 5 & 0.143 & 0.218 & 0.143 & 0.000 & 0.088 & 0.000 \\
+seq21 & 47 & 23 & 0.685 & 0.426 & 0.448 & 0.757 & 0.751 & 0.751 \\
+seq22 & 45 & 2 & 0.678 & 0.712 & 0.713 & 0.710 & 0.746 & 0.746 \\
+seq23 & 49 & 14 & 0.253 & 0.238 & 0.258 & 0.097 & 0.076 & 0.076 \\
 \hline
 \end{tabular}}
 \end{table}
 
-Một ``đoạn mất'' là các khung polyp liên tiếp có Dice $<0.1$ (khung rỗng không ngắt đoạn); ``khôi phục'' nghĩa là một khung polyp sau đó đạt Dice $\geq 0.5$. So sánh cặp theo chuỗi (21 chuỗi có polyp), Kalman so với native: Dice $+0.007$ (14/7, $p=0.14$, khoảng bootstrap $[-0.024, +0.032]$); Dice khung polyp $+0.019$ ($p=0.070$); tỷ lệ khung mất $-0.024$ (thấp hơn ở 6, cao hơn ở 3 chuỗi, $p=0.21$). \textbf{Đính chính:} bản trước của báo cáo ghép hiệu số gộp ($+0.025$, $+0.037$) với giá trị $p$ theo chuỗi, và ghi mức giảm khung mất $-0.070$ với $p=0.016$ (so với native) và $p=0.011$ (so với prompt + 1 khung). Hai giá trị $p$ này không tái lập được bằng kiểm định chuẩn nào đã thử; việc ít mất khung hơn chỉ là quan sát gộp trên dữ liệu phát triển, và trên C6 không có (0.244 so với 0.247).
+\subsubsection{Kết quả trên C6}
 
-\subsubsection{Tập phát triển và tập kiểm tra C6}
-
-Dice gộp theo khung trên tập phát triển: native 0.481, prompt + 1 khung 0.488, Kalman 0.514; trên C6: 0.621, 0.623, 0.609. Tỷ lệ khung mất / độ dài đoạn mất / tỷ lệ khôi phục trên tập phát triển: native 0.403 / 39.6 / 0.57, Kalman 0.318 / 19.9 / 0.82; trên C6: native 0.247 / 7.1 / 0.64, Kalman 0.244 / 7.7 / 0.60.
-
-Trên các video dài của tập phát triển, Kalman rút ngắn đoạn mất (39.6 xuống 19.9 khung) và tăng tỷ lệ khôi phục (0.57 lên 0.82), nhưng theo chuỗi thì không có ý nghĩa (Dice $+0.020$, $p=0.45$; tỷ lệ mất $-0.040$, $p=0.19$). Trên C6, video ngắn, đoạn mất vốn đã ngắn (khoảng 7 khung) và không còn khác biệt.
-
-\paragraph{So sánh native, EMA và Kalman trên C6.} Bảng~\ref{tab:c6} là kết quả chính trên C6 (dựng lại chính xác bằng \texttt{analyze\_runs.py}); ``mất'' là tỷ lệ khung polyp có Dice $<0.1$, ``tái xuất hiện'' là Dice ở 1--10 khung sau một đoạn vắng mặt, ``chuyển động cao'' là khung polyp có mức thay đổi đặc trưng ảnh lớn hơn 0.117 (ngưỡng tercile cố định từ tập phát triển).
+Bảng~\ref{tab:c6} tổng hợp trung bình theo chuỗi; ``mất'' là tỷ lệ khung polyp có Dice $<0.1$, ``tái xuất hiện'' là Dice ở 1--10 khung sau một đoạn vắng mặt, ``chuyển động cao'' là khung polyp có mức thay đổi đặc trưng ảnh lớn hơn 0.117 (ngưỡng tercile cố định từ tập phát triển).
 
 \begin{table}[htbp]
 \centering
-\caption{Kiểm tra C6 (trung bình theo chuỗi), có và không có cổng hiện diện.}
+\caption{Kết quả trên C6 (trung bình theo chuỗi).}
 \label{tab:c6}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrrr}
@@ -349,85 +344,96 @@ Phương pháp & Dice & Dice khung polyp & FP khung rỗng & Mất & Tái xuất
 \hline
 Native MedSAM2 (bank 7 khung) & \textbf{0.617} & 0.599 & \textbf{0.486} & 0.283 & 0.462 & 0.563 \\
 EMA (1 khe, gain hằng) & 0.603 & \textbf{0.623} & 0.587 & \textbf{0.268} & \textbf{0.525} & \textbf{0.588} \\
-Kalman (1 khe, gain thích nghi) & 0.602 & 0.613 & 0.555 & 0.284 & 0.483 & 0.579 \\
-\hline
-Native + gate & \textbf{0.628} & 0.573 & \textbf{0.332} & 0.326 & 0.391 & 0.516 \\
-EMA + gate & 0.620 & \textbf{0.607} & 0.433 & \textbf{0.288} & \textbf{0.493} & \textbf{0.574} \\
-Kalman + gate & \textbf{0.628} & 0.598 & 0.388 & 0.303 & 0.457 & 0.558 \\
+Kalman (1 khe) & 0.602 & 0.613 & 0.555 & 0.284 & 0.483 & 0.579 \\
 \hline
 \end{tabular}}
 \end{table}
 
 \begin{table}[htbp]
 \centering
-\caption{So sánh cặp theo chuỗi trên C6 ($n=8$, Wilcoxon).}
+\caption{So sánh cặp theo chuỗi trên C6 ($n=8$, Wilcoxon; trong ngoặc: số chuỗi cao hơn / thấp hơn).}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lllll}
 \hline
 So sánh & Dice & Dice khung polyp & FP khung rỗng & Tái xuất hiện \\
 \hline
-Kalman -- native & $-0.014$ (tốt hơn 7/8), $p=0.20$ & $+0.015$, $p=0.31$ & $+0.069$, $p=0.50$ & $+0.021$, $p=0.58$ \\
-Kalman -- EMA & $-0.001$, $p=0.20$ & $-0.010$, $p=0.74$ & $-0.032$, $p=0.25$ & $-0.042$, $p=0.22$ \\
-Kalman + gate -- native + gate & $-0.000$, $p=0.94$ & $+0.025$, $p=0.30$ & $+0.056$, $p=0.50$ & $+0.066$, $p=0.69$ \\
+Kalman -- native & $-0.014$ (7/1), $p=0.20$ & $+0.015$ (6/2), $p=0.31$ & $+0.069$ (2/1), $p=0.50$ & $+0.021$ (4/3), $p=0.58$ \\
+Kalman -- EMA & $-0.001$ (7/1), $p=0.20$ & $-0.010$ (5/3), $p=0.74$ & $-0.032$ (0/3), $p=0.25$ & $-0.042$ (3/4), $p=0.22$ \\
 \hline
 \end{tabular}}
 \end{table}
 
-Với $n=8$, không khác biệt nào có ý nghĩa thống kê; cổng hiện diện giảm dương tính giả cho mọi phương pháp.
+Với $n=8$, không khác biệt nào có ý nghĩa thống kê. Bộ nhớ một khe (Kalman và EMA) cho Dice khung polyp và Dice ở khung chuyển động cao nhỉnh hơn ngân hàng bảy khung, nhưng làm tăng dương tính giả trên khung rỗng, nên Dice tổng thể thấp hơn native một chút. Kalman cao hơn native ở 7/8 chuỗi; trung bình thấp hơn là do một chuỗi (seq21). Bảng~\ref{tab:c6seq} cho thấy lợi ích lớn nhất ở seq18 (Dice khung polyp 0.647 so với 0.560) và seq22 (0.746 so với 0.710). Hai chuỗi seq20 và seq23 thất bại với cả ba phương pháp (Dice khung polyp không quá 0.1): đây là lỗi theo dõi mà không bộ nhớ nào khắc phục được. Về tích lũy lỗi, tính gộp trên các khung polyp: native mất 0.247 số khung, đoạn mất trung bình 7.1 khung, 0.64 số đoạn được khôi phục; Kalman lần lượt 0.244, 7.7 và 0.60, tức không khác biệt trên các video ngắn của C6.
 
-\paragraph{Phân tích lỗi trên seq21.} Đây là chuỗi C6 mà Kalman thấp hơn native nhiều nhất (0.448 so với 0.685). Trên các khung có polyp, Kalman ngang native (Dice khung polyp 0.751 so với 0.757; tỷ lệ mất 0.083 so với 0.042), tức không có sụp đổ theo dõi. Thiệt hại nằm ở 21 khung rỗng cuối chuỗi: object score của native chuyển âm và native dự đoán rỗng, còn bộ nhớ một khe giữ object score dương nên tiếp tục xuất mặt nạ. Object score gọi 71--74\% khung rỗng của tập phát triển là có đối tượng với cả ba phương pháp (C6: 38\%, 62\%, 57\%): dương tính giả là bài toán hiện diện, không phải bài toán theo dõi.
+\paragraph{Phân tích lỗi trên seq21.} Đây là chuỗi mà Kalman thấp hơn native nhiều nhất (0.448 so với 0.685). Trên các khung có polyp, Kalman ngang native (Dice khung polyp 0.751 so với 0.757), tức không có sụp đổ theo dõi. Thiệt hại nằm ở đoạn rỗng dài ở cuối chuỗi (23 khung rỗng trong 47): object score của native chuyển âm nên native dự đoán rỗng, còn bộ nhớ một khe giữ object score dương và tiếp tục xuất mặt nạ. Trên C6, object score gọi 38\% (native), 62\% (EMA) và 57\% (Kalman) số khung rỗng là có đối tượng: dương tính giả là bài toán hiện diện, không phải bài toán theo dõi.
 
-\paragraph{Bộ lọc Kalman trên tín hiệu hiện diện (định trước; thất bại trên C6).} Một bộ lọc Kalman vô hướng trên log-odds của object score theo thời gian ($x^-=x$, $P^-=P+\rho$, $K=P^-/(P^-+1)$, xuất mặt nạ khi $x_t>\tau$; $\rho=\infty$ chính là cổng theo từng khung) được chọn bằng leave-one-sequence-out trên tập phát triển, với quy tắc định trước: phải vượt cổng theo từng khung về Dice và dương tính giả mà không mất quá 0.005 Dice khung polyp. Trên bộ nhớ Kalman, nó đạt sát ngưỡng ở tập phát triển (Dice $+0.0005$, dương tính giả $-0.010$; $\rho=0.01$, $\tau=1.63$) nhưng trên C6 kém cổng theo từng khung (Dice $-0.005$, dương tính giả $+0.107$, kém ở 3/8 chuỗi và không tốt hơn ở chuỗi nào): làm trơn mạnh khiến bộ lọc phản ứng chậm khi polyp rời khung hình. Mã của thí nghiệm này đã bị xóa; số liệu là kết quả lưu trữ.
+\subsubsection{Gain Kalman so với gain hằng}
 
-\subsubsection{Gain Kalman có đóng góp gì không?}
+Theo phân tích trạng thái dừng, gain của bộ lọc chưa huấn luyện hội tụ về hai giá trị gần như cố định (khoảng 0.92 khi có đối tượng, 0.27 khi vắng mặt). Đo trên tập phát triển, gain trung bình là 0.835 (độ lệch chuẩn 0.144) và 0.266. Trên C6, Kalman và EMA dùng gain này gần như trùng nhau: Dice $-0.001$ ($p=0.20$), Dice khung polyp $-0.010$ ($p=0.74$), EMA tốt hơn ở tái xuất hiện ($-0.042$) và Kalman có ít dương tính giả hơn ($-0.032$), đều không có ý nghĩa. Như đã nêu ở mục 3.2.2, sự hòa nhau này được kỳ vọng theo cách xây dựng: hai phương pháp chỉ khác ở gain chuyển tiếp, xác suất hiện diện mềm so với ngưỡng cứng, và chế độ \texttt{--skip\_absent}. Kết luận rút ra là lợi ích (nếu có) đến từ \emph{trạng thái lặp một khe}, không phải từ dạng Kalman.
 
-Từ phân tích trạng thái dừng, gain chưa huấn luyện gần như hằng trên khung có đối tượng (trung bình 0.835, độ lệch chuẩn 0.144 trên PolypGen; 0.911, độ lệch chuẩn 0.033 trên toàn bộ CholecSeg8k). Thay gain thích nghi bằng gain hằng đo trên tập phát triển (EMA 0.835/0.266) cho Dice gộp trên tập phát triển 0.504 so với 0.514 của Kalman, tỷ lệ mất 0.350 so với 0.318, Dice chuyển động cao 0.460 so với 0.464; trên C6, Dice 0.607 so với 0.609.
-
-Trên tập phát triển, Kalman so với EMA: tỷ lệ mất $-0.012$ ($p=0.63$), Dice $+0.004$ ($p=0.41$). Quy tắc định trước (Kalman phải hơn EMA cả về tỷ lệ mất và Dice chuyển động cao trên tập phát triển) không đạt. Kiểm định thứ hai với \texttt{--skip\_absent} (Kalman+skip so với EMA+skip gain 0.833) cũng định trước: Dice $+0.006$ ($p=0.24$), FP khung rỗng $-0.031$ và tỷ lệ mất $-0.016$ (Kalman thấp hơn ở cả 4 chuỗi có khác biệt, $p=0.13$), nhưng Dice tái xuất hiện không đổi; quy tắc (tái xuất hiện tăng \emph{và} tỷ lệ mất giảm) không đạt nên không chạy trên C6. Đây là phép thử trực tiếp phần riêng của dạng Kalman, và nó không cho lợi ích đo được (các lần chạy này không còn trên Drive).
-
-Tôi đã thử nhiều cách làm gain mang thông tin hơn, mỗi cách được đánh giá trên tập phát triển bằng một quy tắc đặt trước. Mã của các biến thể này và của gain oracle đã bị xóa (vẫn còn trong lịch sử git); số liệu là kết quả lưu trữ:
-
-$R$ theo độ tin cậy từ object score, hoặc nhiễu quá trình / nhiễu quan sát tỷ lệ với thay đổi đặc trưng ảnh, đều kém hơn Kalman (Dice gộp 0.490--0.502, tỷ lệ mất 0.339--0.353); cổng innovation theo prototype (AUROC 0.43) và khoảng cách tới anchor (AUROC 0.63--0.76) không mang thêm thông tin so với object score (AUROC 0.887); cổng cứng theo object score ($\tau=5.74$) tăng Dice lên 0.527 nhưng đẩy dương tính giả trên khung rỗng lên 0.914 và không đạt quy tắc.
-
-\paragraph{Gain oracle.} Một gain ``oracle'' chẩn đoán chỉ ghi khung khớp nhãn thật (IoU $\geq 0.5$ hoặc rỗng đúng). Trên tập phát triển nó đạt Dice gộp 0.614 và tỷ lệ mất 0.183, tức khoảng $+0.11$ Dice gộp so với gain hằng (kết quả lưu trữ, không tái lập được bằng mã hiện tại). Giới hạn vì vậy nằm ở \emph{tín hiệu quyết định khi nào ghi}, không ở cấu trúc bộ nhớ.
-
-\subsubsection{Phân tích độ bền}
-
-Các phân tích hậu kiểm trên 23 chuỗi (dựng lại bằng \texttt{analyze\_reappearance.py} và \texttt{analyze\_illumination.py}): Dice ở 1--10 khung sau tái xuất hiện là 0.544 (native), 0.554 (Kalman), 0.579 (EMA); theo chiếu sáng, Kalman hơn native ở mức trung bình ($+0.023$, $p=0.055$), không hơn ở khung tối, và không hơn EMA ở mức nào. Dice khung polyp chuyển động cao: Kalman hơn native $+0.033$ trên tập phát triển ($p=0.052$) và $+0.016$ trên C6 ($p=0.25$).
-
-\subsubsection{CholecSeg8k: tập video thật thứ hai}
-
-Lớp túi mật của CholecSeg8k (88 chuỗi 80 khung từ 16 video, chia theo video: phát triển 60, kiểm tra 28). Dice theo chuỗi trên phát triển / kiểm tra: native 0.916 / 0.860, prompt + 1 khung 0.926 / 0.875, Kalman 0.925 / 0.876, EMA 0.926 / 0.877; Kalman so với native $+0.009$ ($p=0.22$) và $+0.016$ ($p=0.26$). Mọi biến thể một khe và prompt + 1 khung chênh nhau không quá 0.002. Bảng cũ trộn Dice theo chuỗi với Dice gộp; bộ chuyển đổi dữ liệu đã bị xóa khỏi mã (còn trong lịch sử git).
-
-\subsubsection{Đánh giá hai vùng trên REFUGE}
-
-Dữ liệu VA dự kiến theo Cai và cộng sự \cite{cai2024} dùng mặt nạ ba lớp mã hóa 0/128/255. REFUGE (ảnh đáy mắt) dùng cùng mã hóa với hai vùng kề nhau không chồng lấn (vành đĩa thị và cup), nên tỷ số cup/(cup + vành) có cùng dạng với tỷ số A/N. Mặt nạ được chuyển bằng ánh xạ \texttt{255:0 128:1 0:2}; MedSAM2 gốc được prompt bằng hộp bao từ nhãn thật, theo hai thiết kế.
+\subsubsection{Bộ nhớ và tốc độ}
 
 \begin{table}[htbp]
 \centering
-\caption{Hai vùng trên REFUGE val (400 ảnh).}
+\caption{Bộ nhớ giữ lại cuối video và tốc độ lan truyền trên C6 (Apple MPS, đo bằng \texttt{infer.py}).}
+\label{tab:eff}
+\small
+\begin{tabular}{lrr}
+\hline
+Phương pháp & Bộ nhớ giữ lại (MiB) & Khung/giây \\
+\hline
+Native MedSAM2 & 4.5--8.1 (tăng theo độ dài video) & 20.2 \\
+EMA (1 khe) & 0.754 (cố định) & 22.3 \\
+Kalman (1 khe) & 0.754 (cố định) & 22.1 \\
+\hline
+\end{tabular}
+\end{table}
+
+MedSAM2 gốc giữ bộ nhớ của mọi khung (khoảng 0.13 MiB mỗi khung) nhưng chỉ đọc tối đa bảy bộ nhớ ($0.875$ MiB ở bf16). Bộ nhớ một khe giữ anchor, mã vị trí, trung bình và phương sai ở float32 (0.754 MiB), cố định theo độ dài video, và chỉ đưa hai bản đồ bộ nhớ vào memory attention thay vì bảy, nên chạy nhanh hơn khoảng 10\%.
+
+\subsubsection{Đánh giá hai vùng trên REFUGE}
+
+Dữ liệu VA dự kiến theo Cai và cộng sự \cite{cai2024} dùng mặt nạ ba lớp mã hóa 0/128/255 và tỷ số A/N = VA/(VA + đường thở). REFUGE (ảnh đáy mắt) dùng cùng mã hóa với hai vùng kề nhau (vành đĩa thị và cup), nên tỷ số cup/(cup + vành) có cùng dạng với A/N. Mặt nạ được chuyển bằng ánh xạ \texttt{255:0 128:1 0:2}. Vì vành là phần đĩa thị không thuộc cup, MedSAM2 gốc được prompt bằng hộp bao của đĩa thị và của cup (\texttt{--nested\_labels}), rồi vành = đĩa $-$ cup; cấu trúc này khớp với A/N, nơi mũi họng = VA + đường thở.
+
+\begin{table}[htbp]
+\centering
+\caption{Hai vùng trên REFUGE val (400 ảnh, MedSAM2 gốc, prompt lồng nhau).}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{rrrrrrrr}
 \hline
-Prompt & Dice cup & Dice vành & MAE tỷ số & RMSE tỷ số & Pearson & Spearman \\
+Dice cup & IoU cup & Dice vành & IoU vành & MAE tỷ số & RMSE tỷ số & Pearson & Spearman \\
 \hline
-Mỗi nhãn một lượt (hộp vành = hộp đĩa) & 0.734 & 0.886 & 0.109 & 0.138 & 0.74 & 0.86 \\
-\texttt{--nested\_labels} (đĩa và cup; vành = đĩa $-$ cup) & \textbf{0.917} & \textbf{0.924} & \textbf{0.019} & \textbf{0.024} & \textbf{0.98} & \textbf{0.98} \\
+0.917 & 0.850 & 0.924 & 0.861 & 0.019 & 0.024 & 0.98 & 0.98 \\
 \hline
 \end{tabular}}
 \end{table}
 
-Thiết kế thứ nhất có lỗi: hộp bao nhãn thật của vành chính là hộp của cả đĩa thị, và khi mỗi nhãn chạy một lượt rồi ``logit lớn nhất thắng'', dự đoán vành nuốt mất cup. Tỷ lệ cup dự đoán thấp hơn nhãn thật trên \emph{cả 400} ảnh (sai số có dấu trung bình $-0.109$), và sai số tỷ số đi theo Dice cup (Spearman $\rho=-0.74$). Đó là lỗi do cách prompt, không phải sự lệch giữa Dice và phép đo. Thiết kế lồng nhau (prompt đĩa và cup, lấy vành = đĩa $-$ cup) khớp với cấu trúc A/N, nơi mũi họng = VA + đường thở; với nó, sai số tỷ số chỉ 0.019 và ngay cả các ảnh có cả hai Dice $\geq 0.9$ (249 ảnh) cũng chỉ có MAE 0.015. \textbf{Như vậy REFUGE không cho thấy sự lệch giữa Dice và phép đo}, và chưa có cơ sở cho một hàm mất mát nhận biết phép đo.
+\begin{table}[htbp]
+\centering
+\caption{Sai số tỷ số theo chất lượng phân đoạn (Dice nhỏ hơn của hai vùng).}
+\small
+\begin{tabular}{lrr}
+\hline
+Dice nhỏ nhất & Số ảnh & MAE tỷ số \\
+\hline
+$<0.8$ & 12 & 0.042 \\
+$0.8$--$0.9$ & 139 & 0.023 \\
+$\geq 0.9$ & 249 & 0.015 \\
+\hline
+\end{tabular}
+\end{table}
+
+Tỷ số thật nằm trong khoảng 0.05--0.73 (trung bình 0.23). Sai số có dấu trung bình chỉ $+0.008$ (không lệch hệ thống), sai số tuyệt đối trung vị 0.016, 90\% số ảnh có sai số dưới 0.039 và lớn nhất là 0.074. Sai số tăng khi phân đoạn kém đi, nhưng ngay cả khi Dice tốt ($\geq 0.9$) vẫn còn khoảng 1.5 điểm phần trăm. Như vậy trên dữ liệu thay thế, phân đoạn tốt cho phép đo tỷ số tốt; REFUGE chưa cho thấy sự lệch giữa Dice và phép đo, và chưa có cơ sở cho một hàm mất mát nhận biết phép đo. Câu hỏi này cần được kiểm tra lại trên dữ liệu VA, nơi ranh giới giữa VA và đường thở có thể khó hơn.
 
 \subsection{Kỹ năng và kiến thức thu thập được}
 
-Về kiến thức: kiến trúc bộ nhớ của SAM2/MedSAM2, lý thuyết bộ lọc Kalman và quan hệ của nó với trung bình trượt mũ, các hướng cải tiến bộ nhớ trong phân đoạn video và bài toán đánh giá phì đại VA. Về lập trình: mở rộng một mã nguồn nghiên cứu lớn bằng mixin, xử lý dữ liệu video y tế, tìm và sửa lỗi khó thấy (sai thứ tự khung, lỗi đồng bộ trên MPS, cách prompt sai trên REFUGE) và viết kiểm thử cho đường dữ liệu. Về phương pháp: đặt quy tắc chấp nhận trước khi chạy, dùng baseline đối chứng và thí nghiệm oracle, dựng lại mọi bảng từ dữ liệu đã lưu để phát hiện số liệu không tái lập được, nhận ra rằng tập kiểm tra đã dùng nhiều lần không còn là tập giữ kín, và ghi nhận trung thực kết quả âm.
+Về kiến thức: kiến trúc bộ nhớ của SAM2/MedSAM2, lý thuyết bộ lọc Kalman và quan hệ của nó với trung bình trượt mũ, các hướng cải tiến bộ nhớ trong phân đoạn video và bài toán đánh giá phì đại VA. Về lập trình: mở rộng một mã nguồn nghiên cứu lớn bằng mixin, xử lý dữ liệu video y tế, tìm và sửa lỗi khó thấy (sai thứ tự khung, lỗi đồng bộ trên MPS, cách prompt sai trên REFUGE) và viết kiểm thử cho đường dữ liệu. Về phương pháp: tách tập phát triển và tập đánh giá theo trung tâm, dùng baseline đối chứng (EMA) để xác định đúng nguồn gốc cải thiện, dựng lại mọi bảng từ dữ liệu đã lưu, kiểm tra kết quả không phụ thuộc máy chạy, và diễn giải kết quả không vượt quá điều số liệu cho phép.
 
 \subsection{Hướng phát triển tiếp theo}
 
 \begin{enumerate}
     \item \textbf{Dữ liệu VA dạng video} cùng giao thức tỷ số và ngưỡng phân độ; đây sẽ là tập kiểm tra sạch đầu tiên.
-    \item \textbf{Cổng ghi bộ nhớ học được}, hướng duy nhất có khoảng trống đã đo (gain oracle), với mục tiêu định trước trên tập phát triển.
+    \item \textbf{Quyết định ghi bộ nhớ học được}: học khi nào nên ghi một khung vào trạng thái (từ object score, IoU dự đoán, mức thay đổi mặt nạ), với mục tiêu định trước trên tập phát triển; huấn luyện bộ cập nhật trên video thật bằng \texttt{train\_kalman.py}.
     \item \textbf{Baseline mạnh hơn}, trước hết là EMA-SAM, rồi bank bảy khung đã cắt tỉa, SAMURAI, SAM2Long, DAM4SAM; prompt thực tế (hộp nhiễu, điểm, bộ phát hiện).
     \item \textbf{Hàm mất mát nhận biết phép đo} chỉ khi dữ liệu VA cho thấy Dice và sai số tỷ số lệch nhau.
 \end{enumerate}
@@ -439,7 +445,6 @@ Về kiến thức: kiến trúc bộ nhớ của SAM2/MedSAM2, lý thuyết b�
 \bibitem{sam2} SAM 2: Segment Anything in Images and Videos. \url{https://arxiv.org/abs/2408.00714}.
 \bibitem{cai2024} Cai và cộng sự (2024). Deep Learning-Based Quantification of Adenoid Hypertrophy and Its Correlation with Apnea-Hypopnea Index in Pediatric Obstructive Sleep Apnea. \url{https://pmc.ncbi.nlm.nih.gov/articles/PMC11687100/}.
 \bibitem{polypgen} PolypGen: A multi-center polyp detection and segmentation dataset. \url{https://arxiv.org/abs/2106.04463}.
-\bibitem{cholecseg8k} CholecSeg8k: A Semantic Segmentation Dataset for Laparoscopic Cholecystectomy. \url{https://arxiv.org/abs/2012.12453}.
 \bibitem{refuge} REFUGE: Retinal Fundus Glaucoma Challenge, phân đoạn đĩa thị và cup trên ảnh đáy mắt.
 \bibitem{sam2long} SAM2Long: Enhancing SAM 2 for Long Video Segmentation. ICCV 2025.
 \bibitem{dam4sam} DAM4SAM: A Distractor-Aware Memory for Visual Object Tracking with SAM2. \url{https://arxiv.org/abs/2509.13864}.

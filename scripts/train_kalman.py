@@ -27,6 +27,9 @@ def parse_args():
     parser.add_argument("--manifest", type=Path, required=True, help="JSONL frame manifest; paths are relative to it.")
     parser.add_argument("--train_split", default="train")
     parser.add_argument("--val_split", default="val")
+    parser.add_argument("--val_videos", nargs="*", default=None,
+                        help="Validate on these videos of --train_split instead of --val_split "
+                             "(e.g. PolypGen: --train_split dev --val_videos seq13 seq14 seq15).")
     parser.add_argument("--label_ids", type=int, nargs="+", default=[1], help="Semantic-mask IDs; e.g. 1 for binary or 1 2 for adenoid + airway.")
     parser.add_argument("--clip_length", type=int, default=16)
     parser.add_argument("--steps", type=int, default=500, help="Optimizer steps.")
@@ -88,7 +91,14 @@ def main():
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     train_videos = load_manifest(args.manifest, args.train_split)
-    validation_videos = load_manifest(args.manifest, args.val_split)
+    if args.val_videos:
+        missing = sorted(set(args.val_videos) - set(train_videos))
+        if missing:
+            raise ValueError(f"--val_videos not in split {args.train_split!r}: {missing}")
+        validation_videos = {v: f for v, f in train_videos.items() if v in args.val_videos}
+        train_videos = {v: f for v, f in train_videos.items() if v not in args.val_videos}
+    else:
+        validation_videos = load_manifest(args.manifest, args.val_split)
     assert_disjoint_videos(train_videos, validation_videos)
     model = build_training_model(str(args.sam2_cfg), args.sam2_checkpoint, args.device)
     criterion = KalmanLoss(
@@ -156,7 +166,7 @@ def main():
                     (loss / args.accumulate).backward()
                 stats.update(frame_stats(student, masks))
                 stats.update({
-                    "loss": float(loss),
+                    "loss": float(loss.detach()),
                     "source": clip["source"],
                     "video_id": clip["video_id"],
                     "label_id": clip["label_id"],

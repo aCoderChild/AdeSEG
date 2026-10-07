@@ -51,7 +51,8 @@ plus **one recursive memory state** written with a Kalman gain
 code can learn a per-pixel correction of `R` and read the variance, but in every
 reported run these parts are untrained (zero), so as run the method is a
 **scalar, presence-switched filter on a 1-slot memory**. `--skip_absent` treats
-a frame called absent as a missing measurement. The constant-gain EMA baseline
+a frame called absent as a missing measurement (no memory write and no object
+pointer). The constant-gain EMA baseline
 (`modeling/ema_memory.py`, `--fixed_gain 0.835 0.266`) keeps the same single
 state and read path with the Kalman run's own mean gains, so the two can only
 differ in the gain transient after a presence switch, soft versus hard presence,
@@ -64,24 +65,18 @@ Current findings (`docs/EXPERIMENTS.md`; C6 = seq16–23, 8 sequences):
 | native MedSAM2 | 0.617 | 0.599 | 0.486 |
 | EMA (constant gain) | 0.603 | 0.623 | 0.587 |
 | Kalman | 0.602 | 0.613 | 0.555 |
-| Kalman + output presence gate | 0.628 | 0.598 | 0.388 |
-| native + output presence gate | 0.628 | 0.573 | 0.332 |
 
 - **A 1-slot recurrent memory; the Kalman form adds nothing measurable.** On C6
-  no difference from native or EMA is significant. The `--skip_absent` test of
-  what is specific to the Kalman form failed on dev, and a presence Kalman filter
-  on the object score failed on C6.
+  no difference from native or EMA is significant.
 - The 1-slot memory raises polyp-frame Dice slightly and raises empty-frame
   false positives; on C6 it loses as many polyp frames as native (0.244 vs
   0.247). On the longer dev videos it loses fewer (pooled 0.32 vs 0.40), but
   that is a development observation and is not significant per sequence
   (p = 0.19 on dev, p = 0.21 on all 23).
 - False positives are a presence problem: MedSAM2's object score calls 71–74%
-  of dev empty frames present for every method. An output presence gate lowers
-  them for every method; its thresholds came from dev runs that were not saved.
+  of dev empty frames present for every method.
 - C6 is not a pristine test set: it was seen in the first all-sequence
-  protocol and used for several frozen comparisons, and the gate was designed
-  after a C6 run.
+  protocol and used for several frozen comparisons during development.
 - Closest prior work, not yet run: EMA-SAM (moving-average memory for medical
   SAM2), plus SAMURAI, SAM2Long, DAM4SAM and a trimmed 7-slot bank.
 
@@ -101,8 +96,10 @@ by `scripts/analyze_runs.py` or archived.
   same read path, used for the ablation.
 - **Frozen-backbone training:** `training/kalman_trainer.py` and
   `scripts/train_kalman.py` train only the Kalman update on natural clips from a
-  manifest's `train` and `val` splits. No reported result uses a trained update,
-  and the PolypGen manifest has no such splits.
+  manifest's `train` and `val` splits, or from one split with `--val_videos`
+  held out (PolypGen: `--train_split dev --val_videos seq13 seq14 seq15`). The
+  frame-0 prompt is a tight ground-truth box, as at inference. No reported
+  result uses a trained update.
 - **Inference:** `scripts/infer.py` runs native, Kalman (`--untrained` or a
   checkpoint; `--skip_absent` optional) or EMA (`--fixed_gain`) memory from that
   manifest, with a first annotated-frame box prompt (`--nested_labels` prompts
@@ -115,7 +112,7 @@ by `scripts/analyze_runs.py` or archived.
 - **Evaluation:** `evaluation/temporal.py` (per-frame, presence-stratified and
   drift metrics; `--no_overlays` for metrics only); `scripts/analyze_runs.py`
   rebuilds every PolypGen table (per-sequence and pooled metrics, lost episodes,
-  high motion, output gate, paired Wilcoxon and bootstrap intervals) from saved
+  high motion, paired Wilcoxon and bootstrap intervals) from saved
   per-frame CSVs; `scripts/analyze_reappearance.py` and
   `scripts/analyze_illumination.py` give the robustness analyses.
 - **Two-region path:** `scripts/build_mask_manifest.py` (grey-coded masks to
@@ -280,9 +277,7 @@ for m in native ema kalman; do
     --sequences seq16 seq17 seq18 seq19 seq20 seq21 seq22 seq23 --no_overlays
 done
 python3 scripts/analyze_runs.py --run native=runs/native --run ema=runs/ema \
-  --run kalman=runs/kalman --motion_run kalman \
-  --tau native=1.5568 --tau ema=0.6514 --tau kalman=1.0780 \
-  --compare kalman:native kalman:ema kalman+gate:native+gate
+  --run kalman=runs/kalman --motion_run kalman --compare kalman:native kalman:ema
 ```
 
 This reproduces the saved C6 runs frame for frame (`--untrained` equals the
@@ -291,8 +286,10 @@ analyses run on the all-23 runs: `scripts/analyze_reappearance.py
 --analysis_dir <outputs>/polypgen/all23` (same for `analyze_illumination.py`).
 
 The EMA gains 0.835 / 0.266 are the untrained Kalman update's mean gains on
-present / absent dev frames. The gate thresholds τ are the reported ones; the
-dev runs they were fitted on were not saved. The checkpoint format is
+present / absent dev frames. Masks are read with a label check (values must be
+0 or the requested `--label_ids`; grey multi-class JPEGs are rejected) and
+MedSAM2's hole filling is off, so results do not depend on whether its compiled
+`_C` extension is installed. The checkpoint format is
 `adseg_kalman_memory_v5`. Results go to Google Drive
 (`AdeSEG/outputs/`, indexed by its `README.md`); `EXPERIMENTS.md` has the update equations, every
 run, and the folder names.

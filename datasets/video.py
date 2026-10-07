@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 import torch
 
-from adenoid.io import load_semantic_mask
+from adenoid.io import load_label_mask
 
 IMAGE_MEAN = np.array((0.485, 0.456, 0.406), dtype=np.float32)
 IMAGE_STD = np.array((0.229, 0.224, 0.225), dtype=np.float32)
@@ -78,8 +78,8 @@ def assert_disjoint_videos(*splits: dict[str, list[ManifestFrame]]) -> None:
         seen.update(videos)
 
 
-def _semantic_mask(path: Path) -> np.ndarray:
-    return load_semantic_mask(path)
+def _semantic_mask(path: Path, label_ids) -> np.ndarray:
+    return load_label_mask(path, label_ids)
 
 
 class ManifestVideoClips:
@@ -103,13 +103,14 @@ class ManifestVideoClips:
         if not label_ids or any(label <= 0 for label in label_ids):
             raise ValueError("label_ids must be non-zero semantic-mask values.")
         self.image_size = image_size
+        self.label_ids = label_ids
         self.clip_length = clip_length
         self.clips: list[tuple[list[ManifestFrame], int]] = []
         seen_labels: set[int] = set()
         for frames in videos.values():
             if len(frames) < clip_length:
                 continue
-            labels_by_frame = [_semantic_mask(frame.mask_path) for frame in frames]
+            labels_by_frame = [_semantic_mask(frame.mask_path, label_ids) for frame in frames]
             for label_id in label_ids:
                 present = [bool((mask == label_id).any()) for mask in labels_by_frame]
                 if any(present):
@@ -134,7 +135,7 @@ class ManifestVideoClips:
         return cv2.resize(image, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
 
     def _mask(self, path: Path, label_id: int) -> np.ndarray:
-        mask = (_semantic_mask(path) == label_id).astype(np.uint8)
+        mask = (_semantic_mask(path, self.label_ids) == label_id).astype(np.uint8)
         return cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
 
     def sample(self, rng: np.random.Generator) -> dict[str, torch.Tensor | str | int]:

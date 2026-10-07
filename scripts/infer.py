@@ -28,7 +28,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "MedSAM2")]
 
-from adenoid.io import load_semantic_mask
+from adenoid.io import load_label_mask
 from datasets.video import ManifestFrame, load_manifest
 from modeling.ema_memory import ConstantGainMemory
 from modeling.kalman_memory import KalmanMemoryUpdate, load_memory_update
@@ -64,14 +64,10 @@ def parse_args():
     return parser.parse_args()
 
 
-def label_region(path: Path, label_id: int, nested: bool) -> np.ndarray:
-    mask = load_semantic_mask(path)
-    return mask >= label_id if nested else mask == label_id
-
-
-def first_box(frames: list[ManifestFrame], label_id: int, nested: bool) -> tuple[int | None, np.ndarray | None]:
+def first_box(frames: list[ManifestFrame], label_id: int, labels: list[int], nested: bool):
     for index, frame in enumerate(frames):
-        rows, columns = np.nonzero(label_region(frame.mask_path, label_id, nested))
+        mask = load_label_mask(frame.mask_path, labels)
+        rows, columns = np.nonzero(mask >= label_id if nested else mask == label_id)
         if rows.size:
             return index, np.array([columns.min(), rows.min(), columns.max(), rows.max()], dtype=np.float32)
     return None, None
@@ -99,9 +95,10 @@ def retained_memory_mib(output_dict) -> float:
     return sum(unique.values()) / 2 ** 20
 
 
-def predict_label(predictor, frames: list[ManifestFrame], label_id: int, backend: str, staged: Path, nested: bool):
-    prompt_index, box = first_box(frames, label_id, nested)
-    height, width = load_semantic_mask(frames[0].mask_path).shape
+def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels: list[int], backend: str,
+                  staged: Path, nested: bool):
+    prompt_index, box = first_box(frames, label_id, labels, nested)
+    width, height = Image.open(frames[0].image_path).size  # the video's size, as the predictor outputs
     if box is None:
         return np.full((len(frames), height, width), -np.inf, dtype=np.float32), None, {}, {}
     state = predictor.init_state(
@@ -189,7 +186,7 @@ def main():
             label_logits, prompts, traces, efficiency = {}, {}, {}, {}
             for label_id in labels:
                 label_logits[label_id], prompts[label_id], traces[label_id], efficiency[label_id] = predict_label(
-                    predictor, frames, label_id, args.memory_backend, staged, args.nested_labels
+                    predictor, frames, label_id, labels, args.memory_backend, staged, args.nested_labels
                 )
         height, width = label_logits[labels[0]].shape[-2:]
         merged = np.zeros((len(frames), height, width), dtype=np.uint16 if max(labels) > 255 else np.uint8)

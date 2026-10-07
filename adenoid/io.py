@@ -41,12 +41,24 @@ def load_semantic_mask(mask_path: Path, binary_threshold: int = 127) -> np.ndarr
     """
     image = Image.open(mask_path)
     array = np.asarray(image)
-    if array.ndim == 3:  # RGB-encoded binary mask
+    if array.ndim == 3 or (array.max() > 1 and image.format == "JPEG"):  # binary mask, RGB or JPEG
         gray = np.asarray(image.convert("L"))
+        if ((gray > 64) & (gray < 192)).mean() > 0.05:  # binary JPEGs have ~0 such pixels
+            raise ValueError(f"{mask_path} looks like a multi-class grey mask; convert it with "
+                             "scripts/build_mask_manifest.py instead of thresholding it to binary.")
         return (gray > binary_threshold).astype(np.uint8)
-    if array.max() > 1 and image.format == "JPEG":  # grayscale binary JPEG
-        return (array > binary_threshold).astype(np.uint8)
     return array.astype(np.uint8)  # indexed label ids (0, 1, 2, ...)
+
+
+def load_label_mask(mask_path: Path, label_ids) -> np.ndarray:
+    """``load_semantic_mask`` that rejects values other than 0 and ``label_ids``
+    (e.g. a 0/255 PNG read with label 1 would otherwise give no prompt and empty masks)."""
+    mask = load_semantic_mask(mask_path)
+    unexpected = sorted(set(np.unique(mask).tolist()) - {0, *label_ids})
+    if unexpected:
+        raise ValueError(f"{mask_path} has label values {unexpected}; expected 0 and {sorted(label_ids)}. "
+                         "Convert grey-coded masks with scripts/build_mask_manifest.py.")
+    return mask
 
 
 def resize_binary_mask(mask: np.ndarray, shape_hw: tuple[int, int]) -> np.ndarray:

@@ -37,9 +37,13 @@ def build_video_predictor(
             if isinstance(value, bool):
                 value = str(value).lower()
             hydra_overrides.append(f"++model.{key}={value}")
-    return build_sam2_video_predictor(
+    model = build_sam2_video_predictor(
         model_cfg,
         str(checkpoint),
         device=device,
         hydra_overrides_extra=hydra_overrides,
     )
+    # MedSAM2 fills small mask holes only when its compiled _C extension is installed, so
+    # outputs would depend on the machine; every reported run had no hole filling.
+    model.fill_hole_area = 0
+    return model

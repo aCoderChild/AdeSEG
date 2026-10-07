@@ -16,8 +16,7 @@ Dice < 0.1 (empty frames do not break it). An episode is recovered if a later
 polyp frame of the sequence reaches Dice >= 0.5, and lost until the end if it
 reaches the last polyp frame.
 
-``--tau NAME=VALUE`` adds the output presence gate ``NAME+gate``: the mask is empty
-wherever MedSAM2's object score is below VALUE. ``--compare A:B`` runs a paired
+``--compare A:B`` runs a paired
 Wilcoxon test over sequences (SciPy defaults) with a sequence-bootstrap 95% interval
 of the mean difference A - B.
 """
@@ -41,17 +40,9 @@ def load_run(directory: Path) -> pd.DataFrame:
     diagnostics = pd.concat(
         pd.read_csv(path).assign(sequence=path.stem) for path in sorted(diagnostics_dir.glob("*.csv"))
     )
-    columns = ["sequence", "frame", "status", "object_score", "feature_change_mean"]
+    columns = ["sequence", "frame", "status", "feature_change_mean"]
     frames = frames.merge(diagnostics.reindex(columns=columns), on=["sequence", "frame"], how="left")
     return frames[frames["status"] == "propagated"].reset_index(drop=True)
-
-
-def gate(frames: pd.DataFrame, tau: float) -> pd.DataFrame:
-    frames = frames.copy()
-    closed = frames["object_score"] < tau
-    frames.loc[closed, "dice"] = np.where(frames.loc[closed, "gt_present"], 0.0, 1.0)
-    frames.loc[closed, "predicted_present"] = False
-    return frames
 
 
 def per_sequence(frames: pd.DataFrame, motion: pd.Series, motion_cut: float) -> pd.DataFrame:
@@ -114,7 +105,6 @@ def main():
     parser.add_argument("--sequences", nargs="*", default=None)
     parser.add_argument("--motion_run", default=None, help="run whose feature_change_mean defines motion (default: first run that logs it)")
     parser.add_argument("--motion_cut", type=float, default=0.117)
-    parser.add_argument("--tau", action="append", default=[], metavar="NAME=VALUE")
     parser.add_argument("--compare", nargs="*", default=[], metavar="A:B")
     parser.add_argument("--bootstrap", type=int, default=10000)
     parser.add_argument("--seed", type=int, default=0)
@@ -126,9 +116,6 @@ def main():
         name, directory = item.split("=", 1)
         frames = load_run(Path(directory))
         runs[name] = frames[frames["sequence"].isin(args.sequences)] if args.sequences else frames
-    for item in args.tau:
-        name, value = item.split("=", 1)
-        runs[f"{name}+gate"] = gate(runs[name], float(value))
     motion_name = args.motion_run or next(
         (name for name, frames in runs.items() if frames["feature_change_mean"].notna().any()), None)
     motion_key = ["sequence", "frame"]

@@ -44,9 +44,14 @@ switch, (ii) soft presence `p_t` (Kalman) versus a hard 0.5 threshold (EMA), and
 (iii) `--skip_absent`, under which an absent frame is a missing measurement
 (K = 0, the variance grows, so the gain jumps on reappearance). The
 `--skip_absent` comparison is therefore the test of what is specific to the
-Kalman form. Under `--skip_absent` the spatial state is not written, but the
-absent frame's object pointer still enters memory attention through MedSAM2's
-pointer policy (true of every reported run).
+Kalman form. Under `--skip_absent` an absent frame is neither written to the
+spatial state nor used as an object pointer. (In the archived `--skip_absent`
+runs below, its pointer still entered attention; that was fixed afterwards.)
+
+All runs use no hole filling: MedSAM2 fills small mask holes only when its
+compiled `_C` extension is installed, which it was not on the machines used, and
+`modeling/medsam2.py` now sets `fill_hole_area = 0` so results do not depend on
+the machine.
 
 `--untrained` builds this module fresh; it reproduces the earlier untrained
 checkpoint (now deleted) frame for frame on C6 (maximum Dice difference
@@ -77,10 +82,11 @@ features (1 MiB) for the motion diagnostic. Earlier figures (0.88 MiB, 36.3 MiB,
 | Test (protocol (a)) | seq16–23, centre C6 (8 sequences, 372 propagated frames, 56 empty) |
 | First protocol | all 23 sequences as the test set (2,012 propagated frames: 1,689 polyp, 323 empty) |
 
-`scripts/build_polypgen_manifest.py` writes these splits as `dev` and `test`. It
-has no `train`/`val` split, so `scripts/train_kalman.py` (which trains on
-natural clips from a manifest's train and val splits) cannot be run on it as
-is. All reported results use the untrained module.
+`scripts/build_polypgen_manifest.py` writes these splits as `dev` and `test`.
+`scripts/train_kalman.py` trains on natural clips; on PolypGen it holds out dev
+videos for validation (`--train_split dev --val_videos seq13 seq14 seq15`), with a
+tight ground-truth box on frame 0 as at inference. A two-step smoke run on this
+setup works; all reported results use the untrained module.
 
 **Archived training runs.** Earlier training used pseudo-videos assembled from
 PolypGen single frames (`data_C1`..`data_C6`, 1,399 frames after removing 12
@@ -101,30 +107,25 @@ C6 is called "held out" below only in the sense that no design choice was
 2. A C6 rerun of the Kalman memory with motion logging (folder since deleted).
 3. `6ca458a`: native / EMA / Kalman on C6 with the misordered manifest
    (discarded).
-4. `063853e`: the corrected rerun, reported below. The output presence gate
-   first appears in this commit, after the earlier C6 run had shown that empty-
-   frame false positives were the problem.
-5. The presence Kalman filter below was evaluated on C6 and failed.
+4. `063853e`: the corrected rerun, reported below.
+5. Output-presence variants evaluated on C6 during development (no longer part
+   of the method).
 
-So C6 has been used for several frozen comparisons, and the gate's design was
-informed by C6 results. The adenoid data will be the first clean test.
+So C6 has been used for several frozen comparisons. The adenoid data will be the
+first clean test.
 
 ## C6 results *(regenerated)*
 
 `polypgen/c6/`; analysis in `polypgen/c6/analysis/`. Per-sequence means over
 propagated frames. Lost = polyp frames with Dice < 0.1; reappearance = polyp
 frames 1–10 after an absence; high motion = polyp frames with image-feature
-change > 0.117 (the dev tercile cut, from the Kalman run's log). "+ gate" empties
-the output mask where MedSAM2's object score is below τ.
+change > 0.117 (the dev tercile cut, from the Kalman run's log).
 
 | Method | Dice | Polyp-frame Dice | Empty-frame FP | Lost | Reappearance | High motion |
 |---|---|---|---|---|---|---|
 | native (7-frame bank) | **0.617** | 0.599 | 0.486 | 0.283 | 0.462 | 0.563 |
 | EMA (constant-gain 1-slot) | 0.603 | **0.623** | 0.587 | **0.268** | **0.525** | **0.588** |
 | Kalman (1-slot) | 0.602 | 0.613 | 0.555 | 0.284 | 0.483 | 0.579 |
-| native + gate | **0.628** | 0.573 | **0.332** | 0.326 | 0.391 | 0.516 |
-| EMA + gate | 0.620 | **0.607** | 0.433 | **0.288** | **0.493** | **0.574** |
-| Kalman + gate | **0.628** | 0.598 | 0.388 | 0.303 | 0.457 | 0.558 |
 
 Paired Wilcoxon over the 8 sequences (A − B; sequences where A is higher / lower;
 sequence-bootstrap 95% interval):
@@ -133,20 +134,12 @@ sequence-bootstrap 95% interval):
 |---|---|---|---|---|---|
 | Kalman − native | −0.014 (7/1), p = 0.20, [−0.082, +0.029] | +0.015 (6/2), p = 0.31 | +0.069 (2/1), p = 0.50 | +0.001 (2/2), p = 0.88 | +0.021 (4/3), p = 0.58 |
 | Kalman − EMA | −0.001 (7/1), p = 0.20 | −0.010 (5/3), p = 0.74 | −0.032 (0/3), p = 0.25 | +0.016 (2/0), p = 0.50 | −0.042 (3/4), p = 0.22 |
-| Kalman+gate − native+gate | −0.000 (4/3), p = 0.94 | +0.025 (5/2), p = 0.30 | +0.056 (2/0), p = 0.50 | −0.023 (1/3), p = 0.38 | +0.066 (3/3), p = 0.69 |
 
 Nothing is significant at n = 8. Kalman's Dice is higher than native's in 7
 sequences, but its mean is lower because of seq21 (below). Pooled lost-episode
 metrics on C6: native lost 0.247 of polyp frames, mean episode 7.1 frames,
 recovered 0.64, lost until the end 0.36; Kalman 0.244, 7.7, 0.60, 0.40. **On C6
 there is no error-accumulation effect.**
-
-**Gate thresholds.** τ = 1.557 (native), 0.651 (EMA), 1.078 (Kalman) were
-calibrated on dev runs of the corrected pipeline that were not saved, with a
-rule that was not recorded. They cannot be regenerated: on the archived dev runs
-(`polypgen/all23/`), maximising per-sequence dev Dice gives 1.69 / 0.43 / 1.16
-and Youden's J gives 3.57 / 2.86 / 2.98. The "+ gate" rows are reproducible
-*given* these τ (`analyze_runs.py --tau`); the τ themselves are not.
 
 **seq21.** The sequence where Kalman falls furthest below native (0.448 vs
 0.685) is not a tracking collapse: on its polyp frames Kalman is on par with
@@ -156,17 +149,6 @@ where native's object score turns negative but the 1-slot memories keep it
 positive. MedSAM2's object score calls 71–74% of dev empty frames present for
 every method; on C6, 38% (native), 62% (EMA) and 57% (Kalman) of 56 empty
 frames.
-
-**Presence Kalman filter (pre-registered; failed on C6, not adopted)**
-*(archived; `scripts/train_presence_filter.py` was deleted)*. A scalar Kalman
-filter on the object-score log-odds over time (`x⁻ = x`, `P⁻ = P + ρ`,
-`K = P⁻/(P⁻ + 1)`, emit the mask iff `x_t > τ`; `ρ = ∞` is the per-frame gate),
-selected by leave-one-sequence-out on dev. Rule: beat the per-frame gate on dev
-Dice and FP without losing more than 0.005 polyp-frame Dice. On the Kalman memory
-it passed narrowly on dev (Dice +0.0005, FP −0.010; selected ρ = 0.01,
-τ = 1.63) but on C6 it was worse than the per-frame gate (Dice −0.005,
-FP +0.107, worse in 3/8 sequences and better in none): heavy smoothing reacts
-slowly when the polyp leaves.
 
 **Update-rule test with `--skip_absent` (dev, pre-registered; failed, not run on
 C6)** *(archived; these runs are not on Drive)*. Kalman+skip vs EMA+skip
@@ -335,7 +317,7 @@ first design is reproduced by running `infer.py` without `--nested_labels`.
 | Folder | Content |
 |---|---|
 | `polypgen/c6/{native,ema,kalman}` | C6 runs, current pipeline |
-| `polypgen/c6/analysis`, `efficiency`, `gate_thresholds.json` | regenerated C6 tables; memory and FPS; gate thresholds |
+| `polypgen/c6/analysis`, `efficiency` | regenerated C6 tables; memory and FPS |
 | `polypgen/all23/{native,native_prompt_plus_1frame,kalman,ema}` | archived all-23 runs (first protocol) |
 | `polypgen/all23/analysis_all23`, `analysis_dev` | regenerated tables for all 23 sequences and for dev |
 | `cholecseg8k/{native,native_prompt_plus_1frame,kalman,ema}` | archived CholecSeg8k runs; `split.json` |

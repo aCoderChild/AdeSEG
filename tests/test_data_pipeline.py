@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +57,22 @@ def test_binary_jpeg_masks_load_as_zero_one(tmp_path):
         loaded = load_semantic_mask(path)
         assert set(np.unique(loaded)) <= {0, 1}
         assert abs(int(loaded.sum()) - 32 * 32) < 64
+
+
+def test_wrongly_encoded_masks_raise(tmp_path):
+    from adenoid.io import load_label_mask
+
+    binary = np.zeros((32, 32), np.uint8)
+    binary[8:24, 8:24] = 255
+    Image.fromarray(binary).save(tmp_path / "binary_255.png")  # 0/255 PNG read as label 255
+    with pytest.raises(ValueError):
+        load_label_mask(tmp_path / "binary_255.png", [1])
+    grey = np.full((96, 96), 255, np.uint8)
+    grey[:, 32:64] = 128
+    grey[:, 64:] = 0
+    Image.fromarray(grey).save(tmp_path / "three_class.jpg", quality=75)  # would merge two regions
+    with pytest.raises(ValueError):
+        load_semantic_mask(tmp_path / "three_class.jpg")
 
 
 def test_indexed_png_masks_keep_their_labels(tmp_path):

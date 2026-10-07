@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 from torch.nn import functional as F
 
+from MedSAM2.sam2.modeling.sam2_utils import sample_box_points
 from MedSAM2.training.loss_fns import CORE_LOSS_KEY, MultiStepMultiMasksAndIous
 from MedSAM2.training.model.sam2 import SAM2Train
 from MedSAM2.training.utils.data_utils import BatchedVideoDatapoint, BatchedVideoMetaData
@@ -21,12 +22,19 @@ PROMPT_OVERRIDES = {
 
 
 class KalmanSAM2Train(KalmanMemoryMixin, SAM2Train):
-    """Kalman-memory training with only the frame-0 MedSAM2 prompt.
-    """
+    """Kalman-memory training with only the frame-0 MedSAM2 prompt: a tight
+    ground-truth box, as in scripts/infer.py (SAM2Train would add box noise)."""
+
+    def __init__(self, fill_hole_area=0, **kwargs):
+        # MedSAM2's video builder always passes fill_hole_area, which SAM2Train does not accept.
+        super().__init__(**kwargs)
 
     def prepare_prompt_inputs(self, backbone_out, input, start_frame_idx=0):
         backbone_out = super().prepare_prompt_inputs(backbone_out, input, start_frame_idx)
         backbone_out["frames_to_add_correction_pt"] = []
+        for t in backbone_out["point_inputs_per_frame"]:
+            points, labels = sample_box_points(backbone_out["gt_masks_per_frame"][t], noise=0.0)
+            backbone_out["point_inputs_per_frame"][t] = {"point_coords": points, "point_labels": labels}
         return backbone_out
 
 

@@ -143,8 +143,7 @@ class KalmanMemoryMixin:
         self.kalman_enabled = True
         self.kalman_last_step = None
         self._kalman_step = None
-        # Treat an absent frame as a missing measurement (K = 0) for the spatial state. Its object
-        # pointer still enters memory attention through MedSAM2's pointer policy, as in the reported runs.
+        # Treat an absent frame as a missing measurement: K = 0 and no object pointer in attention.
         self.kalman_skip_absent = False
 
     def _kalman_active(self) -> bool:
@@ -259,6 +258,7 @@ class KalmanMemoryMixin:
         if step.get("feature_change") is not None:
             updated["feature_change"] = step["feature_change"]
         current_out["kalman"] = updated
+        current_out["kalman_missing"] = status == "absent"
         self.kalman_last_step = updated
 
 
@@ -306,6 +306,7 @@ class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
         if step is not None and not kwargs["is_init_cond_frame"]:
             current_out["maskmem_features"] = None
             current_out["maskmem_pos_enc"] = None
+            current_out["kalman_missing"] = step["status"] == "absent"
             current_out["kalman_trace"] = {
                 "kalman_status": step["status"],
                 "presence": float(step["presence"].mean()),
