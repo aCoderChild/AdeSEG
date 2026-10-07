@@ -133,6 +133,26 @@ sequences, p = 0.13), reappearance Dice 0.000. The rule (reappearance up and los
 fraction down) fails. Without skip, EMA beats Kalman on reappearance (−0.015,
 9/10 sequences, p = 0.02).
 
+**Failure analysis of seq21** (the C6 sequence where Kalman falls furthest
+below native, 0.448 vs 0.685): not a tracking collapse. On its polyp frames
+Kalman matches or beats native (e.g. 0.86 vs 0.15 and 0.86 vs 0.32); the loss
+is a 21-frame empty tail where native's object score turns negative but the
+1-slot memories keep it positive and emit false positives. MedSAM2's object
+score is a weak presence signal in general: on dev it calls 71–74% of empty
+frames present for every method, native included (C6: native 38%, EMA 62%,
+Kalman 57%, of 56 empty frames, 21 of them seq21's tail).
+
+**Presence Kalman filter (pre-registered; failed on C6, not adopted).** A
+scalar Kalman filter on the object-score log-odds over time (`x⁻ = x`,
+`P⁻ = P + ρ`, `K = P⁻/(P⁻+1)`, emit the mask iff `x_t > τ`; `ρ = ∞` is the
+per-frame gate), selected by leave-one-sequence-out on dev. Rule: beat the
+per-frame gate on dev Dice and FP without losing more than 0.005 polyp-frame
+Dice. On the Kalman memory it passed narrowly on dev (Dice +0.0005, FP −0.010;
+selected ρ = 0.01, τ = 1.63) but on C6 it was worse than the per-frame gate
+(Dice −0.005, FP +0.107, worse in 3/8 sequences and better in none): the heavy
+smoothing reacts slowly when the polyp leaves. The per-frame gate remains the
+presence module.
+
 ## Main results — plain Kalman memory (no detector, no fusion)
 
 All 23 sequences, propagated frames.
