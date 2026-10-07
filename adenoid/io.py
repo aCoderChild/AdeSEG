@@ -32,6 +32,23 @@ def load_binary_mask(mask_path: Path) -> np.ndarray:
     return (mask > threshold).astype(np.uint8)
 
 
+def load_semantic_mask(mask_path: Path, binary_threshold: int = 127) -> np.ndarray:
+    """Load an indexed semantic mask as a 2-D uint8 array of label ids.
+
+    Binary masks stored as RGB or grayscale JPEG (PolypGen) collapse to a single
+    foreground label 1, thresholding JPEG compression noise. Indexed PNG masks
+    (e.g. adenoid: 1 adenoid, 2 airway) keep their label values.
+    """
+    image = Image.open(mask_path)
+    array = np.asarray(image)
+    if array.ndim == 3:  # RGB-encoded binary mask
+        gray = np.asarray(image.convert("L"))
+        return (gray > binary_threshold).astype(np.uint8)
+    if array.max() > 1 and image.format == "JPEG":  # grayscale binary JPEG
+        return (array > binary_threshold).astype(np.uint8)
+    return array.astype(np.uint8)  # indexed label ids (0, 1, 2, ...)
+
+
 def resize_binary_mask(mask: np.ndarray, shape_hw: tuple[int, int]) -> np.ndarray:
     """Resize a binary mask with nearest-neighbor interpolation."""
     target_h, target_w = shape_hw

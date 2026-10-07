@@ -17,7 +17,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-from PIL import Image
+
+from adenoid.io import load_semantic_mask
 
 IMAGE_MEAN = np.array((0.485, 0.456, 0.406), dtype=np.float32)
 IMAGE_STD = np.array((0.229, 0.224, 0.225), dtype=np.float32)
@@ -78,10 +79,7 @@ def assert_disjoint_videos(*splits: dict[str, list[ManifestFrame]]) -> None:
 
 
 def _semantic_mask(path: Path) -> np.ndarray:
-    mask = np.asarray(Image.open(path))
-    if mask.ndim != 2:
-        raise ValueError(f"{path} must be a single-channel indexed semantic mask, not shape {mask.shape}.")
-    return mask
+    return load_semantic_mask(path)
 
 
 class ManifestVideoClips:

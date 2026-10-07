@@ -24,6 +24,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "MedSAM2")]
 
+from adenoid.io import load_semantic_mask
 from datasets.video import ManifestFrame, load_manifest
 from modeling.kalman_memory import load_memory_update
 from modeling.medsam2 import build_video_predictor
@@ -43,14 +44,19 @@ def parse_args():
     parser.add_argument("--output_dir", type=Path, required=True)
     parser.add_argument("--score_scale", type=float, nargs=2, default=None, metavar=("ALPHA", "BETA"),
                         help="Soft score-scaled Kalman gain: K *= sigmoid(alpha*object_score + beta).")
+    parser.add_argument("--skip_absent", action="store_true",
+                        help="Treat a frame MedSAM2 calls empty as a missing measurement (K=0).")
+    parser.add_argument("--score_gate", type=float, default=None, metavar="TAU",
+                        help="Hard measurement-validation gate: K=0 when the object-score logit < TAU.")
+    parser.add_argument("--score_gate_present_only", action="store_true",
+                        help="Apply --score_gate only to frames with object score > 0.")
+    parser.add_argument("--fixed_gain", type=float, nargs=2, default=None, metavar=("PRESENT", "ABSENT"),
+                        help="Constant-gain EMA ablation: fixed gains on present / absent frames.")
     return parser.parse_args()
 
 
 def semantic_mask(path: Path) -> np.ndarray:
-    mask = np.asarray(Image.open(path))
-    if mask.ndim != 2:
-        raise ValueError(f"{path} must be a single-channel indexed semantic mask.")
-    return mask
+    return load_semantic_mask(path)
 
 
 def first_box(frames: list[ManifestFrame], label_id: int) -> tuple[int | None, np.ndarray | None]:
@@ -72,7 +78,7 @@ def predict_label(predictor, frames: list[ManifestFrame], label_id: int, backend
     if box is None:
         return np.full((len(frames), height, width), -np.inf, dtype=np.float32), None, {}
     state = predictor.init_state(
-        video_path=staged,
+        video_path=str(staged),
         offload_video_to_cpu=True,
         offload_state_to_cpu=predictor.device.type == "cuda",
     )
@@ -111,6 +117,12 @@ def main():
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
         if args.score_scale is not None:
             predictor.kalman_score_scale = tuple(args.score_scale)
+        predictor.kalman_skip_absent = args.skip_absent
+        if args.score_gate is not None:
+            predictor.kalman_score_gate = args.score_gate
+            predictor.kalman_score_gate_present_only = args.score_gate_present_only
+        if args.fixed_gain is not None:
+            predictor.kalman_fixed_gain = tuple(args.fixed_gain)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = {
         "manifest": str(args.manifest), "split": args.split, "label_ids": args.label_ids,
@@ -144,7 +156,12 @@ def main():
         diagnostics = args.output_dir / "masks" / "diagnostics"
         diagnostics.mkdir(parents=True, exist_ok=True)
         with (diagnostics / f"{video_id}.csv").open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=("frame_idx", "frame", "status", "object_score", "feature_change_mean", "gain_mean"))
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=("frame_idx", "frame", "status", "object_score", "presence",
+                            "gain_mean", "feature_change_mean", "kalman_status"),
+                extrasaction="ignore",
+            )
             writer.writeheader()
             for index, frame in enumerate(frames):
                 status = "before_prompt" if prompt_index is None or index < prompt_index else (

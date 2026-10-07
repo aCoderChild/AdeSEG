@@ -1,0 +1,615 @@
+\documentclass[a4paper,12pt]{report}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{tocloft}
+\usepackage{lipsum} % chỉ để sinh text mẫu
+\usepackage{cite}
+\usepackage{indentfirst}
+\usepackage{amsmath}
+\usepackage{url}
+\usepackage{float}
+
+
+\begin{document}
+\begin{titlepage}
+    % Vẽ viền ngoài trang
+    \begin{tikzpicture}[remember picture,overlay]
+        \draw[line width=1pt]
+            ([xshift=2cm,yshift=-2cm]current page.north west)
+            rectangle
+            ([xshift=-2cm,yshift=2cm]current page.south east);
+    \end{tikzpicture}
+
+    \begin{center}
+        {\bfseries ĐẠI HỌC QUỐC GIA HÀ NỘI} \\
+        {\bfseries TRƯỜNG ĐẠI HỌC CÔNG NGHỆ} \\
+    \end{center}
+    
+    % Logo
+    \begin{center}
+        \vspace*{0.5cm}
+        \includegraphics[width=4cm]{logo.png} \\[1cm] % thay logo.png bằng file logo trường bạn
+        {\LARGE \bfseries Báo cáo Thực tập chuyên ngành} \\[0.7cm]
+        
+        % Đề tài đóng khung + gạch dưới
+        {\bfseries Sử dụng SAT SCL encoding để giải No-hole Anti-k-Labeling Problem} \\[-0.3cm]
+
+    \end{center}
+
+    \vspace{2cm}
+    % Thông tin GV - SV (2 cột)
+    \noindent
+    \begin{center}
+        \setlength{\tabcolsep}{20pt}
+        \begin{tabular}{l l}
+            Giảng viên hướng dẫn: & Dr. Lê Đức Trọng \\
+            Giảng viên đồng hướng dẫn: & Dr. Đỗ Thành Công \\
+            Lớp: & QH-2032-I/CQ-I-CS3 \\
+            Sinh viên: & Phạm Mai Anh \\
+            Mã sinh viên: & 23021469 \\
+        \end{tabular}
+    \end{center}
+
+    \vfill
+    \begin{center}
+        {\large Hà Nội, 2026}
+    \end{center}
+\end{titlepage}
+
+% ========== TUỲ CHỈNH MỤC LỤC ==========
+\renewcommand{\contentsname}{}
+
+% Kiểu chữ
+\renewcommand{\cftsecfont}{\bfseries}
+\renewcommand{\cftsecpagefont}{\normalfont}
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+
+% Đánh số: 1, 2, 3; 1.1; 1.1.1
+\renewcommand\thesection{\arabic{section}}
+\renewcommand\thesubsection{\thesection.\arabic{subsection}}
+\renewcommand\thesubsubsection{\thesubsection.\arabic{subsubsection}}
+
+% Khoảng cách giữa các dòng mục lục
+\setlength{\cftbeforesecskip}{8pt}
+\setlength{\cftbeforesubsecskip}{4pt}
+\setlength{\cftbeforesubsubsecskip}{2pt}
+
+\setcounter{tocdepth}{3}
+\setcounter{secnumdepth}{3}
+
+% ========== MỤC LỤC ==========
+\begin{center}
+    {\Huge \textbf{MỤC LỤC}}
+\end{center}
+\vspace{-0.5cm}
+\tableofcontents
+\newpage
+
+% ========== NỘI DUNG ==========
+\section*{\huge Mở đầu}
+\addcontentsline{toc}{section}{Mở đầu}
+\setlength{\parskip}{6pt} % khoảng cách giữa các đoạn
+
+SAT (Boolean Satisfiability Problem) không chỉ là bài toán quyết định cơ bản trong logic mệnh đề mà còn là công cụ mạnh mẽ để giải các bài toán tối ưu tổ hợp. Bằng cách mã hóa ràng buộc dưới dạng công thức logic, nhiều vấn đề phức tạp có thể được chuyển đổi sang SAT và giải quyết hiệu quả nhờ các SAT solver hiện đại~\cite{biere2009handbook}. Hướng nghiên cứu này đang ngày càng được quan tâm do khả năng ứng dụng rộng rãi trong lập lịch, thiết kế mạch, phân tích hệ thống và các bài toán gán nhãn đồ thị~\cite{malik2009boolean}.
+
+Anti-Bandwidth Problem (ABP) là một bài toán gán nhãn đồ thị, trong đó mỗi đỉnh được gán một nhãn nguyên khác nhau, và mục tiêu là cực đại hóa khoảng cách nhỏ nhất giữa các nhãn của các đỉnh kề nhau~\cite{fox1967anti}. Từ ý tưởng này, No-hole Anti-K-Labeling Problem (NAKLP) được phát triển như một biến thể, trong đó các nhãn được lấy từ tập liên tiếp $\{1,2,\dots,k\}$ và không để xuất hiện “lỗ hổng” trong dãy nhãn sử dụng~\cite{guan2019anti}. Mục tiêu vẫn là cực đại hóa chênh lệch nhỏ nhất giữa các nhãn kề nhau, phản ánh các tình huống thực tế như phân bổ tài nguyên liên tục hoặc thiết kế phổ tần số.
+
+Nghiên cứu về SAT và các biến thể gán nhãn đồ thị như NHAKL mang lại ý nghĩa cả về khoa học lẫn thực tiễn. Về mặt khoa học, nghiên cứu giúp phát triển các phương pháp giải các bài toán tổ hợp phức tạp, hiểu rõ cấu trúc đồ thị và ràng buộc logic. Về mặt thực tiễn, các kết quả có thể ứng dụng trong lập lịch, phân bổ tài nguyên liên tục, thiết kế phổ tần số, giảm nhiễu trong mạng thông tin. Phạm vi nghiên cứu tập trung vào xây dựng mô hình SAT cho bài toán NHAKL, đồng thời đánh giá hiệu quả của các SAT solver hiện đại trong việc tìm nghiệm tối ưu.
+
+Cấu trúc bài báo cáo gồm $4$ chương chính. Chương $1$ và $2$ chủ yếu giới thiệu về bài toán và nêu những cơ sở lý thuyết sẽ được sử dụng trong phần tiếp theo. Chương $3$ là trọng tâm với việc đi sâu vào việc mô hình hóa giải quyết bài toán. Cuối cùng chương $4$ sẽ sử dụng những công thức đó để đi vào thực nghiệm thực tế và đánh giá kết quả đạt được. 
+\newpage
+\section{Giới thiệu}
+
+% Giới thiệu bài toán gốc
+
+\subsection{Giới thiệu bài toán gốc}
+
+Anti-Bandwidth Problem (ABP) là một biến thể quan trọng trong họ các bài toán gán nhãn đồ thị (graph labeling problem). Với một đồ thị $G=(V,E)$ và một phép gán nhãn $f: V \to \{1,2,\ldots,|V|\}$, \emph{anti-bandwidth} của một đỉnh $v \in V$ được định nghĩa là:
+\[
+AB(v,f) = \min_{(v,u)\in E} |f(v) - f(u)|.
+\]
+
+Nói cách khác, $AB(v,f)$ đo khoảng cách nhãn nhỏ nhất giữa đỉnh $v$ và các đỉnh kề nó theo phép gán $f$. Từ đó, \emph{anti-bandwidth} của cả đồ thị $G$ với phép gán $f$ được xác định là:
+\[
+AB(G,f) = \min_{v \in V} AB(v,f).
+\]
+
+Mục tiêu của bài toán Anti-Bandwidth là tìm một hoán vị gán nhãn $f$ sao cho giá trị $AB(G,f)$ được \textit{tối đa hóa}:
+\[
+\max_{f} AB(G,f).
+\]
+
+Trực giác, ABP đối nghịch với \emph{Bandwidth Problem}, trong đó người ta muốn \emph{giảm thiểu} khoảng cách lớn nhất giữa các đỉnh kề nhau \cite{chinn1982bandwidth}. Trong khi Bandwidth Problem thường được ứng dụng trong tối ưu hoá lưu trữ ma trận và giảm thiểu độ phức tạp trong tính toán, thì ABP lại hướng đến việc \emph{phân tán} các nhãn của những đỉnh kề nhau càng xa càng tốt. Do đó, ABP có thể được ứng dụng trong các bài toán thực tế như phân bổ tần số trong mạng thông tin không dây để giảm nhiễu, lập lịch các tiến trình hoặc thiết kế cơ sở dữ liệu \cite{marevcek2007antibandwidth,laguna2010heuristics}.
+
+ABP được chứng minh là một bài toán NP-khó \cite{fernandez2013variable}, điều này đồng nghĩa với việc khó có thể tìm được lời giải tối ưu trong thời gian đa thức khi kích thước đồ thị tăng lớn. Vì vậy, nhiều nghiên cứu đã tập trung phát triển các phương pháp heuristic, metaheuristic, cũng như các tiếp cận dựa trên quy hoạch nguyên (Integer Programming) và SAT/SMT để giải quyết ABP trên các đồ thị quy mô lớn. Các tiếp cận điển hình bao gồm heuristic xây dựng ban đầu dựa trên BFS/DFS \cite{laguna2010heuristics}, giải thuật di truyền, GRASP, và gần đây là SAT encoding để khai thác sức mạnh của các solver hiện đại.
+
+Nhìn chung, Anti-Bandwidth Problem đóng vai trò như một cầu nối giữa nghiên cứu lý thuyết trong tối ưu tổ hợp và các ứng dụng thực tiễn trong khoa học máy tính và kỹ thuật. Sự khó khăn về mặt tính toán cùng tính ứng dụng rộng rãi khiến ABP trở thành một hướng nghiên cứu hấp dẫn, thu hút sự quan tâm của cả cộng đồng lý thuyết và ứng dụng.
+
+\subsection{Định nghĩa bài toán NAKLP}
+
+Như đã trình bày, Anti-Bandwidth Problem (ABP) tìm cách gán nhãn cho các đỉnh của một đồ thị $G=(V,E)$ bằng các số nguyên phân biệt từ $1$ đến $|V|$, nhằm tối đa hóa khoảng cách nhãn nhỏ nhất giữa các đỉnh kề nhau \cite{chinn1982bandwidth,laguna2010heuristics,fernandez2013variable}. Có thể xem ABP như một trường hợp đặc biệt của một bài toán tổng quát hơn, đó là \emph{Anti-$k$-Labeling Problem (AKL)}.
+
+Trong bài toán AKL, thay vì giới hạn ở $|V|$ nhãn, ta cho phép sử dụng một tập nhãn $\{1,2,\ldots,k\}$ với $|V| \geq k \geq 1$ \cite{guan2019anti}. Một ánh xạ 
+\[
+\psi: V(G) \to \{1,2,\ldots,k\}
+\]
+được gọi là một \emph{anti-$k$-labeling} của $G$. Với mỗi cạnh $e=uv \in E(G)$, ta định nghĩa:
+\[
+w_\psi(e) = |\psi(u) - \psi(v)|.
+\]
+Từ đó, anti-$k$-labeling value của $G$ đối với $\psi$ là:
+\[
+w_\psi(G) = \min_{e \in E(G)} w_\psi(e),
+\]
+và \emph{anti-$k$-labeling number} được xác định là:
+\[
+\lambda_k(G) = \max_{\psi} w_\psi(G).
+\]
+
+Tuy nhiên, một nhược điểm của anti-$k$-labeling là ánh xạ $\psi$ có thể bỏ trống một số nhãn trong tập $\{1,2,\ldots,k\}$, dẫn đến tình huống không khai thác hết phạm vi nhãn. Để khắc phục điều này, Guan (2019) \cite{guan2019anti} đã giới thiệu khái niệm \emph{No-Hole Anti-$k$-Labeling (NHAKL)}. Một ánh xạ $\psi$ được gọi là \emph{no-hole} nếu nó sử dụng \textbf{tất cả} các nhãn từ $1$ đến $k$ mà không bỏ sót nhãn nào. Khi đó, ta định nghĩa:
+\[
+\lambda^{nh}_k(G) = \max_{\psi \ \text{là no-hole}} w_\psi(G).
+\]
+
+Rõ ràng, khi $k = |V|$, bài toán NHAKL trở thành đúng bài toán Anti-Bandwidth Problem cổ điển. Như vậy, ABP có thể được xem là một trường hợp đặc biệt của NHAKL. Sự tổng quát này cho phép áp dụng khung NHAKL để nghiên cứu nhiều lớp đồ thị và bài toán gán nhãn khác nhau trong thực tế \cite{guan2019anti}.
+
+
+\subsection{Ứng dụng}
+
+Bài toán No-Hole Anti-$k$-Labeling (NHAKL) không chỉ mang ý nghĩa lý thuyết trong lĩnh vực tối ưu tổ hợp, mà còn có nhiều ứng dụng quan trọng trong thực tiễn. Các ứng dụng chủ yếu có thể kể đến:
+
+\begin{itemize}
+    \item[] Gán tần số trong mạng không dây: Trong các hệ thống truyền thông vô tuyến, mỗi đỉnh của đồ thị biểu diễn một trạm phát hoặc một nút mạng, còn cạnh biểu diễn mối liên hệ giao tiếp trực tiếp. Việc gán nhãn có thể hiểu là gán tần số phát sóng. Bài toán NHAKL đảm bảo rằng mọi tần số từ $1$ đến $k$ đều được sử dụng (không để “lỗ hổng” trong phổ tần số), đồng thời tối đa hóa khoảng cách nhỏ nhất giữa các tần số kề nhau để giảm thiểu nhiễu sóng \cite{guan2019anti}.
+
+    \item[] Ứng dụng trong lập lịch: Bài toán NHAKL cũng có thể được sử dụng trong các bài toán lập lịch (ví dụ: lập lịch thi, lập lịch sử dụng tài nguyên), nơi các nhãn biểu diễn khoảng thời gian hoặc phiên làm việc. No-hole đảm bảo toàn bộ quỹ thời gian được khai thác, còn tiêu chí cực đại hóa khoảng cách nhỏ nhất giúp giảm thiểu xung đột giữa các phiên gần nhau.
+\end{itemize}
+
+Như vậy, NHAKL không chỉ là sự mở rộng lý thuyết của Anti-Bandwidth Problem, mà còn đóng vai trò là công cụ quan trọng trong nhiều lĩnh vực ứng dụng viễn thông \cite{guan2019anti}.
+
+
+
+\section{Cơ sở lý thuyết}
+\subsection{Mệnh đề logic}
+
+Mệnh đề logic (propositional logic) là một nhánh cơ bản của logic toán học, được sử dụng để biểu diễn và suy luận các phát biểu có giá trị đúng hoặc sai. Một mệnh đề là một câu khẳng định có thể nhận một trong hai giá trị chân lý: đúng (true) hoặc sai (false)~\cite{russell2010artificial}.
+
+Trong logic mệnh đề, người ta sử dụng các biến mệnh đề như $p$, $q$, $r$, ... để biểu diễn các mệnh đề đơn giản. Các biến này được kết hợp với nhau thông qua các phép toán logic để tạo thành công thức phức tạp hơn, bao gồm:
+
+\begin{itemize}
+    \item[] Phủ định (negation): $\neg p$, đảo ngược giá trị chân lý của $p$.
+    \item[] Hội (conjunction): $p \land q$, đúng khi cả $p$ và $q$ đều đúng.
+    \item[] Tuyển (disjunction): $p \lor q$, đúng khi ít nhất một trong hai mệnh đề đúng.
+    \item[] Kéo theo (implication): $p \rightarrow q$, sai chỉ khi $p$ đúng và $q$ sai.
+    \item[] Tương đương (biconditional): $p \leftrightarrow q$, đúng khi $p$ và $q$ có cùng giá trị chân lý.
+\end{itemize}
+
+Một công thức logic được gọi là hợp lệ nếu nó luôn đúng với mọi giá trị của các biến. Ngược lại, công thức được gọi là mâu thuẫn nếu nó luôn sai. Nếu tồn tại ít nhất một phép gán giá trị cho các biến làm cho công thức đúng, công thức đó được gọi là thoả mãn được~\cite{biere2009handbook}.
+
+Các công thức mệnh đề thường được biểu diễn dưới dạng chuẩn tắc, phổ biến nhất là dạng chuẩn hội (Conjunctive Normal Form - CNF). Một công thức ở dạng CNF là phép hội của các mệnh đề con, trong đó mỗi mệnh đề con là phép tuyển của các literal (một biến hoặc phủ định của biến). Ví dụ:
+\[
+(p \lor \neg q) \land (q \lor r \lor \neg s)
+\]
+Dạng CNF đặc biệt quan trọng trong các bài toán thỏa mãn logic (SAT), vì hầu hết các SAT solver hiện nay đều yêu cầu đầu vào ở dạng này để thực hiện kiểm tra tính thoả mãn~\cite{malik2009boolean}.
+
+Logic mệnh đề đóng vai trò nền tảng trong nhiều lĩnh vực của khoa học máy tính như trí tuệ nhân tạo, lập luận tự động và tối ưu tổ hợp. Nó cho phép biểu diễn các ràng buộc phức tạp bằng ngôn ngữ hình thức, là bước đầu tiên để chuyển các bài toán thực tế sang dạng có thể giải bằng máy tính.
+
+\subsection{SAT}
+
+SAT (Boolean Satisfiability Problem) là một trong những bài toán nền tảng trong khoa học máy tính lý thuyết. Bài toán phát biểu: với một công thức logic mệnh đề gồm các biến Boolean, xác định xem có tồn tại một phép gán giá trị đúng hoặc sai cho các biến sao cho công thức trở nên đúng hay không~\cite{biere2009handbook,malik2009boolean}.
+
+Nếu tồn tại ít nhất một phép gán như vậy, công thức được gọi là thoả mãn được (satisfiable); ngược lại là không thoả mãn (unsatisfiable). Ví dụ,
+\[
+(p \lor q) \land (\neg p \lor r)
+\]
+là thoả mãn được vì có phép gán $p=\text{false}$, $q=\text{true}$, $r=\text{true}$ làm công thức đúng.
+
+SAT là bài toán đầu tiên được chứng minh NP-đầy đủ trong định lý Cook–Levin: Cook (1971) và độc lập Levin (1973) chỉ ra rằng mọi bài toán trong NP có thể quy về SAT trong thời gian đa thức~\cite{cook1971,levin1973}. Các tổng quan hiện đại cũng trình bày kết quả này và hệ quả của nó~\cite{biere2009handbook}. Do đó, việc nghiên cứu và cải thiện các phương pháp giải SAT có ý nghĩa cả lý thuyết lẫn thực tiễn.
+
+Trong thực tế, công thức SAT thường được đưa về dạng chuẩn hội (CNF) trước khi giải. Việc chuyển đổi tổng quát sang CNF thường sử dụng phép biến đổi Tseitin để tránh bùng nổ kích thước bằng cách thêm biến phụ~\cite{tseitin1968}. Ví dụ:
+\[
+(\neg x_1 \lor x_2) \land (x_1 \lor x_3 \lor \neg x_4)
+\]
+
+Việc biểu diễn các bài toán thực tế dưới dạng công thức SAT giúp hợp nhất mô hình hoá ràng buộc nhị phân và tận dụng trực tiếp sức mạnh của các bộ giải SAT~\cite{biere2009handbook}. Một ưu điểm nổi bật là khả năng tổng quát hoá: khi một bài toán đã được mô hình hoá bằng logic mệnh đề, các biến thể của nó có thể thu được bằng cách điều chỉnh ràng buộc.
+
+Nhiều bài toán tối ưu tổ hợp được chuyển sang SAT thông qua các sơ đồ mã hoá (encoding) khác nhau. Tiêu biểu có mã hoá trực tiếp và mã hoá hỗ trợ trong bối cảnh CSP→SAT~\cite{gent2002arc}; mã hoá thứ tự cho biến miền rời rạc nhiều giá trị~\cite{petke2011order}; và các mã hoá ràng buộc đếm như totalizer hoặc bộ đếm tuần tự cho các ràng buộc at-most/at-least-k~\cite{bailleux2003totalizer,sinz2005cardinality}. Mỗi dạng mã hoá có đánh đổi riêng giữa số biến/phần tử, mức độ lan truyền đơn vị và hiệu quả thực nghiệm.
+
+Tóm lại, SAT đóng vai trò cầu nối giữa lý thuyết và thực hành: vừa là ngôn ngữ chung để biểu diễn ràng buộc, vừa là nền tảng cho nhiều phương pháp giải tối ưu hiện đại.
+
+\subsection{SAT Solver}
+
+SAT solver là chương trình hoặc thuật toán được thiết kế để xác định tính thỏa mãn của một công thức logic mệnh đề, thường ở dạng chuẩn hội (CNF). Mục tiêu của SAT solver là tìm một phép gán giá trị cho các biến sao cho toàn bộ công thức trở nên đúng, hoặc chứng minh rằng không tồn tại phép gán nào như vậy~\cite{biere2009handbook,malik2009boolean}.
+
+Các SAT solver hiện đại được phát triển dựa trên nền tảng của hai dòng phương pháp chính: tìm kiếm quay lui (backtracking search) và học mệnh đề xung đột (conflict-driven clause learning). Trong đó, thuật toán Davis-Putnam-Logemann-Loveland (DPLL)~\cite{davis1962machine} được xem là cơ sở của hầu hết các solver hiện nay. DPLL hoạt động theo nguyên tắc gán thử giá trị cho các biến, rút gọn công thức theo luật suy diễn đơn vị (unit propagation), và quay lui khi gặp mâu thuẫn. Quá trình này được lặp lại cho đến khi tìm được nghiệm hoặc công thức trở nên vô nghiệm.
+
+Tuy nhiên, DPLL cơ bản gặp hạn chế khi phải xử lý các bài toán lớn với hàng triệu biến và mệnh đề. Để khắc phục, các SAT solver thế hệ mới đã mở rộng DPLL bằng cơ chế học mệnh đề xung đột, hình thành mô hình CDCL (Conflict-Driven Clause Learning). Trong CDCL, khi phát hiện xung đột, solver sẽ phân tích nguyên nhân và sinh ra một mệnh đề mới đại diện cho xung đột đó. Mệnh đề này được thêm vào công thức để ngăn solver lặp lại cùng một sai lầm trong tương lai~\cite{biere2009handbook}. Cơ chế này giúp rút ngắn không gian tìm kiếm và cải thiện đáng kể tốc độ hội tụ.
+
+Ngoài học xung đột, CDCL còn sử dụng kỹ thuật quay lui không tuần tự (non-chronological backtracking hay backjumping), cho phép solver quay lui trực tiếp đến cấp quyết định liên quan nhất đến xung đột, thay vì lần lượt quay lui từng bước như DPLL. Kết hợp với các heuristic chọn biến như VSIDS (Variable State Independent Decaying Sum)~\cite{een2003extensible}, và các chiến lược loại bỏ mệnh đề dư thừa (clause deletion), các SAT solver hiện nay có thể giải những bài toán thực tế có kích thước rất lớn trong thời gian ngắn.
+
+Một số SAT solver tiêu biểu bao gồm MiniSat~\cite{een2003extensible}, Glucose~\cite{audemard2009predicting}, và Lingeling~\cite{biere2009handbook}. Các solver này được sử dụng rộng rãi trong các cuộc thi SAT quốc tế (SAT Competition) và trở thành công cụ chuẩn trong các ứng dụng như kiểm chứng phần mềm, thiết kế mạch logic, tối ưu hóa ràng buộc, và lập lịch. Nhờ sự phát triển của các solver mạnh mẽ này, các bài toán vốn được xem là bất khả thi trong thập niên 1990 nay có thể được giải trong vài phút hoặc vài giây trên phần cứng phổ thông.
+
+Nhìn chung, SAT solver đóng vai trò trung tâm trong việc đưa lý thuyết SAT vào ứng dụng thực tế. Việc kết hợp giữa khả năng học xung đột, heuristic động, và quản lý mệnh đề thông minh đã biến SAT solver thành một trong những công cụ mạnh nhất hiện nay để giải các bài toán tối ưu tổ hợp phức tạp.
+
+\subsection{SCL Encoding}
+
+SCL (Sequential Counter-based Ladder Encoding) là một phương pháp mã hóa SAT được đề xuất bởi \textit{Trương Hiếu Xuân, Kiều Văn Thuyền và Tô Văn Khánh (2025)} ~\cite{2025sequential} nhằm biểu diễn ràng buộc Staircase At-Most-One (SCAMO) một cách hiệu quả hơn. SCAMO là tập hợp các ràng buộc \textit{At-Most-One (AMO)} liên tiếp có các biến chồng lấn nhau, hình thành cấu trúc bậc thang (\textit{staircase structure}). Mục tiêu của SCL là tận dụng sự trùng lặp giữa các ràng buộc này để giảm số lượng biến phụ và mệnh đề khi mã hóa sang dạng CNF.
+
+Giả sử có tập biến Boolean:
+\[
+\Omega = \{x_1, x_2, \ldots, x_n\}
+\]
+và một giá trị độ rộng \(w\) (với \(1 < w \le n\)), ràng buộc SCAMO được định nghĩa là:
+\[
+SCAMO(\Omega, w) = \bigwedge_{i=0}^{n-w} \left( \sum_{j=i+1}^{i+w} x_j \le 1 \right)
+\]
+Tức là trong mọi đoạn con gồm \(w\) biến liên tiếp, chỉ được phép có nhiều nhất một biến mang giá trị \texttt{TRUE}.  
+Ví dụ, với \(n = 10, w = 4\):
+\[
+(x_1 + x_2 + x_3 + x_4 \le 1) \land (x_2 + x_3 + x_4 + x_5 \le 1) \land (x_3 + x_4 + x_5 + x_6 \le 1)
+\]
+Ta nhận thấy các ràng buộc này chia sẻ nhiều biến chung, tạo thành chuỗi ``bậc thang'' có thể tái sử dụng trong quá trình mã hóa.
+
+Để biểu diễn SCAMO hiệu quả, SCL chia dãy biến \(\Omega\) thành các khối con (block) có độ rộng \(w\). Mỗi khối được mã hóa bằng Sequential Counter (SC) --- kỹ thuật được đề xuất bởi \textit{Sinz (2005)} ~\cite{sinz2005cardinality} để biểu diễn ràng buộc \textit{At-Most-One}.  
+Trong mỗi khối, các biến trung gian \(R_{i,j}\) được định nghĩa để biểu diễn tổng của \(j\) biến đầu tiên:
+\[
+R_{i,j} = 1 \iff \sum_{j'=1}^{j} x_{i,j'} = 1
+\]
+Các biến \(R_{i,j}\) giúp ghi nhớ trạng thái ``đã có một biến TRUE'' trong chuỗi, từ đó dễ dàng ngăn chặn việc xuất hiện thêm biến TRUE thứ hai.
+
+Ràng buộc trong mỗi khối được mô hình hóa bởi bốn nhóm công thức chính:
+\begin{equation}
+\bigwedge\limits_{i=1}^{n} \bigwedge\limits_{j=2}^{w}
+\left( x[i][j] \to R[i][j] \right)
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n} \bigwedge\limits_{j=2}^{w}
+\left( R[i][j-1] \to R[i][j] \right)
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n} \bigwedge\limits_{j=2}^{w}
+\left( \lnot x[i][j] \land \lnot R[i][j-1] \to \lnot R[i][j] \right)
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n} \bigwedge\limits_{j=2}^{w}
+\left( x[i][j] \to \lnot R[i][j-1] \right)
+\end{equation}
+Trong đó:
+\begin{itemize}
+    \item[] (1) và (2) đảm bảo rằng nếu một biến hoặc thanh ghi trước đó đã được kích hoạt, các thanh ghi sau sẽ giữ trạng thái TRUE.
+    \item[] (3) duy trì tính lan truyền FALSE trong chuỗi.
+    \item[] (4) đảm bảo tính At-Most-One, tức chỉ có duy nhất một biến nhận giá trị TRUE.
+\end{itemize}
+
+Khi kết nối các khối liên tiếp, SCL tận dụng mối quan hệ giữa biến cuối của khối trước và biến đầu của khối sau để duy trì tính \textit{staircase}. Các mệnh đề liên kết này có dạng:
+\[
+(\neg R_{i,w-1} \lor \neg x_{i+1,1}), \quad (\neg R_{i,w-2} \lor \neg R_{i+1,2}), \ldots
+\]
+giúp đảm bảo rằng các biến được chia sẻ giữa hai khối không vi phạm ràng buộc At-Most-One toàn cục.
+
+Phân tích lý thuyết trong~\cite{2025sequential} cho thấy SCL đạt độ phức tạp tuyến tính \(O(n)\) với số lượng biến phụ tối đa:
+\[
+2Mw - 3M - 2w + 4
+\]
+và số mệnh đề:
+\[
+8Mw - 8M - 7w + 7
+\]
+trong đó \(M = \lceil n/w \rceil\).  
+So với phương pháp Duplex Encoding dựa trên BDD, SCL giúp giảm hơn 40–50\% mệnh đề và cải thiện đáng kể tốc độ giải khi áp dụng cho các bài toán như Anti-Bandwidth Problem (ABP) và No-Hole Anti-k-Labeling Problem (NHAKL).
+
+Tóm lại, SCL Encoding là kỹ thuật mã hóa hiện đại kết hợp tính tuần tự của Sequential Counter với cấu trúc bậc thang của SCAMO, giúp giảm kích thước công thức CNF, nâng cao tốc độ giải và khả năng mở rộng của các mô hình SAT trong các bài toán tối ưu tổ hợp.
+
+
+
+\section{Phương pháp đề xuất cho bài toán NHAKL}
+\subsection{Tổng quan phương pháp}
+
+Để giải quyết bài toán NHAKL, phương pháp được đề xuất trong bài báo này dựa trên việc mã hóa quyết định gán nhãn của một đỉnh thành một dãy gồm $k$ phần tử với phần tử thứ $i$ đại diện cho nhãn thứ $i$. Sau khi đã mã hóa, dãy sẽ được chia nhỏ thành các khối gồm $\left\lfloor \frac{k - 1}{w} \right\rfloor$ phần tử. Mỗi khối sẽ được mã hóa theo $2$ chiều về bên trái và về bên phải nhằm để kết nối với khối trước hoặc khối sau. Sau đó các khối được ghép nối nhằm đảm bảo hiệu số nhãn của hai đỉnh liền kề $\ge w$ với $w$ là đáp án đang xét hiện tại.
+
+Phương pháp này đã được chứng minh là hiệu quả hơn so với phương pháp mã hóa trực tiếp. Vì vậy, để giải quyết bài báo, phương pháp SCL encoding sẽ được áp dụng. ~\cite{2025sequential} 
+
+\subsection{Mô tả các biến}
+
+Đầu vào của bài toán là một đồ thị vô hướng $G=(V,E)$ và số lượng nhãn được phép sử dụng $k$ sao cho $k \le |V|$. Bài toán được giải bằng cách xét các giá trị đáp án $w$ xem có thể thỏa mãn hay không. Bên cạnh đó cần sử dụng thêm một số các biến nhằm phục vụ việc mã hóa.
+
+\begin{itemize}
+    \item[] \quad $x[i][j]$: với $i\in\{1,\dots,n\}$ thể hiện đỉnh và $j\in\{1,\dots,k\}$ thể hiện nhãn. $x[i][j]=1$ khi và chỉ khi đỉnh $i$ được gán nhãn $j$, ngược lại $x[i][j]=0$
+    \item[] \quad $L[i][j][q]$ và $R[i][j][q]$: với $i\in\{1,\dots,n\}$ thể hiện đỉnh, $j\in\{1,\dots,\left\lfloor \frac{k - 1}{w} \right\rfloor\}$ thể hiện số chỉ block, $q\in\{1,\dots,w\}$ thể hiện số chỉ trong block $j$. Hai biến này dùng để mã hóa theo SCL
+\end{itemize}
+
+\subsection{Các loại mệnh đề}
+\subsubsection{Đảm bảo mỗi biến chỉ được gán duy nhất một nhãn}
+
+Để đảm bảo mỗi biến chỉ được gán duy nhất một nhãn cần đảm bảo mỗi biến được gán ít nhất $1$ nhãn và mỗi biến được gán nhiều nhất $1$ nhãn. 
+\begin{equation}
+\bigwedge\limits_{i=1}^{n} 
+\bigvee\limits_{j=1}^{k} x[i][j]
+\end{equation}
+
+Công thức số $(5)$ đảm bảo sẽ luôn có ít nhất một nhãn được gán cho mỗi đỉnh. Tuy nhiên công thức này vẫn cho phép đỉnh được nhận nhiều hơn $1$ nhãn, trên thực tế điều này là không đúng, vì vậy cần thêm công thức $(6)$ để đảm bảo chỉ có nhiều nhất $1$ nhãn được sử dụng cho mỗi đỉnh.
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n} \bigvee\limits_{j=1}^{k} \bigvee\limits_{j'=1, j != j'}^{k} x[i][j] \to \lnot x[i][j']
+\end{equation}
+
+\subsubsection{Đảm bảo mỗi nhãn phải được sử dụng ít nhất 1 lần}
+
+Để đảm bảo mỗi nhãn được sử dụng ít nhất $1$ lần ta sử dụng công thức số $(7)$
+
+\begin{equation}
+\bigwedge\limits_{j=1}^{k} 
+\bigvee\limits_{i=1}^{n} x[i][j]
+\end{equation}
+
+Công thức trên đảm bảo mỗi nhãn sẽ được sử dụng ít nhất tại một đỉnh trong $n$ đỉnh. Tuy nhiên vì yêu cầu đặc biệt của bài toán NHAKL cho phép lặp lại nhãn, nên không thể áp dụng số lượng tối đa như công thức $(6)$.
+
+\subsubsection{Đảm bảo hiệu số nhãn của hai đỉnh liền kề $\ge w$}
+
+Để thực hiện phương pháp đã nêu ở trên, cần mã hóa mỗi khối, với độ dài của mỗi khối là $m = \left\lfloor \frac{k - 1}{w} \right\rfloor$ về bên trái và phải. Công thức $(8) \to (12)$ thực hiện mã hóa về bên trái, trong khi công thức $(13) \to (17)$ thực hiện mã hóa về bên phải.
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\bigwedge\limits_{q=1}^{w}
+x[i][j \times w - q + 1] \rightarrow L[i][j][q]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\bigwedge\limits_{q=1}^{w-1}
+L[i][j][q] \rightarrow L[i][j][q+1]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\lnot x[i][j \times w] \rightarrow \lnot L[i][j][1]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\bigwedge\limits_{q=2}^{w}
+\lnot x[i][j \times w - q + 1] 
+\land \lnot L[i][j][q-1]
+\rightarrow \lnot L[i][j][q]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\bigwedge\limits_{q=2}^{w}
+x[i][j \times w - q + 1]
+\rightarrow \lnot L[i][j][q-1]
+\end{equation}
+
+% Tiếp theo là block right
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\bigwedge\limits_{q=1}^{w}
+x[i][j \times w + q] \rightarrow R[i][j][q]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\bigwedge\limits_{q=1}^{w-1}
+R[i][j][q] \rightarrow R[i][j][q+1]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\lnot x[i][j \times w + 1] \rightarrow \lnot R[i][j][1]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\bigwedge\limits_{q=2}^{w}
+\lnot x[i][j \times w + q] 
+\land \lnot R[i][j][q-1]
+\rightarrow \lnot R[i][j][q]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=1}^{n}
+\bigwedge\limits_{j=1}^{m}
+\bigwedge\limits_{q=2}^{w}
+x[i][j \times w + q]
+\rightarrow \lnot [i][j][q-1]
+\end{equation}
+
+Sau khi mã hóa xong, thực hiện việc xét các cặp đỉnh có cạnh nối trên đồ thị. Với mỗi cạnh $(u,v) \in E$ bất kì, sử dụng các công thức $(18),(19)$ để đảm bảo khi gán nhãn cho $2$ đỉnh $u$ và $v$ thì hiệu tuyệt đối luôn $\ge w$. Đặt $j = \left\lfloor \frac{i - 1}{w} \right\rfloor + 1$, $q = (i-1) \bmod w$.
+
+\begin{equation}
+\bigwedge\limits_{i=2}^{k-w+1}
+L[u][j][w - q] \to \lnot R[v][j][q] \wedge \lnot L[v][j][w - q]
+\end{equation}
+
+\begin{equation}
+\bigwedge\limits_{i=2}^{k-w+1}
+R[u][j][q] \to \lnot R[v][j][q] \wedge \lnot L[v][j][w - q]
+\end{equation}
+
+\subsection{Phá đối xứng}
+
+Theo Sinnl (2021)~\cite{sinnl2021note}, trong mọi phép gán nhãn $f$ của một đồ thị có $n$ đỉnh, luôn tồn tại một phép gán nhãn đối xứng $f'$ được xác định thông qua phép biến đổi tuyến tính:
+\[
+f'(v) = n + 1 - f(v)
+\]
+với mọi đỉnh $v \in V$. Phép biến đổi này tạo nên một ánh xạ một-một giữa các giá trị trong $f$ và $f'$, nghĩa là mỗi nhãn trong $f$ đều có một giá trị tương ứng duy nhất trong $f'$.  
+
+Dễ thấy rằng nếu phép gán $f$ thoả mãn các ràng buộc về đỉnh và nhãn của bài toán (ví dụ: mỗi đỉnh có đúng một nhãn và tất cả các nhãn đều được sử dụng), thì phép gán $f'$ cũng thoả mãn các ràng buộc tương tự. Hơn nữa, giá trị chênh lệch nhãn giữa hai đỉnh kề nhau vẫn được bảo toàn sau phép biến đổi này. Thật vậy:
+\[
+|f'(i) - f'(i')| = |(n + 1 - f(i)) - (n + 1 - f(i'))| = |f(i') - f(i)|
+\]
+Điều đó cho thấy $f$ và $f'$ là hai nghiệm đối xứng có cùng giá trị hàm mục tiêu.  
+
+Dựa trên nhận xét này, có thể áp dụng kỹ thuật phá đối xứng để giảm không gian tìm kiếm~\cite{gent2006symmetry}. Cụ thể, trong bài toán No-Hole Anti-$k$-Labeling, việc gán nhãn đối xứng như trên tạo ra nhiều nghiệm tương đương về giá trị tối ưu. Để loại bỏ các nghiệm trùng lặp này, mô hình SAT được bổ sung các mệnh đề ràng buộc loại trừ một hướng đối xứng nhất định.  
+
+Trong quá trình triển khai, thực hiện phá đối xứng bằng cách cố định nhãn của một đỉnh có nhiều đỉnh liền kề nhất chỉ nằm trong khoảng $1$ đến $\lceil \frac{k}{2} \rceil$, qua đó giới hạn chỉ xét một nửa không gian nghiệm có thể. Giả sử đỉnh $p$ là đỉnh được chọn, cố định đỉnh $p$ để phá vỡ tính đối xứng dựa trên công thức $(20)$.
+
+\begin{equation}
+\bigwedge\limits_{i=\lceil \frac{k}{2} \rceil + 1}^{k}
+\lnot x[p][i]
+\end{equation}
+
+Cách tiếp cận này giúp giảm đáng kể số lượng tổ hợp cần kiểm tra mà không ảnh hưởng đến tính chính xác của lời giải.
+
+\section{Kết quả thực nghiệm}
+\subsection{Môi trường thực nghiệm}
+Để chứng minh tính hiệu quả của việc sử dụng SCL, bài toán sẽ được so sánh kết quả thực nghiệm theo phương pháp SCL và phương pháp trực tiếp. Những thực nghiệm được thực hiện trên môi trường sử dụng CPU Intel i7-14700KF và 32 GB RAM, chạy trên hệ điều hành Window 11.
+
+Thực nghiệm sẽ được chạy trên bộ dữ liệu Harwell-Boeing Sparse Matrix Collection ~\cite{nist_harwellboeing}, bao gồm $12$ ma trận có kích thước bé đến vừa và $12$ ma trận có kích thước rất lớn.
+
+\begin{table}[H]
+\centering
+\caption{Harwell-Boeing Sparse Matrix benchmark.}
+\resizebox{0.4\textwidth}{!}{%
+\begin{tabular}{lrrrr}
+\hline
+\textbf{Instance} & \textbf{|V|} & \textbf{|E|} & \textbf{LB} & \textbf{UB} \\
+\hline
+A-pores\_1   & 30  & 103  & 6   & 8   \\
+B-ibm32      & 32  & 90   & 9   & 9   \\
+C-bcspwr01   & 39  & 46   & 16  & 17  \\
+D-bcsstk01   & 48  & 176  & 8   & 9   \\
+E-bcspwr02   & 49  & 59   & 21  & 22  \\
+F-curtis54   & 54  & 124  & 12  & 13  \\
+G-will57     & 57  & 127  & 12  & 14  \\
+H-impcol\_b  & 59  & 281  & 8   & 8   \\
+I-ash85      & 85  & 219  & 19  & 27  \\
+J-nos4       & 100 & 247  & 32  & 40  \\
+K-dwt\_234   & 117 & 162  & 46  & 58  \\
+L-bcspwr03   & 118 & 179  & 39  & 39  \\
+M-bcsstk06   & 420 & 3720 & 28  & 72  \\
+N-bcsstk07   & 420 & 3720 & 28  & 72  \\
+O-impcol\_d  & 425 & 1267 & 91  & 173 \\
+P-can\_445   & 445 & 1682 & 78  & 120 \\
+Q-494\_bus   & 494 & 586  & 219 & 246 \\
+R-dwt\_503   & 503 & 2762 & 46  & 71  \\
+S-sherman4   & 546 & 1341 & 256 & 272 \\
+T-dwt\_592   & 592 & 2256 & 103 & 150 \\
+U-662\_bus   & 662 & 906  & 219 & 220 \\
+V-nos6       & 675 & 1290 & 326 & 337 \\
+W-685\_bus   & 685 & 1282 & 136 & 147 \\
+X-can\_715   & 715 & 2975 & 112 & 142 \\
+\hline
+\end{tabular}%
+}
+\end{table}
+
+Bảng 1 chứa thông tin về toàn bộ $24$ ma trận trong bộ dữ liệu, với $|V|$ là số lượng đỉnh, $|E|$ là số lượng cạnh. $LB$ và $UB$ tương ứng là cận dưới và cận trên của bài toán $ABP$ ~\cite{fox1967anti}, được lấy từ bài báo ~\cite{fazekas2020duplex}. Tuy nhiên do tính chất của bài toán NHAKL không sử dụng tất cả các nhãn như bài ABP nên trong thực nghiệm này, số lượng nhãn sử dụng được lấy đúng bằng $80\%$ so với số lượng nhãn trong đồ thị gốc. Bên cạnh đó, $LB$ cũng sẽ được lấy $80\%$ so với giá trị gốc để đảm bảo tính đồng bộ, tránh tốn quá nhiều thời gian giải. Bảng 2 biểu diễn dữ liệu thực tế được dùng trong thực nghiệm.
+
+\begin{table}[H]
+\centering
+\caption{Harwell-Boeing Sparse Matrix benchmark (Sau khi lấy tỉ lệ).}
+\resizebox{0.48\textwidth}{!}{%
+\begin{tabular}{lrrrrr}
+\hline
+\textbf{Instance} & \textbf{|V|} & \textbf{|E|} & \textbf{k} & \textbf{LB} & \textbf{UB} \\
+\hline
+A-pores\_1   & 30  & 103  & 24  & 4   & 8   \\
+B-ibm32      & 32  & 90   & 25  & 7   & 9   \\
+C-bcspwr01   & 39  & 46   & 31  & 12  & 17  \\
+D-bcsstk01   & 48  & 176  & 38  & 6   & 9   \\
+E-bcspwr02   & 49  & 59   & 39  & 16  & 22  \\
+F-curtis54   & 54  & 124  & 43  & 9   & 13  \\
+G-will57     & 57  & 127  & 45  & 9   & 14  \\
+H-impcol\_b  & 59  & 281  & 47  & 6   & 8   \\
+I-ash85      & 85  & 219  & 68  & 15  & 27  \\
+J-nos4       & 100 & 247  & 80  & 25  & 40  \\
+K-dwt\_234   & 117 & 162  & 93  & 36  & 58  \\
+L-bcspwr03   & 118 & 179  & 94  & 31  & 39  \\
+M-bcsstk06   & 420 & 3720 & 336 & 22  & 72  \\
+N-bcsstk07   & 420 & 3720 & 336 & 22  & 72  \\
+O-impcol\_d  & 425 & 1267 & 340 & 72  & 173 \\
+P-can\_445   & 445 & 1682 & 356 & 62  & 120 \\
+Q-494\_bus   & 494 & 586  & 395 & 175 & 246 \\
+R-dwt\_503   & 503 & 2762 & 402 & 36  & 71  \\
+S-sherman4   & 546 & 1341 & 436 & 204 & 272 \\
+T-dwt\_592   & 592 & 2256 & 473 & 82  & 150 \\
+U-662\_bus   & 662 & 906  & 529 & 175 & 220 \\
+V-nos6       & 675 & 1290 & 540 & 260 & 337 \\
+W-685\_bus   & 685 & 1282 & 548 & 108 & 147 \\
+X-can\_715   & 715 & 2975 & 572 & 89  & 142 \\
+\hline
+\end{tabular}%
+}
+\end{table}
+
+\subsection{Kết quả thực nghiệm}
+
+Việc thực nghiệm cả hai phương án tiếp cận đều được chạy trên API SAT Solver Cadical 1.9.5 ~\cite{biere2019cadical} trong thư viện Python-Sat ~\cite{ignatiev2018pysat}. Toàn bộ $24$ đồ thị đều được chạy với thời gian tối đa để chạy của mỗi đồ thị là $1800$ giây. Nếu đồ thị nào không thể trả về kết quả trước thời gian quy định thì sẽ bị TO (quá thời gian).
+
+\begin{table}[H]
+\centering
+\caption{Kết quả thực nghiệm so sánh SCL với Naive}
+\resizebox{0.85\textwidth}{!}{%
+\begin{tabular}{lrr|rr|rr}
+\hline
+\textbf{Instance} & \textbf{LB} & \textbf{UB} &
+\multicolumn{2}{c|}{\textbf{SCL}} &
+\multicolumn{2}{c}{\textbf{Naive}} \\
+\cline{4-7}
+ &  &  & \textbf{Obj-k} & \textbf{Time(s)} & \textbf{Obj-k} & \textbf{Time(s)} \\
+\hline
+A-pores\_1   & 4  & 8   & 6  & 1.56  & 6  & 3.48  \\
+B-ibm32      & 7  & 9   & 7  & 2.83  & 7  & 0.30  \\
+C-bcspwr01   & 12 & 17  & 14 & TO  & 14 & TO  \\
+D-bcsstk01   & 6  & 9   & 7  & 1.54  & 7  & 2.19  \\
+E-bcspwr02   & 16 & 22  & 18 & TO  & 18 & TO  \\
+F-curtis54   & 9 & 13  & 10 & 1.4  & 10 & 2.28  \\
+G-will57     & 9 & 14  & 11 & 21.23  & 11 & 52.40  \\
+H-impcol\_b  & 6  & 8   & 6  & 1.12  & 6  & 0.23  \\
+I-ash85      & 15 & 27  & 19 & TO    & 19 & TO    \\
+J-nos4       & 25 & 40  & 29 & 25.19   & 29 & 74.12   \\
+K-dwt\_234   & 36 & 58  & 42 & TO    & 42 & TO    \\
+L-bcspwr03   & 31 & 39  & 31 & 2.32  & 31 & 0.69  \\
+M-bcsstk06   & 22 & 72  & 26 & TO    & 26 & TO    \\
+N-bcsstk07   & 22 & 72  & 26 & TO    & 26 & TO    \\
+O-impcol\_d  & 72 & 173 & 78 & TO   & 78 & TO   \\
+P-can\_445   & 62 & 120 & \textbf{67}  & TO   & 66  & TO   \\
+Q-494\_bus   & 175 & 246 & \textbf{176}  & TO   & 175  & TO   \\
+R-dwt\_503   & 36 & 71  & 38  & TO   & 38  & TO   \\
+S-sherman4   & 204 & 272 & -   & TO   & -   & TO   \\
+T-dwt\_592   & 82 & 150 & \textbf{82}  & TO   & -  & TO   \\
+U-662\_bus   & 175 & 220 & 177 & 593.74  & 177 & 1592.46  \\
+V-nos6       & 260 & 337 & -  & TO   & -  & TO   \\
+W-685\_bus   & 108 & 147 & \textbf{109} & 729.14   & 108 & TO   \\
+X-can\_715   & 89 & 142 & \textbf{89}  & TO   & -  & TO   \\
+\hline
+\end{tabular}%
+}
+\end{table}
+
+Phương pháp SCL encoding đã thể hiện sự vượt trội hơn so với Naive (trực tiếp) cả về thời gian giải lẫn đáp án tốt nhất tìm thấy. Đặc biệt là trong đồ thị khó W-685\_bus, phương pháp SCL encoding đã giải được đến kết quả cuối cùng.
+
+\newpage
+\section*{\huge Kết luận}
+
+Bài báo này đã trình bày quá trình nghiên cứu và triển khai phương pháp Sequential Counter en-coding for Ladder constraints (SCL) nhằm giải quyết bài toán No-Hole Anti-k-Labeling Problem (NHAKL) bằng cách quy đổi về bài toán SAT (Boolean Satisfiability Problem). Phương pháp được xây dựng dựa trên ý tưởng mã hóa ràng buộc hiệu số nhãn thông qua cấu trúc bậc thang, giúp tối ưu số lượng biến và mệnh đề sinh ra so với cách mã hóa trực tiếp.
+
+Kết quả thực nghiệm trên bộ dữ liệu Harwell–Boeing Sparse Matrix Collection cho thấy SCL không chỉ giảm đáng kể thời gian chạy trung bình mà còn đạt được các nghiệm tốt hơn hoặc tương đương so với phương pháp mã hóa trực tiếp (Naive). Đặc biệt, trên các đồ thị có kích thước lớn, SCL thể hiện tính ổn định và khả năng mở rộng tốt, trong khi phương pháp Naive thường gặp tình trạng vượt quá giới hạn thời gian (TO).
+
+Các kết quả đạt được chứng minh rằng việc áp dụng kỹ thuật mã hóa SCL cho các ràng buộc at-most-one là một hướng tiếp cận hiệu quả trong việc giải các bài toán gán nhãn đồ thị phức tạp bằng SAT solver. Cách tiếp cận này có thể được mở rộng để giải các bài toán tối ưu tổ hợp khác, đặc biệt là những bài toán có cấu trúc tương tự như Anti-Bandwidth Problem hoặc Labeling Problems với các ràng buộc tuyến tính.
+
+Trong tương lai, nghiên cứu có thể được mở rộng theo hai hướng chính như: Tối ưu hơn nữa mô hình mã hóa SCL, chẳng hạn bằng cách kết hợp với kỹ thuật phá đối xứng nâng cao hoặc chiến lược heuristic trong quá trình giải. Và tích hợp nhiều SAT solver hiện đại (như Glucose, MiniSat, hoặc Kissat) để đánh giá khả năng tương thích và hiệu suất đa nền tảng của phương pháp.
+
+Tổng kết lại, kết quả của đề tài không chỉ khẳng định tính khả thi của việc giải NHAKL bằng SAT, mà còn góp phần mở ra hướng nghiên cứu mới trong việc áp dụng các kỹ thuật mã hóa tiên tiến như SCL vào các bài toán tối ưu đồ thị phức tạp hơn.
+
+\addcontentsline{toc}{section}{Kết luận}
+\newpage
+\bibliographystyle{unsrt}
+\bibliography{references}
+
+\end{document}
