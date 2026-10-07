@@ -149,8 +149,9 @@ def evaluate_sequence(
     output_mask_dir: Path,
     evaluation_dir: Path,
     sequence_name: str,
+    write_overlays: bool = True,
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
-    """Evaluate one sequence and save one overlay for each ground-truth frame."""
+    """Evaluate one sequence, optionally saving a GT/prediction overlay per frame."""
     image_dir, ground_truth_dir = sequence_directories(data_root, sequence_name)
     prediction_dir = output_mask_dir / sequence_name
     ground_truth_files = image_files(ground_truth_dir)
@@ -158,7 +159,8 @@ def evaluate_sequence(
         raise FileNotFoundError(f"No ground-truth masks found in {ground_truth_dir}")
 
     overlay_dir = evaluation_dir / "overlays" / sequence_name
-    overlay_dir.mkdir(parents=True, exist_ok=True)
+    if write_overlays:
+        overlay_dir.mkdir(parents=True, exist_ok=True)
     diagnostic_rows = load_diagnostic_rows(output_mask_dir, sequence_name)
     diagnostics_by_stem = {
         Path(str(row.get("frame", ""))).stem: row for row in diagnostic_rows
@@ -183,14 +185,14 @@ def evaluate_sequence(
             prediction = np.zeros_like(ground_truth)
             missing_predictions += 1
 
-        image_path = find_frame(image_dir, stem)
-        if image_path is None:
-            raise FileNotFoundError(f"No endoscopy image for {ground_truth_path.name} in {image_dir}")
-        frame_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-        if frame_bgr is None:
-            raise ValueError(f"Could not read endoscopy image: {image_path}")
-        overlay_path = overlay_dir / f"{stem}.png"
-        save_overlay(create_overlay(frame_bgr, prediction, ground_truth), overlay_path)
+        if write_overlays:
+            image_path = find_frame(image_dir, stem)
+            if image_path is None:
+                raise FileNotFoundError(f"No endoscopy image for {ground_truth_path.name} in {image_dir}")
+            frame_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+            if frame_bgr is None:
+                raise ValueError(f"Could not read endoscopy image: {image_path}")
+            save_overlay(create_overlay(frame_bgr, prediction, ground_truth), overlay_dir / f"{stem}.png")
 
         scores = segmentation_scores(prediction, ground_truth)
         diagnostic = diagnostics_by_stem.get(stem, {})
@@ -439,6 +441,7 @@ def evaluate_masks(
     data_root: Path = DEFAULT_DATA_ROOT,
     evaluation_dir: Path | None = None,
     sequences: list[str] | None = None,
+    write_overlays: bool = True,
 ) -> dict[str, object]:
     """Evaluate MedSAM2 outputs and return aggregate frame-level scores."""
     output_mask_dir = output_mask_dir.resolve()
@@ -457,7 +460,8 @@ def evaluate_masks(
     sequence_rows: list[dict[str, object]] = []
     frame_rows: list[dict[str, object]] = []
     for sequence_name in sequence_names:
-        sequence_row, rows = evaluate_sequence(data_root, output_mask_dir, evaluation_dir, sequence_name)
+        sequence_row, rows = evaluate_sequence(
+            data_root, output_mask_dir, evaluation_dir, sequence_name, write_overlays)
         sequence_rows.append(sequence_row)
         frame_rows.extend(rows)
 
@@ -516,8 +520,15 @@ def main() -> None:
         "--sequences", nargs="*", default=None,
         help="Optional names, e.g. --sequences seq1 seq2. Defaults to every seqN directory.",
     )
+    parser.add_argument(
+        "--no_overlays", action="store_true",
+        help="Skip writing per-frame overlay images; compute metrics only (faster, tidier output).",
+    )
     args = parser.parse_args()
-    summary = evaluate_masks(args.output_mask_dir, args.data_root, args.output_eval_dir, args.sequences)
+    summary = evaluate_masks(
+        args.output_mask_dir, args.data_root, args.output_eval_dir, args.sequences,
+        write_overlays=not args.no_overlays,
+    )
     print(
         "Evaluated {frames} frames from {sequences} sequences: "
         "Dice={dice:.4f}, IoU={iou:.4f}, F1={f_measure:.4f}, F2={f2:.4f}, "
