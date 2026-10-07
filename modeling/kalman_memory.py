@@ -170,7 +170,6 @@ class KalmanMemoryMixin:
         self.kalman_gate = None
         self.kalman_reliability = None
         self.kalman_motion_noise = None
-        self.kalman_fixed_gain = None
         self.kalman_motion_measurement = None
         self.kalman_oracle_masks = None
         self.kalman_score_gate = None
@@ -304,10 +303,6 @@ class KalmanMemoryMixin:
             None if self.kalman_motion_measurement is None or step.get("feature_change") is None
             else step["feature_change"] / self.kalman_motion_measurement,
         )
-        if self.kalman_fixed_gain is not None:
-            constant = self.kalman_fixed_gain[0] if bool((presence > 0.5).all()) else self.kalman_fixed_gain[1]
-            gain = torch.full_like(updated["gain"], constant)
-            updated.update(mean=state.mean + gain * (candidate.float() - state.mean), gain=gain)
         if self.kalman_score_scale is not None:
             # Soft score-scaled gain: K <- K * sigmoid(alpha * object_score + beta).
             # Shrinks K smoothly for low-score (likely wrong-object) frames; preserves the

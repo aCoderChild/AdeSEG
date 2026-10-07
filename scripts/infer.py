@@ -26,6 +26,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "MedSAM2")]
 
 from adenoid.io import load_semantic_mask
 from datasets.video import ManifestFrame, load_manifest
+from modeling.ema_memory import ConstantGainMemory
 from modeling.kalman_memory import load_memory_update
 from modeling.medsam2 import build_video_predictor
 
@@ -51,7 +52,8 @@ def parse_args():
     parser.add_argument("--score_gate_present_only", action="store_true",
                         help="Apply --score_gate only to frames with object score > 0.")
     parser.add_argument("--fixed_gain", type=float, nargs=2, default=None, metavar=("PRESENT", "ABSENT"),
-                        help="Constant-gain EMA ablation: fixed gains on present / absent frames.")
+                        help="EMA baseline (modeling/ema_memory.py): constant-gain memory instead of the "
+                             "Kalman update, with these present / absent gains. No checkpoint needed.")
     return parser.parse_args()
 
 
@@ -104,8 +106,8 @@ def predict_label(predictor, frames: list[ManifestFrame], label_id: int, backend
 @torch.inference_mode()
 def main():
     args = parse_args()
-    if args.memory_backend == "kalman" and args.kalman_checkpoint is None:
-        raise ValueError("--kalman_checkpoint is required with --memory_backend kalman.")
+    if args.memory_backend == "kalman" and args.kalman_checkpoint is None and args.fixed_gain is None:
+        raise ValueError("--kalman_checkpoint is required with --memory_backend kalman (unless --fixed_gain).")
     videos = load_manifest(args.manifest, args.split)
     if args.video_ids is not None:
         videos = {video_id: frames for video_id, frames in videos.items() if video_id in args.video_ids}
@@ -113,7 +115,11 @@ def main():
             raise ValueError("None of --video_ids is in the selected split.")
     target = "modeling.kalman_memory.KalmanMemoryVideoPredictor" if args.memory_backend == "kalman" else None
     predictor = build_video_predictor(str(args.sam2_cfg), args.sam2_checkpoint, args.device, predictor_target=target)
-    if args.memory_backend == "kalman":
+    if args.memory_backend == "kalman" and args.fixed_gain is not None:
+        # EMA baseline: constant-gain memory, no Kalman adaptivity (see modeling/ema_memory.py).
+        predictor.memory_update = ConstantGainMemory(
+            predictor.mem_dim, predictor.hidden_dim, args.fixed_gain[0], args.fixed_gain[1])
+    elif args.memory_backend == "kalman":
         predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
         if args.score_scale is not None:
             predictor.kalman_score_scale = tuple(args.score_scale)
@@ -121,8 +127,6 @@ def main():
         if args.score_gate is not None:
             predictor.kalman_score_gate = args.score_gate
             predictor.kalman_score_gate_present_only = args.score_gate_present_only
-        if args.fixed_gain is not None:
-            predictor.kalman_fixed_gain = tuple(args.fixed_gain)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = {
         "manifest": str(args.manifest), "split": args.split, "label_ids": args.label_ids,
