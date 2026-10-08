@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import torch
+from torch import nn
 
 
-class ConstantGainMemory:
-    """EMA memory: one recursive state written with a fixed present/absent gain."""
+class ConstantGainMemory(nn.Module):
+    """EMA memory: one recursive state written with a fixed present/absent gain.
+
+    A parameter-free module, so it can stand in for a trained update on a model
+    that registers ``memory_update`` as a submodule (the training teacher).
+    """
 
     def __init__(
         self,
@@ -20,6 +25,7 @@ class ConstantGainMemory:
         min_variance: float = 1e-4,
         max_variance: float = 1e4,
     ):
+        super().__init__()
         self.memory_channels = memory_channels
         self.image_channels = image_channels
         self.present_gain = present_gain

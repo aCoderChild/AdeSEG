@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -15,9 +16,12 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "MedSAM2")]
 
+from adenoid.io import load_label_mask
 from datasets.video import ManifestVideoClips, assert_disjoint_videos, load_manifest
 from modeling.kalman_memory import save_memory_update
-from training.kalman_trainer import KalmanLoss, build_training_model, run_clip, video_batch
+from modeling.medsam2 import build_video_predictor
+from scripts.infer import predict_label, stage_frames
+from training.kalman_trainer import EMA_GAINS, KalmanLoss, build_training_model, ema_teacher, run_clip, video_batch
 
 
 def parse_args():
@@ -34,9 +38,11 @@ def parse_args():
                         help="Update rule to train: the Kalman update or the RDE-VOS aggregation module.")
     parser.add_argument("--label_ids", type=int, nargs="+", default=[1], help="Semantic-mask IDs; e.g. 1 for binary or 1 2 for adenoid + airway.")
     parser.add_argument("--clip_length", type=int, default=16)
+    parser.add_argument("--sample_by_video", action=argparse.BooleanOptionalAction, default=True,
+                        help="Draw a video uniformly, then one of its clips (default), so long videos do not dominate.")
     parser.add_argument("--steps", type=int, default=500, help="Optimizer steps.")
     parser.add_argument("--accumulate", type=int, default=4, help="Clips per optimizer step.")
-    parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--gradient_clip_norm", type=float, default=1.0)
     parser.add_argument("--focal_weight", type=float, default=20.0, help="MedSAM2 loss_mask weight.")
@@ -49,8 +55,16 @@ def parse_args():
         "--absence_weight", type=float, default=1.0,
         help="Object-score BCE weight on empty frames, relative to 1.0 on present frames.",
     )
-    parser.add_argument("--distill_weight", type=float, default=0.0)
-    parser.add_argument("--validation_clips", type=int, default=64)
+    parser.add_argument(
+        "--distill_weight", type=float, default=1.0,
+        help="Feature MSE to the EMA teacher on present frames. Kalman and RDE share this and every other default.",
+    )
+    parser.add_argument("--no_worse_weight", type=float, default=1.0,
+                        help="Penalty where the student is worse than the EMA teacher on a present frame.")
+    parser.add_argument("--teacher_gains", type=float, nargs=2, default=list(EMA_GAINS), metavar=("PRESENT", "ABSENT"),
+                        help="EMA teacher gains (the EMA baseline's).")
+    parser.add_argument("--anchor_weight", type=float, default=1.0,
+                        help="L2 pull of the update's parameters toward their initial (EMA-like) values.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", choices=("cuda", "mps", "cpu"), default="cuda")
     parser.add_argument("--log_every", type=int, default=25)
@@ -59,14 +73,35 @@ def parse_args():
     return parser.parse_args()
 
 
-@torch.no_grad()
-def clip_dice(student, masks):
-    """Dice per propagated frame (an empty prediction on an empty frame scores 1)."""
-    predicted = torch.stack([frame["pred_masks_high_res"][0, 0] > 0 for frame in student[1:]])
-    target = masks[1:] > 0
-    total = predicted.flatten(1).sum(1) + target.flatten(1).sum(1)
-    dice = 2 * (predicted & target).flatten(1).sum(1) / total.clamp_min(1)
-    return torch.where(total == 0, torch.ones_like(dice), dice).tolist(), target.flatten(1).any(1).tolist()
+def sequence_scores(predictor, videos, label_ids):
+    """Inference-path scores on whole videos (as scripts/infer.py, prompt on the first
+    labelled frame), averaged over sequences: polyp-frame Dice, empty-frame FP rate and
+    lost polyp frames (Dice < 0.1)."""
+    present_dice, absent_fp, lost = [], [], []
+    for frames in videos.values():
+        with tempfile.TemporaryDirectory(prefix="kalman_val_") as temporary:
+            stage_frames(frames, Path(temporary))
+            for label_id in label_ids:
+                logits, prompt, _, _ = predict_label(predictor, frames, label_id, label_ids, "kalman", Path(temporary), False)
+                if prompt is None:
+                    continue
+                dice, empty_fp = [], []
+                for frame, frame_logits in zip(frames[prompt + 1:], logits[prompt + 1:]):
+                    predicted, target = frame_logits > 0, load_label_mask(frame.mask_path, label_ids) == label_id
+                    if target.any():
+                        dice.append(2 * (predicted & target).sum() / (predicted.sum() + target.sum()))
+                    else:
+                        empty_fp.append(predicted.any())
+                if dice:
+                    present_dice.append(np.mean(dice))
+                    lost.append(np.mean(np.array(dice) < 0.1))
+                if empty_fp:
+                    absent_fp.append(np.mean(empty_fp))
+    return {
+        "present_dice": float(np.mean(present_dice)),
+        "absent_fp_rate": float(np.mean(absent_fp)) if absent_fp else None,
+        "lost": float(np.mean(lost)),
+    }
 
 
 @torch.no_grad()
@@ -75,6 +110,7 @@ def frame_stats(student, masks):
     present = masks.flatten(1).any(1)
     predicted = torch.stack([frame["pred_masks_high_res"][0, 0] > 0 for frame in frames])
     gains = torch.stack([frame["kalman"]["gain"].mean() for frame in frames])
+    closed = torch.cat([frame["multistep_object_score_logits"][-1] for frame in frames]).flatten() <= 0
     scores = torch.cat([frame["multistep_object_score_logits"][-1] for frame in frames]).flatten()
     overlap = (predicted & masks).flatten(1).sum(1)
     total = predicted.flatten(1).sum(1) + masks.flatten(1).sum(1)
@@ -83,6 +119,7 @@ def frame_stats(student, masks):
         "dice_present": mean(2 * overlap / total.clamp_min(1), present),
         "false_positive_rate_absent": mean(predicted.flatten(1).any(1), ~present),
         "presence_prob_absent": mean(torch.sigmoid(scores), ~present),
+        "closed_gate_present": mean(closed, present),
         "gain_present": mean(gains, present),
         "gain_absent": mean(gains, ~present),
     }
@@ -106,32 +143,29 @@ def main():
     criterion = KalmanLoss(
         absence_weight=args.absence_weight,
         distill_weight=args.distill_weight,
+        no_worse_weight=args.no_worse_weight,
         focal=args.focal_weight,
         dice=args.dice_weight,
         iou=args.iou_weight,
     )
-    train_clips = ManifestVideoClips(train_videos, args.label_ids, model.image_size, args.clip_length)
-    validation_clips = ManifestVideoClips(validation_videos, args.label_ids, model.image_size, args.clip_length)
-
-    validation_rng = np.random.default_rng(args.seed + 1)
-    validation = [validation_clips.sample(validation_rng) for _ in range(args.validation_clips)]
+    train_clips = ManifestVideoClips(
+        train_videos, args.label_ids, model.image_size, args.clip_length, sample_by_video=args.sample_by_video
+    )
+    # Validation runs whole held-out videos through the inference predictor, sharing the
+    # trained module, so selection sees the drift that 16-frame clips hide.
+    predictor = build_video_predictor(
+        str(args.sam2_cfg), args.sam2_checkpoint, args.device,
+        predictor_target="modeling.kalman_memory.KalmanMemoryVideoPredictor",
+    )
+    predictor.memory_update = model.memory_update
 
     def validate():
-        dice, present = [], []
-        with torch.no_grad():
-            for clip in validation:
-                masks = clip["masks"].to(args.device)
-                student, _ = run_clip(model, video_batch(clip["images"].to(args.device), masks), False)
-                frame_dice, frame_present = clip_dice(student, masks)
-                dice += frame_dice
-                present += frame_present
-        dice, present = np.array(dice), np.array(present)
-        return {"dice": float(dice.mean()), "present_dice": float(dice[present].mean()),
-                "absent_fp_rate": float(1 - dice[~present].mean()) if (~present).any() else None}
-    optimizer = torch.optim.AdamW(
-        model.memory_update.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
-    )
-    run_teacher = args.distill_weight > 0
+        return sequence_scores(predictor, validation_videos, args.label_ids)
+
+    parameters = [parameter for parameter in model.memory_update.parameters() if parameter.requires_grad]
+    initial = [parameter.detach().clone() for parameter in parameters]
+    optimizer = torch.optim.AdamW(parameters, lr=args.learning_rate, weight_decay=args.weight_decay)
+    teacher_update = ema_teacher(model, args.teacher_gains) if args.distill_weight > 0 or args.no_worse_weight > 0 else None
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     def save(path):
@@ -142,9 +176,10 @@ def main():
         "train_videos": len(train_videos),
         "validation_videos": len(validation_videos),
         "train_promptable_clips": len(train_clips),
-        "validation_promptable_clips": len(validation_clips),
+        "validation": "whole held-out videos, inference path",
         "medsam2_frozen": True,
-        "checkpoint_selection": "max validation present-frame Dice with empty-frame FP <= step 0",
+        "checkpoint_selection": "max held-out per-sequence polyp-frame Dice with empty-frame FP <= step 0; else step 0",
+        "teacher": "EMA",
     })
     (args.output_dir / "setup.json").write_text(json.dumps(setup, indent=2) + "\n", encoding="utf-8")
 
@@ -162,7 +197,7 @@ def main():
                 clip = train_clips.sample(rng)
                 masks = clip["masks"].to(args.device)
                 batch = video_batch(clip["images"].to(args.device), masks)
-                student, teacher = run_clip(model, batch, run_teacher)
+                student, teacher = run_clip(model, batch, teacher_update)
                 loss, stats = criterion(student, teacher, masks)
                 if loss.requires_grad:  # false when no propagated frame contributes to the loss
                     (loss / args.accumulate).backward()
@@ -176,12 +211,13 @@ def main():
                     "frame_gap": float(clip["frame_gaps"][1]),
                 })
                 clip_stats.append(stats)
-            gradient_norm = float(torch.nn.utils.clip_grad_norm_(
-                model.memory_update.parameters(), args.gradient_clip_norm
-            ))
+            anchor = sum(((parameter - start) ** 2).sum() for parameter, start in zip(parameters, initial))
+            if args.anchor_weight > 0:
+                (args.anchor_weight * anchor).backward()
+            gradient_norm = float(torch.nn.utils.clip_grad_norm_(parameters, args.gradient_clip_norm))
             optimizer.step()
             for stats in clip_stats:
-                stats.update({"step": step, "gradient_norm": gradient_norm})
+                stats.update({"step": step, "gradient_norm": gradient_norm, "anchor": float(anchor.detach())})
                 log.write(json.dumps(stats) + "\n")
             log.flush()
             history.extend(clip_stats)
@@ -191,6 +227,7 @@ def main():
                 print(
                     f"step {step}: loss={mean('loss'):.4f} dice_present={mean('dice_present'):.4f} "
                     f"fp_absent={mean('false_positive_rate_absent'):.3f} "
+                    f"closed_present={mean('closed_gate_present'):.3f} "
                     f"gain present/absent={mean('gain_present'):.3f}/{mean('gain_absent'):.3f}",
                     flush=True,
                 )

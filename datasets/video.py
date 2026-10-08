@@ -97,6 +97,7 @@ class ManifestVideoClips:
         label_ids: list[int],
         image_size: int,
         clip_length: int,
+        sample_by_video: bool = False,
     ):
         if clip_length < 2:
             raise ValueError("clip_length must be at least 2.")
@@ -105,6 +106,7 @@ class ManifestVideoClips:
         self.image_size = image_size
         self.label_ids = label_ids
         self.clip_length = clip_length
+        self.sample_by_video = sample_by_video
         self.clips: list[tuple[list[ManifestFrame], int]] = []
         seen_labels: set[int] = set()
         for frames in videos.values():
@@ -139,7 +141,14 @@ class ManifestVideoClips:
         return cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
 
     def sample(self, rng: np.random.Generator) -> dict[str, torch.Tensor | str | int]:
-        frames, label_id = self.clips[int(rng.integers(len(self.clips)))]
+        if self.sample_by_video:
+            # A video first, then one of its clips, so a long video does not dominate.
+            videos = sorted({frames[0].video_id for frames, _ in self.clips})
+            video_id = videos[int(rng.integers(len(videos)))]
+            candidates = [clip for clip in self.clips if clip[0][0].video_id == video_id]
+            frames, label_id = candidates[int(rng.integers(len(candidates)))]
+        else:
+            frames, label_id = self.clips[int(rng.integers(len(self.clips)))]
         images = np.stack([self._image(frame.image_path) for frame in frames]).astype(np.float32) / 255.0
         masks = np.stack([self._mask(frame.mask_path, label_id) for frame in frames])
         return {
