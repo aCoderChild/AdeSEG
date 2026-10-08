@@ -159,6 +159,58 @@ must raise reappearance Dice and lower the lost fraction. Dice +0.006
 0.000. **Fail.** This is the comparison that isolates the Kalman form, and it
 shows no measurable benefit.
 
+## Trained update rules: Kalman vs RDE-VOS *(regenerated)*
+
+Question: does the update rule of the 1-slot memory matter? Three rules share
+the anchor slot, the state S and the read path: the EMA (constant gain), the
+Kalman update and the RDE-VOS aggregation module (`modeling/rde_memory.py`:
+3D non-local block + 3D ASPP + 2x3x3 squeeze over [S, new memory], as in the
+official code, but initialised at the EMA with gain 0.835 for every frame).
+Kalman and RDE were trained with `scripts/train_kalman.py --memory_update
+{kalman,rde}` on PolypGen dev seq1–12, with seq13–15 held out for checkpoint
+selection (500 steps x 4 clips of 16 frames; Kalman lr 1e-3, RDE lr 1e-4 with
+`--distill_weight 1.0`; selection = best held-out polyp-frame Dice with
+empty-frame FP not above step 0). Outputs are in `polypgen/update_rules/`.
+
+Held-out validation (64 clips from seq13–15), polyp-frame Dice / empty-frame FP:
+
+| Step | 0 | 100 | 200 | 300 | 400 | 500 |
+|---|---|---|---|---|---|---|
+| RDE | 0.708 / 0.229 | 0.668 / 0.136 | **0.709** / 0.119 | 0.678 / 0.119 | 0.666 / 0.136 | 0.651 / 0.220 |
+| Kalman | **0.710** / 0.288 | 0.672 / 0.144 | 0.658 / 0.136 | 0.644 / 0.102 | 0.628 / 0.110 | 0.614 / 0.136 |
+
+Training lowers empty-frame FP and polyp-frame Dice together for both rules.
+The selection rule picks RDE step 200 and Kalman step 0, which is the untrained
+Kalman memory already reported above. On C6 (`polypgen/update_rules/c6/`,
+analysis in `polypgen/update_rules/c6/analysis/`), per-sequence means:
+
+| Method | Dice | Polyp-frame Dice | Empty-frame FP | Lost | Reappearance | High motion |
+|---|---|---|---|---|---|---|
+| EMA (untrained) | 0.603 | 0.623 | 0.587 | 0.268 | 0.525 | 0.588 |
+| Kalman (untrained = selected) | 0.602 | 0.613 | 0.555 | 0.284 | 0.483 | 0.579 |
+| RDE, selected (step 200) | 0.515 | 0.470 | 0.221 | 0.416 | 0.359 | 0.476 |
+| RDE, step 500 | 0.389 | 0.304 | 0.216 | 0.632 | 0.114 | 0.258 |
+| Kalman, step 500 | 0.296 | 0.206 | 0.261 | 0.757 | 0.138 | 0.214 |
+
+Paired Wilcoxon over the 8 C6 sequences (A − B; higher / lower; bootstrap 95%
+interval):
+
+| Comparison | Dice | Polyp-frame Dice | Empty-frame FP | Lost |
+|---|---|---|---|---|
+| RDE step 200 − EMA | −0.088 (2/6), p = 0.31, [−0.282, +0.038] | −0.153 (0/8), p = 0.008 | −0.366 (0/6), p = 0.031 | +0.148 (7/0), p = 0.016 |
+| RDE step 200 − Kalman | −0.087 (2/6), p = 0.31 | −0.143 (0/8), p = 0.008 | −0.334 (0/5), p = 0.062 | +0.132 (6/1), p = 0.078 |
+| RDE step 500 − EMA | −0.215 (1/7), p = 0.016 | −0.319 (0/8), p = 0.008 | −0.371 (0/6), p = 0.031 | +0.365 (8/0), p = 0.008 |
+| Kalman step 500 − EMA | −0.308 (1/7), p = 0.016 | −0.417 (0/8), p = 0.008 | −0.326 (1/4), p = 0.13 | +0.489 (8/0), p = 0.008 |
+
+**Reading.** Among the untrained rules (EMA, Kalman) the update rule makes no
+measurable difference. Training either rule with this objective moves both the
+same way: fewer empty-frame false positives bought with more lost polyp frames,
+and the polyp-frame loss grows with training steps. The held-out selection did
+not transfer: RDE step 200 matched its starting point on seq13–15 but is worse
+than the EMA on every C6 sequence's polyp frames. On this data no update rule,
+trained or not, beats the EMA, and the learned rules are worse. The RDE
+step-0 checkpoint (EMA with gain 0.835 on absent frames too) was not run on C6.
+
 ## First protocol and dev split *(regenerated)*
 
 Archived runs in `polypgen/all23/` (`native`, `native_prompt_plus_1frame`,
@@ -318,6 +370,8 @@ first design is reproduced by running `infer.py` without `--nested_labels`.
 |---|---|
 | `polypgen/c6/{native,ema,kalman}` | C6 runs, current pipeline |
 | `polypgen/c6/analysis`, `efficiency` | regenerated C6 tables; memory and FPS |
+| `polypgen/update_rules/{rde_trained,kalman_trained}` | trained RDE and Kalman updates (checkpoints, logs, validation) |
+| `polypgen/update_rules/c6/{rde_step200,rde_step500,kalman_step500,analysis}` | their C6 runs and tables |
 | `polypgen/all23/{native,native_prompt_plus_1frame,kalman,ema}` | archived all-23 runs (first protocol) |
 | `polypgen/all23/analysis_all23`, `analysis_dev` | regenerated tables for all 23 sequences and for dev |
 | `cholecseg8k/{native,native_prompt_plus_1frame,kalman,ema}` | archived CholecSeg8k runs; `split.json` |

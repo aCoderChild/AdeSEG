@@ -73,6 +73,11 @@ Current findings (`docs/EXPERIMENTS.md`; C6 = seq16–23, 8 sequences):
   0.247). On the longer dev videos it loses fewer (pooled 0.32 vs 0.40), but
   that is a development observation and is not significant per sequence
   (p = 0.19 on dev, p = 0.21 on all 23).
+- **Trained update rules are worse.** Training the Kalman update or an RDE-VOS
+  aggregation module (`modeling/rde_memory.py`) on dev trades empty-frame false
+  positives for lost polyp frames; on C6 the selected RDE checkpoint has Dice
+  0.515 and polyp-frame Dice 0.470 (EMA 0.603 / 0.623), and the selection rule
+  keeps the untrained Kalman.
 - False positives are a presence problem: MedSAM2's object score calls 71–74%
   of dev empty frames present for every method.
 - C6 is not a pristine test set: it was seen in the first all-sequence
@@ -94,12 +99,15 @@ by `scripts/analyze_runs.py` or archived.
   `adseg_kalman_memory_v5`; compatible with existing v4 checkpoints).
 - **EMA baseline:** `modeling/ema_memory.py`, a constant-gain memory with the
   same read path, used for the ablation.
+- **RDE-VOS update:** `modeling/rde_memory.py`, the RDE-VOS spatio-temporal
+  aggregation (non-local + ASPP3D + squeeze) as a third update rule, trained
+  with `--memory_update rde` and run through `--kalman_checkpoint`.
 - **Frozen-backbone training:** `training/kalman_trainer.py` and
-  `scripts/train_kalman.py` train only the Kalman update on natural clips from a
+  `scripts/train_kalman.py` train only the Kalman (or RDE) update on natural clips from a
   manifest's `train` and `val` splits, or from one split with `--val_videos`
   held out (PolypGen: `--train_split dev --val_videos seq13 seq14 seq15`). The
-  frame-0 prompt is a tight ground-truth box, as at inference. No reported
-  result uses a trained update.
+  frame-0 prompt is a tight ground-truth box, as at inference. Trained updates
+  are reported only in the update-rule comparison.
 - **Inference:** `scripts/infer.py` runs native, Kalman (`--untrained` or a
   checkpoint; `--skip_absent` optional) or EMA (`--fixed_gain`) memory from that
   manifest, with a first annotated-frame box prompt (`--nested_labels` prompts
