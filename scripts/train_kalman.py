@@ -30,6 +30,8 @@ def parse_args():
     parser.add_argument("--val_videos", nargs="*", default=None,
                         help="Validate on these videos of --train_split instead of --val_split "
                              "(e.g. PolypGen: --train_split dev --val_videos seq13 seq14 seq15).")
+    parser.add_argument("--memory_update", choices=("kalman", "rde"), default="kalman",
+                        help="Update rule to train: the Kalman update or the RDE-VOS aggregation module.")
     parser.add_argument("--label_ids", type=int, nargs="+", default=[1], help="Semantic-mask IDs; e.g. 1 for binary or 1 2 for adenoid + airway.")
     parser.add_argument("--clip_length", type=int, default=16)
     parser.add_argument("--steps", type=int, default=500, help="Optimizer steps.")
@@ -100,7 +102,7 @@ def main():
     else:
         validation_videos = load_manifest(args.manifest, args.val_split)
     assert_disjoint_videos(train_videos, validation_videos)
-    model = build_training_model(str(args.sam2_cfg), args.sam2_checkpoint, args.device)
+    model = build_training_model(str(args.sam2_cfg), args.sam2_checkpoint, args.device, args.memory_update)
     criterion = KalmanLoss(
         absence_weight=args.absence_weight,
         distill_weight=args.distill_weight,

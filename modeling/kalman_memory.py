@@ -327,9 +327,13 @@ def kalman_memory_tokens(model, anchor, state_readout, position, dtype=None):
     return [tokens(anchor), tokens(state_readout)], [tokens(anchor_position), tokens(state_position)]
 
 
-def save_memory_update(update: KalmanMemoryUpdate, path) -> None:
+def save_memory_update(update, path) -> None:
+    """Save a Kalman (``KalmanMemoryUpdate``) or RDE (``RDEMemoryUpdate``) memory update."""
+    from modeling.rde_memory import CHECKPOINT_KIND as RDE_KIND, RDEMemoryUpdate
+
     torch.save({
         "format": CHECKPOINT_FORMAT,
+        "kind": RDE_KIND if isinstance(update, RDEMemoryUpdate) else "kalman",
         "memory_channels": update.memory_channels,
         "image_channels": update.image_channels,
         "update_config": update.config,
@@ -337,15 +341,18 @@ def save_memory_update(update: KalmanMemoryUpdate, path) -> None:
     }, path)
 
 
-def load_memory_update(path, model, device) -> KalmanMemoryUpdate:
-    """Kalman update from ``save_memory_update``, checked against ``model``'s MedSAM2 widths."""
+def load_memory_update(path, model, device):
+    """Memory update from ``save_memory_update``, checked against ``model``'s MedSAM2 widths."""
+    from modeling.rde_memory import CHECKPOINT_KIND as RDE_KIND, RDEMemoryUpdate
+
     checkpoint = torch.load(path, map_location=device, weights_only=True)
     checkpoint_format = checkpoint.get("format")
     if checkpoint_format not in (CHECKPOINT_FORMAT, LEGACY_CHECKPOINT_FORMAT):
         raise ValueError(f"{path} is not a {CHECKPOINT_FORMAT} checkpoint.")
     if (checkpoint["memory_channels"], checkpoint["image_channels"]) != (model.mem_dim, model.hidden_dim):
         raise ValueError(f"{path} does not match this MedSAM2 model.")
-    update = KalmanMemoryUpdate(model.mem_dim, model.hidden_dim, **checkpoint["update_config"]).to(device)
+    kind = RDEMemoryUpdate if checkpoint.get("kind") == RDE_KIND else KalmanMemoryUpdate
+    update = kind(model.mem_dim, model.hidden_dim, **checkpoint["update_config"]).to(device)
     state_dict = dict(checkpoint["state_dict"])
     state_dict.pop("detection_trust.weight", None)
     state_dict.pop("detection_trust.bias", None)

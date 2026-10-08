@@ -10,6 +10,7 @@ from MedSAM2.training.loss_fns import CORE_LOSS_KEY, MultiStepMultiMasksAndIous
 from MedSAM2.training.model.sam2 import SAM2Train
 from MedSAM2.training.utils.data_utils import BatchedVideoDatapoint, BatchedVideoMetaData
 from modeling.kalman_memory import KalmanMemoryMixin, KalmanMemoryUpdate
+from modeling.rde_memory import RDEMemoryUpdate
 from modeling.medsam2 import build_video_predictor
 
 # Match KalmanMemoryVideoPredictor: one box prompt on frame 0, no correction clicks, eval mode.
@@ -38,7 +39,7 @@ class KalmanSAM2Train(KalmanMemoryMixin, SAM2Train):
         return backbone_out
 
 
-def build_training_model(model_cfg, checkpoint, device, **update_kwargs):
+def build_training_model(model_cfg, checkpoint, device, update_type="kalman", **update_kwargs):
     model = build_video_predictor(
         model_cfg, checkpoint, device,
         predictor_target="training.kalman_trainer.KalmanSAM2Train",
@@ -46,7 +47,8 @@ def build_training_model(model_cfg, checkpoint, device, **update_kwargs):
     )
     model.eval()
     model.straight_through_object_gate = True
-    model.memory_update = KalmanMemoryUpdate(model.mem_dim, model.hidden_dim, **update_kwargs).to(device)
+    update_class = RDEMemoryUpdate if update_type == "rde" else KalmanMemoryUpdate
+    model.memory_update = update_class(model.mem_dim, model.hidden_dim, **update_kwargs).to(device)
     for parameter in model.parameters():
         parameter.requires_grad = False
     for parameter in model.memory_update.parameters():
