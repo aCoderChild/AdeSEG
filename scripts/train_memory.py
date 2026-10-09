@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Train a memory update (the modified RKN with detector observations, or RDE-VOS with its
-official objective) on labelled videos, with MedSAM2 frozen.
+"""Train a memory update (the modified RKN with detector observations, or an
+RDE-VOS-derived compression control) on labelled videos, with MedSAM2 frozen.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def parse_args():
     rkn.add_argument("--nll_weight", type=float, default=0.02)
     rkn.add_argument("--absence_fraction", type=float, default=0.0,
                      help="Share of training clips drawn from clips that contain an absent frame.")
-    rde = parser.add_argument_group("RDE-VOS (official objective and memory mode)")
+    rde = parser.add_argument_group("RDE-VOS-derived compression control")
     rde.add_argument("--rde_mode", choices=("two-frames-compress", "gt-compress"), default="two-frames-compress",
                      help="Official memory-bank mode, in training and inference.")
     rde.add_argument("--mem_every", type=int, default=3, help="Official: compress into the RDE every N frames.")
@@ -210,7 +210,12 @@ def main():
         predictor.detector = detector
 
     def validate():
-        return sequence_scores(predictor, validation_videos, args.label_ids)
+        was_training = model.memory_update.training
+        model.memory_update.eval()
+        try:
+            return sequence_scores(predictor, validation_videos, args.label_ids)
+        finally:
+            model.memory_update.train(was_training)
 
     optimizer = torch.optim.Adam([p for p in model.memory_update.parameters() if p.requires_grad],
                                  lr=args.learning_rate, weight_decay=args.weight_decay)
@@ -219,7 +224,7 @@ def main():
         gamma = (args.final_learning_rate / args.learning_rate) ** (1 / args.steps)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=gamma)
     native_teacher = is_rde and args.rde_distill_weight > 0
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=False)
 
     def save(path):
         save_memory_update(model.memory_update, path)
@@ -234,7 +239,7 @@ def main():
         "checkpoint_selection": f"max held-out per-sequence polyp-frame Dice - {args.fp_weight} x empty-frame FP rate",
         "teacher": "native MedSAM2 bank" if native_teacher else None,
         "protocol_name": protocol.get("name") if protocol else None,
-        "objective": ("official RDE-VOS (bootstrapped CE + KL distillation)" if is_rde
+        "objective": ("RDE-VOS-derived (official bootstrapped CE + KL primitives in the MedSAM2 integration)" if is_rde
                       else "modified RKN: later frames' mask loss through MedSAM2 + cost-weighted presence BCE + "
                            "soft-IoU reliability BCE + official GaussianLikelihoodLoss of the carried GT memory"),
     })

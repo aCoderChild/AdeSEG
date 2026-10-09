@@ -5,7 +5,7 @@ the prompt frame's memory (the anchor) and one state that a memory update rewrit
 frame from the newest frame memory. This module is the MedSAM2 side only; the update rules are
 
 - ``modeling.kalman_memory.RKNMemoryUpdate`` (a modified RecursiveKalmanNet with detector observations),
-- ``modeling.rde_memory.RDEMemoryUpdate`` (RDE-VOS, from its official code).
+- ``modeling.rde_memory.RDEMemoryUpdate`` (an RDE-VOS-derived compression control).
 
 An update implements ``start(memory) -> covariance`` (``None`` if it keeps none) and
 ``update(state, covariance, memory, reliability) -> {"mean", "covariance", ["gain"]}`` (reliability:

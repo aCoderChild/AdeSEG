@@ -9,26 +9,34 @@ from scipy.stats import wilcoxon
 
 def metrics(result):
     per_video = result["summary"]["per_video"]
-    return {
-        video: {
+    output = {}
+    for video, row in per_video.items():
+        fp = row["empty_fp"]
+        output[video] = {
             "dice": row["polyp_dice"],
-            "fp": row["empty_fp"],
+            "fp": fp,
             "lost": row["lost"],
-            "j": row["polyp_dice"] - 0.5 * row["empty_fp"],
+            "j": row["polyp_dice"] - 0.5 * fp if fp is not None else None,
         }
-        for video, row in per_video.items()
-    }
+    return output
 
 
 def compare(first, second):
     common = sorted(set(first) & set(second))
     answer = {}
     for name in ("dice", "fp", "j"):
-        delta = np.array([first[video][name] - second[video][name] for video in common])
+        delta = np.array([
+            first[video][name] - second[video][name]
+            for video in common
+            if first[video][name] is not None and second[video][name] is not None
+        ])
         answer[name] = {
-            "mean_difference": float(delta.mean()),
+            "n": int(delta.size),
+            "mean_difference": float(delta.mean()) if delta.size else None,
             "higher": int((delta > 0).sum()), "lower": int((delta < 0).sum()),
-            "p_wilcoxon": float(wilcoxon(delta).pvalue) if np.any(delta) else 1.0,
+            "p_wilcoxon": (
+                float(wilcoxon(delta).pvalue) if np.any(delta) else (1.0 if delta.size else None)
+            ),
         }
     return answer
 

@@ -1,5 +1,5 @@
-"""Memory-update training (the modified RKN with detector observations, or RDE-VOS with its
-official objective) on MedSAM2's own training model and batch format."""
+"""Memory-update training (the modified RKN with detector observations, or an
+RDE-VOS-derived compression control) on MedSAM2's own training model and batch format."""
 
 from __future__ import annotations
 
@@ -206,8 +206,7 @@ def _mean_where(values, where):
 
 
 class RDELoss(torch.nn.Module):
-    """The official RDE-VOS objective.
-    """
+    """RDE-VOS loss primitives adapted to the MedSAM2 integration."""
 
     def __init__(self, distill_weight=10.0, temperature=1.0, top_p=0.15, start_warm=67, end_warm=233):
         super().__init__()

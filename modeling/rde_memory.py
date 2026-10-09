@@ -1,4 +1,4 @@
-"""RDE-VOS memory update (Li et al., CVPR 2022) from the official code in external/RDE-VOS-CVPR2022."""
+"""RDE-VOS-derived key-compression control using official components from external/RDE-VOS-CVPR2022."""
 
 from __future__ import annotations
 
