@@ -15,3 +15,13 @@ REFUGE are used as stand-ins.
 pip install -r requirements.txt     # plus the MedSAM2 checkpoint in checkpoints/
 python3 -m pytest tests
 ```
+
+Experiment tracking defaults to Forge W\&B project `adenoid-hypertrophy/ade-seg`.
+Authenticate once before running experiments:
+
+```bash
+wandb login
+```
+
+Training and evaluation then log online by default. Their W\&B working files are
+stored inside the selected Google Drive output directory.

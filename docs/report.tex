@@ -62,7 +62,7 @@
 
 \section*{Lời cảm ơn}
 \addcontentsline{toc}{section}{Lời cảm ơn}
-Tôi xin chân thành cảm ơn các giảng viên của Trường Đại học Công nghệ, đặc biệt là Dr. Lê Đức Trọng và Dr. Đỗ Thành Công, đã hướng dẫn và góp ý cho quá trình thực hiện đề tài. Tôi cũng cảm ơn các bạn và những người đã hỗ trợ trao đổi chuyên môn trong thời gian thực tập.
+EmTôi xin chân thành cảm ơn các giảng viên của Trường Đại học Công nghệ, đặc biệt là thầy Lê Đức Trọng và thầy Đỗ Thành Công, đã hướng dẫn và góp ý cho quá trình thực hiện đề tài. Em cũng cảm ơn các bạn và những người đã hỗ trợ trao đổi chuyên môn trong thời gian thực tập.
 
 \newpage
 %=====================================================================
@@ -70,24 +70,17 @@ Tôi xin chân thành cảm ơn các giảng viên của Trường Đại học 
 %=====================================================================
 \subsection{Giới thiệu công việc}
 
-Phì đại VA (adenoid hypertrophy) là một nguyên nhân thường gặp gây tắc nghẽn đường thở trên ở trẻ em. Trong thực hành, bác sĩ đánh giá mức độ phì đại bằng nội soi mũi họng: ống soi đi qua hốc mũi, và mức độ VA che lấp lòng mũi họng được ước lượng bằng mắt. Cách đánh giá này phụ thuộc người đọc và thường chỉ dựa trên một vài khung hình được chọn. Đề tài thực tập hướng tới việc tự động hóa phép đo này ở \emph{mức video}: phân đoạn vùng VA và vùng đường thở mũi họng trên từng khung hình, tính tỷ số tắc nghẽn trên các khung hợp lệ, rồi tổng hợp thành một đánh giá cho cả video.
+Phì đại VA (adenoid hypertrophy) là một nguyên nhân thường gặp gây tắc nghẽn đường thở trên ở trẻ em. Trong thực hành, bác sĩ đánh giá mức độ phì đại bằng nội soi mũi họng: ống soi đi qua hốc mũi, và mức độ VA che lấp lòng mũi họng được ước lượng bằng mắt. Cách đánh giá này phụ thuộc người đọc và thường chỉ dựa trên một vài khung hình được chọn. Đề tài thực tập hướng tới việc tự động hóa phép đo này ở mức \emph{ video}: phân đoạn vùng VA và vùng đường thở mũi họng trên từng khung hình, tính tỷ lệ tắc nghẽn trên các khung hợp lệ, rồi tổng hợp thành một đánh giá cho cả video.
 
-Trong đợt thực tập, công việc của tôi tập trung vào phần kỹ thuật cốt lõi của chuỗi xử lý đó: (i) hạ tầng dữ liệu video dùng chung cho huấn luyện, suy luận và đánh giá, kể cả bộ chuyển đổi mặt nạ mã hóa mức xám kiểu dữ liệu VA của Cai và cộng sự \cite{cai2024}; (ii) thiết kế và cài đặt bộ nhớ không gian Kalman một khe thay cho ngân hàng bộ nhớ FIFO bảy khung của MedSAM2 \cite{medsam2}, cùng baseline EMA để đối chứng; (iii) bộ đánh giá theo thời gian và bộ đánh giá hai vùng có sai số tỷ số; (iv) thiết kế giao thức thực nghiệm, chạy thí nghiệm, phân tích lỗi và ghi nhận trung thực cả các kết quả âm.
+Trong đợt thực tập, đóng góp kỹ thuật trung tâm của tôi là thiết kế và cài đặt \textbf{bộ nhớ lặp có nhận biết độ tin cậy} thay cho ngân hàng FIFO bảy khung của MedSAM2 \cite{medsam2}. Bộ nhớ này giữ một trạng thái không gian cố định, dùng cập nhật Kalman có nhiễu học được để quyết định tin trạng thái cũ hay quan sát mới, và dùng \textbf{cổng hiện diện} để không ghi/lặp lại đối tượng khi nó đã biến mất. YOLOv8 cung cấp quan sát độc lập để phát hiện lại khi tracker lệch. Xung quanh đóng góp đó, công việc gồm (i) xây dựng chuỗi huấn luyện, suy luận và đánh giá; (ii) đánh giá chất lượng lan truyền theo thời gian và đánh giá hai vùng có sai số tỷ lệ; (iii) thiết kế giao thức thực nghiệm, chạy thí nghiệm, phân tích lỗi và ghi nhận trung thực kết quả đến thời điểm hiện tại.
 
-Ở thời điểm báo cáo, dự án chưa có bộ dữ liệu video VA đã gán nhãn, cũng chưa có giao thức lâm sàng xác định công thức tắc nghẽn và ngưỡng phân độ. Vì vậy mọi thực nghiệm dùng dữ liệu thay thế: PolypGen \cite{polypgen} cho bài toán lan truyền phân đoạn theo thời gian, REFUGE \cite{refuge} cho đường xử lý hai vùng và sai số tỷ số. Báo cáo không tuyên bố kết quả lâm sàng trên VA.
+Ý tưởng hướng đến một điểm yếu cơ bản của phân đoạn video y tế: một mặt nạ sai nếu được ghi vô điều kiện vào FIFO có thể tự khuếch đại ở các frame sau. Kalman filter cung cấp cơ chế định lượng bất định để làm mượt việc ghi bộ nhớ; cổng hiện diện biến ``đối tượng có/không'' thành quyết định có ảnh hưởng trực tiếp đến xuất mặt nạ, object pointer và gain ghi nhớ. Vì thế, tiềm năng của phương pháp không chỉ là thay một cấu trúc dữ liệu, mà là tách ba quyết định thường bị gộp trong bank gốc: \emph{có đối tượng không}, \emph{quan sát này đáng tin đến đâu}, và \emph{ghi bao nhiêu vào trạng thái dài hạn}.
+
+Ở thời điểm báo cáo, dự án chưa có bộ dữ liệu video VA đã gán nhãn, cũng chưa có giao thức lâm sàng xác định công thức tắc nghẽn và ngưỡng phân độ. Vì vậy mọi thực nghiệm dùng dữ liệu thay thế: PolypGen \cite{polypgen} và CholecSeg8k \cite{cholecseg8k} cho bài toán lan truyền phân đoạn theo thời gian, REFUGE \cite{refuge} cho đường xử lý hai vùng và sai số tỷ số. Báo cáo không tuyên bố kết quả lâm sàng trên VA.
 
 \subsection{Giới thiệu qua bài toán}
 
 Chuỗi xử lý mục tiêu của dự án AdeSEG được minh họa ở Hình~\ref{fig:pipeline}:
-\[
-\begin{gathered}
-\text{video nội soi} \rightarrow \text{phân đoạn VA và đường thở}
-\rightarrow \text{chọn khung hình hợp lệ} \\
-\rightarrow \text{đo tắc nghẽn theo khung hình}
-\rightarrow \text{tổng hợp theo video} \rightarrow \text{phân độ}.
-\end{gathered}
-\]
-
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
@@ -97,30 +90,28 @@ Chuỗi xử lý mục tiêu của dự án AdeSEG được minh họa ở Hình
     todo/.style={box, dashed},
     arr/.style={-{Stealth}, thick}]
 \node[box] (v) {Video nội soi};
-\node[mine, right=of v] (s) {Phân đoạn hai vùng + bộ nhớ};
+\node[mine, right=of v] (s) {Phân đoạn hai vùng};
 \node[todo, right=of s] (f) {Chọn khung hợp lệ};
 \node[mine, right=of f] (m) {Đo tỷ số, đánh giá};
 \node[todo, right=of m] (g) {Tổng hợp, phân độ};
 \draw[arr] (v) -- (s); \draw[arr] (s) -- (f); \draw[arr] (f) -- (m); \draw[arr] (m) -- (g);
 \end{tikzpicture}
-\caption{Chuỗi xử lý mục tiêu. Ô tô đậm: phần sinh viên đã cài đặt và đánh giá; ô nét đứt: phần có khung mã nguồn nhưng cần giao thức lâm sàng và dữ liệu VA để hoàn thiện.}
+\caption{Chuỗi xử lý mục tiêu. Ô tô đậm: phần sinh viên đã cài đặt và đánh giá; ô nét đứt: phần cần giao thức lâm sàng và dữ liệu VA để hoàn thiện.}
 \label{fig:pipeline}
 \end{figure}
 
-Bài toán khó ở hai điểm. Thứ nhất, phân đoạn phải \emph{ổn định theo thời gian}: video nội soi có chuyển động camera mạnh, chiếu sáng thay đổi, khói hoặc dịch che khuất, và đối tượng có thể ra khỏi khung hình rồi xuất hiện lại. Một mô hình phân đoạn video có bộ nhớ như MedSAM2 có thể ``bám nhầm'' đối tượng và tích lũy lỗi qua các khung. Thứ hai, chỉ số lâm sàng là một \emph{tỷ số diện tích} giữa hai vùng, nên Dice tốt của từng vùng chưa chắc cho tỷ số chính xác. Đề tài giải quyết điểm thứ nhất bằng một kiến trúc bộ nhớ mới, và điểm thứ hai bằng một bộ đánh giá đo trực tiếp sai số tỷ số.
+Bài toán tự động hoá khoanh vùng trước khi tính tỷ lệ amidan và vòm họng khó ở hai điểm. Thứ nhất, liên quan đến các tính chất của video nội soi, phân đoạn phải \emph{ổn định theo thời gian}: chuyển động nhanh của camera dẫn đến hiện tượng bị mờ, nhoè (blurring); một số vùng bị quá sáng hoặc quá tối do ánh sáng từ ống soi và một số chi tiết khác có thể gây nhiễu cho mô hình, làm mô hình khoanh vùng sai; sự thay đổi về hình dạng và kích thước của amidan qua các khung hình trong 1 video: nhỏ, lớn khác nhau trong mỗi khung hình, bị che khuất 1 phần, không xuất hiện trong 1 vài khung hình rồi lại xuất hiện lại (object reappearing). Một mô hình phân đoạn video có bộ nhớ như MedSAM2 có thể ``bám nhầm'' đối tượng và tích lũy lỗi qua các khung, gây ảnh hưởng nghiêm trọng đến khả năng của mô hình nếu như không có các biện pháp chọn lọc phù hợp. Đề tài giải quyết bằng việc đưa ra một phương pháp lưu trữ và cập nhật các thông tin có chọn lọc thay thế cho bộ nhớ FIFO của MedSAM2.
 
 %=====================================================================
 \section{Yêu cầu bài toán}
 %=====================================================================
 \subsection{Bài toán lớn: đánh giá phì đại VA ở mức video}
 
-Cho một video nội soi gồm các khung $I_1,\ldots,I_T$, hệ thống cần dự đoán cho mỗi khung hai mặt nạ nhị phân: $A_t$ cho VA và $B_t$ cho đường thở mũi họng không bị che. Một khung chỉ được dùng để đo khi hai mặt nạ cùng kích thước, có diện tích đủ lớn và tỷ số hữu hạn. Kho mã nguồn hỗ trợ hai dạng tỷ số diện tích:
+Cho một video nội soi gồm các khung $I_1,\ldots,I_T$, hệ thống cần dự đoán cho mỗi khung hai mặt nạ nhị phân: $A_t$ cho VA và $B_t$ cho đường thở mũi họng không bị che. Một khung chỉ được dùng để đo khi hai mặt nạ cùng kích thước, có diện tích đủ lớn và tỷ số hữu hạn. Tỷ lệ được tính theo công thức:
 \[
 r_t=\frac{|A_t|}{|A_t|+|B_t|}
-\quad\text{hoặc}\quad
-r_t=\frac{|A_t|}{|B_t|}.
 \]
-Dạng thứ nhất có cùng ý nghĩa với tỷ số A/N mà Cai và cộng sự \cite{cai2024} dùng để phân độ: nhỏ ($<50\%$), trung bình ($50$--$75\%$), lớn ($>75\%$). Từ các khung hợp lệ, tỷ số của video được tổng hợp bằng trung vị hoặc trung bình, rồi ánh xạ sang mức độ phì đại bằng một dãy ngưỡng tăng chặt. Công thức tỷ số và ngưỡng là lựa chọn của giao thức lâm sàng, nên mã nguồn buộc người dùng truyền chúng một cách tường minh thay vì cài sẵn một giá trị mặc định.
+Cùng ý nghĩa với tỷ số A/N mà Cai và cộng sự \cite{cai2024} dùng để phân độ: nhỏ ($<50\%$), trung bình ($50$--$75\%$), lớn ($>75\%$). Từ các khung hợp lệ, tỷ số của video được tổng hợp bằng trung vị hoặc trung bình, rồi ánh xạ sang mức độ phì đại bằng một dãy ngưỡng tăng chặt. Công thức tỷ số và ngưỡng là lựa chọn của giao thức lâm sàng, cần có sự đồng thuận của bác sĩ.
 
 \paragraph{Đầu vào.} Video đã sắp theo thứ tự khung. Mỗi khung là một dòng manifest JSONL với các trường \texttt{split}, \texttt{video\_id}, \texttt{frame\_index}, \texttt{image}, \texttt{mask}. Mặt nạ là ảnh chỉ số: $0$ nền, $1$ đường thở, $2$ VA (khớp với mã hóa mức xám 0/128/255 của Cai và cộng sự sau khi chuyển đổi). Việc chia tập phải theo video hoặc bệnh nhân, không theo khung, để tránh rò rỉ dữ liệu.
 
@@ -128,42 +119,43 @@ Dạng thứ nhất có cùng ý nghĩa với tỷ số A/N mà Cai và cộng s
 
 \subsection{Phần bài toán sinh viên giải quyết}
 
-Đề tài được thực hiện cá nhân dưới sự hướng dẫn của hai giảng viên; mọi phần cài đặt, thực nghiệm và phân tích trong báo cáo là công việc của sinh viên. Trong bài toán lớn ở trên, tôi giải quyết hai phần cụ thể:
+Trong bài toán lớn ở trên, tôi giải quyết hai phần cụ thể:
 
-\paragraph{(a) Bộ nhớ theo thời gian cho phân đoạn video.} MedSAM2 lan truyền mặt nạ từ khung có prompt sang các khung sau nhờ một ngân hàng bộ nhớ chứa tối đa bảy khung gần nhất (FIFO). Khi một khung bị phân đoạn sai, bộ nhớ sai đó được ghi vào ngân hàng và ảnh hưởng tới các khung sau; khi đối tượng biến mất, mô hình vẫn có xu hướng dự đoán đối tượng. Yêu cầu đặt ra là thay ngân hàng FIFO bằng một kiến trúc bộ nhớ có kích thước cố định, có cơ chế quyết định mức độ ghi mỗi khung vào bộ nhớ, và chứng minh bằng thực nghiệm rằng thay đổi này giúp giảm mất theo dõi mà không làm tăng dương tính giả. Ràng buộc: giữ nguyên trọng số MedSAM2 (đông lạnh), chỉ thay cơ chế bộ nhớ, để so sánh công bằng.
+\paragraph{(a) Bộ nhớ theo thời gian cho phân đoạn video.} MedSAM2 lan truyền mặt nạ từ khung có prompt sang các khung sau nhờ một ngân hàng bộ nhớ chứa tối đa bảy khung gần nhất (FIFO). Khi một khung bị phân đoạn sai, bộ nhớ sai đó được ghi vào ngân hàng và ảnh hưởng tới các khung sau; khi đối tượng biến mất, mô hình vẫn có xu hướng dự đoán đối tượng. Yêu cầu đặt ra là thay FIFO bằng một kiến trúc bộ nhớ có kích thước cố định với hai ý tưởng chính: (1) \textbf{cập nhật Kalman} cân bằng trạng thái cũ và quan sát mới theo bất định học được; (2) \textbf{cổng hiện diện/độ tin cậy} ngăn mặt nạ và object pointer không đáng tin đi vào chuỗi hồi tiếp. Mục tiêu thực nghiệm là giảm dương tính giả và mất theo dõi mà không đánh đổi quá nhiều Dice. Ràng buộc: giữ nguyên trọng số MedSAM2 (frozen), chỉ thay cơ chế bộ nhớ, để so sánh công bằng.
 
-\paragraph{(b) Đánh giá hai vùng và sai số đo.} Xây dựng đường xử lý hai nhãn từ mặt nạ mã hóa mức xám đến tỷ số, và một bộ đánh giá báo cáo đồng thời Dice/IoU từng vùng và sai số tỷ số. Mục đích là kiểm tra trực tiếp liệu Dice tốt có thể đi kèm sai số tỷ số lớn hay không, trước khi đề xuất bất kỳ hàm mất mát ``nhận biết phép đo'' nào.
+\paragraph{(b) Đánh giá hai vùng và sai số đo.} Xây dựng đường xử lý hai nhãn từ mặt nạ mã hóa mức xám đến tỷ số, và một bộ đánh giá báo cáo đồng thời Dice/IoU từng vùng và tỷ lệ. Mục đích là kiểm tra trực tiếp liệu Dice tốt có thể đi kèm sai số tỷ lệ lớn hay không, trước khi áp dụng cho tập dữ liệu amidan thực tế sắp tới.
 
 \subsection{Tiêu chí đánh giá}
 
-Phân đoạn được đo bằng Dice và IoU theo từng chuỗi rồi lấy trung bình, cùng Dice riêng trên các khung có đối tượng. Hiện diện được đo bằng tỷ lệ dương tính giả trên khung rỗng (FP khung rỗng). Tích lũy lỗi được đo bằng tỷ lệ khung có đối tượng bị ``mất'' (Dice $<0.1$), độ dài trung bình một đoạn mất, tỷ lệ đoạn được khôi phục và tỷ lệ mất tới cuối video. Độ bền được đo bằng Dice ở 1--10 khung sau khi đối tượng tái xuất hiện và ở khung chuyển động cao. Đo hai vùng dùng MAE, RMSE và tương quan Pearson/Spearman giữa tỷ số dự đoán và tỷ số thật, cùng độ chính xác phân độ và hệ số kappa khi có ngưỡng. So sánh cặp theo chuỗi dùng kiểm định Wilcoxon kèm khoảng tin cậy bootstrap theo chuỗi; trung bình theo chuỗi và trung bình gộp theo khung luôn được ghi rõ.
+Phân đoạn được đo bằng Dice và IoU theo từng chuỗi rồi lấy trung bình, cùng Dice riêng trên các khung có đối tượng. Hiện diện được đo bằng tỷ lệ dương tính giả trên khung rỗng (FP khung rỗng). Tích lũy lỗi được đo bằng tỷ lệ khung có đối tượng bị ``mất'' (Dice $<0.1$), độ dài trung bình một đoạn mất, tỷ lệ đoạn được khôi phục và tỷ lệ mất tới cuối video. Độ bền được đo bằng Dice ở 1--10 khung sau khi đối tượng tái xuất hiện, ở khung chuyển động cao và theo mức chiếu sáng. Đo hai vùng dùng MAE, RMSE và tương quan Pearson/Spearman giữa tỷ số dự đoán và tỷ số thật, cùng độ chính xác phân độ và hệ số kappa khi có ngưỡng. So sánh cặp theo chuỗi dùng kiểm định Wilcoxon, và tập kiểm tra chỉ được chạy một lần cho mỗi phương pháp đã đóng băng.
 
-%=====================================================================
 \section{Tóm tắt lý thuyết, giải pháp, thuật toán}
 %=====================================================================
 \subsection{Các lý thuyết, giải pháp, thuật toán liên quan}
 
-\paragraph{SAM2 và MedSAM2.} SAM2 \cite{sam2} phân đoạn video bằng một bộ mã hóa ảnh, một khối \emph{memory attention} cho đặc trưng khung hiện tại chú ý tới các bộ nhớ đã lưu, một bộ giải mã mặt nạ và một bộ mã hóa bộ nhớ. Sau mỗi khung, bộ mã hóa bộ nhớ nén đặc trưng ảnh và mặt nạ dự đoán thành một bản đồ $64\times 32\times 32$; bản đồ này được đẩy vào ngân hàng bộ nhớ gồm khung prompt cộng tối đa sáu khung gần nhất, cùng các \emph{object pointer}. Bộ giải mã còn xuất một \emph{object score} cho biết đối tượng có mặt hay không. MedSAM2 \cite{medsam2} tinh chỉnh SAM2 trên dữ liệu ảnh và video y tế, giữ nguyên kiến trúc bộ nhớ này. Điểm yếu đã biết: mọi khung đều được ghi vào ngân hàng với cùng trọng số, kể cả khung bị phân đoạn sai.
+\paragraph{SAM2 và MedSAM2.} SAM2 \cite{sam2} phân đoạn video bằng một bộ mã hóa ảnh (Image Encoder), một khối \emph{memory attention} cho đặc trưng khung ảnh hiện tại chú ý tới bộ nhớ các khung hình đã lưu, một bộ giải mã mặt nạ (Mask Decoder) và một bộ mã hóa bộ nhớ (Memory Encoder). Sau mỗi khung, bộ mã hóa bộ nhớ nén \textbf{đặc trưng ảnh và mặt nạ dự đoán} thành một bản đồ đặc trưng $64\times 32\times 32$ (cùng kích thước với kết quả đặc trưng của phần Image Encoder); bản đồ này được đẩy vào ngân hàng bộ nhớ gồm khung prompt (Bounding Box, Điểm, Mask) của frame đầu tiên, cộng tối đa sáu khung gần nhất, cùng các \emph{object pointer}. Bộ giải mã (Decoder) còn xuất một \emph{object score} cho biết đối tượng có mặt hay không. MedSAM2 \cite{medsam2} tinh chỉnh SAM2 trên dữ liệu ảnh và video y tế, giữ nguyên kiến trúc bộ nhớ này. Điểm yếu đã biết: nếu không có chiến lược chọn lọc frame cẩn thận, những frame bị khoang vùng sai hoặc không rõ ràng sẽ gây ảnh hướng đến chất lượng của mô hình trong việc khoanh vùng các frame sau (error accumulation).
 
-\paragraph{Cải tiến bộ nhớ của SAM2.} SAM2Long \cite{sam2long} giữ nhiều nhánh giả thuyết bộ nhớ và chọn nhánh tốt theo điểm tích lũy. DAM4SAM \cite{dam4sam} tách bộ nhớ thành phần gần đây và phần chống nhiễu (distractor-aware), chỉ ghi khung khi đủ tin cậy. EMA-SAM \cite{emasam} dùng trung bình trượt có trọng số theo độ tin cậy cho bộ nhớ của SAM2 trong ảnh y tế. SAMURAI \cite{samurai} dùng bộ lọc Kalman, nhưng trên \emph{chuyển động hộp bao} để chọn mặt nạ ứng viên và lọc bộ nhớ, không phải trên chính đặc trưng bộ nhớ.
+\paragraph{Cải tiến bộ nhớ của SAM2.} Hầu hết các bài báo trước đều nhận ra điểm yếu của phần \emph{Memory Bank} mà thiếu đi sự chọn lọc frame tốt/xấu. SAM2Long \cite{sam2long} giữ nhiều nhánh giả thuyết bộ nhớ và chọn nhánh tốt theo điểm tích lũy. DAM4SAM \cite{dam4sam} tách bộ nhớ thành phần gần đây và phần chống nhiễu (distractor-aware), chỉ ghi khung khi đủ tin cậy. EMA-SAM \cite{emasam} dùng trung bình trượt có trọng số theo độ tin cậy cho bộ nhớ của SAM2 trong ảnh y tế. SAMURAI \cite{samurai} dùng bộ lọc Kalman, nhưng trên \emph{chuyển động hộp bao} để chọn mặt nạ ứng viên và lọc bộ nhớ, không phải trên chính đặc trưng bộ nhớ. Tuy nhiên, không có sự so sánh giữa các phương pháp chọn lọc khung ảnh trong video, độc lập.
 
-\paragraph{Bộ nhớ lặp kích thước cố định.} Trong phân đoạn đối tượng video, RDE-VOS \cite{rdevos} thay ngân hàng bộ nhớ ngày càng lớn bằng một embedding động được cập nhật lặp; LiVOS \cite{livos} dùng ma trận trạng thái tuyến tính có cổng.
+\paragraph{Bộ nhớ lặp kích thước cố định.} Trong phân đoạn đối tượng video, RDE-VOS \cite{rdevos} thay ngân hàng bộ nhớ ngày càng lớn bằng một embedding động được cập nhật lặp; LiVOS \cite{livos} dùng ma trận trạng thái tuyến tính có cổng (gated linear). Cả hai bài báo đều chứng minh 1 trạng thái động được cập nhật qua các frame hoàn toàn có thể mang lại kết quả tương đương hoặc hơn so với bộ nhớ mặc định FIFO gồm stack các thông tin của các khung hình trước, trong khi vẫn tối ưu được về mặt tính toán.
 
-\paragraph{Bộ lọc Kalman và Kalman học được.} Bộ lọc Kalman \cite{kalman} ước lượng trạng thái ẩn từ các quan sát nhiễu bằng hai bước dự đoán và cập nhật; gain $K$ cân bằng giữa trạng thái cũ và quan sát mới theo phương sai của chúng. Recurrent Kalman Networks (RKN) \cite{rkn} đưa cập nhật Kalman với hiệp phương sai đường chéo vào không gian đặc trưng học được; KalmanNet \cite{kalmannet} học trực tiếp gain bằng mạng nơ-ron. Bộ nhớ trong đề tài dùng đúng phương trình cập nhật của RKN, đặt lên bản đồ bộ nhớ không gian của MedSAM2.
+\paragraph{Bộ lọc Kalman - Kalman Filtering.} Bộ lọc Kalman \cite{kalman} ước lượng trạng thái ẩn từ các quan sát nhiễu bằng hai bước dự đoán và cập nhật; gain $K$ cân bằng giữa trạng thái cũ và quan sát mới theo phương sai của chúng. Recurrent Kalman Networks \cite{rkn} đưa cập nhật Kalman với hiệp phương sai đường chéo vào không gian đặc trưng học được; KalmanNet \cite{kalmannet} học trực tiếp gain bằng mạng nơ-ron; Recursive KalmanNet \cite{recursivekalmannet} học gain và một thừa số Cholesky của hiệp phương sai bằng mạng GRU, với cập nhật hiệp phương sai dạng Joseph. Khi quan sát có thể không đến từ đối tượng (đối tượng vắng mặt, hoặc bị nhầm với vật khác), bộ lọc liên kết dữ liệu xác suất (probabilistic data association, PDA) chỉ áp dụng cập nhật theo xác suất $\beta$ rằng quan sát thật sự là của đối tượng.
+
+\paragraph{Bộ phát hiện đối tượng.} YOLOv8 là bộ phát hiện một giai đoạn cho ra hộp bao và độ tin cậy trên từng ảnh, không có trạng thái theo thời gian; vì vậy lỗi của nó độc lập với lỗi tích lũy của bộ nhớ MedSAM2.
 
 \subsection{Cách giải quyết của sinh viên}
 
 \subsubsection{Bộ nhớ không gian Kalman một khe}
 
-Ý tưởng: thay ngân hàng FIFO bằng (i) bộ nhớ cố định của khung prompt (anchor) và (ii) \emph{một} trạng thái không gian gồm trung bình $S\in\mathbb{R}^{64\times 32\times 32}$ và phương sai theo pixel $P\in\mathbb{R}^{32\times 32}$ (hiệp phương sai đường chéo, dùng chung cho 64 kênh tại mỗi pixel). Mô hình chuyển trạng thái và mô hình quan sát là đơn vị. Tại khung $t$:
-\begin{align*}
-\text{dự đoán:}\quad & P^-_t = P_{t-1} + q,\\
-\text{đọc:}\quad & [\,\text{anchor} \mid S_{t-1} + u\log(1+P^-_t)\,] \text{ cùng object pointer},\\
-\text{quan sát:}\quad & C_t = \text{bộ mã hóa bộ nhớ MedSAM2}(F_t, \hat M_t),\\
-\text{nhiễu:}\quad & R_t = \big(r + a(1-p_t)\big)\, c\big(D_t - \overline{D_t}\big),\\
-\text{cập nhật:}\quad & K_t = \frac{P^-_t}{P^-_t+R_t},\quad S_t = S_{t-1} + K_t\,(C_t - S_{t-1}),\quad P_t=(1-K_t)P^-_t.
-\end{align*}
-Ở đây $F_t$ là đặc trưng ảnh, $\hat M_t$ là mặt nạ dự đoán, $p_t$ là xác suất hiện diện suy ra từ object score, $u$ là một embedding bất định để memory attention ``biết'' vùng nào của trạng thái kém tin cậy, và $D_t$ là một bản đồ hiệu chỉnh nhiễu theo không gian có thể huấn luyện, $c(x)=10^{\tanh x}$ (bị chặn bởi $\tanh$ nên chỉ nhân $R$ trong khoảng $[0.1, 10]$). Khi $D_t=0$, mô-đun chưa huấn luyện chính là bộ lọc đặt tay với $q=1$, $r=0.1$, $a=10$, $P_0=1$: khung có đối tượng ghi gần như toàn bộ quan sát vào trạng thái, khung rỗng chỉ ghi một phần nhỏ. \textbf{Trong mọi lần chạy được báo cáo, các phần theo pixel đều chưa được huấn luyện}: lớp cuối của $D_t$ và $u$ bằng 0, nên $R_t$ là một số vô hướng cho mỗi khung, $P$ đồng nhất trong không gian và không bao giờ được đọc. Như vậy, phương pháp \emph{thực sự được chạy} là một bộ lọc Kalman vô hướng trên bộ nhớ một khe, với nhiễu quan sát chuyển theo xác suất hiện diện; vai trò ``cho memory attention biết vùng nào kém tin cậy'' của $u$ chỉ là khả năng của mã nguồn, chưa được kiểm chứng. Anchor dùng mã thời gian của khung điều kiện trong MedSAM2, còn trạng thái dùng mã thời gian của khung gần nhất, nên memory attention đông lạnh nhận đầu vào cùng định dạng như khi đọc ngân hàng gốc. Hình~\ref{fig:arch} so sánh hai kiến trúc.
+Thay vì ngân hàng FIFO bảy khung của MedSAM2, hệ thống đọc bộ nhớ của khung prompt (anchor) và một trạng thái lặp $S_t\in\mathbb{R}^{64\times32\times32}$. Quan sát $C_t$ là bộ nhớ do MedSAM2 mã hóa từ đặc trưng ảnh và mặt nạ của khung $t$. Bộ cập nhật dùng KalmanFilter của Recursive KalmanNet với $F=H=1$ trên từng phần tử của $S_t$. Cập nhật được liên kết dữ liệu xác suất:
+\[
+S_t=S_t^-+\beta_tK_t(C_t-S_t^-),\qquad \beta_t=p_t\rho_t,
+\]
+trong đó $p_t$ là xác suất hiện diện đã hiệu chỉnh và $\rho_t$ là độ tin cậy của mặt nạ theo dõi. Đây là điểm then chốt của ý tưởng: khi khung vắng mặt hoặc quan sát không đáng tin, $\beta_t$ nhỏ nên trạng thái không bị kéo về một quan sát sai mà chủ yếu chỉ dự đoán; khi quan sát phù hợp, gain Kalman cho phép ghi có trọng số thay vì ghi toàn phần như FIFO. Bốn mạng GRU học hiệu chỉnh hiện diện, $\rho_t$, nhiễu quá trình $Q$ từ thay đổi đặc trưng ảnh, và nhiễu quan sát $R$ từ xác suất mặt nạ, hộp detector và khoảng cách tới anchor. Cổng hiện diện đồng thời hiệu chỉnh object score và làm yếu object pointer không tin cậy. MedSAM2 vẫn đông lạnh.
+
+Detector YOLOv8 cung cấp một quan sát độc lập: hộp có độ tin cậy ít nhất 0.5 nhưng không khớp mặt nạ (IoU hộp dưới 0.5) sẽ kích hoạt tái phát hiện. Khi đó mặt nạ được giải mã trực tiếp từ hộp detector trên đặc trưng không dùng bộ nhớ, rồi được xuất và ghi vào trạng thái. Object pointer cũng được chặn theo độ tin cậy. Các ngưỡng tái phát hiện được kiểm tra trên các video huấn luyện trước khi chạy C6. Hình~\ref{fig:arch} minh họa phần bộ nhớ lặp; khối tô đậm là phần mới.
+
+\paragraph{Đối chứng RDE-VOS.} Để kiểm tra liệu lợi ích (nếu có) đến từ cấu trúc bộ nhớ lặp nói chung hay từ RKN, hệ thống còn tích hợp RDE-VOS. Lớp \texttt{RDEMemoryUpdate} dùng trực tiếp khối \texttt{SAM} và phép nén \texttt{compress\_key} từ \texttt{external/RDE-VOS-CVPR2022}; trạng thái được cập nhật theo $\mathrm{RDE}_t=\mathrm{compress\_key}(\mathrm{SAM}([\mathrm{RDE}_{t-1},C_t]))$. Ở chế độ \texttt{two-frames-compress}, nó đọc prompt, RDE và khung nhớ gần nhất, và chỉ nén lại mỗi ba khung. RDE-VOS trong bảng kết quả là đối chứng bộ nhớ lặp chính thức, chưa huấn luyện (seed 0), không phải một bản cài đặt lại EMA.
 
 \begin{figure}[htbp]
 \centering
@@ -176,11 +168,11 @@ Phân đoạn được đo bằng Dice và IoU theo từng chuỗi rồi lấy t
 \node[b, right=of enc, text width=2.6cm] (att) {Memory attention (đông lạnh)};
 \node[b, right=of att, text width=2.3cm] (dec) {Giải mã mặt nạ $\hat M_t$, object score};
 \node[b, below=0.9cm of dec, text width=2.3cm] (menc) {Mã hóa bộ nhớ $C_t$ (đông lạnh)};
-\node[k, below=0.9cm of att, text width=2.6cm] (kal) {Cập nhật Kalman $S_t, P_t$ (1 khe)};
+\node[k, below=0.9cm of att, text width=2.6cm] (kal) {Cập nhật RKN $S_t$ (1 khe)};
 \node[b, below=0.9cm of enc, text width=2.2cm] (anc) {Anchor khung prompt};
 \draw[arr] (enc) -- (att); \draw[arr] (att) -- (dec);
-\draw[arr] (dec) -- (menc); \draw[arr] (menc) -- node[above, font=\scriptsize]{$C_t$, $p_t$} (kal);
-\draw[arr] (kal) -- node[right, font=\scriptsize]{$S+u\log(1+P)$} (att);
+\draw[arr] (dec) -- (menc); \draw[arr] (menc) -- node[above, font=\scriptsize]{$C_t$, $p_t$, $\rho_t$} (kal);
+\draw[arr] (kal) -- node[right, font=\scriptsize]{$S_t$} (att);
 \draw[arr] (anc) -- (att);
 \end{tikzpicture}
 
@@ -188,37 +180,23 @@ Phân đoạn được đo bằng Dice và IoU theo từng chuỗi rồi lấy t
 \label{fig:arch}
 \end{figure}
 
-\paragraph{Tùy chọn bỏ qua khung vắng mặt.} Với cờ \texttt{--skip\_absent}, khung mà MedSAM2 gọi là rỗng được xem là \emph{thiếu quan sát}: trạng thái không gian chỉ chạy bước dự đoán ($K=0$), nên phương sai tăng dần trong đoạn vắng mặt và gain tự động lớn khi đối tượng xuất hiện lại. Đây là hành vi mà một gain hằng không có, và là giả thuyết chính về ưu thế của cập nhật Kalman. Khung vắng mặt cũng không đóng góp object pointer vào memory attention, nên đó là một quan sát thiếu hoàn toàn. Các kết quả chính không dùng chế độ này.
-
-\paragraph{Phân tích trạng thái dừng.} Với $q$ hằng và $R$ chỉ phụ thuộc vào trạng thái hiện diện, phương sai tiên nghiệm hội tụ về nghiệm của $M = MR/(M+R) + q$, tức
-\[
-M^\ast = \frac{q+\sqrt{q^2+4qR}}{2},\qquad K^\ast = \frac{M^\ast}{M^\ast+R}.
-\]
-Với $q=1$: khi đối tượng có mặt ($R\approx 0.1$) thì $K^\ast\approx 0.92$; khi vắng mặt ($R\approx 10.1$) thì $K^\ast\approx 0.27$. Gain trung bình đo được trên tập phát triển là $0.835$ và $0.266$, khớp với phân tích. Như vậy, sau vài khung, bộ lọc chưa huấn luyện hoạt động gần như một trung bình trượt mũ (EMA) với hai gain hằng. Nhận xét này dẫn tới baseline đối chứng dưới đây.
-
-\subsubsection{Baseline EMA gain hằng}
-
-Để tách đóng góp của \emph{cấu trúc một khe} khỏi đóng góp của \emph{gain thích nghi}, tôi cài đặt \texttt{modeling/ema\_memory.py}: cùng anchor, cùng trạng thái một khe và cùng đường đọc, nhưng gain là hằng số cho khung có mặt và khung vắng mặt, lấy đúng bằng gain trung bình của bộ lọc Kalman trên tập phát triển (0.835/0.266). Phương sai vẫn được cập nhật nhất quán $P\leftarrow(1-k)P^-$ để đường đọc $S+u\log(1+P)$ giống hệt. Vì gain của EMA lấy đúng từ gain trung bình của Kalman, việc hai phương pháp hòa nhau là điều \emph{được kỳ vọng theo cách xây dựng}; chúng chỉ khác ở (i) gain chuyển tiếp ngay sau khi trạng thái hiện diện đổi, (ii) xác suất hiện diện mềm $p_t$ (Kalman) so với ngưỡng cứng 0.5 (EMA), và (iii) chế độ \texttt{--skip\_absent}. Phép so sánh với \texttt{--skip\_absent} vì vậy mới là kiểm định đúng cho phần riêng của dạng Kalman.
-
 \subsubsection{Huấn luyện bộ cập nhật}
 
-Bộ cập nhật có thể huấn luyện với MedSAM2 đông lạnh, tái sử dụng \texttt{SAM2Train} và hàm mất mát \texttt{MultiStepMultiMasksAndIous} của MedSAM2 (focal 20, Dice 1 trên khung có đối tượng) cộng BCE cho object score tách thành phần hiện diện và vắng mặt; chỉ tham số của bộ cập nhật Kalman nhận gradient. \texttt{scripts/train\_kalman.py} huấn luyện trên các đoạn video tự nhiên từ một manifest; với PolypGen, một số video của tập phát triển được giữ lại để kiểm định (\texttt{--train\_split dev --val\_videos seq13 seq14 seq15}). Prompt ở khung đầu là hộp bao chặt từ nhãn thật, giống hệt khi suy luận (\texttt{SAM2Train} mặc định thêm nhiễu vào hộp, nên lớp huấn luyện thay bằng hộp không nhiễu). Một lần chạy thử hai bước trên PolypGen xác nhận đường huấn luyện hoạt động; các kết quả trong báo cáo dùng bộ lọc chưa huấn luyện (cờ \texttt{--untrained}).
+Bộ cập nhật được huấn luyện trên các clip tự nhiên 24 khung của seq1--seq12, trong đó một nửa clip có đoạn vắng mặt; seq13--seq15 được giữ lại để chọn checkpoint. Hàm mất mát gồm mất mát mặt nạ ở các khung sau prompt, BCE hiện diện có trọng số theo mục tiêu $J=\mathrm{Dice}-0.5\,\mathrm{FP}$, BCE mềm cho $\rho_t$ theo IoU của mặt nạ theo dõi, và Gaussian likelihood cho bộ nhớ mang theo. Sau 500 bước, checkpoint ``full'' giảm FP trên seq13--seq15 từ 0.878 (không huấn luyện) xuống 0.022, đổi lại Dice từ 0.797 xuống 0.778. Vì cùng tập được dùng để chọn checkpoint và báo cáo, tập phát triển này chỉ dùng để lựa chọn, không phải kiểm định cuối cùng.
 
 \subsubsection{Hạ tầng dữ liệu và đánh giá}
 
-\paragraph{Manifest và thứ tự khung.} Tên tệp khung của PolypGen có hậu tố số với độ dài khác nhau, nên sắp theo bảng chữ cái là sai (khung 104 đứng trước khung 69). Phiên bản đầu của manifest mắc lỗi này và đưa 18/23 chuỗi vào sai thứ tự thời gian. Tôi phát hiện lỗi, sửa \texttt{build\_polypgen\_manifest.py} sắp theo số, chạy lại toàn bộ thí nghiệm, và thêm kiểm thử khẳng định thứ tự khung khi suy luận và khi đánh giá luôn trùng nhau.
+\paragraph{Manifest và thứ tự khung.} Tên tệp khung của PolypGen có hậu tố số với độ dài khác nhau, nên sắp theo bảng chữ cái là sai (khung 104 đứng trước khung 69). Phiên bản đầu của manifest mắc lỗi này và đưa 18/23 chuỗi vào sai thứ tự thời gian. Tôi phát hiện lỗi, sửa \texttt{build\_polypgen\_manifest.py} sắp theo số, loại bỏ mọi kết quả từ phiên bản cũ, thêm kiểm thử khóa thứ tự đúng, và xác nhận pipeline mới tái lập chính xác các lần chạy lưu trữ (Dice gộp: phát triển native 0.481/Kalman 0.514; C6 native 0.621/Kalman 0.609).
 
 \paragraph{Lỗi đồng bộ và kiểm chứng tương đương.} Trên Apple MPS, việc MedSAM2 offload trạng thái với \texttt{non\_blocking} đọc dữ liệu trước khi sao chép xong và làm hỏng các kết quả đầu; tôi sửa bằng cách giữ trạng thái trên thiết bị khi không dùng CUDA. Mã \texttt{native\_pointers.py} được kiểm chứng trùng khớp từng bit với object pointer của MedSAM2 gốc, nên khác biệt giữa các phương pháp chỉ đến từ bộ nhớ không gian.
 
-\paragraph{Tái lập kết quả và tính độc lập với máy.} \texttt{scripts/analyze\_runs.py} dựng lại mọi bảng PolypGen (trung bình theo chuỗi và gộp, đoạn mất, chuyển động cao, kiểm định Wilcoxon và khoảng bootstrap) từ các CSV theo khung đã lưu. Cờ \texttt{--untrained} tạo bộ lọc chưa huấn luyện mà không cần tải checkpoint; vì lớp cuối khởi tạo bằng 0, kết quả không phụ thuộc seed. MedSAM2 chỉ lấp lỗ nhỏ trong mặt nạ khi có phần mở rộng biên dịch \texttt{\_C}; để kết quả không phụ thuộc máy, việc lấp lỗ được tắt tường minh. Chạy lại ba phương pháp trên C6 bằng mã hiện tại cho kết quả trùng từng khung với các lần chạy đã lưu.
-
-\paragraph{Kiểm tra mặt nạ đầu vào.} Mặt nạ được đọc kèm kiểm tra nhãn: giá trị phải là 0 hoặc thuộc \texttt{--label\_ids}, và mặt nạ JPEG mức xám nhiều lớp bị từ chối thay vì bị ngưỡng hóa thành nhị phân. Nếu không, một mặt nạ PNG 0/255 đọc với nhãn 1 sẽ không có hộp prompt và cho mặt nạ rỗng mà không báo lỗi.
+\paragraph{Tái lập kết quả.} Các JSON theo phương pháp trong thư mục kết quả so sánh tái lập đúng các trị số báo cáo: native trên C6 là Dice/FP/mất $=0.599/0.486/0.283$, trùng hàng C6 đã lưu; trên seq13--seq15, hai checkpoint đã huấn luyện cũng khớp số xác thực lúc huấn luyện. Suy luận trực tiếp và script so sánh cho cùng Dice trên seq15. Các CSV theo khung lưu cờ tái phát hiện và $\rho$, cho phép kiểm tra đường suy luận và phân tích lỗi.
 
 \paragraph{Mặt nạ hai vùng.} Mặt nạ ba lớp mã hóa mức xám (0/128/255) nếu đọc như mặt nạ nhị phân sẽ gộp đường thở và VA thành một lớp. \texttt{build\_mask\_manifest.py} chuyển chúng sang PNG chỉ số bằng ánh xạ giá trị gần nhất (để nhiễu nén JPEG không tạo lớp mới), ví dụ \texttt{0:0 128:1 255:2} cho dữ liệu kiểu Cai và cộng sự. \texttt{evaluation/two\_region.py} tính Dice/IoU từng vùng và tính tỷ số dự đoán và tỷ số thật bằng \emph{cùng} một \texttt{ratio\_mode}, nên không thể vô tình so sánh hai tỷ số định nghĩa khác nhau. Cờ \texttt{--nested\_labels} của \texttt{infer.py} prompt nhãn $k$ như hợp của các nhãn $\geq k$ (đĩa thị = vành + cup; mũi họng = VA + đường thở) rồi lấy vùng ngoài trừ vùng trong.
 
 \subsection{Liên hệ và so sánh với các cách đã có}
 
-Bảng~\ref{tab:related} đặt giải pháp cạnh các hướng liên quan. Về mặt mã nguồn, cập nhật Kalman đặt trực tiếp lên bản đồ bộ nhớ không gian của MedSAM2 với nhiễu quan sát phụ thuộc trạng thái hiện diện, trong khi giữ nguyên toàn bộ trọng số đã huấn luyện. Như đã nêu, các phần theo pixel chưa từng được huấn luyện, nên phương pháp đã đánh giá là một bộ nhớ lặp một khe với gain vô hướng.
+Bảng~\ref{tab:related} đặt giải pháp cạnh các hướng liên quan. Cập nhật Kalman được đặt trực tiếp lên bản đồ bộ nhớ không gian của MedSAM2; các mạng GRU học hiện diện, độ tin cậy và nhiễu, còn MedSAM2 giữ đông lạnh. Thí nghiệm cũng có RDE-VOS làm đối chứng bộ nhớ lặp và một baseline detector không có bộ nhớ.
 
 \begin{table}[htbp]
 \centering
@@ -233,40 +211,45 @@ SAM2 / MedSAM2 & FIFO: prompt + 6 khung gần nhất, ghi mọi khung & 7 khung 
 SAM2Long & Nhiều nhánh giả thuyết bộ nhớ & Nhiều bank & Chọn bộ nhớ, không gộp \\
 DAM4SAM & Bộ nhớ gần đây + bộ nhớ chống nhiễu & Bank & Ghi có điều kiện \\
 SAMURAI & Kalman trên hộp bao, chọn mặt nạ & Bank & Kalman trên chuyển động, không trên bộ nhớ \\
-EMA-SAM & Trung bình trượt theo độ tin cậy & Cố định & Gần nhất với đề tài; chưa chạy \\
+EMA-SAM & Trung bình trượt theo độ tin cậy & Cố định & Hướng liên quan, chưa so sánh trực tiếp \\
 RDE-VOS, LiVOS & Trạng thái lặp / tuyến tính có cổng & Cố định & Cùng ý tưởng kích thước cố định \\
 RKN, KalmanNet & Cập nhật Kalman trong không gian học được & -- & Nguồn phương trình cập nhật \\
-\textbf{Đề tài} & Anchor + 1 trạng thái, gain vô hướng theo hiện diện & 0.754 MiB & -- \\
+\textbf{Đề tài} & Anchor + 1 trạng thái, RKN có liên kết dữ liệu và detector & Cố định & -- \\
 \hline
 \end{tabular}}
 \end{table}
 
-So sánh thực nghiệm (mục~\ref{sec:results}) cho kết luận rõ ràng: lợi ích theo dõi so với ngân hàng FIFO đến từ \emph{trạng thái lặp một khe}, và được một EMA gain hằng đạt ngang bằng. Cách diễn đạt đúng là: \emph{một bộ nhớ lặp một khe; dạng Kalman không thêm gì đo được}. Điều này đặt giải pháp rất gần EMA-SAM, phương pháp gần nhất nhưng chưa được chạy để so sánh. Về bộ nhớ (đo lại bằng \texttt{infer.py} trên C6): MedSAM2 gốc giữ bộ nhớ của mọi khung, tăng khoảng 0.13 MiB mỗi khung (4.5--8.1 MiB trên C6), nhưng chỉ chú ý tới tối đa bảy bộ nhớ, tức $7\times 64\times 32\times 32$ ở bf16 $=0.875$ MiB; trạng thái một khe (anchor, mã vị trí, trung bình, phương sai ở float32) là 0.754 MiB cố định. Như vậy bộ nhớ một khe không nhỏ hơn một ngân hàng đã cắt tỉa; ưu điểm là kích thước cố định và chỉ hai bản đồ bộ nhớ được đọc thay vì bảy.
+Kết quả ở mục~\ref{sec:results} cho thấy mô hình đầy đủ vượt MedSAM2 gốc theo mục tiêu $J$ trên C6, nhưng baseline detector không bộ nhớ cũng tốt hơn mô hình đầy đủ. Do đó bằng chứng hiện có quy cải thiện cho detector (tái phát hiện và hiệu chỉnh hiện diện), không cho phần bộ nhớ Kalman. RDE-VOS và RKN vẫn có ưu điểm kiến trúc là trạng thái kích thước cố định, nhưng đây không phải bằng chứng về cải thiện phân đoạn.
 
 %=====================================================================
 \section{Mô tả phần mềm cài đặt}
 %=====================================================================
 \subsection{Cấu trúc mã nguồn}
 
-Mã nguồn viết bằng Python/PyTorch, tái sử dụng tối đa các lớp của MedSAM2 (đặt trong thư mục \texttt{MedSAM2/}) thay vì viết lại. Logic Kalman là một mixin dùng chung cho cả huấn luyện và bộ dự đoán video. Bảng~\ref{tab:modules} tóm tắt các mô-đun do sinh viên viết.
+Mã nguồn viết bằng Python/PyTorch và giữ MedSAM2 đông lạnh. Hai thành phần ngoài được tích hợp có chủ đích: \texttt{external/RecursiveKalmanNet} cung cấp \texttt{KalmanFilter} và \texttt{GRUNetwork} cho RKN; \texttt{external/RDE-VOS-CVPR2022} cung cấp \texttt{SAM} và phép nén khóa cho baseline RDE-VOS. Các lớp trong \texttt{modeling/} nối các thành phần này với bộ nhớ không gian của MedSAM2, huấn luyện và suy luận; chúng không chạy các chương trình huấn luyện gốc của hai dự án ngoài. Bảng~\ref{tab:modules} tóm tắt các mô-đun liên quan.
 
 \begin{table}[htbp]
 \centering
 \caption{Các mô-đun chính.}
 \label{tab:modules}
 \small
-\begin{tabular}{>{\footnotesize}p{6.4cm}p{6.8cm}}
+\begin{tabular}{>{\footnotesize}p{5.7cm}p{6.2cm}}
 \hline
 Mô-đun & Chức năng \\
 \hline
-\texttt{modeling/kalman\_memory.py} & Bộ cập nhật Kalman, mixin, bộ dự đoán video \\
-\texttt{modeling/ema\_memory.py} & Baseline EMA gain hằng, cùng đường đọc \\
+\texttt{modeling/kalman\_memory.py} & Bộ cập nhật RKN/Kalman với hiện diện, độ tin cậy và nhiễu học được \\
+\texttt{modeling/recurrent\_memory.py} & Thay bank MedSAM2 bằng anchor và trạng thái lặp; tái phát hiện \\
+\texttt{modeling/rde\_memory.py} & Đối chứng RDE-VOS với trạng thái lặp \\
+\texttt{modeling/detector.py} & Quan sát hộp và độ tin cậy từ YOLOv8 \\
+\texttt{external/RecursiveKalmanNet/Algo/} & \texttt{KalmanFilter}, \texttt{GRUNetwork} được RKN tái sử dụng \\
+\texttt{external/RDE-VOS-CVPR2022/model/} & \texttt{SAM} và \texttt{compress\_key} được RDE-VOS tái sử dụng \\
 \texttt{modeling/native\_pointers.py} & Object pointer, trùng khớp MedSAM2 gốc \\
-\texttt{training/kalman\_trainer.py} & \texttt{SAM2Train} cộng mixin Kalman \\
+\texttt{training/memory\_trainer.py} & Huấn luyện và hàm mất mát cho RKN/RDE-VOS \\
 \texttt{datasets/video.py} & Đọc manifest, giải mã mặt nạ \\
-\texttt{scripts/build\_polypgen\_manifest.py} & Manifest PolypGen, sắp khung theo số \\
-\texttt{scripts/build\_mask\_manifest.py} & Mặt nạ mức xám sang PNG chỉ số \\
-\texttt{scripts/infer.py}, \texttt{train\_kalman.py} & Suy luận ba loại bộ nhớ; huấn luyện \\
+\texttt{scripts/build\_*\_manifest.py} & Manifest PolypGen, sắp khung theo số; mặt nạ mức xám sang PNG chỉ số \\
+\texttt{scripts/infer.py}, \texttt{scripts/train\_memory.py} & Suy luận native/RKN/RDE-VOS; huấn luyện bộ cập nhật \\
+\texttt{scripts/evaluate\_polypgen.py} & Chạy cùng một giao thức so sánh cho mọi baseline và ghi JSON theo phương pháp \\
+\texttt{scripts/summarize\_polypgen\_results.py} & Tổng hợp $J$ và kiểm định Wilcoxon cặp từ JSON đã lưu \\
 \texttt{evaluation/temporal.py} & Chỉ số theo khung, hiện diện, mất theo dõi \\
 \texttt{evaluation/two\_region.py} & Dice/IoU từng vùng, sai số tỷ số, kappa \\
 \texttt{scripts/analyze\_runs.py} & Dựng lại mọi bảng PolypGen từ CSV \\
@@ -282,19 +265,19 @@ Phần mềm chạy trên CUDA, Apple MPS hoặc CPU. Cài đặt gồm: tạo m
 
 \subsection{Quy trình chạy}
 
-Suy luận đọc manifest, chọn tập qua \texttt{--split}, nhãn qua \texttt{--label\_ids} và kiểu bộ nhớ qua \texttt{--memory\_backend}:
+Suy luận đọc manifest, chọn tập qua \texttt{--split}, nhãn qua \texttt{--label\_ids}; không truyền \texttt{--memory\_checkpoint} thì dùng bank native của MedSAM2:
 {\small
 \begin{verbatim}
 python3 scripts/infer.py \
   --sam2_cfg configs/sam2.1_hiera_t512.yaml \
   --sam2_checkpoint checkpoints/MedSAM2_latest.pt \
   --manifest data/polypgen_sequence.jsonl \
-  --split test --label_ids 1 --memory_backend kalman \
-  --untrained --output_dir runs/kalman
-python3 evaluation/temporal.py \
-  --output_mask_dir runs/kalman/masks --sequences seq16 ... seq23
+  --split test --label_ids 1 \
+  --memory_checkpoint outputs/memory_update.pt \
+  --detector checkpoints/polypgen_yolov8n.pt \
+  --output_dir runs/rkn
 \end{verbatim}}
-Thêm \texttt{--skip\_absent} để bật chế độ bỏ qua khung vắng mặt; dùng \texttt{--fixed\_gain 0.835 0.266} để chạy baseline EMA; \texttt{--memory\_backend native} cho MedSAM2 gốc. Với dữ liệu hai vùng, mỗi nhãn được lan truyền trong một lượt riêng rồi gộp theo logit lớn nhất, hoặc theo thứ tự lồng nhau với \texttt{--nested\_labels}; \texttt{two\_region.py} chấm điểm với \texttt{--region\_a}, \texttt{--region\_b} và \texttt{--ratio\_mode}. Mỗi lần suy luận ghi mặt nạ, bản ghi prompt, bộ nhớ giữ lại và tốc độ khung hình, và một CSV chẩn đoán theo khung cho từng nhãn (object score, xác suất hiện diện, gain trung bình, mức thay đổi đặc trưng ảnh), đủ để phân biệt lỗi phân đoạn, lỗi hiện diện và lỗi cập nhật bộ nhớ.
+Với bộ nhớ native hoặc RDE-VOS, cờ \texttt{--redetect} bật tái phát hiện từ detector. Với dữ liệu hai vùng, mỗi nhãn được lan truyền trong một lượt riêng rồi gộp theo logit lớn nhất, hoặc theo thứ tự lồng nhau với \texttt{--nested\_labels}. Mỗi lần suy luận ghi mặt nạ, bản ghi prompt, bộ nhớ giữ lại, tốc độ khung hình và CSV chẩn đoán theo khung (trong đó có cờ tái phát hiện và độ tin cậy $\rho$).
 
 %=====================================================================
 \section{Kết quả đạt được, hướng phát triển}
@@ -304,137 +287,114 @@ Thêm \texttt{--skip\_absent} để bật chế độ bỏ qua khung vắng mặ
 
 \subsubsection{Thiết lập thực nghiệm}
 
-Thí nghiệm chính dùng tập C6 của PolypGen (seq16--seq23, trung tâm C6): 8 chuỗi nội soi đại tràng, 372 khung lan truyền, trong đó 56 khung không có polyp. Tập phát triển seq1--seq15 (trung tâm C1--C5) chỉ dùng để chọn thiết kế và đo gain của EMA (0.835/0.266). MedSAM2 giữ đông lạnh; prompt là hộp bao chặt của mặt nạ thật ở khung có polyp đầu tiên, nên kết quả phản ánh chất lượng \emph{lan truyền} sau prompt, không phải phát hiện tự động. Ba phương pháp được so sánh: MedSAM2 gốc (ngân hàng bảy khung), EMA gain hằng (một khe) và bộ nhớ Kalman chưa huấn luyện (một khe). Mọi lần chạy dùng một seed, không lấp lỗ mặt nạ, trên Apple MPS. C6 đã được xem trong quá trình phát triển, nên đây là đánh giá trên tập ngoài trung tâm phát triển chứ chưa phải một tập kiểm tra hoàn toàn chưa thấy.
+PolypGen gồm 23 chuỗi nội soi đại tràng có mặt nạ polyp (2,012 khung lan truyền: 1,689 có polyp, 323 rỗng), chú thích thưa và có nhiều đoạn polyp ra khỏi khung hình. MedSAM2 giữ đông lạnh; prompt là hộp bao chặt của mặt nạ thật ở khung có polyp đầu tiên, nên kết quả phản ánh chất lượng \emph{lan truyền} sau prompt, không phải hiệu năng phát hiện tự động. Giao thức phát triển hiện được mã hóa trong \texttt{protocols/polypgen\_recurrent\_v1.json}: seq1--seq12 để huấn luyện, seq13--seq15 để chọn thiết kế và seq16--seq23 (C6) chỉ được gắn nhãn \emph{exploratory}. C6 \emph{không} phải tập hoàn toàn chưa thấy: nó đã nằm trong giao thức 23 chuỗi trước khi giao thức (a) được định nghĩa, và sau đó được dùng cho nhiều so sánh. Một tập video ngoài hoàn toàn mới vẫn cần thiết cho kiểm định khóa; mọi số liệu PolypGen dưới đây hiện chỉ dùng một seed.
+
+\subsubsection{So sánh đã cố định trên PolypGen}
+
+\textbf{Câu hỏi trung tâm của phần này} là liệu bộ nhớ Kalman có cổng hiện diện có thể biến một chuỗi dự đoán dễ tích lũy lỗi thành một quá trình cập nhật có chọn lọc hay không. Đóng góp cài đặt không chỉ là thay một công thức cập nhật: mô-đun \textbf{recurrent memory} thay bank bảy khung của MedSAM2 bằng anchor và một trạng thái không gian cố định. Trong RKN, \texttt{KalmanFilter}/\texttt{GRUNetwork} từ \texttt{external/RecursiveKalmanNet} học $Q$, $R$, hiện diện $p$ và độ tin cậy $\rho$; $p\rho$ quyết định mức ghi quan sát vào trạng thái. Nhờ vậy, cổng hiện diện là một phần của cơ chế bộ nhớ, không chỉ là hậu xử lý mặt nạ. Detector cung cấp quan sát độc lập để hiệu chỉnh hiện diện và tái phát hiện khi tracker không khớp. \textbf{RDE-VOS} dùng phép nén hồi quy từ \texttt{external/RDE-VOS-CVPR2022} làm đối chứng recurrent-memory. Vì MedSAM2 đông lạnh, mọi khác biệt dưới đây đến từ đường bộ nhớ lặp, các đầu RKN/RDE và detector, không phải do fine-tune backbone.
+
+Các phương pháp và ngưỡng tái phát hiện trong bảng chính được cố định trước khi chạy so sánh C6. Tất cả dùng cùng prompt: hộp bao chặt của mặt nạ thật ở khung có polyp đầu tiên, vì vậy đây là đánh giá lan truyền sau prompt. Tập phát triển là seq13--seq15; C6 là seq16--seq23 (8 chuỗi, 372 khung lan truyền, 56 khung rỗng). Số liệu là trung bình theo chuỗi. ``Mất'' là tỷ lệ khung polyp có Dice $<0.1$, và $J=\mathrm{Dice}_{\text{polyp}}-0.5\,\mathrm{FP}_{\text{rỗng}}$. \texttt{evaluate\_polypgen.py} ghi JSON theo khung, \texttt{run.json} ghi vai trò giao thức và \texttt{summary.json} ghi tổng hợp/kiểm định; do C6 đã được xem trong quá trình phát triển, không kết quả nào trên C6 được gọi là kiểm định khóa.
 
 \begin{table}[htbp]
 \centering
-\caption{Các chuỗi C6: số khung lan truyền, số khung rỗng và Dice theo chuỗi.}
-\label{tab:c6seq}
-\small
+\caption{So sánh đã cố định: Dice khung polyp / FP khung rỗng / mất / $J$ (trung bình theo chuỗi).}
+\label{tab:c6}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrrrrr}
 \hline
- & & & \multicolumn{3}{c}{Dice} & \multicolumn{3}{c}{Dice khung polyp} \\
-Chuỗi & Khung & Rỗng & Native & EMA & Kalman & Native & EMA & Kalman \\
+Phương pháp & \multicolumn{4}{c}{seq13--15} & \multicolumn{4}{c}{C6 seq16--23} \\
+ & Dice & FP & Mất & $J$ & Dice & FP & Mất & $J$ \\
 \hline
-seq16 & 33 & 1 & 0.941 & 0.940 & 0.942 & 0.970 & 0.970 & 0.971 \\
-seq17 & 46 & 3 & 0.812 & 0.807 & 0.814 & 0.869 & 0.863 & 0.871 \\
-seq18 & 62 & 7 & 0.594 & 0.640 & 0.655 & 0.560 & 0.649 & 0.647 \\
-seq19 & 55 & 1 & 0.830 & 0.846 & 0.847 & 0.827 & 0.843 & 0.844 \\
-seq20 & 35 & 5 & 0.143 & 0.218 & 0.143 & 0.000 & 0.088 & 0.000 \\
-seq21 & 47 & 23 & 0.685 & 0.426 & 0.448 & 0.757 & 0.751 & 0.751 \\
-seq22 & 45 & 2 & 0.678 & 0.712 & 0.713 & 0.710 & 0.746 & 0.746 \\
-seq23 & 49 & 14 & 0.253 & 0.238 & 0.258 & 0.097 & 0.076 & 0.076 \\
+Native MedSAM2 & 0.393 & 0.681 & 0.558 & 0.053 & 0.599 & 0.486 & 0.283 & 0.355 \\
+Native + tái phát hiện & 0.810 & 0.773 & 0.099 & 0.423 & \textbf{0.775} & 0.562 & \textbf{0.104} & 0.494 \\
+Detector, không bộ nhớ & \textbf{0.815} & 0.023 & 0.117 & \textbf{0.804} & 0.742 & 0.086 & 0.193 & \textbf{0.699} \\
+RDE-VOS & 0.408 & 0.955 & 0.523 & -0.069 & 0.575 & 0.544 & 0.316 & 0.303 \\
+RDE-VOS + tái phát hiện & 0.805 & 0.920 & \textbf{0.093} & 0.345 & 0.763 & 0.587 & 0.118 & 0.469 \\
+RKN không huấn luyện & 0.794 & 0.804 & 0.113 & 0.392 & 0.709 & 0.523 & 0.191 & 0.447 \\
+Chỉ hiện diện (RKN) & 0.433 & \textbf{0.011} & 0.511 & 0.428 & 0.544 & \textbf{0.038} & 0.386 & 0.525 \\
+RKN đầy đủ & 0.778 & 0.022 & 0.129 & 0.767 & 0.707 & 0.088 & 0.206 & 0.663 \\
 \hline
 \end{tabular}}
 \end{table}
 
-\subsubsection{Kết quả trên C6}
-
-Bảng~\ref{tab:c6} tổng hợp trung bình theo chuỗi; ``mất'' là tỷ lệ khung polyp có Dice $<0.1$, ``tái xuất hiện'' là Dice ở 1--10 khung sau một đoạn vắng mặt, ``chuyển động cao'' là khung polyp có mức thay đổi đặc trưng ảnh lớn hơn 0.117 (ngưỡng tercile cố định từ tập phát triển).
-
 \begin{table}[htbp]
 \centering
-\caption{Kết quả trên C6 (trung bình theo chuỗi).}
-\label{tab:c6}
+\caption{So sánh cặp RKN đầy đủ trên C6 ($n=8$, Wilcoxon; hiệu RKN trừ baseline).}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{llll}
 \hline
-Phương pháp & Dice & Dice khung polyp & FP khung rỗng & Mất & Tái xuất hiện & Chuyển động cao \\
+So sánh & Dice khung polyp & FP khung rỗng & $J$ \\
 \hline
-Native MedSAM2 (bank 7 khung) & \textbf{0.617} & 0.599 & \textbf{0.486} & 0.283 & 0.462 & 0.563 \\
-EMA (1 khe, gain hằng) & 0.603 & \textbf{0.623} & 0.587 & \textbf{0.268} & \textbf{0.525} & \textbf{0.588} \\
-Kalman (1 khe) & 0.602 & 0.613 & 0.555 & 0.284 & 0.483 & 0.579 \\
+RKN đầy đủ -- native & $+0.109$ (7/1), $p=0.078$ & $-0.398$ (0/6), $p=0.031$ & $+0.308$ (8/0), $p=0.008$ \\
+RKN đầy đủ -- native + tái phát hiện & $-0.068$ (2/6), $p=0.15$ & $-0.473$ (0/6), $p=0.031$ & $+0.169$ (6/2), $p=0.15$ \\
+RKN đầy đủ -- RDE-VOS + tái phát hiện & $-0.055$ (2/6), $p=0.039$ & $-0.499$ (0/5), $p=0.062$ & $+0.194$ (5/3), $p=0.20$ \\
+RKN đầy đủ -- detector không bộ nhớ & $-0.035$ (1/7), $p=0.20$ & $+0.002$ (1/1), $p=1.0$ & $-0.036$ (1/7), $p=0.20$ \\
 \hline
 \end{tabular}}
 \end{table}
 
+\subsubsection{Đóng góp đo được của Kalman memory và cổng hiện diện}
+
+Bảng~\ref{tab:rkn-ablation} làm rõ đóng góp theo cơ chế. So với MedSAM2 native, RKN đầy đủ tăng $J$ 0.308 trên cả 8 chuỗi và giảm FP 0.398. So với RKN không huấn luyện, các đầu RKN học được giảm FP 0.435 mà gần như không đổi Dice ($-0.001$); điều này phù hợp với trực giác rằng các đầu $p$, $\rho$, $Q$ và $R$ chủ yếu từ chối quan sát/mặt nạ sai. Ablation ``chỉ hiện diện'' giữ đầu hiện diện học được nhưng bỏ cập nhật bộ nhớ học được, chặn pointer và tái phát hiện; vì thế nó cho thấy cổng hiện diện rất mạnh để triệt FP, nhưng không cô lập gain Kalman.
+
+Đối chứng trực tiếp hơn giữ \emph{nguyên} checkpoint RKN đầy đủ, detector, ngưỡng tái phát hiện, cổng hiện diện và cổng pointer; chỉ thay cập nhật $Q/R$ học được bằng $S_t=S_t^-+\alpha\beta_t(C_t-S_t^-)$ với gain cố định. Quét $\alpha\in\{0.10,0.25,0.50,0.75,0.90\}$ trên seq13--seq15 chọn $\alpha=0.25$ theo $J$ (0.773). Khi chạy \emph{thăm dò} trên C6, RKN học được đạt Dice/FP/$J=0.707/0.088/0.663$, so với control gain cố định $0.695/0.097/0.647$; chênh $\Delta J=+0.017$ (5/3 chuỗi, Wilcoxon $p=0.945$). Vì đối chứng này không có ý nghĩa và C6 đã được dùng để phát triển, dữ liệu hiện tại \textbf{không chứng minh} lợi ích độc lập của gain Kalman học được. Nó chỉ cho thấy cơ chế có thể được kiểm tra công bằng mà không làm thay detector hay cổng hiện diện.
+
 \begin{table}[htbp]
 \centering
-\caption{So sánh cặp theo chuỗi trên C6 ($n=8$, Wilcoxon; trong ngoặc: số chuỗi cao hơn / thấp hơn).}
+\caption{Ablation trên C6: tác động của hệ thống RKN (hiệu RKN đầy đủ trừ baseline; trung bình theo chuỗi).}
+\label{tab:rkn-ablation}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lllll}
+\begin{tabular}{lrrrl}
 \hline
-So sánh & Dice & Dice khung polyp & FP khung rỗng & Tái xuất hiện \\
+Baseline & $\Delta$ Dice khung polyp & $\Delta$ FP khung rỗng & $\Delta J$ & Diễn giải \\
 \hline
-Kalman -- native & $-0.014$ (7/1), $p=0.20$ & $+0.015$ (6/2), $p=0.31$ & $+0.069$ (2/1), $p=0.50$ & $+0.021$ (4/3), $p=0.58$ \\
-Kalman -- EMA & $-0.001$ (7/1), $p=0.20$ & $-0.010$ (5/3), $p=0.74$ & $-0.032$ (0/3), $p=0.25$ & $-0.042$ (3/4), $p=0.22$ \\
+Native MedSAM2 & $+0.109$ ($p=0.078$) & $-0.398$ ($p=0.031$) & $+0.308$ ($p=0.008$) & Tác động tổng thể so với bank gốc \\
+RKN không huấn luyện & $-0.001$ ($p=0.95$) & $-0.435$ ($p=0.062$) & $+0.216$ ($p=0.055$) & Huấn luyện chủ yếu giảm FP \\
+Chỉ hiện diện (RKN) & $+0.163$ ($p=0.016$) & $+0.050$ ($p=0.50$) & $+0.138$ ($p=0.11$) & Hệ thống đầy đủ so với ablation \\
+RDE-VOS + tái phát hiện & $-0.055$ ($p=0.039$) & $-0.499$ ($p=0.062$) & $+0.194$ ($p=0.20$) & RKN so với recurrent-memory đối chứng \\
+Detector không bộ nhớ & $-0.035$ ($p=0.20$) & $+0.002$ ($p=1.0$) & $-0.036$ ($p=0.20$) & Không chứng minh lợi ích độc lập của bộ nhớ \\
 \hline
 \end{tabular}}
 \end{table}
 
-Với $n=8$, không khác biệt nào có ý nghĩa thống kê. Bộ nhớ một khe (Kalman và EMA) cho Dice khung polyp và Dice ở khung chuyển động cao nhỉnh hơn ngân hàng bảy khung, nhưng làm tăng dương tính giả trên khung rỗng, nên Dice tổng thể thấp hơn native một chút. Kalman cao hơn native ở 7/8 chuỗi; trung bình thấp hơn là do một chuỗi (seq21). Bảng~\ref{tab:c6seq} cho thấy lợi ích lớn nhất ở seq18 (Dice khung polyp 0.647 so với 0.560) và seq22 (0.746 so với 0.710). Hai chuỗi seq20 và seq23 thất bại với cả ba phương pháp (Dice khung polyp không quá 0.1): đây là lỗi theo dõi mà không bộ nhớ nào khắc phục được. Về tích lũy lỗi, tính gộp trên các khung polyp: native mất 0.247 số khung, đoạn mất trung bình 7.1 khung, 0.64 số đoạn được khôi phục; Kalman lần lượt 0.244, 7.7 và 0.60, tức không khác biệt trên các video ngắn của C6.
+\subsubsection{Diễn giải và giới hạn}
 
-\paragraph{Phân tích lỗi trên seq21.} Đây là chuỗi mà Kalman thấp hơn native nhiều nhất (0.448 so với 0.685). Trên các khung có polyp, Kalman ngang native (Dice khung polyp 0.751 so với 0.757), tức không có sụp đổ theo dõi. Thiệt hại nằm ở đoạn rỗng dài ở cuối chuỗi (23 khung rỗng trong 47): object score của native chuyển âm nên native dự đoán rỗng, còn bộ nhớ một khe giữ object score dương và tiếp tục xuất mặt nạ. Trên C6, object score gọi 38\% (native), 62\% (EMA) và 57\% (Kalman) số khung rỗng là có đối tượng: dương tính giả là bài toán hiện diện, không phải bài toán theo dõi.
+Trên C6, RKN đầy đủ tốt hơn MedSAM2 native theo $J$: $+0.308$ ở cả 8 chuỗi ($p=0.008$); FP giảm 0.398 ($p=0.031$), còn Dice tăng 0.109 nhưng chưa đạt ý nghĩa ở $n=8$ ($p=0.078$). Đây là bằng chứng rằng \textbf{hệ thống} gồm trạng thái lặp, detector, tái phát hiện và cổng hiện diện/độ tin cậy giảm dương tính giả so với bank native trong cấu hình này. Về mặt ý tưởng, Kalman filter vẫn cung cấp cách mở rộng tự nhiên sang video VA: bất định cao hoặc vắng mặt sẽ hãm ghi bộ nhớ, còn quan sát tin cậy sẽ hiệu chỉnh trạng thái thay vì thay thế nó. Native MedSAM2 tái lập chính xác kết quả C6 đã lưu: Dice/FP/mất $=0.599/0.486/0.283$.
 
-\subsubsection{Gain Kalman so với gain hằng}
+Giới hạn của diễn giải này rất quan trọng: đây chưa phải bằng chứng rằng \emph{chỉ riêng} gain Kalman tạo cải thiện phân đoạn. Baseline detector không bộ nhớ tốt hơn RKN đầy đủ trên cả hai tập: tại C6, Dice 0.742 so với 0.707 và $J$ 0.699 so với 0.663, tốt hơn ở 7/8 chuỗi (không có ý nghĩa thống kê). Fixed-gain control cũng chỉ cho $\Delta J=+0.017$, $p=0.945$. RKN hơn native+tái phát hiện và RDE-VOS+tái phát hiện về $J$ chủ yếu nhờ ít FP hơn, trong khi Dice của hai baseline đó cao hơn RKN lần lượt 0.068 và 0.055. RDE-VOS trong bảng là đối chứng chưa huấn luyện; comparison RDE đã huấn luyện, cùng seed và cùng tập phát triển, chưa hoàn tất ở thời điểm viết báo cáo. Suy luận phù hợp là detector, tái phát hiện, cổng hiện diện và bộ nhớ Kalman \emph{cùng} tạo hệ thống tốt hơn MedSAM2 native; đóng góp độc lập của Kalman cần nhiều seed, RDE đã huấn luyện và một tập video ngoài chưa từng được xem.
 
-Theo phân tích trạng thái dừng, gain của bộ lọc chưa huấn luyện hội tụ về hai giá trị gần như cố định (khoảng 0.92 khi có đối tượng, 0.27 khi vắng mặt). Đo trên tập phát triển, gain trung bình là 0.835 (độ lệch chuẩn 0.144) và 0.266. Trên C6, Kalman và EMA dùng gain này gần như trùng nhau: Dice $-0.001$ ($p=0.20$), Dice khung polyp $-0.010$ ($p=0.74$), EMA tốt hơn ở tái xuất hiện ($-0.042$) và Kalman có ít dương tính giả hơn ($-0.032$), đều không có ý nghĩa. Như đã nêu ở mục 3.2.2, sự hòa nhau này được kỳ vọng theo cách xây dựng: hai phương pháp chỉ khác ở gain chuyển tiếp, xác suất hiện diện mềm so với ngưỡng cứng, và chế độ \texttt{--skip\_absent}. Kết luận rút ra là lợi ích (nếu có) đến từ \emph{trạng thái lặp một khe}, không phải từ dạng Kalman.
-
-\subsubsection{Bộ nhớ và tốc độ}
-
-\begin{table}[htbp]
-\centering
-\caption{Bộ nhớ giữ lại cuối video và tốc độ lan truyền trên C6 (Apple MPS, đo bằng \texttt{infer.py}).}
-\label{tab:eff}
-\small
-\begin{tabular}{lrr}
-\hline
-Phương pháp & Bộ nhớ giữ lại (MiB) & Khung/giây \\
-\hline
-Native MedSAM2 & 4.5--8.1 (tăng theo độ dài video) & 20.2 \\
-EMA (1 khe) & 0.754 (cố định) & 22.3 \\
-Kalman (1 khe) & 0.754 (cố định) & 22.1 \\
-\hline
-\end{tabular}
-\end{table}
-
-MedSAM2 gốc giữ bộ nhớ của mọi khung (khoảng 0.13 MiB mỗi khung) nhưng chỉ đọc tối đa bảy bộ nhớ ($0.875$ MiB ở bf16). Bộ nhớ một khe giữ anchor, mã vị trí, trung bình và phương sai ở float32 (0.754 MiB), cố định theo độ dài video, và chỉ đưa hai bản đồ bộ nhớ vào memory attention thay vì bảy, nên chạy nhanh hơn khoảng 10\%.
+Detector và bộ nhớ cũng thất bại ở các video khác nhau: trên seq18 Dice của RKN là 0.58, trong khi detector không bộ nhớ là 0.19; trên seq23 các giá trị là 0.49 và 0.87. Một cơ chế kết hợp có thể hữu ích, nhưng phải được thiết kế và chọn hoàn toàn trên tập phát triển rồi mới đánh giá trên dữ liệu VA. C6 đã được dùng cho so sánh này và không nên dùng tiếp để chọn thiết kế.
 
 \subsubsection{Đánh giá hai vùng trên REFUGE}
 
-Dữ liệu VA dự kiến theo Cai và cộng sự \cite{cai2024} dùng mặt nạ ba lớp mã hóa 0/128/255 và tỷ số A/N = VA/(VA + đường thở). REFUGE (ảnh đáy mắt) dùng cùng mã hóa với hai vùng kề nhau (vành đĩa thị và cup), nên tỷ số cup/(cup + vành) có cùng dạng với A/N. Mặt nạ được chuyển bằng ánh xạ \texttt{255:0 128:1 0:2}. Vì vành là phần đĩa thị không thuộc cup, MedSAM2 gốc được prompt bằng hộp bao của đĩa thị và của cup (\texttt{--nested\_labels}), rồi vành = đĩa $-$ cup; cấu trúc này khớp với A/N, nơi mũi họng = VA + đường thở.
+Dữ liệu VA dự kiến theo Cai và cộng sự \cite{cai2024} dùng mặt nạ ba lớp mã hóa 0/128/255. REFUGE (ảnh đáy mắt) dùng cùng mã hóa với hai vùng kề nhau không chồng lấn (vành đĩa thị và cup), nên tỷ số cup/(cup + vành) có cùng dạng với tỷ số A/N. Mặt nạ được chuyển bằng ánh xạ \texttt{255:0 128:1 0:2}; MedSAM2 gốc được prompt bằng hộp bao từ nhãn thật, theo hai thiết kế.
 
 \begin{table}[htbp]
 \centering
-\caption{Hai vùng trên REFUGE val (400 ảnh, MedSAM2 gốc, prompt lồng nhau).}
+\caption{Hai vùng trên REFUGE val (400 ảnh).}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{rrrrrrrr}
+\begin{tabular}{lrrrrrr}
 \hline
-Dice cup & IoU cup & Dice vành & IoU vành & MAE tỷ số & RMSE tỷ số & Pearson & Spearman \\
+Prompt & Dice cup & Dice vành & MAE tỷ số & RMSE tỷ số & Pearson & Spearman \\
 \hline
-0.917 & 0.850 & 0.924 & 0.861 & 0.019 & 0.024 & 0.98 & 0.98 \\
+Mỗi nhãn một lượt (hộp vành = hộp đĩa) & 0.734 & 0.886 & 0.109 & 0.138 & 0.74 & 0.86 \\
+\texttt{--nested\_labels} (đĩa và cup; vành = đĩa $-$ cup) & \textbf{0.917} & \textbf{0.924} & \textbf{0.019} & \textbf{0.024} & \textbf{0.98} & \textbf{0.98} \\
 \hline
 \end{tabular}}
 \end{table}
 
-\begin{table}[htbp]
-\centering
-\caption{Sai số tỷ số theo chất lượng phân đoạn (Dice nhỏ hơn của hai vùng).}
-\small
-\begin{tabular}{lrr}
-\hline
-Dice nhỏ nhất & Số ảnh & MAE tỷ số \\
-\hline
-$<0.8$ & 12 & 0.042 \\
-$0.8$--$0.9$ & 139 & 0.023 \\
-$\geq 0.9$ & 249 & 0.015 \\
-\hline
-\end{tabular}
-\end{table}
-
-Tỷ số thật nằm trong khoảng 0.05--0.73 (trung bình 0.23). Sai số có dấu trung bình chỉ $+0.008$ (không lệch hệ thống), sai số tuyệt đối trung vị 0.016, 90\% số ảnh có sai số dưới 0.039 và lớn nhất là 0.074. Sai số tăng khi phân đoạn kém đi, nhưng ngay cả khi Dice tốt ($\geq 0.9$) vẫn còn khoảng 1.5 điểm phần trăm. Như vậy trên dữ liệu thay thế, phân đoạn tốt cho phép đo tỷ số tốt; REFUGE chưa cho thấy sự lệch giữa Dice và phép đo, và chưa có cơ sở cho một hàm mất mát nhận biết phép đo. Câu hỏi này cần được kiểm tra lại trên dữ liệu VA, nơi ranh giới giữa VA và đường thở có thể khó hơn.
+Thiết kế thứ nhất có lỗi: hộp bao nhãn thật của vành chính là hộp của cả đĩa thị, và khi mỗi nhãn chạy một lượt rồi ``logit lớn nhất thắng'', dự đoán vành nuốt mất cup. Tỷ lệ cup dự đoán thấp hơn nhãn thật trên \emph{cả 400} ảnh (sai số có dấu trung bình $-0.109$), và sai số tỷ số đi theo Dice cup (Spearman $\rho=-0.74$). Đó là lỗi do cách prompt, không phải sự lệch giữa Dice và phép đo. Thiết kế lồng nhau (prompt đĩa và cup, lấy vành = đĩa $-$ cup) khớp với cấu trúc A/N, nơi mũi họng = VA + đường thở; với nó, sai số tỷ số chỉ 0.019 và ngay cả các ảnh có cả hai Dice $\geq 0.9$ (249 ảnh) cũng chỉ có MAE 0.015. \textbf{Như vậy REFUGE không cho thấy sự lệch giữa Dice và phép đo}, và chưa có cơ sở cho một hàm mất mát nhận biết phép đo.
 
 \subsection{Kỹ năng và kiến thức thu thập được}
 
-Về kiến thức: kiến trúc bộ nhớ của SAM2/MedSAM2, lý thuyết bộ lọc Kalman và quan hệ của nó với trung bình trượt mũ, các hướng cải tiến bộ nhớ trong phân đoạn video và bài toán đánh giá phì đại VA. Về lập trình: mở rộng một mã nguồn nghiên cứu lớn bằng mixin, xử lý dữ liệu video y tế, tìm và sửa lỗi khó thấy (sai thứ tự khung, lỗi đồng bộ trên MPS, cách prompt sai trên REFUGE) và viết kiểm thử cho đường dữ liệu. Về phương pháp: tách tập phát triển và tập đánh giá theo trung tâm, dùng baseline đối chứng (EMA) để xác định đúng nguồn gốc cải thiện, dựng lại mọi bảng từ dữ liệu đã lưu, kiểm tra kết quả không phụ thuộc máy chạy, và diễn giải kết quả không vượt quá điều số liệu cho phép.
+Về kiến thức: kiến trúc bộ nhớ của SAM2/MedSAM2, lý thuyết bộ lọc Kalman, liên kết dữ liệu xác suất và các hướng cải tiến bộ nhớ trong phân đoạn video. Về lập trình: mở rộng một mã nguồn nghiên cứu lớn bằng mixin, xử lý dữ liệu video y tế, tìm và sửa lỗi thứ tự khung và đồng bộ MPS, tích hợp detector như một quan sát độc lập, và viết kiểm thử cho đường dữ liệu. Về phương pháp: cố định phương pháp trước khi chạy C6, dùng baseline detector không bộ nhớ để kiểm tra quy kết nguyên nhân, tái lập số xác thực và kết quả native từ dữ liệu đã lưu, và ghi nhận trung thực kết quả âm.
 
 \subsection{Hướng phát triển tiếp theo}
 
 \begin{enumerate}
     \item \textbf{Dữ liệu VA dạng video} cùng giao thức tỷ số và ngưỡng phân độ; đây sẽ là tập kiểm tra sạch đầu tiên.
-    \item \textbf{Quyết định ghi bộ nhớ học được}: học khi nào nên ghi một khung vào trạng thái (từ object score, IoU dự đoán, mức thay đổi mặt nạ), với mục tiêu định trước trên tập phát triển; huấn luyện bộ cập nhật trên video thật bằng \texttt{train\_kalman.py}.
-    \item \textbf{Baseline mạnh hơn}, trước hết là EMA-SAM, rồi bank bảy khung đã cắt tỉa, SAMURAI, SAM2Long, DAM4SAM; prompt thực tế (hộp nhiễu, điểm, bộ phát hiện).
+    \item \textbf{Kết hợp detector và bộ nhớ}: học hoặc quy tắc chọn nguồn dự đoán khi detector đáng tin cậy hoặc khi detector thất bại; mọi lựa chọn phải làm trên tập phát triển.
+    \item \textbf{Đánh giá trên dữ liệu VA}: giữ cố định phương pháp sau khi chọn trên tập phát triển và dùng video VA như kiểm tra sạch.
     \item \textbf{Hàm mất mát nhận biết phép đo} chỉ khi dữ liệu VA cho thấy Dice và sai số tỷ số lệch nhau.
 \end{enumerate}
 
@@ -445,6 +405,7 @@ Về kiến thức: kiến trúc bộ nhớ của SAM2/MedSAM2, lý thuyết b�
 \bibitem{sam2} SAM 2: Segment Anything in Images and Videos. \url{https://arxiv.org/abs/2408.00714}.
 \bibitem{cai2024} Cai và cộng sự (2024). Deep Learning-Based Quantification of Adenoid Hypertrophy and Its Correlation with Apnea-Hypopnea Index in Pediatric Obstructive Sleep Apnea. \url{https://pmc.ncbi.nlm.nih.gov/articles/PMC11687100/}.
 \bibitem{polypgen} PolypGen: A multi-center polyp detection and segmentation dataset. \url{https://arxiv.org/abs/2106.04463}.
+\bibitem{cholecseg8k} CholecSeg8k: A Semantic Segmentation Dataset for Laparoscopic Cholecystectomy. \url{https://arxiv.org/abs/2012.12453}.
 \bibitem{refuge} REFUGE: Retinal Fundus Glaucoma Challenge, phân đoạn đĩa thị và cup trên ảnh đáy mắt.
 \bibitem{sam2long} SAM2Long: Enhancing SAM 2 for Long Video Segmentation. ICCV 2025.
 \bibitem{dam4sam} DAM4SAM: A Distractor-Aware Memory for Visual Object Tracking with SAM2. \url{https://arxiv.org/abs/2509.13864}.
@@ -455,5 +416,6 @@ Về kiến thức: kiến trúc bộ nhớ của SAM2/MedSAM2, lý thuyết b�
 \bibitem{kalman} R. E. Kalman (1960). A New Approach to Linear Filtering and Prediction Problems. Journal of Basic Engineering.
 \bibitem{rkn} Recurrent Kalman Networks: Factorized Inference in High-Dimensional Deep Feature Spaces. \url{https://arxiv.org/abs/1905.07357}.
 \bibitem{kalmannet} KalmanNet: Neural Network Aided Kalman Filtering for Partially Known Dynamics. \url{https://arxiv.org/abs/2107.10043}.
+\bibitem{recursivekalmannet} Recursive KalmanNet: Deep Learning-Augmented Kalman Filtering for State Estimation with Consistent Uncertainty Quantification. EUSIPCO 2025. \url{https://arxiv.org/abs/2506.11639}.
 \end{thebibliography}
 \end{document}

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Run native or Kalman MedSAM2 video inference from a labelled-video manifest.
+"""Run MedSAM2 video inference (native memory bank, or a trained recurrent memory:
+RKN or RDE-VOS) from a labelled-video manifest.
 
 The first frame containing each requested label supplies that label's box prompt.
 This is an evaluation protocol, not an interactive clinical prompting interface.
@@ -26,16 +27,17 @@ import torch
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / "MedSAM2")]
+sys.path[:0] = [str(ROOT), str(ROOT / "external" / "MedSAM2")]
 
 from adenoid.io import load_label_mask
 from datasets.video import ManifestFrame, load_manifest
-from modeling.ema_memory import ConstantGainMemory
-from modeling.kalman_memory import KalmanMemoryUpdate, load_memory_update
+from modeling.detector import PolypDetector
+from modeling.recurrent_memory import load_memory_update
 from modeling.medsam2 import build_video_predictor
 
 DIAGNOSTIC_FIELDS = ("frame_idx", "frame", "status", "object_score", "presence",
-                     "gain_mean", "feature_change_mean", "kalman_status")
+                     "gain_mean", "feature_change_mean", "memory_status",
+                     "redetected", "detection_confidence", "mask_box_iou", "rho")
 
 
 def parse_args():
@@ -49,18 +51,15 @@ def parse_args():
     parser.add_argument("--nested_labels", action="store_true",
                         help="Prompt and propagate label k as the union of labels >= k; lower labels keep "
                              "only what higher labels do not cover.")
-    parser.add_argument("--memory_backend", choices=("native", "kalman"), default="kalman")
-    parser.add_argument("--kalman_checkpoint", type=Path, default=None)
-    parser.add_argument("--untrained", action="store_true",
-                        help="Use a freshly initialised Kalman update instead of a checkpoint. Its last noise "
-                             "layer and uncertainty embedding are zero, so it is the hand-set filter for any seed.")
+    parser.add_argument("--memory_checkpoint", type=Path, default=None,
+                        help="Trained memory update (RKN or RDE-VOS) from scripts/train_memory.py; "
+                             "without it, MedSAM2's native memory bank is used.")
+    parser.add_argument("--detector", type=Path, default=Path("checkpoints/polypgen_yolov8n.pt"),
+                        help="YOLO weights for re-detection and for a memory update that uses detector observations.")
+    parser.add_argument("--redetect", action="store_true",
+                        help="Re-detect from the detector box on native MedSAM2 or an update without detector heads.")
     parser.add_argument("--device", choices=("auto", "cuda", "mps", "cpu"), default="auto")
     parser.add_argument("--output_dir", type=Path, required=True)
-    parser.add_argument("--skip_absent", action="store_true",
-                        help="Treat a frame MedSAM2 calls empty as a missing measurement (K=0).")
-    parser.add_argument("--fixed_gain", type=float, nargs=2, default=None, metavar=("PRESENT", "ABSENT"),
-                        help="EMA baseline (modeling/ema_memory.py): constant-gain memory instead of the "
-                             "Kalman update, with these present / absent gains. No checkpoint needed.")
     return parser.parse_args()
 
 
@@ -80,9 +79,9 @@ def stage_frames(frames: list[ManifestFrame], directory: Path) -> None:
 
 def retained_memory_mib(output_dict) -> float:
     """MiB of memory state held at the end of a video: every stored frame memory for
-    native MedSAM2, the anchor/position/mean/variance tensors for the 1-slot memory."""
-    if "kalman_state" in output_dict:
-        tensors = output_dict["kalman_state"].tensors()
+    native MedSAM2, the prompt memory and recurrent state (with its covariance) otherwise."""
+    if "memory_state" in output_dict:
+        tensors = output_dict["memory_state"].tensors()
     else:
         tensors = [
             tensor
@@ -95,7 +94,7 @@ def retained_memory_mib(output_dict) -> float:
     return sum(unique.values()) / 2 ** 20
 
 
-def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels: list[int], backend: str,
+def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels: list[int], recurrent: bool,
                   staged: Path, nested: bool):
     prompt_index, box = first_box(frames, label_id, labels, nested)
     width, height = Image.open(frames[0].image_path).size  # the video's size, as the predictor outputs
@@ -107,8 +106,10 @@ def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels:
         offload_state_to_cpu=predictor.device.type == "cuda",
     )
     try:
-        if backend == "kalman":
-            state.update({"kalman_enabled": True, "kalman_anchor_frame_idx": prompt_index})
+        if recurrent:
+            state.update({"recurrent_memory": True, "memory_anchor_frame_idx": prompt_index})
+        if getattr(predictor, "redetect_enabled", False) or getattr(getattr(predictor, "memory_update", None), "uses_detector", False):
+            predictor.detections = predictor.detector.frame_detections([f.image_path for f in frames], predictor.device)
         predictor.add_new_points_or_box(state, frame_idx=prompt_index, obj_id=1, box=box)
         logits = np.full((len(frames), state["video_height"], state["video_width"]), -np.inf, dtype=np.float32)
         traces = {}
@@ -119,7 +120,7 @@ def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels:
             output = state["output_dict"][output_type][frame_index]
             traces[frame_index] = {
                 "object_score": float(output["object_score_logits"].float().mean()),
-                **output.get("kalman_trace", {}),
+                **output.get("memory_trace", {}),
             }
         elapsed = time.perf_counter() - started
         efficiency = {
@@ -149,44 +150,39 @@ def write_diagnostics(path: Path, frames: list[ManifestFrame], prompt_index, tra
 @torch.inference_mode()
 def main():
     args = parse_args()
-    if args.memory_backend == "kalman" and sum((args.kalman_checkpoint is not None, args.untrained,
-                                                args.fixed_gain is not None)) != 1:
-        raise ValueError("--memory_backend kalman needs exactly one of --kalman_checkpoint, --untrained, --fixed_gain.")
+    recurrent = args.memory_checkpoint is not None
     videos = load_manifest(args.manifest, args.split)
     if args.video_ids is not None:
         videos = {video_id: frames for video_id, frames in videos.items() if video_id in args.video_ids}
         if not videos:
             raise ValueError("None of --video_ids is in the selected split.")
-    target = "modeling.kalman_memory.KalmanMemoryVideoPredictor" if args.memory_backend == "kalman" else None
+    target = "modeling.recurrent_memory.RecurrentMemoryVideoPredictor" if recurrent or args.redetect else None
     predictor = build_video_predictor(str(args.sam2_cfg), args.sam2_checkpoint, args.device, predictor_target=target)
-    if args.memory_backend == "kalman" and args.fixed_gain is not None:
-        # EMA baseline: constant-gain memory, no Kalman adaptivity (see modeling/ema_memory.py).
-        predictor.memory_update = ConstantGainMemory(
-            predictor.mem_dim, predictor.hidden_dim, args.fixed_gain[0], args.fixed_gain[1])
-    elif args.memory_backend == "kalman" and args.untrained:
-        predictor.memory_update = KalmanMemoryUpdate(predictor.mem_dim, predictor.hidden_dim).to(predictor.device).eval()
-    elif args.memory_backend == "kalman":
-        predictor.memory_update = load_memory_update(args.kalman_checkpoint, predictor, predictor.device)
-    if args.memory_backend == "kalman":
-        predictor.kalman_skip_absent = args.skip_absent
+    if recurrent:
+        predictor.memory_update = load_memory_update(args.memory_checkpoint, predictor, predictor.device)
+    if args.redetect:
+        predictor.redetect_enabled = True
+    if args.redetect or getattr(getattr(predictor, "memory_update", None), "uses_detector", False):
+        predictor.detector = PolypDetector(args.detector, predictor.device.type)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     labels = sorted(args.label_ids) if args.nested_labels else args.label_ids
     run = {
         "manifest": str(args.manifest), "split": args.split, "label_ids": labels,
-        "nested_labels": args.nested_labels, "memory_backend": args.memory_backend,
-        "kalman_checkpoint": str(args.kalman_checkpoint) if args.kalman_checkpoint else None,
-        "untrained": args.untrained, "fixed_gain": args.fixed_gain, "skip_absent": args.skip_absent,
+        "nested_labels": args.nested_labels,
+        "memory_update": predictor.memory_update.CHECKPOINT_KIND if recurrent else "native",
+        "redetect": bool(args.redetect or getattr(getattr(predictor, "memory_update", None), "uses_detector", False)),
+        "memory_checkpoint": str(args.memory_checkpoint) if recurrent else None,
         "device": str(predictor.device), "videos": {},
     }
     for video_id, frames in videos.items():
         started = time.perf_counter()
-        with tempfile.TemporaryDirectory(prefix="kalman_frames_") as temporary:
+        with tempfile.TemporaryDirectory(prefix="medsam2_frames_") as temporary:
             staged = Path(temporary)
             stage_frames(frames, staged)
             label_logits, prompts, traces, efficiency = {}, {}, {}, {}
             for label_id in labels:
                 label_logits[label_id], prompts[label_id], traces[label_id], efficiency[label_id] = predict_label(
-                    predictor, frames, label_id, labels, args.memory_backend, staged, args.nested_labels
+                    predictor, frames, label_id, labels, recurrent, staged, args.nested_labels
                 )
         height, width = label_logits[labels[0]].shape[-2:]
         merged = np.zeros((len(frames), height, width), dtype=np.uint16 if max(labels) > 255 else np.uint8)

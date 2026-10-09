@@ -6,11 +6,13 @@ seed. Run outputs are on Google Drive under `AdeSEG/outputs/` (layout at the end
 
 **Reproducibility rule.** Every PolypGen and CholecSeg8k table marked
 *(regenerated)* is rebuilt from the saved per-frame CSVs by
-`scripts/analyze_runs.py` (outputs in `polypgen/c6/analysis/` and
-`polypgen/all23/analysis_{all23,dev}/` on Drive) and was checked against the earlier
+`scripts/analyze_runs.py` (outputs in `polypgen/update_rules_new/c6/analysis/`,
+`polypgen/c6/analysis/` and `polypgen/all23/analysis_{all23,dev}/` on Drive) and was checked against the earlier
 numbers. Results marked *(archived)* come from code that has since been removed;
 their numbers are kept as a record but cannot be regenerated from this
-repository. Two aggregations appear and are always named: **per-sequence** (mean
+repository; results of the removed hand-set Kalman and EMA memories are
+regenerated from saved CSVs but their code is only at commit `fa3df57`. Two
+aggregations appear and are always named: **per-sequence** (mean
 over sequences of the per-sequence mean; used for all paired tests) and
 **pooled** (mean over frames).
 
@@ -18,61 +20,68 @@ over sequences of the per-sequence mean; used for all paired tests) and
 
 ```text
 frame t ──► MedSAM2 image encoder (frozen) ──► memory attention (frozen) ──► mask decoder (frozen)
-                                                 reads [anchor | S] + object pointers
-observe:  C_t = MedSAM2 memory encoder(F_t, mask_t)
-update:   P⁻ = P + q;  R_t = r + a·(1 − p_t);  K_t = P⁻/(P⁻ + R_t)
-          S ← S + K_t (C_t − S);  P ← (1 − K_t) P⁻
+                                                 reads [prompt memory | state (| last memory frame)] + object pointers
+measure:  C_t = MedSAM2 memory encoder(F_t, mask_t)
+update:   state ← update rule(state, C_t)
 ```
 
-`modeling/kalman_memory.py` replaces MedSAM2's 7-frame FIFO bank with the prompt
-frame's memory (anchor) plus one recursive state `S` (64 × 32 × 32). The code
-has per-pixel machinery — a variance map `P`, a learned spatial correction of
-`R`, and an uncertainty embedding `u` that adds `u·log(1+P)` to the read — but
-**in every reported run it is untrained**: the correction's last layer and `u`
-are zero, so `R_t` is one scalar per frame, `P` stays spatially uniform, and `P`
-is never read. As run, the method is a **scalar Kalman filter on a 1-slot
-memory whose measurement noise switches with MedSAM2's presence probability
-`p_t`** (q = 1, r = 0.1, a = 10, P₀ = 1). Its steady-state gain is
-`K* = M*/(M* + R)` with `M* = (q + √(q² + 4qR))/2`: 0.92 when present
-(R ≈ 0.1) and 0.27 when absent (R ≈ 10.1). The measured dev means are 0.835 and
-0.266.
+`modeling/recurrent_memory.py` replaces MedSAM2's 7-frame bank with the prompt
+frame's memory plus one recurrent state (64 × 32 × 32). Two update rules:
 
-The constant-gain EMA (`modeling/ema_memory.py`, `--fixed_gain 0.835 0.266`)
-uses the Kalman run's own mean dev gains, so a tie between them is expected by
-construction. They differ only in (i) the transient gain right after a presence
-switch, (ii) soft presence `p_t` (Kalman) versus a hard 0.5 threshold (EMA), and
-(iii) `--skip_absent`, under which an absent frame is a missing measurement
-(K = 0, the variance grows, so the gain jumps on reappearance). The
-`--skip_absent` comparison is therefore the test of what is specific to the
-Kalman form. Under `--skip_absent` an absent frame is neither written to the
-spatial state nor used as an object pointer. (In the archived `--skip_absent`
-runs below, its pointer still entered attention; that was fixed afterwards.)
+- **Modified RKN** (`modeling/kalman_memory.py`, `modeling/recurrent_memory.py`;
+  under training): the official `KalmanFilter.step` of
+  `external/RecursiveKalmanNet/Algo` on every memory element (F = H = 1), with each
+  update weighted by the probability β that the measurement is the prompted
+  object (probabilistic data association: `x = x⁻ + βK(z − x⁻)`,
+  `P = βP⁺ + (1 − β)P⁻ + β(1 − β)(Kν)²`), so an absent or unreliable frame only
+  predicts. Four official `GRUNetwork`s learn presence p (MedSAM2's object score
+  corrected inside its decoder by the YOLOv8n detector's confidence and box IoU
+  with the mask), reliability ρ (expected IoU of the tracker's mask, from
+  detector confidence, box IoU and pointer similarity to the prompt), Q per pixel
+  (image-feature change) and R per pixel (mask probability, detector box,
+  distance to the prompt memory). β = p·ρ; the frame's object pointer is gated by
+  ρ. Re-detection: when the detector (confidence ≥ 0.5) disagrees with the mask
+  (box IoU < 0.5, or the gate is closed), the frame is decoded from the detector
+  box on memory-free features and that mask is output and written (β = its
+  presence × detector confidence). The trigger was checked on the training
+  videos only (fires on 39% of polyp frames, 65% of them lost; catches 82% of
+  lost frames; fires on 3.4% of empty frames). The state is read at
+  its effective age. No input compares the new memory with the state. Training
+  (through frozen MedSAM2, 24-frame clips, half containing an absence): later
+  frames' mask loss + presence BCE weighted by what a wrong gate costs
+  (Dice − 0.5·FP) + soft BCE of ρ toward the tracker mask's IoU + 0.02 ×
+  `GaussianLikelihoodLoss` against the carried ground-truth memory; checkpoints
+  selected on held-out polyp-frame Dice − 0.5 × empty-frame FP. Inference uses
+  past frames only.
+- **RDE-VOS** (`modeling/rde_memory.py`): the key branch of the official
+  `MemCrompress` (`SAM` = 3D non-local + 3D ASPP, then the 2x3x3
+  `compress_key`), with official names and initialisation:
+  `RDE_t = compress_key(SAM([RDE_{t−1}, C_t]))`. Memory is read and written as in
+  the official `two-frames-compress` mode with `mem_every` 3: the prompt memory
+  (twice, as in `MemoryBank.match_memory`), the RDE and the last memory frame,
+  with the RDE rewritten on frames with index divisible by 3. Untrained, the RDE
+  slot is a random compression; the prompt and last-frame slots are MedSAM2's
+  own memories.
 
 All runs use no hole filling: MedSAM2 fills small mask holes only when its
 compiled `_C` extension is installed, which it was not on the machines used, and
-`modeling/medsam2.py` now sets `fill_hole_area = 0` so results do not depend on
-the machine.
+`modeling/medsam2.py` sets `fill_hole_area = 0` so results do not depend on the
+machine. The refactor into `recurrent_memory.py` reproduces the archived RDE
+C6 run and native MedSAM2 frame for frame (object-score difference 0).
 
-`--untrained` builds this module fresh; it reproduces the earlier untrained
-checkpoint (now deleted) frame for frame on C6 (maximum Dice difference
-0.0), because the zero-initialised last layer makes it independent of the
-random seed.
-
-**Memory and speed** (`scripts/infer.py` records both in `setup.json`; C6 rerun,
-Apple M-series MPS, propagation only; `polypgen/c6/efficiency/`):
+**Memory and speed** (`scripts/infer.py` records both in `setup.json`; Apple
+M-series MPS, propagation only; native from the earlier efficiency rerun in
+`polypgen/c6/efficiency/`, RDE-VOS from its C6 run, separate sessions):
 
 | | Retained memory at the end of a video | Frames per second |
 |---|---|---|
 | native MedSAM2 | grows with the video: 4.5–8.1 MiB on C6 (mean 6.2), ~0.13 MiB per frame | 20.2 |
-| Kalman (1 slot) | 0.754 MiB, fixed (float32 anchor, position code, mean, variance) | 22.1 |
-| EMA (1 slot) | 0.754 MiB, fixed | 22.3 |
+| RDE-VOS | 1.000 MiB, fixed (float32 prompt memory, position code, RDE, last memory frame) | 15.2 |
 
 Native stores every frame's memory but attends to at most 7; those 7 bf16 maps
-are 7 × 64 × 32 × 32 × 2 B = 0.875 MiB. The 1-slot state is therefore no smaller
-than a trimmed bank; its advantages are a fixed size and two attended memory
-maps instead of seven. The Kalman state also keeps the previous frame's image
-features (1 MiB) for the motion diagnostic. Earlier figures (0.88 MiB, 36.3 MiB,
-13.3 / 17.0 FPS) came from removed measurement code and are superseded.
+are 7 × 64 × 32 × 32 × 2 B = 0.875 MiB, so the recurrent memory is not
+smaller than a trimmed bank; its advantage is a fixed size. It also keeps the
+previous frame's image features (1 MiB) for the motion diagnostic.
 
 ## Data protocol
 
@@ -83,10 +92,9 @@ features (1 MiB) for the motion diagnostic. Earlier figures (0.88 MiB, 36.3 MiB,
 | First protocol | all 23 sequences as the test set (2,012 propagated frames: 1,689 polyp, 323 empty) |
 
 `scripts/build_polypgen_manifest.py` writes these splits as `dev` and `test`.
-`scripts/train_kalman.py` trains on natural clips; on PolypGen it holds out dev
+`scripts/train_memory.py` trains on natural clips; on PolypGen it holds out dev
 videos for validation (`--train_split dev --val_videos seq13 seq14 seq15`), with a
-tight ground-truth box on frame 0 as at inference. A two-step smoke run on this
-setup works; all reported results use the untrained module.
+tight ground-truth box on frame 0 as at inference.
 
 **Archived training runs.** Earlier training used pseudo-videos assembled from
 PolypGen single frames (`data_C1`..`data_C6`, 1,399 frames after removing 12
@@ -94,7 +102,7 @@ duplicates of test frames) and `sequenceData/negativeOnly` (23 sequences, 4,275
 frames). That pipeline (`datasets/pseudo_video.py`) has been deleted, and its
 runs also used detector observations. Those runs improved pseudo-video
 validation but not real-video results; they describe the old setup, not the
-current `train_kalman.py`.
+current `train_memory.py`.
 
 ## How often C6 has been used
 
@@ -110,126 +118,215 @@ C6 is called "held out" below only in the sense that no design choice was
 4. `063853e`: the corrected rerun, reported below.
 5. Output-presence variants evaluated on C6 during development (no longer part
    of the method).
-6. Trained update rules: a first training objective (RDE steps 200 and 500,
-   Kalman step 500; runs replaced), then the retrained RDE reported below.
+6. Earlier trained update rules (hand-set-Kalman noise head and a re-implemented
+   RDE): two training objectives, RDE steps 200 and 500 and Kalman step 500;
+   runs replaced.
+7. RDE-VOS at its selected step 0, reported below, and the official-code RKN
+   (results discarded; replaced by the modified RKN).
 
 So C6 has been used for several frozen comparisons. The adenoid data will be the
 first clean test.
 
-## C6 results *(regenerated)*
+## Training the update rules *(archived, not currently reproducible)*
 
-`polypgen/c6/`; analysis in `polypgen/c6/analysis/`. Per-sequence means over
-propagated frames. Lost = polyp frames with Dice < 0.1; reappearance = polyp
-frames 1–10 after an absence; high motion = polyp frames with image-feature
-change > 0.117 (the dev tercile cut, from the Kalman run's log).
+The following RDE-VOS training description refers to an older run directory that
+is no longer present under the canonical Drive output root. It is retained as
+historical context only and must not be cited as a current trained-RDE result.
+The current code has a matched RDE training path, but a new run is required.
 
-| Method | Dice | Polyp-frame Dice | Empty-frame FP | Lost | Reappearance | High motion |
-|---|---|---|---|---|---|---|
-| native (7-frame bank) | **0.617** | 0.599 | 0.486 | 0.283 | 0.462 | 0.563 |
-| EMA (constant-gain 1-slot) | 0.603 | **0.623** | 0.587 | **0.268** | **0.525** | **0.588** |
-| Kalman (1-slot) | 0.602 | 0.613 | 0.555 | 0.284 | 0.483 | 0.579 |
+- **RDE-VOS:** the official `BootstrappedCE` (plain CE, then the hardest 15% of
+  pixels; warm-up scaled from 20k–70k of 150k iterations to steps 67–233) on
+  `RDE_VOS.aggregate` of MedSAM2's mask, plus the official `KLDivLoss` (weight
+  10, temperature 1) from the decoder input read from the compressed memory to
+  the one read from native MedSAM2's uncompressed bank. Adam, weight decay 1e-7,
+  lr 1e-4 (the official 1e-5 is for 150k iterations). Both terms are averaged over
+  frames; the official `LossComputer` halves its running total at each frame,
+  which would weight frame 1 of a 16-frame clip by 2^-15.
 
-Paired Wilcoxon over the 8 sequences (A − B; sequences where A is higher / lower;
-sequence-bootstrap 95% interval):
-
-| Comparison | Dice | Polyp-frame Dice | Empty-frame FP | Lost | Reappearance |
-|---|---|---|---|---|---|
-| Kalman − native | −0.014 (7/1), p = 0.20, [−0.082, +0.029] | +0.015 (6/2), p = 0.31 | +0.069 (2/1), p = 0.50 | +0.001 (2/2), p = 0.88 | +0.021 (4/3), p = 0.58 |
-| Kalman − EMA | −0.001 (7/1), p = 0.20 | −0.010 (5/3), p = 0.74 | −0.032 (0/3), p = 0.25 | +0.016 (2/0), p = 0.50 | −0.042 (3/4), p = 0.22 |
-
-Nothing is significant at n = 8. Kalman's Dice is higher than native's in 7
-sequences, but its mean is lower because of seq21 (below). Pooled lost-episode
-metrics on C6: native lost 0.247 of polyp frames, mean episode 7.1 frames,
-recovered 0.64, lost until the end 0.36; Kalman 0.244, 7.7, 0.60, 0.40. **On C6
-there is no error-accumulation effect.**
-
-**seq21.** The sequence where Kalman falls furthest below native (0.448 vs
-0.685) is not a tracking collapse: on its polyp frames Kalman is on par with
-native (polyp-frame Dice 0.751 vs 0.757; lost fraction 0.083 vs 0.042); the loss
-is a 21-frame empty tail
-where native's object score turns negative but the 1-slot memories keep it
-positive. MedSAM2's object score calls 71–74% of dev empty frames present for
-every method; on C6, 38% (native), 62% (EMA) and 57% (Kalman) of 56 empty
-frames.
-
-**Update-rule test with `--skip_absent` (dev, pre-registered; failed, not run on
-C6)** *(archived; these runs are not on Drive)*. Kalman+skip vs EMA+skip
-(constant gain 0.833 = Kalman+skip's mean present-frame gain). Rule: Kalman+skip
-must raise reappearance Dice and lower the lost fraction. Dice +0.006
-(p = 0.24), polyp-frame Dice +0.004, empty-frame FP −0.031 and lost fraction
-−0.016 (Kalman lower in the 4 sequences that differ, p = 0.13), reappearance
-0.000. **Fail.** This is the comparison that isolates the Kalman form, and it
-shows no measurable benefit.
-
-## Trained update rules: Kalman vs RDE-VOS *(regenerated)*
-
-Question: does the update rule of the 1-slot memory matter? Three rules share
-the anchor slot, the state S and the read path: the EMA (constant gain), the
-Kalman update and the RDE-VOS aggregation module (`modeling/rde_memory.py`:
-3D non-local block + 3D ASPP + 2x3x3 squeeze over [S, new memory], as in the
-official code, but initialised at the EMA with gain 0.835 for every frame).
-
-Kalman and RDE were trained with `scripts/train_kalman.py --memory_update
-{kalman,rde}` and identical settings on PolypGen dev seq1–12 (500 steps x 4
-clips of 16 frames, lr 1e-4, seed 0), with whole seq13–15 held out for
-checkpoint selection. The objective guards against harming the memory: a
-per-frame object-score BCE, the closed-gate mask loss, the EMA as teacher
-(distillation 1.0 and a no-worse-than-EMA penalty 1.0), a pull toward the
-initial parameters (1.0), a frozen Kalman `uncertainty_embedding`, and
-video-first clip sampling (docs/README.md). Selection = best held-out
-per-sequence polyp-frame Dice with empty-frame FP not above step 0, else step 0.
-These guards were added after a first training objective (per-class BCE, no
-teacher, clip validation) cut empty-frame FP by losing polyp frames on C6; those
-runs were replaced by the ones below. Outputs: `polypgen/update_rules/`.
+Selection = best held-out per-sequence polyp-frame Dice with empty-frame FP not
+above step 0, else step 0. Outputs: `polypgen/update_rules_new/`.
 
 Held-out validation (whole seq13–15 through the inference path), polyp-frame
 Dice / empty-frame FP / lost:
 
 | Step | 0 | 100 | 200 | 300 | 400 | 500 |
 |---|---|---|---|---|---|---|
-| RDE | 0.401 / 0.741 / 0.547 | 0.399 / 0.741 / 0.551 | **0.431** / 0.741 / 0.512 | 0.422 / 0.752 / 0.526 | 0.486 / 0.843 / 0.441 | 0.434 / 0.833 / 0.514 |
-| Kalman | **0.399** / 0.729 / 0.545 | 0.399 / 0.729 / 0.545 | 0.399 / 0.729 / 0.545 | 0.399 / 0.729 / 0.545 | 0.399 / 0.729 / 0.545 | 0.399 / 0.729 / 0.545 |
+| RDE-VOS | **0.505** / 0.890 / 0.408 | 0.451 / 0.678 / 0.462 | 0.466 / 0.540 / 0.472 | 0.443 / 0.515 / 0.455 | 0.340 / 0.225 / 0.607 | 0.368 / 0.204 / 0.577 |
 
-Selection picks RDE step 200 (step 400 is excluded by its higher FP) and Kalman
-step 0, the untrained Kalman memory reported above, so only RDE was run on C6
-(`polypgen/update_rules/c6/`, analysis in `polypgen/update_rules/c6/analysis/`).
-Per-sequence means:
+Selection keeps step 0. **Training did not help.**
+
+- **RDE-VOS** cut empty-frame false positives (0.89 to 0.20) by losing polyp
+  frames (Dice 0.505 to 0.368): with no term protecting present frames, the
+  bootstrapped CE rewards suppressing the object. The KL term has median 4e-4, so
+  at weight 10 it is about 2% of the loss.
+
+## C6 results *(regenerated)*
+
+`polypgen/c6/native` and `polypgen/update_rules_new/c6/rde`; analysis in
+`polypgen/update_rules_new/c6/analysis/`. RDE-VOS is its selected step 0, i.e.
+untrained. Per-sequence means over propagated frames. Lost
+= polyp frames with Dice < 0.1; reappearance = polyp frames 1–10 after an
+absence; high motion = polyp frames with image-feature change > 0.117 (the dev
+tercile cut).
 
 | Method | Dice | Polyp-frame Dice | Empty-frame FP | Lost | Reappearance | High motion |
 |---|---|---|---|---|---|---|
-| native | 0.617 | 0.599 | 0.486 | 0.283 | 0.462 | 0.563 |
-| EMA (untrained) | 0.603 | **0.623** | 0.587 | **0.268** | 0.525 | **0.588** |
-| Kalman (untrained = selected) | 0.602 | 0.613 | 0.555 | 0.284 | 0.483 | 0.579 |
-| RDE, selected (step 200) | **0.620** | 0.616 | **0.478** | 0.269 | **0.539** | 0.579 |
+| native (7-frame bank) | 0.617 | 0.599 | **0.486** | 0.283 | 0.462 | 0.563 |
+| RDE-VOS (untrained) | **0.623** | **0.638** | 0.533 | **0.237** | **0.542** | **0.616** |
 
-Paired Wilcoxon over the 8 C6 sequences (A − B; higher / lower; bootstrap 95%
-interval):
+Pooled lost-episode metrics: native lost 0.247 of polyp frames, mean episode 7.1
+frames, recovered 0.64, lost until the end 0.36; RDE-VOS 0.199, 3.7, 0.82, 0.18.
 
-| Comparison | Dice | Polyp-frame Dice | Empty-frame FP | Lost |
-|---|---|---|---|---|
-| RDE − EMA | +0.017 (5/3), p = 0.74, [−0.020, +0.061] | −0.007 (4/4), p = 0.84, [−0.027, +0.013] | −0.110 (0/3), p = 0.25, [−0.248, −0.009] | +0.002 (2/2), p = 0.88 |
-| RDE − Kalman | +0.018 (3/5), p = 0.95 | +0.003 (3/5), p = 0.84 | −0.077 (1/2), p = 0.50 | −0.015 (1/2), p = 0.75 |
-| RDE − native | +0.003 (3/5), p = 0.95 | +0.017 (4/4), p = 0.74 | −0.009 (2/2), p = 1.00 | −0.013 (3/2), p = 0.81 |
+Paired Wilcoxon over the 8 sequences (A − B; sequences where A is higher / lower;
+sequence-bootstrap 95% interval):
 
-**Reading.** With these guards, training no longer hurts: the trained RDE
-matches the EMA on polyp frames and lost frames. It has fewer empty-frame false
-positives (lower on all 3 sequences where they differ; the bootstrap interval
-excludes 0, but 3 sequences cannot reach Wilcoxon significance), so this is a
-hint, not a result. No update rule, trained or not, measurably beats the EMA on
-C6.
+| Comparison | Dice | Polyp-frame Dice | Empty-frame FP | Lost | Reappearance |
+|---|---|---|---|---|---|
+| RDE-VOS − native | +0.006 (5/3), p = 0.46, [−0.079, +0.079] | +0.039 (5/3), p = 0.38, [−0.045, +0.116] | +0.047 (3/1), p = 0.88 | −0.046 (3/4), p = 0.47 | +0.080 (5/2), p = 0.47 |
 
-**Why the Kalman did not learn.** Its parameters barely moved (noise-head
-output layer norm 0.017 at step 500; mean gradient norm 0.085), and its gains
-stayed at their untrained values (about 0.89 on present and 0.75 on empty
-training frames). The head's output layer starts at zero, so at lr 1e-4 its
-hidden layers get almost no gradient; the head can only redistribute noise
-within a frame (its output is mean-centred, so a frame-level trust is not
-learnable and its bias gradient is 0); and the gain on present frames is
-near-saturated (K ≈ 0.9). RDE's residual branches are not gated this way and
-learn at the same rate. A fair Kalman test needs a frame-level noise term and a
-learning rate chosen per rule on validation.
+**Reading.** Nothing differs significantly from native at n = 8. Because RDE-VOS
+is untrained, the comparison is between memory layouts, not a learned update
+rule: RDE-VOS reads the prompt memory and the last memory frame (its random RDE
+slot aside), which roughly matches the native 7-frame bank.
 
-## First protocol and dev split *(regenerated)*
+## Modified RKN with detector observations (dev, held-out seq13–15)
+
+Trained on dev seq1–12 (`scripts/train_memory.py --memory_update rkn
+--rkn_weight_factor 1.0 --clip_length 24 --absence_fraction 0.5 --nll_weight 0.02
+--fp_weight 0.5`, 500 steps x 4 clips, seed 0), validated on whole seq13–15
+every 100 steps; checkpoint = max polyp-frame Dice − 0.5 × empty-frame FP on
+seq13–15 (so these numbers are optimistic: selection and report use the same
+three videos). Per-sequence means; native MedSAM2 on the same videos for
+reference. Outputs: Drive `outputs/polypgen/rkn_detector/` (run script,
+checkpoints, histories, `validation.json`, per-frame `check_*.json`). C6 not run.
+
+| seq13–15 | Polyp-frame Dice | Empty-frame FP | Lost |
+|---|---|---|---|
+| native MedSAM2 | 0.393 | 0.681 | 0.558 |
+| presence only (`--presence_only`, step 500) | 0.433 | 0.011 | 0.511 |
+| full, re-detection gated by presence and ρ (step 500; run overwritten) | 0.458 | 0.000 | 0.478 |
+| full, detector-triggered re-detection, untrained (step 0) | 0.797 | 0.878 | 0.107 |
+| **full, detector-triggered re-detection (step 500, selected)** | **0.778** | **0.022** | **0.129** |
+
+- The data-association update stopped the copying of earlier versions:
+  effective gain 0.53 on right polyp frames, 0.19 on wrong ones, 0.06 on empty
+  frames (presence only: 0.61 everywhere).
+- Re-detection never fired, in training or on seq13–15: the corrected presence
+  closes the gate on 44% of polyp frames (mostly frames where the tracker is
+  lost, which its cost-weighted loss makes free to close) and vetoed it, and ρ
+  never fell below 0.5 (min 0.62 on seq13–15; lost-frame median 0.66 on the
+  training videos too). The full model's gain over presence only came from the
+  memory, pointer gating and presence, and mostly from one video (pooled
+  Dice seq13 0.256 vs 0.178; seq14 0.265 vs 0.271; seq15 0.854 vs 0.851).
+- The re-detection trigger was then changed to the detector's confident
+  disagreement alone, set on the training videos (see the method description).
+  ρ remains miscalibrated (too high on lost frames); it still weights the
+  write and gates pointers.
+- With that trigger (`full/`, run on 2026-10-09): 28.5% of polyp frames are
+  re-detected (pooled Dice 0.792 on them) and 1.1% of empty frames. The other
+  polyp frames, tracked from the memory, reach pooled Dice 0.752 (presence
+  only: 0.365), so the corrected memory carries the object forward. Pooled
+  polyp Dice 0.763 (seq13 0.741, seq14 0.726, seq15 0.866); 9.4% of polyp
+  frames are blank. Effective gain 0.41 on right polyp frames, 0.23 on wrong
+  ones, 0.05 on empty frames.
+- Most of the Dice gain is already present untrained (step 0: Dice 0.797,
+  FP 0.878): it comes from detector-triggered re-detection plus a memory that
+  propagates the corrected mask. Training cut the empty-frame FP from 0.878 to
+  0.022 at a Dice cost of 0.019. Not yet separated: the same re-detection with
+  native MedSAM2's bank or with a fixed-gain memory, and the detector box
+  decoded on every frame without memory.
+
+### Pre-registered: re-detection comparisons and the C6 test (written 2026-10-09, before any C6 run)
+
+Script: Drive `outputs/polypgen/rkn_detector/comparisons/eval_methods.py`
+(same prompt and scoring as the training validation: tight box of the first
+annotated frame, propagated frames only). Methods, all fixed now:
+
+| Method | Memory | Re-detection |
+|---|---|---|
+| `native` | MedSAM2's 7-frame bank | no |
+| `native_redetect` | MedSAM2's 7-frame bank | yes |
+| `detector_only` | none: the detector box decoded on memory-free features on every frame with confidence ≥ 0.5, empty otherwise | — |
+| `rde` / `rde_redetect` | RDE-VOS (official, untrained, seed 0; its selected step was always 0) | no / yes |
+| `kalman_untrained` | modified RKN, untrained (seed 0) | yes |
+| `presence_only` | modified RKN, presence-only checkpoint (step 500) | no |
+| `kalman_full` | modified RKN, `full/memory_update.pt` (step 500), unchanged | yes |
+
+Re-detection everywhere uses the same trigger (detector confidence ≥ 0.5, box
+IoU with the mask < 0.5) and memory-free box decoding.
+
+1. All methods run on dev seq13–15 (the validation videos), then once on C6
+   seq16–23. Nothing is changed between the two.
+2. Primary C6 comparison: `kalman_full` − `native`, per-sequence polyp-frame Dice
+   and empty-frame FP rate (paired Wilcoxon over the 8 sequences; n = 8).
+3. Attribution: the learned Kalman memory is said to contribute only if
+   `kalman_full` beats both `native_redetect` and `rde_redetect` on per-sequence
+   polyp-frame Dice − 0.5 × empty-frame FP on seq13–15 **and** on C6. Otherwise
+   the gain is reported as coming from detector re-detection.
+4. Reproduction check: `native` on C6 must match the archived native C6 row
+   (polyp-frame Dice 0.599, empty-frame FP 0.486, lost 0.283).
+
+### Results of the pre-registered comparisons (run 2026-10-09)
+
+Drive `outputs/polypgen/rkn_detector/comparisons/{dev_seq13-15,c6_seq16-23}/`
+(per-frame JSON per method, `run_comparisons.sh`). Per-sequence means; J =
+polyp-frame Dice − 0.5 × empty-frame FP. The native rows reproduce the training
+validation on seq13–15 and the archived native C6 row exactly (0.599 / 0.486 /
+0.283).
+
+| Method | seq13–15 Dice / FP / lost / J | C6 Dice / FP / lost / J |
+|---|---|---|
+| native | 0.393 / 0.681 / 0.558 / 0.053 | 0.599 / 0.486 / 0.283 / 0.355 |
+| native_redetect | 0.810 / 0.773 / 0.099 / 0.423 | **0.774** / 0.562 / **0.104** / 0.493 |
+| detector_only | **0.815** / 0.023 / 0.117 / **0.804** | 0.742 / 0.086 / 0.193 / **0.699** |
+| rde | 0.408 / 0.955 / 0.523 / −0.069 | 0.575 / 0.544 / 0.316 / 0.303 |
+| rde_redetect | 0.805 / 0.920 / **0.093** / 0.345 | 0.761 / 0.587 / 0.118 / 0.468 |
+| kalman_untrained | 0.794 / 0.804 / 0.113 / 0.392 | 0.711 / 0.523 / 0.188 / 0.450 |
+| presence_only | 0.433 / **0.011** / 0.511 / 0.428 | 0.544 / **0.038** / 0.386 / 0.525 |
+| kalman_full | 0.778 / 0.022 / 0.129 / 0.767 | 0.708 / 0.088 / 0.206 / 0.663 |
+
+Paired Wilcoxon over the 8 C6 sequences (A − B; sequences higher / lower):
+
+| Comparison | Dice | FP | J |
+|---|---|---|---|
+| kalman_full − native (primary) | +0.109 (7/1), p = 0.078 | −0.398 (0/6), p = 0.031 | +0.308 (8/0), p = 0.008 |
+| kalman_full − native_redetect | −0.066 (2/6), p = 0.15 | −0.473 (0/6), p = 0.031 | +0.170 (6/2), p = 0.15 |
+| kalman_full − rde_redetect | −0.054 (2/6), p = 0.039 | −0.499 (0/5), p = 0.062 | +0.196 (5/3), p = 0.15 |
+| kalman_full − detector_only | −0.035 (1/7), p = 0.20 | +0.002 (1/1), p = 1.0 | −0.036 (1/7), p = 0.20 |
+| kalman_full − presence_only | +0.164 (7/1), p = 0.016 | +0.050 (2/1), p = 0.50 | +0.138 (6/2), p = 0.11 |
+| kalman_full − kalman_untrained | −0.004 (3/5), p = 0.74 | −0.435 (0/5), p = 0.062 | +0.214 (6/2), p = 0.055 |
+
+**Reading.**
+
+- Primary: the full model beats native MedSAM2 on C6 (J +0.31, 8/8 sequences,
+  p = 0.008; FP −0.40, p = 0.031; Dice +0.11, p = 0.078).
+- The pre-registered attribution rule is met (kalman_full's J is above
+  native_redetect's and rde_redetect's on both seq13–15 and C6), but the rule
+  was too weak: the J advantage over those two is entirely fewer false
+  positives (the detector-corrected presence), while their Dice is higher
+  (C6: −0.066 and −0.054 for kalman_full). The rule did not include the
+  memory-free detector_only baseline, which is better than kalman_full on both
+  splits (C6 Dice 0.742 vs 0.708, J 0.699 vs 0.663, 7 of 8 sequences; not
+  significant). So the data do not show that the learned Kalman memory adds
+  to segmentation beyond decoding the detector's box; the gain over native
+  MedSAM2 comes from the detector (re-detection and presence).
+- Training changed false positives, not Dice (vs untrained: Dice −0.004, FP −0.44).
+- The memory helps where the detector fails and hurts where it succeeds:
+  seq18 Dice 0.58 (detector_only 0.19), seq23 0.49 (detector_only 0.87).
+- C6 has now been used for this comparison too; further design choices must
+  not be checked on it. The adenoid data remain the clean test.
+
+## Archived: hand-set Kalman and EMA memories *(regenerated from saved CSVs; code removed)*
+
+The hand-set Kalman filter (`K = P⁻/(P⁻ + R)`, `R` switched by MedSAM2's presence
+probability, q = 1, r = 0.1, a = 10) and the constant-gain EMA
+(`--fixed_gain 0.835 0.266`) were removed; both are at commit `fa3df57`. On C6
+(`polypgen/c6/{ema,kalman}`): EMA Dice 0.603, polyp-frame Dice 0.623, empty-frame
+FP 0.587, lost 0.268; Kalman 0.602, 0.613, 0.555, 0.284; neither differed
+significantly from native or from each other. The sections below compare them
+on the first protocol, dev and CholecSeg8k.
+
+### First protocol and dev split *(regenerated)*
 
 Archived runs in `polypgen/all23/` (`native`, `native_prompt_plus_1frame`,
 `kalman`, `ema`; older pipeline, frames in correct
@@ -294,7 +391,7 @@ MedSAM2 image features with the previous frame; tercile cuts 0.033 / 0.117):**
 
 (The earlier version of this table differed by at most 0.003.)
 
-## Robustness analyses *(regenerated)*
+### Robustness analyses *(regenerated)*
 
 `scripts/analyze_reappearance.py` (polyp frames 1–10 after at least one empty
 frame, mean per offset then per sequence; 23 sequences): native 0.544, prompt + 1
@@ -312,7 +409,7 @@ EMA − native +0.035 (10/7), p = 0.10.
 
 Both robustness analyses are post hoc and use the all-23 runs.
 
-## Gain variants *(archived; code removed, Drive folders 21–23 deleted)*
+### Gain variants *(archived; code removed, Drive folders 21–23 deleted)*
 
 Each was judged on dev by a rule fixed beforehand; none went to C6. The code is
 in git history (reliability `e0c1e44`, motion noise `1b520c7` / `628bcf1`, oracle
@@ -334,7 +431,7 @@ in git history (reliability `e0c1e44`, motion noise `1b520c7` / `628bcf1`, oracl
 0.183. This bounds what an informed write decision could gain on PolypGen dev;
 it is not reproducible from the current code.
 
-## CholecSeg8k *(partly regenerated)*
+### CholecSeg8k *(partly regenerated)*
 
 Gallbladder class, 88 sequences of 80 frames from 16 videos, split by video
 (dev 60 sequences, test 28 from 6 videos); `outputs/cholecseg8k/`. The
@@ -386,10 +483,11 @@ first design is reproduced by running `infer.py` without `--nested_labels`.
 
 | Folder | Content |
 |---|---|
-| `polypgen/c6/{native,ema,kalman}` | C6 runs, current pipeline |
-| `polypgen/c6/analysis`, `efficiency` | regenerated C6 tables; memory and FPS |
-| `polypgen/update_rules/{rde_trained,kalman_trained}` | trained RDE and Kalman updates (checkpoints, logs, validation) |
-| `polypgen/update_rules/c6/{rde_step200,analysis}` | the selected RDE's C6 run and tables |
+| `polypgen/c6/native` | native MedSAM2 on C6 |
+| `polypgen/c6/{ema,kalman}`, `analysis`, `efficiency` | archived hand-set Kalman and EMA C6 runs and tables; memory and FPS |
+| `polypgen/update_rules_new/rde_trained` | trained RDE-VOS update: checkpoints `kalman_memory*.pt`, `history.jsonl`, `validation.json`, logs |
+| `polypgen/update_rules_new/c6/{rde,analysis}` | its C6 run (selected step 0) and the comparison with native |
+| `polypgen/update_rules/` | earlier trained update rules (hand-set-Kalman noise head, re-implemented RDE); superseded |
 | `polypgen/all23/{native,native_prompt_plus_1frame,kalman,ema}` | archived all-23 runs (first protocol) |
 | `polypgen/all23/analysis_all23`, `analysis_dev` | regenerated tables for all 23 sequences and for dev |
 | `cholecseg8k/{native,native_prompt_plus_1frame,kalman,ema}` | archived CholecSeg8k runs; `split.json` |
@@ -399,8 +497,9 @@ Overlay images were removed (rerun `evaluation/temporal.py` without
 `--no_overlays` to regenerate them). Deleted as failed or superseded: the dev
 gain variants (reliability, motion noise, skip + reliability), the C6 motion
 rerun, the oracle and score-gate CholecSeg8k runs, the first-design REFUGE run,
-the untrained checkpoint, and the early summary tables. `outputs/README.md`
-describes each folder.
+the untrained checkpoint, and the early summary tables. The official-code RKN
+runs (`update_rules_new/kalman_trained`, `rkn_ab_trained`, `c6/rkn`) are
+discarded and can be deleted. `outputs/README.md` describes each folder.
 
 ## Caveats
 
@@ -413,3 +512,6 @@ describes each folder.
 - Missing baselines: a trimmed 7-slot bank, SAMURAI, SAM2Long, DAM4SAM, and
   EMA-SAM (the closest prior work: a confidence-weighted moving-average memory
   for medical SAM2).
+- RDE-VOS was trained by code before the `recurrent_memory.py`
+  refactor (same computation; `update_rules_new/code.diff` records the code after
+  it). For exact provenance, retrain from a commit.

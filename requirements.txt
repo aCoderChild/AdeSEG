@@ -11,4 +11,7 @@ iopath>=0.1.10
 transformers>=4.48,<5
 tensordict  # MedSAM2's training batch format
 tensorboard  # imported by MedSAM2's trainer logger
+ultralytics  # YOLOv8 detector used by the recurrent-memory experiments
+retrying  # dependency imported by external/RDE-VOS-CVPR2022
+wandb  # default experiment tracking; local run files are under the chosen output directory
 pytest

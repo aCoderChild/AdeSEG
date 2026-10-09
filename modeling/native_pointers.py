@@ -2,7 +2,7 @@
 
 import torch
 
-from MedSAM2.sam2.modeling.sam2_utils import get_1d_sine_pe, select_closest_cond_frames
+from external.MedSAM2.sam2.modeling.sam2_utils import get_1d_sine_pe, select_closest_cond_frames
 
 
 def append_native_object_pointers(
@@ -43,7 +43,7 @@ def append_native_object_pointers(
         if t < 0 or (num_frames is not None and t >= num_frames):
             break
         output = output_dict["non_cond_frame_outputs"].get(t, unselected_cond.get(t))
-        if output is not None and not output.get("kalman_missing", False):  # --skip_absent frames add no pointer
+        if output is not None:
             positions_and_pointers.append((frame_distance, output["obj_ptr"]))
     if not positions_and_pointers:
         return 0

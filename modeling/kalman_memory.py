@@ -1,360 +1,233 @@
-"""Uncertainty-aware Kalman spatial memory for frozen MedSAM2."""
+"""Memory update: a Kalman filter with learned noise, built from RecursiveKalmanNet's official code
+(external/RecursiveKalmanNet, Mortada et al., EUSIPCO 2025), with a polyp detector as an
+observation independent of MedSAM2.
+
+The recurrent state is the object's appearance memory. The filter is the official
+``KalmanFilter`` (``step``: predict, innovation, gain K = P- H^T S^-1, Joseph-form covariance) with
+F = H = 1 on every element of MedSAM2's 64x32x32 memory; the measurement z is a frame memory.
+Each update is weighted by the probability beta that the measurement really is the prompted
+object (probabilistic data association, Bar-Shalom):
+
+    x = x- + beta K (z - x-),   P = beta P+ + (1 - beta) P- + beta (1 - beta) (K (z - x-))^2,
+
+so an absent or unreliable frame only predicts (x kept, P grows by Q), whatever Q and R are.
+Four official ``GRUNetwork``s (RKN's default configuration) learn:
+
+- presence p (per frame, inside MedSAM2's decoder): a correction of MedSAM2's object score from
+  the score, the detector's top-box confidence and its box IoU with MedSAM2's mask; the fused
+  score gates MedSAM2's output mask, object pointer and memory, as MedSAM2's own score does;
+- reliability rho (per frame, before the memory is written): the expected IoU of the tracker's
+  mask, from the detector confidence, box IoU and the object pointer's similarity to the
+  prompt's. ``modeling.recurrent_memory`` uses it for beta = p rho and to gate the object pointer.
+  When a confident detection disagrees with the mask (or the gate is closed), the frame is
+  re-detected: decoded from the detector box on memory-free features, and that mask is output
+  and written, with beta = its presence x detector confidence;
+- process noise Q (per pixel): from the image-feature change since the previous frame;
+- measurement noise R (per pixel): where in the frame to trust, from MedSAM2's mask probability,
+  the detector box and the new memory's distance to the prompt memory.
+
+No input compares the new memory with the state itself: a corrupted state would vouch for the
+wrong frames that resemble it. ``training.memory_trainer.RKNLoss`` trains the networks.
+"""
 
 from __future__ import annotations
 
-import math
+import sys
+from pathlib import Path
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
-from modeling.native_pointers import append_native_object_pointers
-from sam2.sam2_video_predictor import SAM2VideoPredictor
+OFFICIAL_ROOT = Path(__file__).resolve().parents[1] / "external" / "RecursiveKalmanNet"
+if str(OFFICIAL_ROOT) not in sys.path:
+    sys.path.append(str(OFFICIAL_ROOT))  # the official code imports its package as `Algo`
 
-CHECKPOINT_FORMAT = "adseg_kalman_memory_v5"
-LEGACY_CHECKPOINT_FORMAT = "adseg_kalman_memory_v4"
+from Algo.KalmanFilter import KalmanFilter  # noqa: E402
+from Algo.RecursiveKalmanNet import GRUNetwork  # noqa: E402
+
+# RKN.load_or_init_rnns' default GRU configuration.
+GRU_CONFIGURATION = {"nb_layer_FC1": 1, "FC1_mult": 10, "nbr_GRU": 1, "hidden_size_mult": 10,
+                     "nb_layer_FC2": 1, "FC2_mult": 20}
+PRESENCE_INPUTS = 3  # object score, detector confidence, detector-mask box IoU
+RELIABILITY_INPUTS = 3  # detector confidence, box IoU, pointer similarity
+PROCESS_INPUTS = 1  # image-feature change
+MEASUREMENT_INPUTS = 3  # mask probability, detector box, distance to the prompt memory
+PRESENCE_SCALE = 10.0  # the presence network's output, in object-score logits
+RELIABILITY_BIAS = 3.0  # rho starts at sigmoid(3) = 0.95: untrained, pointers are kept and nothing is re-detected
 
 
-def _noise_head(in_channels: int, hidden: int) -> nn.Sequential:
-    head = nn.Sequential(
-        nn.Conv2d(in_channels, hidden, 3, padding=1),
-        nn.GELU(),
-        nn.Conv2d(hidden, 1, 3, padding=1),
-    )
-    nn.init.zeros_(head[-1].weight)
-    nn.init.zeros_(head[-1].bias)
-    return head
+def _network(inputs: int, weight_factor: float) -> GRUNetwork:
+    """An official GRUNetwork (1-D state and observation, one output) with ``inputs`` features."""
+    network = GRUNetwork(1, 1, 1, GRU_CONFIGURATION, weight_factor=weight_factor)
+    if inputs != network.input_size:  # resize the input layer, initialised as GRUNetwork does
+        first = network.fc1[0]
+        wider = nn.Linear(inputs, first.out_features)
+        with torch.no_grad():
+            wider.weight.mul_(weight_factor)
+            wider.bias.mul_(weight_factor)
+        network.fc1[0] = wider
+    return network
 
 
-class KalmanMemoryUpdate(nn.Module):
-    def __init__(
-        self,
-        memory_channels: int,
-        image_channels: int,
-        hidden_channels: int = 64,
-        projection_channels: int = 32,
-        initial_variance: float = 1.0,
-        process_noise: float = 1.0,
-        observation_noise: float = 0.1,
-        absence_noise: float = 10.0,
-        noise_range: float = 10.0,
-        min_variance: float = 1e-4,
-        max_variance: float = 1e4,
-    ):
+class _LearnedNoiseKalmanFilter(KalmanFilter, nn.Module):
+    """The official KalmanFilter with Q and R set each step from the noise networks (as ``RKN``
+    combines KalmanFilter with nn.Module). ``predict_cov`` and ``calc_innov_cov`` build Q_t and
+    R_t in one tensor operation instead of the official per-filter loop; the values are the same."""
+
+    def __init__(self, initial_variance: float, weight_factor: float):
+        nn.Module.__init__(self)
+        self.register_buffer("one", torch.ones(1, 1))  # F = H = 1, on the module's device
+        KalmanFilter.__init__(self, [lambda t: self.one, None, lambda t: self.one, None], torch.zeros(1, 1),
+                              torch.full((1, 1), initial_variance))
+        self.rnn_Q = _network(PROCESS_INPUTS, weight_factor)
+        self.rnn_R = _network(MEASUREMENT_INPUTS, weight_factor)
+        self.Q_values = self.R_values = None
+
+    def predict_cov(self, t):
+        self.Q_t = self.Q_values
+        self.P_prior = self.F_t @ self.P @ self.F_t.transpose(1, 2) + self.Q_t
+
+    def calc_innov_cov(self, t):
+        self.R_t = self.R_values
+        self.S = self.H_t @ self.P_prior @ self.H_t.transpose(1, 2) + self.R_t
+
+    def calc_gain(self):
+        """The official K = P- H^T S^-1 with S^-1 = 1 / S (S is 1x1; torch.linalg.inv of 65k 1x1
+        matrices takes about 11 s on MPS)."""
+        self.K = self.P_prior @ self.H_t.transpose(1, 2) * self.S.reciprocal()
+
+
+def _elements(x: torch.Tensor) -> torch.Tensor:
+    """[B, C, H, W] -> [B*C*H*W, 1, 1]: one scalar filter per memory element."""
+    return x.reshape(-1, 1, 1)
+
+
+def _pixels(x: torch.Tensor) -> torch.Tensor:
+    """[B, F, H, W] -> [1, B*H*W, F]: one GRU sequence step per memory pixel."""
+    return x.permute(0, 2, 3, 1).reshape(1, -1, x.size(1))
+
+
+def _frame(x: torch.Tensor) -> torch.Tensor:
+    """[B, F] -> [1, B, F]: one GRU sequence step per video."""
+    return x.unsqueeze(0)
+
+
+def box_iou(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """IoU of normalised [B, 4] x1, y1, x2, y2 boxes -> [B, 1]; 0 when either is empty."""
+    width = (torch.minimum(a[:, 2], b[:, 2]) - torch.maximum(a[:, 0], b[:, 0])).clamp_min(0)
+    height = (torch.minimum(a[:, 3], b[:, 3]) - torch.maximum(a[:, 1], b[:, 1])).clamp_min(0)
+    area = lambda box: (box[:, 2] - box[:, 0]) * (box[:, 3] - box[:, 1])
+    union = area(a) + area(b) - width * height
+    return torch.where(union > 0, width * height / union.clamp_min(1e-12), torch.zeros_like(union)).unsqueeze(1)
+
+
+def mask_box(masks: torch.Tensor) -> torch.Tensor:
+    """Normalised box of each [B, H, W] mask's foreground (> 0) -> [B, 4]; zeros when empty."""
+    boxes = []
+    for mask in masks:
+        points = torch.nonzero(mask > 0)
+        if len(points) == 0:
+            boxes.append(mask.new_zeros(4))
+            continue
+        (y1, x1), (y2, x2) = points.min(0).values, points.max(0).values
+        height, width = mask.shape
+        boxes.append(torch.stack([x1 / width, y1 / height, (x2 + 1) / width, (y2 + 1) / height]).float())
+    return torch.stack(boxes)
+
+
+def box_map(boxes: torch.Tensor, values: torch.Tensor, size) -> torch.Tensor:
+    """[B, 1, H, W] map holding ``values`` [B, 1] inside each normalised box, 0 outside."""
+    height, width = size
+    ys = (torch.arange(height, device=boxes.device) + 0.5) / height
+    xs = (torch.arange(width, device=boxes.device) + 0.5) / width
+    inside_y = (ys[None] >= boxes[:, 1:2]) & (ys[None] <= boxes[:, 3:4])
+    inside_x = (xs[None] >= boxes[:, 0:1]) & (xs[None] <= boxes[:, 2:3])
+    return (inside_y[:, :, None] & inside_x[:, None, :]).float().unsqueeze(1) * values[..., None, None]
+
+
+class RKNMemoryUpdate(nn.Module):
+    """Official Kalman filter on the appearance memory, with learned noise, presence and write reliability."""
+
+    CHECKPOINT_KIND = "rkn_detector"
+    uses_detector = True
+
+    def __init__(self, memory_channels: int, image_channels: int, initial_variance: float = 1.0,
+                 weight_factor: float = 0.1, learn_memory: bool = True):
         super().__init__()
         self.memory_channels = memory_channels
         self.image_channels = image_channels
-        self.config = {
-            "hidden_channels": hidden_channels,
-            "projection_channels": projection_channels,
-            "initial_variance": initial_variance,
-            "process_noise": process_noise,
-            "observation_noise": observation_noise,
-            "absence_noise": absence_noise,
-            "noise_range": noise_range,
-            "min_variance": min_variance,
-            "max_variance": max_variance,
-        }
-        self.min_variance = min_variance
-        self.max_variance = max_variance
-        self.process_noise = process_noise
-        self.observation_noise = observation_noise
-        self.absence_noise = absence_noise
-        self.log_noise_range = math.log(noise_range)
-        self.image_projection = nn.Conv2d(image_channels, projection_channels, 1)
-        self.observation_head = _noise_head(2 * memory_channels + projection_channels + 2, hidden_channels)
-        self.register_buffer("log_initial_variance", torch.tensor(math.log(initial_variance)))
-        self.uncertainty_embedding = nn.Parameter(torch.zeros(memory_channels))
+        # learn_memory=False (presence-only ablation): Q, R and rho keep their initial networks, beta = 1,
+        # pointers are not gated and nothing is re-detected; only the presence correction is learned.
+        self.config = {"initial_variance": initial_variance, "weight_factor": weight_factor, "learn_memory": learn_memory}
+        self.filter = _LearnedNoiseKalmanFilter(initial_variance, weight_factor)
+        self.rnn_presence = _network(PRESENCE_INPUTS, weight_factor)
+        self.rnn_reliability = _network(RELIABILITY_INPUTS, weight_factor)
+        self.fixed_gain = None  # Evaluation-only EMA control; set after loading the same RKN checkpoint.
 
-    def correction(self, head_output: torch.Tensor) -> torch.Tensor:
-        return torch.exp(self.log_noise_range * torch.tanh(head_output))
+    def networks(self):
+        return self.rnn_presence, self.rnn_reliability, self.filter.rnn_Q, self.filter.rnn_R
 
-    def project_image(self, image_feature: torch.Tensor) -> torch.Tensor:
-        return self.image_projection(image_feature)
+    def trainable_networks(self):
+        return self.networks() if self.config["learn_memory"] else (self.rnn_presence,)
 
-    def initial_variance(self, mean: torch.Tensor) -> torch.Tensor:
-        return self.log_initial_variance.exp().expand(mean.size(0), 1, *mean.shape[-2:])
+    def start(self, memory: torch.Tensor) -> torch.Tensor:
+        """Reset the GRU states for a new video; returns P0 for every element."""
+        batch, _, height, width = memory.shape
+        for network in (self.rnn_presence, self.rnn_reliability):
+            network.reset_hidden_state(batch)
+        for network in (self.filter.rnn_Q, self.filter.rnn_R):
+            network.reset_hidden_state(batch * height * width)
+        return self.filter.P0.to(memory.device).expand(memory.numel(), -1, -1)
 
-    def readout(self, mean: torch.Tensor, variance: torch.Tensor) -> torch.Tensor:
-        return mean + self.uncertainty_embedding.view(1, -1, 1, 1) * torch.log1p(variance)
+    def presence(self, object_score: torch.Tensor, detection: dict, mask_box_iou: torch.Tensor) -> torch.Tensor:
+        """MedSAM2's object score [B, 1] corrected by the detector evidence."""
+        inputs = torch.cat([object_score / 10.0, detection["confidence"], mask_box_iou], dim=1).detach()
+        return object_score + PRESENCE_SCALE * self.rnn_presence(_frame(inputs.float())).squeeze(0)
 
-    def predict(self, variance):
-        """Kalman predict: P⁻ = P + q (identity transition)."""
-        return (variance + self.process_noise).clamp(self.min_variance, self.max_variance)
+    def reliability(self, detection_confidence, mask_box_iou, pointer_similarity) -> torch.Tensor:
+        """Logit of rho [B, 1], the expected IoU of the tracker's mask for this frame."""
+        inputs = torch.cat([detection_confidence, mask_box_iou, pointer_similarity], dim=1).detach()
+        return self.rnn_reliability(_frame(inputs.float())).squeeze(0) + RELIABILITY_BIAS
 
-    def update(self, mean, prior_variance, candidate, image_projection, mask_probability, presence_probability):
-        """Kalman update with presence-dependent measurement noise.
+    def noise(self, network, inputs, channels):
+        """Per-pixel noise variance from a GRU network, repeated over the memory channels."""
+        batch, _, height, width = inputs.shape
+        log_variance = network(_pixels(inputs.detach())).reshape(batch, height, width, 1).permute(0, 3, 1, 2)
+        return torch.exp(log_variance).expand(-1, channels, -1, -1)
 
-        R_t = (r + a·(1 − p_t)) · c(spatial map), so an absent frame (p_t → 0) is
-        trusted far less than a present one; c = 10^tanh starts at 1 (untrained).
-        K = P⁻/(P⁻ + R); S ← S + K(C_t − S); P ← (1 − K)P⁻.
-        """
-        if mean.shape != candidate.shape or mean.ndim != 4:
-            raise ValueError("mean and candidate must be matching [B, C, H, W] tensors.")
-        batch, _, height, width = mean.shape
-        mask_probability = F.interpolate(mask_probability, size=(height, width), mode="area")
-        presence = presence_probability.reshape(batch, 1, 1, 1)
-        innovation = candidate - mean
-        spatial = self.observation_head(torch.cat([
-            candidate,
-            F.normalize(innovation, dim=1),
-            image_projection,
-            mask_probability,
-            presence.expand(batch, 1, height, width),
-        ], dim=1))
-        base = self.observation_noise + self.absence_noise * (1.0 - presence)
-        observation_noise = base * self.correction(spatial - spatial.mean(dim=(2, 3), keepdim=True))
-        gain = prior_variance / (prior_variance + observation_noise)
-        return {
-            "mean": mean + gain * innovation,
-            "variance": ((1.0 - gain) * prior_variance).clamp(self.min_variance, self.max_variance),
-            "gain": gain,
-            "observation_noise": observation_noise,
-        }
-
-
-def vision_feature_map(current_vision_feats, feat_sizes) -> torch.Tensor:
-    feature = current_vision_feats[-1]
-    return feature.permute(1, 2, 0).reshape(feature.size(1), -1, *feat_sizes[-1])
-
-
-class KalmanState:
-    """Fixed prompt anchor slot plus the Kalman mean/variance of the spatial memory."""
-
-    def __init__(self, anchor, position, frame_idx, update: KalmanMemoryUpdate):
-        self.anchor = anchor.float()
-        self.position = position.float()
-        self.mean = self.anchor
-        self.variance = update.initial_variance(self.mean)
-        self.last_frame_idx = frame_idx
-        self.updates = 0
-        self.previous_feature = None  # image features of the previous frame, for the camera-motion measure
-
-    def tensors(self) -> list[torch.Tensor]:
-        return [self.anchor, self.position, self.mean, self.variance]
-
-
-class KalmanMemoryMixin:
-    """Put before a ``SAM2Base`` subclass; inactive while ``memory_update`` is None or ``kalman_enabled`` is False."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.memory_update = None
-        self.kalman_enabled = True
-        self.kalman_last_step = None
-        self._kalman_step = None
-        # Treat an absent frame as a missing measurement: K = 0 and no object pointer in attention.
-        self.kalman_skip_absent = False
-
-    def _kalman_active(self) -> bool:
-        return self.kalman_enabled and self.memory_update is not None
-
-    def _prepare_memory_conditioned_features(
-        self,
-        frame_idx,
-        is_init_cond_frame,
-        current_vision_feats,
-        current_vision_pos_embeds,
-        feat_sizes,
-        output_dict,
-        num_frames,
-        track_in_reverse=False,
-    ):
-        step = {"output_dict": output_dict, "frame_idx": frame_idx, "init": is_init_cond_frame}
-        if self._kalman_active():
-            batch = current_vision_feats[-1].size(1)
-            image_feature = current_vision_feats[-1].permute(1, 2, 0).reshape(batch, -1, *feat_sizes[-1])
-            step["projection"] = self.memory_update.project_image(image_feature.float())
-        if not self._kalman_active() or is_init_cond_frame:
-            step["pix_feat"] = super()._prepare_memory_conditioned_features(
-                frame_idx, is_init_cond_frame, current_vision_feats, current_vision_pos_embeds,
-                feat_sizes, output_dict, num_frames, track_in_reverse,
-            )
-            self._kalman_step = step
-            return step["pix_feat"]
-        if track_in_reverse:
-            raise ValueError("Kalman memory supports forward propagation only.")
-        state = output_dict["kalman_state"]
-        if frame_idx != state.last_frame_idx + 1:
-            raise ValueError("Kalman memory requires consecutive forward frames.")
-        feature = vision_feature_map(current_vision_feats, feat_sizes).float()
-        change = None
-        if state.previous_feature is not None:
-            change = 1.0 - F.cosine_similarity(feature, state.previous_feature, dim=1).unsqueeze(1)
-        state.previous_feature = feature
-        step["feature_change"] = change  # camera motion, logged for the motion-stratified analysis
-        step["prior_variance"] = self.memory_update.predict(state.variance)
-        dtype = current_vision_feats[-1].dtype
-        memory_chunks, position_chunks = kalman_memory_tokens(
-            self, state.anchor, self.memory_update.readout(state.mean, step["prior_variance"]),
-            state.position, dtype,
-        )
-        num_obj_ptr_tokens = append_native_object_pointers(
-            self, frame_idx, output_dict, num_frames, track_in_reverse,
-            current_vision_feats[-1].device, batch, memory_chunks, position_chunks,
-        )
-        fused = self.memory_attention(
-            curr=current_vision_feats,
-            curr_pos=current_vision_pos_embeds,
-            memory=torch.cat(memory_chunks, dim=0),
-            memory_pos=torch.cat(position_chunks, dim=0),
-            num_obj_ptr_tokens=num_obj_ptr_tokens,
-        )
-        step["pix_feat"] = fused.permute(1, 2, 0).reshape(batch, self.hidden_dim, *feat_sizes[-1])
-        self._kalman_step = step
-        return step["pix_feat"]
-
-    def _encode_memory_in_output(
-        self,
-        current_vision_feats,
-        feat_sizes,
-        point_inputs,
-        run_mem_encoder,
-        high_res_masks,
-        object_score_logits,
-        current_out,
-    ):
-        super()._encode_memory_in_output(
-            current_vision_feats, feat_sizes, point_inputs, run_mem_encoder,
-            high_res_masks, object_score_logits, current_out,
-        )
-        if current_out["maskmem_features"] is not None:
-            # MedSAM2's video predictor stores frame memories in bf16; round here so training matches it.
-            features = current_out["maskmem_features"]
-            current_out["maskmem_features"] = features.to(torch.bfloat16).to(features.dtype)
-        step, self._kalman_step = self._kalman_step, None
-        if step is None:
-            return
-        current_out["pix_feat_with_mem"] = step["pix_feat"]
-        candidate = current_out.get("maskmem_features")
-        if not self._kalman_active() or candidate is None:
-            return
-        output_dict, frame_idx = step["output_dict"], step["frame_idx"]
-        if step["init"]:
-            output_dict["kalman_state"] = KalmanState(
-                candidate, current_out["maskmem_pos_enc"][-1], frame_idx, self.memory_update,
-            )
-            output_dict["kalman_state"].previous_feature = vision_feature_map(current_vision_feats, feat_sizes).float()
-            return
-        state = output_dict["kalman_state"]
-        presence = torch.sigmoid(object_score_logits.float())
-        status = "absent" if self.kalman_skip_absent and bool((presence <= 0.5).all()) else "accepted"
-        updated = self.memory_update.update(
-            state.mean,
-            step["prior_variance"],
-            candidate.float(),
-            step["projection"],
-            torch.sigmoid(current_out["pred_masks"].float()),
-            presence,
-        )
-        if status != "accepted":  # missing measurement: keep the mean, let the variance grow
-            updated.update(mean=state.mean, variance=step["prior_variance"], gain=torch.zeros_like(updated["gain"]))
-        if not (torch.isfinite(updated["mean"]).all() and torch.isfinite(updated["variance"]).all()):
-            raise FloatingPointError(f"Kalman state became non-finite at frame {frame_idx}.")
-        state.mean, state.variance = updated["mean"], updated["variance"]
-        state.last_frame_idx = frame_idx
-        state.updates += 1
-        updated.update(presence=presence, prior_variance=step["prior_variance"], status=status)
-        if step.get("feature_change") is not None:
-            updated["feature_change"] = step["feature_change"]
-        current_out["kalman"] = updated
-        current_out["kalman_missing"] = status == "absent"
-        self.kalman_last_step = updated
-
-
-def _wait_for_offload(device: torch.device) -> None:
-    # MedSAM2 offloads with non_blocking=True; on MPS the host copy can still be in flight.
-    if device.type == "mps":
-        torch.mps.synchronize()
-
-
-class KalmanMemoryVideoPredictor(KalmanMemoryMixin, SAM2VideoPredictor):
-    """MedSAM2 video predictor with the anchor slot plus Kalman state."""
-
-    def propagate_in_video_preflight(self, inference_state):
-        if not inference_state.get("kalman_enabled", False):
-            raise ValueError("Kalman memory must be enabled before propagation.")
-        if self._get_obj_num(inference_state) != 1:
-            raise ValueError("Kalman memory currently supports exactly one object.")
-        if self.memory_update is None:
-            raise RuntimeError("Kalman memory requires a loaded checkpoint.")
-        super().propagate_in_video_preflight(inference_state)
-        outputs = inference_state["output_dict"]
-        anchor_idx = inference_state["kalman_anchor_frame_idx"]
-        if set(outputs["cond_frame_outputs"]) != {anchor_idx}:
-            raise ValueError("Kalman memory supports one initial prompt frame.")
-        anchor = outputs["cond_frame_outputs"][anchor_idx]
-        device = anchor["obj_ptr"].device
-        _wait_for_offload(device)
-        features = anchor["maskmem_features"].to(device)
-        outputs["kalman_state"] = KalmanState(
-            features, anchor["maskmem_pos_enc"][-1].to(device), anchor_idx, self.memory_update,
-        )
-        _, _, vision_feats, _, feat_sizes = self._get_image_feature(inference_state, anchor_idx, 1)
-        outputs["kalman_state"].previous_feature = vision_feature_map(vision_feats, feat_sizes).float()
-        anchor["maskmem_features"] = None
-        anchor["maskmem_pos_enc"] = None
-
-    def _reset_tracking_results(self, inference_state):
-        super()._reset_tracking_results(inference_state)
-        inference_state["output_dict"].pop("kalman_state", None)
-
-    def _run_single_frame_inference(self, *args, **kwargs):
-        self.kalman_last_step = None
-        current_out, pred_masks = super()._run_single_frame_inference(*args, **kwargs)
-        step = self.kalman_last_step
-        if step is not None and not kwargs["is_init_cond_frame"]:
-            current_out["maskmem_features"] = None
-            current_out["maskmem_pos_enc"] = None
-            current_out["kalman_missing"] = step["status"] == "absent"
-            current_out["kalman_trace"] = {
-                "kalman_status": step["status"],
-                "presence": float(step["presence"].mean()),
-                "gain_mean": float(step["gain"].mean()),
-                "prior_variance_mean": float(step["prior_variance"].mean()),
-                "feature_change_mean": float(step["feature_change"].mean()) if "feature_change" in step else float("nan"),
-                "variance_mean": float(step["variance"].mean()),
-                "observation_noise_mean": float(step["observation_noise"].mean()),
+    def update(self, state, covariance, memory, reliability):
+        """Kalman update weighted by ``reliability["association"]`` (beta [B, 1])."""
+        if self.fixed_gain is not None:
+            beta = reliability["association"] if self.config["learn_memory"] else torch.ones_like(reliability["association"])
+            gain = beta[..., None, None] * self.fixed_gain
+            return {
+                "mean": state + gain * (memory - state),
+                "covariance": covariance,
+                "gain": gain.detach(),
+                "association": beta.detach(),
             }
-        return current_out, pred_masks
-
-
-def kalman_memory_tokens(model, anchor, state_readout, position, dtype=None):
-    dtype = dtype or anchor.dtype
-    anchor_position = position + model.maskmem_tpos_enc[model.num_maskmem - 1].view(1, -1, 1, 1)
-    state_position = position + model.maskmem_tpos_enc[0].view(1, -1, 1, 1)
-    tokens = lambda tensor: tensor.to(dtype).flatten(2).permute(2, 0, 1)
-    return [tokens(anchor), tokens(state_readout)], [tokens(anchor_position), tokens(state_position)]
-
-
-def save_memory_update(update, path) -> None:
-    """Save a Kalman (``KalmanMemoryUpdate``) or RDE (``RDEMemoryUpdate``) memory update."""
-    from modeling.rde_memory import CHECKPOINT_KIND as RDE_KIND, RDEMemoryUpdate
-
-    torch.save({
-        "format": CHECKPOINT_FORMAT,
-        "kind": RDE_KIND if isinstance(update, RDEMemoryUpdate) else "kalman",
-        "memory_channels": update.memory_channels,
-        "image_channels": update.image_channels,
-        "update_config": update.config,
-        "state_dict": update.state_dict(),
-    }, path)
-
-
-def load_memory_update(path, model, device):
-    """Memory update from ``save_memory_update``, checked against ``model``'s MedSAM2 widths."""
-    from modeling.rde_memory import CHECKPOINT_KIND as RDE_KIND, RDEMemoryUpdate
-
-    checkpoint = torch.load(path, map_location=device, weights_only=True)
-    checkpoint_format = checkpoint.get("format")
-    if checkpoint_format not in (CHECKPOINT_FORMAT, LEGACY_CHECKPOINT_FORMAT):
-        raise ValueError(f"{path} is not a {CHECKPOINT_FORMAT} checkpoint.")
-    if (checkpoint["memory_channels"], checkpoint["image_channels"]) != (model.mem_dim, model.hidden_dim):
-        raise ValueError(f"{path} does not match this MedSAM2 model.")
-    kind = RDEMemoryUpdate if checkpoint.get("kind") == RDE_KIND else KalmanMemoryUpdate
-    update = kind(model.mem_dim, model.hidden_dim, **checkpoint["update_config"]).to(device)
-    state_dict = dict(checkpoint["state_dict"])
-    state_dict.pop("detection_trust.weight", None)
-    state_dict.pop("detection_trust.bias", None)
-    update.load_state_dict(state_dict)
-    return update.eval()
+        kf, (batch, channels, height, width) = self.filter, state.shape
+        to_prompt = torch.log((memory - reliability["prompt_memory"]).pow(2).mean(1, keepdim=True) + 1e-6)
+        detection_map = box_map(reliability["detection_box"], reliability["detection_confidence"], (height, width))
+        change = reliability.get("feature_change")
+        change = state.new_zeros(batch, 1, height, width) if change is None else change
+        kf.Q_values = _elements(self.noise(kf.rnn_Q, change, channels))
+        kf.R_values = _elements(self.noise(kf.rnn_R, torch.cat([
+            reliability["mask_probability"], detection_map, to_prompt,
+        ], dim=1), channels))
+        kf.x, kf.P = _elements(state), covariance
+        kf.step(_elements(memory), 0, None)
+        beta = reliability["association"] if self.config["learn_memory"] else torch.ones_like(reliability["association"])
+        beta = _elements(beta[..., None, None].expand(-1, channels, height, width))
+        correction = kf.K @ kf.y  # K (z - x-), the full Kalman correction
+        mean = kf.x_prior + beta * correction
+        covariance = beta * kf.P + (1 - beta) * kf.P_prior + beta * (1 - beta) * correction.pow(2)
+        gain = (beta * kf.K).reshape(state.shape)[:, :1]
+        return {
+            "mean": mean.reshape(state.shape),
+            "covariance": covariance,
+            "gain": gain.detach(),
+            "association": beta.reshape(state.shape)[:, :1, :1, :1].reshape(batch, 1).detach(),
+            "process_noise": kf.Q_t.reshape(state.shape)[:, :1].detach(),
+            "measurement_noise": kf.R_t.reshape(state.shape)[:, :1].detach(),
+        }

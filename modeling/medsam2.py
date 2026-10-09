@@ -27,7 +27,7 @@ def build_video_predictor(
     Custom predictors are selected through Hydra configuration overrides so the
     bundled MedSAM2 builder remains the single construction path.
     """
-    from MedSAM2.sam2.build_sam import build_sam2_video_predictor
+    from external.MedSAM2.sam2.build_sam import build_sam2_video_predictor
 
     device = _resolve_device(device)
     hydra_overrides = []

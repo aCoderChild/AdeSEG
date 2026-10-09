@@ -98,6 +98,7 @@ class ManifestVideoClips:
         image_size: int,
         clip_length: int,
         sample_by_video: bool = False,
+        absence_fraction: float = 0.0,
     ):
         if clip_length < 2:
             raise ValueError("clip_length must be at least 2.")
@@ -107,7 +108,9 @@ class ManifestVideoClips:
         self.label_ids = label_ids
         self.clip_length = clip_length
         self.sample_by_video = sample_by_video
+        self.absence_fraction = absence_fraction  # share of samples drawn from clips with an absent frame
         self.clips: list[tuple[list[ManifestFrame], int]] = []
+        self.has_absence: list[bool] = []
         seen_labels: set[int] = set()
         for frames in videos.values():
             if len(frames) < clip_length:
@@ -120,6 +123,7 @@ class ManifestVideoClips:
                 for start in range(len(frames) - clip_length + 1):
                     if present[start]:
                         self.clips.append((frames[start : start + clip_length], label_id))
+                        self.has_absence.append(not all(present[start : start + clip_length]))
         missing = sorted(set(label_ids) - seen_labels)
         if missing:
             raise ValueError(f"Requested label_ids are absent from this split: {missing}")
@@ -141,14 +145,17 @@ class ManifestVideoClips:
         return cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
 
     def sample(self, rng: np.random.Generator) -> dict[str, torch.Tensor | str | int]:
+        pool = self.clips
+        if self.absence_fraction > 0 and any(self.has_absence) and rng.random() < self.absence_fraction:
+            pool = [clip for clip, absent in zip(self.clips, self.has_absence) if absent]
         if self.sample_by_video:
             # A video first, then one of its clips, so a long video does not dominate.
-            videos = sorted({frames[0].video_id for frames, _ in self.clips})
+            videos = sorted({frames[0].video_id for frames, _ in pool})
             video_id = videos[int(rng.integers(len(videos)))]
-            candidates = [clip for clip in self.clips if clip[0][0].video_id == video_id]
+            candidates = [clip for clip in pool if clip[0][0].video_id == video_id]
             frames, label_id = candidates[int(rng.integers(len(candidates)))]
         else:
-            frames, label_id = self.clips[int(rng.integers(len(self.clips)))]
+            frames, label_id = pool[int(rng.integers(len(pool)))]
         images = np.stack([self._image(frame.image_path) for frame in frames]).astype(np.float32) / 255.0
         masks = np.stack([self._mask(frame.mask_path, label_id) for frame in frames])
         return {
@@ -160,6 +167,7 @@ class ManifestVideoClips:
             ),
             "present": torch.from_numpy(masks.reshape(len(masks), -1).any(axis=1)),
             "source": str(frames[0].image_path),
+            "image_paths": [str(frame.image_path) for frame in frames],
             "video_id": frames[0].video_id,
             "label_id": label_id,
             "absence_mode": "natural",

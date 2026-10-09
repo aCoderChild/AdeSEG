@@ -1,0 +1,13 @@
+{
+  "name": "PolypGen recurrent-memory development protocol v1",
+  "purpose": "Select recurrent-memory hyperparameters and compare fixed-gain and learned-Kalman updates.",
+  "training_videos": ["seq1", "seq2", "seq3", "seq4", "seq5", "seq6", "seq7", "seq8", "seq9", "seq10", "seq11", "seq12"],
+  "validation_videos": ["seq13", "seq14", "seq15"],
+  "exploratory_videos": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+  "locked_test": null,
+  "locked_test_requirement": "A new, never-consulted external dataset or prospectively held-out cohort is required before journal-level final testing.",
+  "selection_rule": "Maximise per-sequence polyp-frame Dice - 0.5 x empty-frame false-positive rate on validation only.",
+  "fixed_gain_control": "Sweep alpha on validation only; freeze the selected alpha before the locked test. Keep the full RKN checkpoint, detector, re-detection, presence gate and pointer gate identical.",
+  "seeds": [0, 1, 2, 3, 4],
+  "reporting": "Report every seed, mean and standard deviation; perform paired tests over videos on the locked test only."
+}
