@@ -114,9 +114,46 @@ def test_loss_targets_and_gradients():
                        "pred_masks_high_res": logits.clone().requires_grad_(), "tracker_masks_high_res": logits,
                        "ungated_mask": logits[..., ::4, ::4]})
         state, covariance = out["mean"], out["covariance"]
-    loss, parts = RKNLoss()([None, *frames], None, torch.stack([mask, mask, torch.zeros_like(mask)]))
-    assert set(parts) >= {"mask", "presence", "reliability", "nll", "tracker_iou"}
+    loss, parts = RKNLoss(gain_anchor_weight=0.1, gain_oracle_weight=0.25)(
+        [None, *frames], None, torch.stack([mask, mask, torch.zeros_like(mask)])
+    )
+    assert set(parts) >= {"mask", "presence", "reliability", "nll", "gain_anchor", "gain_oracle", "tracker_iou"}
     assert abs(parts["tracker_iou"] - 0.5) < 1e-6  # IoU 1 on the polyp frame, 0 on the false positive
     loss.backward()
     for network in update.networks():
         assert network.output_layer.weight.grad.abs().sum() > 0
+
+
+def test_oracle_gain_uses_the_state_improving_update_and_innovation_weighting():
+    from training.memory_trainer import _oracle_gain_loss
+
+    prior = torch.zeros(1, 1, 1, 3)
+    measurement = torch.tensor([[[[2.0, 2.0, 0.0]]]])
+    target = torch.tensor([[[[2.0, 0.0, 1.0]]]])
+    gain = torch.tensor([[[[0.2, 0.8, 0.9]]]], requires_grad=True)
+    loss, oracle = _oracle_gain_loss({
+        "prior_for_loss": prior,
+        "measurement_for_loss": measurement,
+        "target": target,
+        "effective_gain_for_loss": gain,
+    })
+    assert torch.allclose(oracle, torch.tensor([[[[1.0, 0.0, 0.0]]]]))
+    loss.backward()
+    assert gain.grad[0, 0, 0, 0] < 0 and gain.grad[0, 0, 0, 1] > 0
+    assert gain.grad[0, 0, 0, 2] == 0  # no innovation: it cannot affect the state
+
+
+def test_present_frame_recovery_only_pushes_an_underwriting_gain_up():
+    from training.memory_trainer import _gain_recovery_loss
+
+    prior = torch.zeros(1, 1, 1, 2)
+    measurement = torch.tensor([[[[2.0, 2.0]]]])
+    gain = torch.tensor([[[[0.2, 0.8]]]], requires_grad=True)
+    loss = _gain_recovery_loss({
+        "prior_for_loss": prior,
+        "measurement_for_loss": measurement,
+        "effective_gain_for_loss": gain,
+    }, torch.tensor([[[[0.9, 0.3]]]]))
+    loss.backward()
+    assert gain.grad[0, 0, 0, 0] < 0
+    assert gain.grad[0, 0, 0, 1] == 0

@@ -37,7 +37,8 @@ from modeling.medsam2 import build_video_predictor
 
 DIAGNOSTIC_FIELDS = ("frame_idx", "frame", "status", "object_score", "presence",
                      "gain_mean", "feature_change_mean", "memory_status",
-                     "redetected", "detection_confidence", "mask_box_iou", "rho")
+                     "redetected", "detection_confidence", "mask_box_iou", "rho",
+                     "association", "process_noise", "measurement_noise", "age")
 
 
 def parse_args():

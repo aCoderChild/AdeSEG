@@ -366,7 +366,10 @@ class RecurrentMemoryVideoPredictor(RecurrentMemory, SAM2VideoPredictor):
                 "presence": float(step["presence"].mean()),
                 "gain_mean": float(step["gain"].mean()) if "gain" in step else float("nan"),
                 "redetected": bool(step.get("redetected", False)),
-                **{key: float(step[key].mean()) for key in ("rho", "detection_confidence", "mask_box_iou") if key in step},
+                **{key: float(step[key].mean()) if torch.is_tensor(step[key]) else float(step[key]) for key in (
+                    "rho", "detection_confidence", "mask_box_iou", "association",
+                    "process_noise", "measurement_noise", "age",
+                ) if key in step},
                 "feature_change_mean": float(step["feature_change"].mean()) if "feature_change" in step else float("nan"),
             }
         return current_out, pred_masks

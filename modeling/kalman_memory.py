@@ -204,6 +204,10 @@ class RKNMemoryUpdate(nn.Module):
                 "mean": state + gain * (memory - state),
                 "covariance": covariance,
                 "gain": gain.detach(),
+                "kalman_gain_for_loss": torch.full_like(gain, self.fixed_gain),
+                "effective_gain_for_loss": gain,
+                "prior_for_loss": state.detach(),
+                "measurement_for_loss": memory.detach(),
                 "association": beta.detach(),
             }
         kf, (batch, channels, height, width) = self.filter, state.shape
@@ -222,11 +226,21 @@ class RKNMemoryUpdate(nn.Module):
         correction = kf.K @ kf.y  # K (z - x-), the full Kalman correction
         mean = kf.x_prior + beta * correction
         covariance = beta * kf.P + (1 - beta) * kf.P_prior + beta * (1 - beta) * correction.pow(2)
-        gain = (beta * kf.K).reshape(state.shape)[:, :1]
+        effective_gain = (beta * kf.K).reshape(state.shape)
+        gain = effective_gain[:, :1]
+        kalman_gain = kf.K.reshape(state.shape)[:, :1]
         return {
             "mean": mean.reshape(state.shape),
             "covariance": covariance,
             "gain": gain.detach(),
+            # Keep the raw gain attached for the optional training-only calibration term;
+            # ``gain`` above remains detached because it is also used for diagnostics/state age.
+            "kalman_gain_for_loss": kalman_gain,
+            # The oracle objective trains the actual PDA-weighted update.  Its targets are
+            # detached below, so gradients reach Q/R (and the association gate), not targets.
+            "effective_gain_for_loss": effective_gain,
+            "prior_for_loss": state.detach(),
+            "measurement_for_loss": memory.detach(),
             "association": beta.reshape(state.shape)[:, :1, :1, :1].reshape(batch, 1).detach(),
             "process_noise": kf.Q_t.reshape(state.shape)[:, :1].detach(),
             "measurement_noise": kf.R_t.reshape(state.shape)[:, :1].detach(),

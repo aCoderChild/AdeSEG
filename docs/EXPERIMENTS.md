@@ -189,54 +189,68 @@ is untrained, the comparison is between memory layouts, not a learned update
 rule: RDE-VOS reads the prompt memory and the last memory frame (its random RDE
 slot aside), which roughly matches the native 7-frame bank.
 
-## Modified RKN with detector observations (dev, held-out seq13–15)
+## Current learned-gain RKN versus fixed-gain control (dev, held-out seq13–15)
 
-Trained on dev seq1–12 (`scripts/train_memory.py --memory_update rkn
---rkn_weight_factor 1.0 --clip_length 24 --absence_fraction 0.5 --nll_weight 0.02
---fp_weight 0.5`, 500 steps x 4 clips, seed 0), validated on whole seq13–15
-every 100 steps; checkpoint = max polyp-frame Dice − 0.5 × empty-frame FP on
-seq13–15 (so these numbers are optimistic: selection and report use the same
-three videos). Per-sequence means; native MedSAM2 on the same videos for
-reference. Outputs: Drive `outputs/polypgen/rkn_detector/` (run script,
-checkpoints, histories, `validation.json`, per-frame `check_*.json`). C6 not run.
+The current RKN adds a training-only oracle loss for its **effective**
+PDA-weighted gain and computes the scalar Gaussian likelihood on device. It was
+trained on dev seq1--12 with the frozen MedSAM2 backbone (`--rkn_weight_factor
+1.0 --clip_length 24 --absence_fraction 0.5 --nll_weight 0.02
+--gain_oracle_weight 0.25 --fp_weight 0.5`, 200 steps x 4 clips, seed 0). The
+checkpoint is selected by held-out per-sequence Dice - 0.5 x empty-frame FP on
+seq13--15. Consequently these are development results, not a final estimate.
 
-| seq13–15 | Polyp-frame Dice | Empty-frame FP | Lost |
-|---|---|---|---|
-| native MedSAM2 | 0.393 | 0.681 | 0.558 |
-| presence only (`--presence_only`, step 500) | 0.433 | 0.011 | 0.511 |
-| full, re-detection gated by presence and ρ (step 500; run overwritten) | 0.458 | 0.000 | 0.478 |
-| full, detector-triggered re-detection, untrained (step 0) | 0.797 | 0.878 | 0.107 |
-| **full, detector-triggered re-detection (step 500, selected)** | **0.778** | **0.022** | **0.129** |
+The fixed-gain control loads the **same selected checkpoint** and changes only
+the Kalman update to `S_t = S_t^- + 0.25 beta_t (C_t - S_t^-)`; it preserves
+the learned detector, presence, reliability, association, pointer gates and all
+other inference code. Gain 0.25 was fixed from prior development calibration.
+This is therefore a direct causal ablation of dynamic gain, not a comparison of
+two differently trained systems.
 
-- The data-association update stopped the copying of earlier versions:
-  effective gain 0.53 on right polyp frames, 0.19 on wrong ones, 0.06 on empty
-  frames (presence only: 0.61 everywhere).
-- Re-detection never fired, in training or on seq13–15: the corrected presence
-  closes the gate on 44% of polyp frames (mostly frames where the tracker is
-  lost, which its cost-weighted loss makes free to close) and vetoed it, and ρ
-  never fell below 0.5 (min 0.62 on seq13–15; lost-frame median 0.66 on the
-  training videos too). The full model's gain over presence only came from the
-  memory, pointer gating and presence, and mostly from one video (pooled
-  Dice seq13 0.256 vs 0.178; seq14 0.265 vs 0.271; seq15 0.854 vs 0.851).
-- The re-detection trigger was then changed to the detector's confident
-  disagreement alone, set on the training videos (see the method description).
-  ρ remains miscalibrated (too high on lost frames); it still weights the
-  write and gates pointers.
-- With that trigger (`full/`, run on 2026-10-09): 28.5% of polyp frames are
-  re-detected (pooled Dice 0.792 on them) and 1.1% of empty frames. The other
-  polyp frames, tracked from the memory, reach pooled Dice 0.752 (presence
-  only: 0.365), so the corrected memory carries the object forward. Pooled
-  polyp Dice 0.763 (seq13 0.741, seq14 0.726, seq15 0.866); 9.4% of polyp
-  frames are blank. Effective gain 0.41 on right polyp frames, 0.23 on wrong
-  ones, 0.05 on empty frames.
-- Most of the Dice gain is already present untrained (step 0: Dice 0.797,
-  FP 0.878): it comes from detector-triggered re-detection plus a memory that
-  propagates the corrected mask. Training cut the empty-frame FP from 0.878 to
-  0.022 at a Dice cost of 0.019. Not yet separated: the same re-detection with
-  native MedSAM2's bank or with a fixed-gain memory, and the detector box
-  decoded on every frame without memory.
+| seq13--15, per-sequence mean | Polyp-frame Dice | Empty-frame FP | Lost |
+|---|---:|---:|---:|
+| learned dynamic gain | 0.7551 | **0.0318** | **0.1592** |
+| fixed gain 0.25, same checkpoint | **0.7593** | 0.0863 | 0.1597 |
+| learned minus fixed | -0.0042 | **-0.0545** | -0.0005 |
 
-### Pre-registered: re-detection comparisons and the C6 test (written 2026-10-09, before any C6 run)
+The learned gain has the intended conditional behavior: at final validation its
+mean gain was 0.568 on polyp frames and 0.097 on empty frames. It materially
+reduces false positives (about 63% relative to fixed gain) and is better on
+seq13, but its Dice is lower overall (seq13/14/15: +0.0086/-0.0129/-0.0082).
+Thus this run supports an FP-control effect, **not** the claim that learned
+Kalman gain lifts polyp Dice. A multi-seed, locked-test result is required
+before making any performance claim.
+
+An exploratory C6 (seq16--23) evaluation of the exact same checkpoint reverses
+the trade-off. C6 has already informed development, so it is recorded here for
+transparency and is not used for selection or claimed as a test result.
+
+| exploratory C6, per-sequence mean | Polyp-frame Dice | Empty-frame FP | Lost |
+|---|---:|---:|---:|
+| learned dynamic gain | **0.6929** | 0.1764 | **0.2190** |
+| fixed gain 0.25, same checkpoint | 0.6607 | **0.1278** | 0.2541 |
+| learned minus fixed | **+0.0322** | +0.0485 | **-0.0351** |
+
+The learned gain improves Dice on five of eight sequences and reduces lost
+frames, but raises FP; this is the opposite trade-off from dev. The disagreement
+across splits, with one seed and prior C6 exposure, means the result does not
+establish a general learned-gain advantage.
+
+### Next registered follow-up: present-frame gain recovery
+
+The next run retains the absent-frame pressure from the presence and reliability
+objectives, but adds a one-sided oracle term on labelled polyp frames. It only
+penalizes an effective gain below the oracle gain that improves one-step
+ground-truth-memory error; it does not reward writes on empty frames. Its
+purpose is to test whether the current FP suppression can be retained while
+recovering the Dice lost on dev. It will use the same 200-step protocol and the
+same fixed-0.25 matched ablation. No result is claimed until that run completes.
+
+Outputs: Drive `outputs/polypgen/training/2026-10-12_rkn_oracle_gain_isolated_200steps/seed0/`
+and `outputs/polypgen/evaluations/{2026-10-12_oracle_gain_200step_matched_ablation,2026-10-12_oracle_gain_200step_c6_matched_ablation}/`;
+W&B runs `fws9s3qp` (training), `cp7c2qgt` (dev matched evaluation), and
+`irqig82r` (exploratory C6 matched evaluation).
+
+### Archived pre-registered: re-detection comparisons and the C6 test (older RKN implementation; written 2026-10-09)
 
 Script: Drive `outputs/polypgen/rkn_detector/comparisons/eval_methods.py`
 (same prompt and scoring as the training validation: tight box of the first

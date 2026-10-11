@@ -64,11 +64,17 @@ update rules:
 
 `modeling/recurrent_memory.py` plugs either update into MedSAM2; this part is
 ours. The modified RKN is trained through frozen MedSAM2 on later frames' mask
-loss, presence and write-reliability BCE, and the RKN's Gaussian NLL against the
-carried ground-truth memory (inference uses past frames only); RDE-VOS uses its official objective (bootstrapped CE + KL distillation toward
-native MedSAM2's bank).
+loss, presence and write-reliability BCE, diagonal Gaussian NLL against the
+carried ground-truth memory, and a training-only oracle target for the
+**effective** (PDA-weighted) Kalman write gain. The oracle target is the
+elementwise gain that minimizes one-step error to the carried ground-truth
+memory. The next learned-gain variant also adds a one-sided recovery term on
+labelled polyp frames, which penalizes only gain below that oracle target;
+inference uses past frames only. RDE-VOS uses its official objective
+(bootstrapped CE + KL distillation toward native MedSAM2's bank).
 
-Current findings (`docs/EXPERIMENTS.md`; C6 = seq16–23, 8 sequences):
+Historical C6 findings (`docs/EXPERIMENTS.md`; C6 = seq16–23, 8 sequences;
+older RKN implementation):
 
 | C6 | Dice | Polyp-frame Dice | Empty-frame FP | Lost polyp frames |
 |---|---|---|---|---|
@@ -84,9 +90,21 @@ Current findings (`docs/EXPERIMENTS.md`; C6 = seq16–23, 8 sequences):
 - The untrained RDE-VOS does well for a structural reason: its official mode
   always reads the prompt memory and the last memory frame, while its compressed
   slot is randomly initialised.
-- The modified RKN has no results yet.
+- **Current learned-gain development ablation (seq13--15, one seed):** the
+  learned dynamic gain achieved Dice/empty-frame-FP/lost = 0.755/0.032/0.159;
+  replacing only its learned gain by fixed gain 0.25 on the same checkpoint gave
+  0.759/0.086/0.160. Thus the learned gain substantially reduced FP, but did
+  not improve Dice. This is development evidence only, not a held-out test or a
+  claim that the learned gain improves segmentation.
+- **Exploratory C6 check of that same checkpoint:** learned versus fixed gain
+  obtained 0.693/0.176/0.219 versus 0.661/0.128/0.254. It improved Dice and
+  lost frames, but increased FP; C6 has already been used during development,
+  so this reversed trade-off cannot be used to select the method or make a
+  performance claim.
 - C6 is not a pristine test set: it was seen in the first all-sequence protocol
   and used for several frozen comparisons during development.
+- The present-frame recovery objective is implemented for the next matched
+  experiment; it has no reported evaluation yet.
 
 It is not a validated component of the adenoid clinical pipeline.
 
@@ -108,12 +126,13 @@ constant-gain EMA memories were removed from the code (last at commit
   `external/RDE-VOS-CVPR2022`, which needs `retrying`).
 - **Frozen-backbone training:** `training/memory_trainer.py` and
   `scripts/train_memory.py --memory_update {rkn,rde}` train only the memory
-  update on natural clips (16 frames, drawn video first) from a manifest's
+  update on natural clips (24 frames, drawn video first) from a manifest's
   `train` and `val` splits, or from one split with `--val_videos` held out
   (PolypGen: `--train_split dev --val_videos seq13 seq14 seq15`). The frame-0
   prompt is a tight ground-truth box, as at inference. Modified RKN: the loss
-  above (`--presence_weight 1 --reliability_weight 0.5 --nll_weight 0.1
-  --write_iou 0.5`, detector `--detector`), Adam lr 5e-4 decayed to 5e-5, weight decay 1e-4 (the RKN notebook's). RDE-VOS:
+  above (`--presence_weight 1 --reliability_weight 0.5 --nll_weight 0.02
+  --gain_oracle_weight 0.25`, detector `--detector`), Adam lr 5e-4 decayed to
+  5e-5, weight decay 1e-4 (the RKN notebook's). RDE-VOS:
   official objective, lr 1e-4, weight decay 1e-7, `--rde_mode two-frames-compress
   --mem_every 3`, distillation weight 10. Checkpoints are selected on whole
   held-out videos through the inference path (best polyp-frame Dice with
@@ -168,10 +187,11 @@ of memory), SAM2Long and DAM4SAM (memory selection), and TinySAM 2
 (memory-token compression). Related Kalman work: KalmanNet and Recursive
 KalmanNet (learned Kalman gains; the modified RKN adapts Recursive KalmanNet's
 structure), KEEP (Kalman-inspired feature propagation for video), and SAM2Plus
-(Kalman filter on SAM2 box IoU). As run, RDE-VOS training did not improve on its
-untrained state and the modified RKN is untested, so no claim about learned
-memory updates is supported yet; it needs a training objective that does not
-reward giving up on polyp frames, and a comparison with EMA-SAM.
+(Kalman filter on SAM2 box IoU). RDE-VOS training did not improve on its
+untrained state. The current modified-RKN ablation shows learned-gain FP
+suppression, but not a Dice lift over a matched fixed-gain control; no claim of
+superior learned memory updating is supported until that trade-off reverses on
+multiple seeds and a locked test set.
 
 The project-level contribution remains the **video-level two-region adenoid
 assessment formulation**: segmentation of adenoid and nasopharyngeal airway

@@ -35,6 +35,37 @@ DEFAULTS = {
 }
 
 
+def build_optimizer_and_scheduler(args, parameters):
+    """Construct the explicitly selected optimizer and global LR schedule."""
+    optimizer_class = {"adam": torch.optim.Adam, "adamw": torch.optim.AdamW}[args.optimizer]
+    optimizer = optimizer_class(parameters, lr=args.learning_rate, weight_decay=args.weight_decay)
+    if args.lr_schedule == "constant":
+        if args.warmup_steps:
+            raise ValueError("--warmup_steps requires --lr_schedule cosine")
+        return optimizer, None
+    if args.final_learning_rate is None:
+        raise ValueError(f"--final_learning_rate is required for {args.lr_schedule} decay")
+    if args.lr_schedule == "exponential":
+        if args.warmup_steps:
+            raise ValueError("--warmup_steps requires --lr_schedule cosine")
+        gamma = (args.final_learning_rate / args.learning_rate) ** (1 / args.steps)
+        return optimizer, torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=gamma)
+    if args.warmup_steps >= args.steps:
+        raise ValueError("--warmup_steps must be smaller than --steps")
+    cosine_steps = args.steps - args.warmup_steps
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=cosine_steps, eta_min=args.final_learning_rate
+    )
+    if not args.warmup_steps:
+        return optimizer, cosine
+    warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=1 / args.warmup_steps, end_factor=1.0, total_iters=args.warmup_steps
+    )
+    return optimizer, torch.optim.lr_scheduler.SequentialLR(
+        optimizer, schedulers=[warmup, cosine], milestones=[args.warmup_steps]
+    )
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sam2_cfg", type=Path, required=True)
@@ -60,8 +91,14 @@ def parse_args():
     parser.add_argument("--accumulate", type=int, default=4, help="Clips per optimizer step.")
     parser.add_argument("--learning_rate", type=float, default=None, help="Default: the rule's official value.")
     parser.add_argument("--final_learning_rate", type=float, default=None,
-                        help="Exponential decay to this lr over --steps (RKN notebook: 5e-5).")
+                        help="Final LR for exponential or cosine decay (RKN notebook: 5e-5).")
     parser.add_argument("--weight_decay", type=float, default=None, help="Default: the rule's official value.")
+    parser.add_argument("--optimizer", choices=("adam", "adamw"), default="adam",
+                        help="Default Adam preserves existing runs; AdamW is the scheduled-control optimizer.")
+    parser.add_argument("--lr_schedule", choices=("exponential", "cosine", "constant"), default="exponential",
+                        help="Global LR schedule; default exponential preserves existing runs.")
+    parser.add_argument("--warmup_steps", type=int, default=0,
+                        help="Linear warm-up steps before cosine decay; only valid with --lr_schedule cosine.")
     rkn = parser.add_argument_group("modified RKN")
     rkn.add_argument("--rkn_weight_factor", type=float, default=0.1,
                      help="Scale of the RKN networks' initial weights (RKN notebook: 0.1).")
@@ -72,6 +109,14 @@ def parse_args():
     rkn.add_argument("--presence_weight", type=float, default=1.0)
     rkn.add_argument("--reliability_weight", type=float, default=0.5)
     rkn.add_argument("--nll_weight", type=float, default=0.02)
+    rkn.add_argument("--gain_anchor_weight", type=float, default=0.0,
+                     help="Optional soft calibration weight for raw Kalman gain (0 disables it).")
+    rkn.add_argument("--gain_anchor", type=float, default=0.25,
+                     help="Static-gain control used as the soft calibration anchor.")
+    rkn.add_argument("--gain_oracle_weight", type=float, default=0.25,
+                     help="Weight for ground-truth-memory supervision of the PDA-weighted Kalman gain (0 disables it).")
+    rkn.add_argument("--gain_recovery_weight", type=float, default=0.25,
+                     help="One-sided oracle weight that strengthens writes on labelled polyp frames (0 disables it).")
     rkn.add_argument("--absence_fraction", type=float, default=0.0,
                      help="Share of training clips drawn from clips that contain an absent frame.")
     rde = parser.add_argument_group("RDE-VOS-derived compression control")
@@ -188,7 +233,10 @@ def main():
         distill_weight=args.rde_distill_weight, temperature=args.temperature,
         top_p=args.top_p, start_warm=args.start_warm, end_warm=args.end_warm,
     ) if is_rde else RKNLoss(args.presence_weight, 0.0 if args.presence_only else args.reliability_weight,
-                             0.0 if args.presence_only else args.nll_weight, args.fp_weight)
+                             0.0 if args.presence_only else args.nll_weight, args.fp_weight,
+                             0.0 if args.presence_only else args.gain_anchor_weight, args.gain_anchor,
+                             0.0 if args.presence_only else args.gain_oracle_weight,
+                             0.0 if args.presence_only else args.gain_recovery_weight)
     for key, value in DEFAULTS[args.memory_update].items():
         if getattr(args, key) is None:
             setattr(args, key, value)
@@ -217,12 +265,9 @@ def main():
         finally:
             model.memory_update.train(was_training)
 
-    optimizer = torch.optim.Adam([p for p in model.memory_update.parameters() if p.requires_grad],
-                                 lr=args.learning_rate, weight_decay=args.weight_decay)
-    scheduler = None
-    if args.final_learning_rate is not None:  # Trainer.set_decreasing_learning_rate, step_size 1
-        gamma = (args.final_learning_rate / args.learning_rate) ** (1 / args.steps)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=gamma)
+    optimizer, scheduler = build_optimizer_and_scheduler(
+        args, [p for p in model.memory_update.parameters() if p.requires_grad]
+    )
     native_teacher = is_rde and args.rde_distill_weight > 0
     args.output_dir.mkdir(parents=True, exist_ok=False)
 
@@ -241,7 +286,8 @@ def main():
         "protocol_name": protocol.get("name") if protocol else None,
         "objective": ("RDE-VOS-derived (official bootstrapped CE + KL primitives in the MedSAM2 integration)" if is_rde
                       else "modified RKN: later frames' mask loss through MedSAM2 + cost-weighted presence BCE + "
-                           "soft-IoU reliability BCE + official GaussianLikelihoodLoss of the carried GT memory"),
+                           "soft-IoU reliability BCE + diagonal Gaussian likelihood + oracle effective-gain "
+                           "supervision and present-frame recovery from the carried GT memory"),
     })
     (args.output_dir / "setup.json").write_text(json.dumps(setup, indent=2) + "\n", encoding="utf-8")
     wandb_run = start_wandb(args.wandb_project, args.wandb_entity, args.wandb_name, args.wandb_mode,
@@ -280,6 +326,7 @@ def main():
                 clip_stats.append(stats)
             gradient_norm = float(torch.nn.utils.get_total_norm(
                 [p.grad for p in model.memory_update.parameters() if p.grad is not None]))
+            learning_rate = optimizer.param_groups[0]["lr"]
             optimizer.step()
             if scheduler is not None:
                 scheduler.step()
@@ -294,7 +341,12 @@ def main():
                 "fp_absent": step_mean("false_positive_rate_absent"),
                 "closed_present": step_mean("closed_gate_present"),
                 "gain_present": step_mean("gain_present"), "gain_absent": step_mean("gain_absent"),
-                "learning_rate": optimizer.param_groups[0]["lr"], "gradient_norm": gradient_norm,
+                "gain_anchor": step_mean("gain_anchor"),
+                "gain_oracle": step_mean("gain_oracle"),
+                "gain_recovery": step_mean("gain_recovery"),
+                "oracle_gain_target_present": step_mean("oracle_gain_target_present"),
+                "oracle_gain_target_absent": step_mean("oracle_gain_target_absent"),
+                "learning_rate": learning_rate, "gradient_norm": gradient_norm,
             }, step)
             if step % args.log_every == 0 or step == 1:
                 recent = history[-args.log_every * args.accumulate:]
@@ -303,7 +355,10 @@ def main():
                     "loss": mean("loss"), "dice_present": mean("dice_present"),
                     "fp_absent": mean("false_positive_rate_absent"), "closed_present": mean("closed_gate_present"),
                     "gain_present": mean("gain_present"), "gain_absent": mean("gain_absent"),
-                    "learning_rate": optimizer.param_groups[0]["lr"], "gradient_norm": gradient_norm,
+                    "gain_anchor": mean("gain_anchor"),
+                    "gain_oracle": mean("gain_oracle"),
+                    "gain_recovery": mean("gain_recovery"),
+                    "learning_rate": learning_rate, "gradient_norm": gradient_norm,
                 }
                 print(
                     f"step {step}: loss={train_metrics['loss']:.4f} dice_present={train_metrics['dice_present']:.4f} "

@@ -15,7 +15,6 @@ from modeling.recurrent_memory import RecurrentMemory
 from modeling.rde_memory import RDEMemoryUpdate
 from modeling.medsam2 import build_video_predictor
 # Official training code (importable once modeling.kalman_memory / rde_memory put it on the path).
-from Algo.LossFunctions import GaussianLikelihoodLoss  # noqa: E402
 from model.losses import BootstrappedCE  # noqa: E402
 from model.model import KLDivLoss  # noqa: E402
 from model.network import RDE_VOS  # noqa: E402
@@ -140,6 +139,46 @@ def _iou(predicted: torch.Tensor, truth: torch.Tensor) -> torch.Tensor:
     return torch.where(union > 0, (predicted & truth).sum() / union.clamp_min(1), torch.ones_like(union, dtype=torch.float))
 
 
+def _diagonal_gaussian_nll(mean: torch.Tensor, target: torch.Tensor, covariance: torch.Tensor) -> torch.Tensor:
+    """The official GaussianLikelihoodLoss for this repository's scalar independent filters.
+
+    ``covariance`` is [elements, 1, 1, time], so this is exactly the official Mahalanobis
+    term plus log determinant, without a CPU transfer or batches of 1x1 matrix inverses.
+    """
+    variance = covariance.squeeze(2).clamp_min(1e-6)
+    return ((mean - target).square() / variance + variance.log()).mean()
+
+
+def _oracle_gain_loss(memory: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+    """Supervise the PDA-weighted gain that minimises one-step target-memory error.
+
+    The target is the ground-truth-mask memory carried by the training model.  The optimum of
+    ``prior + gain * (measurement - prior)`` is computed elementwise and clipped to the Kalman
+    gain's feasible interval.  Innovation-energy weighting makes unchanged memory elements
+    neutral rather than forcing their arbitrary gain target toward zero.
+    """
+    prior = memory["prior_for_loss"]
+    innovation = memory["measurement_for_loss"] - prior
+    residual = memory["target"].detach() - prior
+    energy = innovation.square()
+    target = (residual * innovation / energy.clamp_min(1e-6)).clamp(0.0, 1.0)
+    error = F.smooth_l1_loss(memory["effective_gain_for_loss"], target, reduction="none")
+    return (error * energy).sum() / energy.sum().clamp_min(1e-6), target.detach()
+
+
+def _gain_recovery_loss(memory: dict[str, torch.Tensor], oracle_target: torch.Tensor) -> torch.Tensor:
+    """Penalise only under-writing toward the oracle on an object-present frame.
+
+    The symmetric oracle loss calibrates the gain on both present and absent frames.  This
+    one-sided companion is deliberately applied only where the labelled object is present:
+    it strengthens recovery/retention without asking the filter to write into empty frames.
+    """
+    innovation = memory["measurement_for_loss"] - memory["prior_for_loss"]
+    energy = innovation.square()
+    shortfall = F.relu(oracle_target - memory["effective_gain_for_loss"])
+    return (shortfall.square() * energy).sum() / energy.sum().clamp_min(1e-6)
+
+
 class RKNLoss(torch.nn.Module):
     """Modified-RKN objective, on every propagated frame of the clip:
 
@@ -154,13 +193,32 @@ class RKNLoss(torch.nn.Module):
       the mask before any re-detection);
     - the official ``GaussianLikelihoodLoss`` of the appearance state under N(x, P) against the
       carried ground-truth memory (the last frame with the object).
+    - an oracle effective-gain loss: given the current measurement, prior memory and carried
+      ground-truth memory, it directly teaches the PDA-weighted Kalman gain that minimises
+      one-step appearance-state error.  This is available only during training.
+    - a present-frame recovery term: a one-sided oracle loss that only penalises gain below
+      the oracle on labelled polyp frames.  The existing presence/reliability losses retain
+      the pressure to suppress writes and predictions on empty frames.
+    - optionally, a soft anchor on the raw Kalman gain.  This is a calibration prior, not a
+      replacement for the learned gain: the gain can still vary when the segmentation/NLL terms
+      provide evidence to do so.
     """
 
-    def __init__(self, presence_weight=1.0, reliability_weight=0.5, nll_weight=0.02, fp_weight=0.5):
+    def __init__(self, presence_weight=1.0, reliability_weight=0.5, nll_weight=0.02, fp_weight=0.5,
+                 gain_anchor_weight=0.0, gain_anchor=0.25, gain_oracle_weight=0.25,
+                 gain_recovery_weight=0.25):
         super().__init__()
-        self.weights = {"mask": 1.0, "presence": presence_weight, "reliability": reliability_weight, "nll": nll_weight}
+        self.weights = {
+            "mask": 1.0,
+            "presence": presence_weight,
+            "reliability": reliability_weight,
+            "nll": nll_weight,
+            "gain_anchor": gain_anchor_weight,
+            "gain_oracle": gain_oracle_weight,
+            "gain_recovery": gain_recovery_weight,
+        }
         self.fp_weight = fp_weight
-        self.nll = GaussianLikelihoodLoss()
+        self.gain_anchor = gain_anchor
 
     def forward(self, student, teacher, masks, step=0):
         frames, targets = student[1:], masks[1:].float()
@@ -188,15 +246,29 @@ class RKNLoss(torch.nn.Module):
                 torch.cat([frame["reliability_logit"] for frame in frames]).flatten(), torch.stack(tracker_iou).float()),
         }
         memories = [frame["memory"] for frame in frames]
-        series = lambda key: torch.stack([memory[key].reshape(-1, 1) for memory in memories], dim=-1).cpu()
-        covariance = torch.stack([memory["covariance"] for memory in memories], dim=-1).cpu()
-        parts["nll"] = self.nll(series("mean"), series("target"), covariance).reshape(()).to(scores.device)
+        series = lambda key: torch.stack([memory[key].reshape(-1, 1) for memory in memories], dim=-1)
+        covariance = torch.stack([memory["covariance"] for memory in memories], dim=-1)
+        parts["nll"] = _diagonal_gaussian_nll(series("mean"), series("target"), covariance)
+        parts["gain_anchor"] = torch.stack([
+            (memory["kalman_gain_for_loss"] - self.gain_anchor).square().mean()
+            for memory in memories
+        ]).mean()
+        oracle = [_oracle_gain_loss(memory) for memory in memories]
+        parts["gain_oracle"] = torch.stack([loss for loss, _ in oracle]).mean()
+        recovery = [
+            _gain_recovery_loss(memory, target)
+            for memory, (_, target), is_present in zip(memories, oracle, present)
+            if is_present
+        ]
+        parts["gain_recovery"] = torch.stack(recovery).mean() if recovery else zero
         total = sum(self.weights[key] * value for key, value in parts.items())
         stats = {key: float(value.detach()) for key, value in parts.items()}
         stats["tracker_iou"] = float(torch.stack(tracker_iou).float().mean())
         stats["redetected"] = sum(bool(memory.get("redetected")) for memory in memories) / len(memories)
         stats["association_present"] = _mean_where([m["association"] for m in memories], present)
         stats["association_absent"] = _mean_where([m["association"] for m in memories], ~present)
+        stats["oracle_gain_target_present"] = _mean_where([target for _, target in oracle], present)
+        stats["oracle_gain_target_absent"] = _mean_where([target for _, target in oracle], ~present)
         return total, stats
 
 
