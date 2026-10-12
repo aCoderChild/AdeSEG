@@ -289,6 +289,24 @@ Với bộ nhớ native hoặc RDE-VOS, cờ \texttt{--redetect} bật tái phá
 
 PolypGen gồm 23 chuỗi nội soi đại tràng có mặt nạ polyp (2,012 khung lan truyền: 1,689 có polyp, 323 rỗng), chú thích thưa và có nhiều đoạn polyp ra khỏi khung hình. MedSAM2 giữ đông lạnh; prompt là hộp bao chặt của mặt nạ thật ở khung có polyp đầu tiên, nên kết quả phản ánh chất lượng \emph{lan truyền} sau prompt, không phải hiệu năng phát hiện tự động. Giao thức phát triển hiện được mã hóa trong \texttt{protocols/polypgen\_recurrent\_v1.json}: seq1--seq12 để huấn luyện, seq13--seq15 để chọn thiết kế và seq16--seq23 (C6) chỉ được gắn nhãn \emph{exploratory}. C6 \emph{không} phải tập hoàn toàn chưa thấy: nó đã nằm trong giao thức 23 chuỗi trước khi giao thức (a) được định nghĩa, và sau đó được dùng cho nhiều so sánh. Một tập video ngoài hoàn toàn mới vẫn cần thiết cho kiểm định khóa; mọi số liệu PolypGen dưới đây hiện chỉ dùng một seed.
 
+\subsubsection{MedSAM2 theo từng khung: oracle box và YOLOv8 box}
+
+Hai thư mục \texttt{outputs/MedSAM2\_frame/MedSAM2\_frame\_manual\_boxes/} và \texttt{.../MedSAM2\_frame\_yolov8\_boxes/} là một giao thức khác: mỗi khung chú thích được prompt và phân đoạn độc lập, không lan truyền bộ nhớ từ một khung đầu. Bảng~\ref{tab:framewise-medsam2} chép đúng aggregate \texttt{sequence} trong \texttt{metrics\_stats.csv}: trung bình 23 chuỗi, 2,225 khung. ``Oracle box'' là hộp thủ công/ground-truth cho từng khung; ``YOLOv8 box'' là hộp từ detector. Vì số liệu này có prompt ở mọi khung, không được so sánh trực tiếp với C6 propagation (một prompt đầu, 372 khung sau prompt). Trên riêng C6 có 432 khung frame-wise, Dice theo chuỗi là 0.924 (oracle box) và 0.778 (YOLOv8 box).
+
+\begin{table}[htbp]
+\centering
+\caption{MedSAM2 frame-wise trên 23 chuỗi PolypGen (trung bình theo chuỗi, 2,225 khung); không phải đánh giá lan truyền video.}
+\label{tab:framewise-medsam2}
+\begin{tabular}{lrrrr}
+\hline
+Prompt từng khung & Dice & IoU & Precision & Recall \\
+\hline
+Hộp thủ công/ground-truth (oracle) & 0.923 & 0.883 & 0.967 & 0.906 \\
+Hộp YOLOv8 & 0.770 & 0.739 & 0.953 & 0.772 \\
+\hline
+\end{tabular}
+\end{table}
+
 \subsubsection{So sánh lưu trữ trên PolypGen (phiên bản RKN cũ)}
 
 Phần này lưu các bảng C6 của phiên bản RKN trước objective oracle; chúng không phải kết quả của gain học được hiện tại. Câu hỏi trung tâm là liệu bộ nhớ Kalman có cổng hiện diện có thể biến một chuỗi dự đoán dễ tích lũy lỗi thành một quá trình cập nhật có chọn lọc hay không. Đóng góp cài đặt không chỉ là thay một công thức cập nhật: mô-đun \textbf{recurrent memory} thay bank bảy khung của MedSAM2 bằng anchor và một trạng thái không gian cố định. Trong RKN, \texttt{KalmanFilter}/\texttt{GRUNetwork} từ \texttt{external/RecursiveKalmanNet} học $Q$, $R$, hiện diện $p$ và độ tin cậy $\rho$; $p\rho$ quyết định mức ghi quan sát vào trạng thái. Nhờ vậy, cổng hiện diện là một phần của cơ chế bộ nhớ, không chỉ là hậu xử lý mặt nạ. Detector cung cấp quan sát độc lập để hiệu chỉnh hiện diện và tái phát hiện khi tracker không khớp. \textbf{RDE-VOS} dùng phép nén hồi quy từ \texttt{external/RDE-VOS-CVPR2022} làm đối chứng recurrent-memory. Vì MedSAM2 đông lạnh, mọi khác biệt dưới đây đến từ đường bộ nhớ lặp, các đầu RKN/RDE và detector, không phải do fine-tune backbone.
@@ -337,7 +355,7 @@ RKN đầy đủ -- detector không bộ nhớ & $-0.035$ (1/7), $p=0.20$ & $+0.
 
 Bảng~\ref{tab:rkn-ablation} làm rõ đóng góp theo cơ chế. So với MedSAM2 native, RKN đầy đủ tăng $J$ 0.308 trên cả 8 chuỗi và giảm FP 0.398. So với RKN không huấn luyện, các đầu RKN học được giảm FP 0.435 mà gần như không đổi Dice ($-0.001$); điều này phù hợp với trực giác rằng các đầu $p$, $\rho$, $Q$ và $R$ chủ yếu từ chối quan sát/mặt nạ sai. Ablation ``chỉ hiện diện'' giữ đầu hiện diện học được nhưng bỏ cập nhật bộ nhớ học được, chặn pointer và tái phát hiện; vì thế nó cho thấy cổng hiện diện rất mạnh để triệt FP, nhưng không cô lập gain Kalman.
 
-Đối chứng trực tiếp hơn giữ \emph{nguyên} checkpoint RKN đầy đủ, detector, ngưỡng tái phát hiện, cổng hiện diện và cổng pointer; chỉ thay cập nhật $Q/R$ học được bằng $S_t=S_t^-+0.25\beta_t(C_t-S_t^-)$ với gain cố định. Với phiên bản objective oracle hiện tại trên seq13--seq15, RKN gain học được đạt Dice/FP/mất $=0.755/0.032/0.159$, so với control gain cố định $0.759/0.086/0.160$. Nghĩa là gain học được hạ FP 0.055 nhưng Dice thấp hơn 0.004; kết quả theo từng video là $+0.009/-0.013/-0.008$ Dice trên seq13/14/15. Khi chạy thăm dò cùng checkpoint trên C6 đã được xem trong phát triển, chiều trade-off đảo lại: gain học được đạt $0.693/0.176/0.219$, fixed gain đạt $0.661/0.128/0.254$. Vì đây chỉ là một seed, dùng tập phát triển để chọn checkpoint, C6 không còn khóa, và hai split cho trade-off trái chiều, dữ liệu hiện tại \textbf{không chứng minh} lợi ích độc lập của gain Kalman học được đối với phân đoạn polyp. Nó cho thấy cơ chế học gain có tác động kiểm chứng được lên FP mà không thay detector hay cổng hiện diện.
+Đối chứng trực tiếp hơn giữ \emph{nguyên} checkpoint RKN đầy đủ, detector, ngưỡng tái phát hiện, cổng hiện diện và cổng pointer; chỉ thay cập nhật $Q/R$ học được bằng $S_t=S_t^-+0.25\beta_t(C_t-S_t^-)$ với gain cố định. Với checkpoint objective oracle trên seq13--seq15, gain học được đạt Dice/FP/mất $=0.755/0.032/0.159$, so với control fixed $0.759/0.086/0.160$: FP thấp hơn nhưng Dice không cao hơn. Phiên bản recovery một phía không cải thiện validation (Dice/FP/mất $=0.753/0.032/0.163$). Trên C6 đã được xem trong phát triển, checkpoint recovery cho gain học được đạt $0.688/0.176/0.224$, còn fixed gain $0.25$ đạt $0.659/0.133/0.254$. Như vậy gain học được tăng Dice 0.028 và giảm lost 0.031, đổi lại FP tăng 0.043. Vì chỉ có một seed, C6 đã được xem và hai objective cho trade-off khác nhau, dữ liệu hiện tại là bằng chứng cơ chế, \textbf{không} phải kiểm định cuối cùng hay bằng chứng tổng quát rằng gain Kalman học được luôn cải thiện phân đoạn.
 
 \begin{table}[htbp]
 \centering

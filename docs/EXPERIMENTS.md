@@ -16,6 +16,66 @@ aggregations appear and are always named: **per-sequence** (mean
 over sequences of the per-sequence mean; used for all paired tests) and
 **pooled** (mean over frames).
 
+## Source-backed results from the current Drive artifacts
+
+This is the current result ledger. It deliberately separates recurrent
+propagation from independently prompted, frame-wise segmentation; their prompt
+budgets and frame counts differ, so they are not interchangeable baselines.
+
+### Recurrent propagation on C6: native MedSAM2, RDE-VOS, detector, and old RKN
+
+All rows below are per-sequence means on seq16--23 (C6; 8 sequences), using one
+tight ground-truth box on the first positive frame and propagating later frames.
+They are read directly from
+`outputs/polypgen/evaluations/2026-10-10_rkn_c6_audit_rerun/summary.json`.
+The RKN row predates the oracle-gain objective.
+
+| Method | Polyp-frame Dice | Empty-frame FP | Lost | $J=\mathrm{Dice}-0.5\mathrm{FP}$ |
+|---|---:|---:|---:|---:|
+| Native MedSAM2 | 0.5987 | 0.4864 | 0.2826 | 0.3555 |
+| RDE-VOS, untrained | 0.5751 | 0.5443 | 0.3156 | 0.3030 |
+| RDE-VOS, untrained + YOLOv8 re-detection | 0.7625 | 0.5873 | 0.1181 | 0.4689 |
+| YOLOv8 re-detection + MedSAM2 decoder, no recurrent memory | 0.7421 | 0.0863 | 0.1932 | 0.6990 |
+| RKN full, older objective | 0.7073 | 0.0883 | 0.2058 | 0.6632 |
+
+The only saved current-code RDE training folder,
+`outputs/polypgen/training/rde_trained_control/`, contains `ABORTED.md`: the
+user stopped it at optimizer step 324 of 500, and its partial checkpoints must
+not be reported. Consequently there is no trained-RDE result in this ledger.
+
+### Oracle-supervised learned gain versus fixed gain
+
+The frozen MedSAM2 backbone, detector, gates, checkpoint, and inference path
+are held fixed; only the Kalman write gain is replaced by 0.25 in the control.
+
+| Checkpoint and split | Gain | Polyp-frame Dice | Empty-frame FP | Lost |
+|---|---|---:|---:|---:|
+| Oracle objective, dev seq13--15 | learned | 0.7551 | 0.0318 | 0.1592 |
+| Oracle objective, dev seq13--15 | fixed 0.25 | 0.7593 | 0.0863 | 0.1597 |
+| Recovery objective, C6 seq16--23 | learned | 0.6876 | 0.1764 | 0.2236 |
+| Recovery objective, C6 seq16--23 | fixed 0.25 | 0.6593 | 0.1333 | 0.2541 |
+
+The oracle gain improves FP on dev but not Dice; the recovery checkpoint has
+higher Dice and fewer lost frames on C6, at higher FP. These are one-seed,
+exploratory C6 results because C6 was inspected during development.
+
+### Independently prompted, frame-wise MedSAM2
+
+`outputs/MedSAM2_frame/` contains a distinct protocol: every annotated frame is
+segmented independently, rather than propagated from one initial prompt. The
+table uses the `sequence` aggregation from each `metrics_stats.csv`, i.e. the
+mean of the 23 per-sequence scores over 2,225 frames.
+
+| Frame-wise prompt | Dice | IoU | Precision | Recall |
+|---|---:|---:|---:|---:|
+| manual/ground-truth box (oracle prompt) | 0.9232 | 0.8834 | 0.9665 | 0.9061 |
+| YOLOv8 box | 0.7700 | 0.7392 | 0.9528 | 0.7717 |
+
+For C6 alone (seq16--23; 432 independently prompted frames), the respective
+per-sequence Dice scores are 0.9236 and 0.7781. They must not be compared
+directly with the recurrent C6 rows: the recurrent protocol scores 372 later,
+propagated frames after a single initial prompt.
+
 ## What the method is, as run
 
 ```text
@@ -129,10 +189,12 @@ first clean test.
 
 ## Training the update rules *(archived, not currently reproducible)*
 
-The following RDE-VOS training description refers to an older run directory that
-is no longer present under the canonical Drive output root. It is retained as
-historical context only and must not be cited as a current trained-RDE result.
-The current code has a matched RDE training path, but a new run is required.
+The following RDE-VOS training description refers to an older run directory and
+is retained as historical context only. It must not be cited as a current
+trained-RDE result. The current Drive folder is
+`outputs/polypgen/training/rde_trained_control/`, but it was aborted at step
+324/500 and its own `ABORTED.md` prohibits reporting the partial checkpoints.
+A completed matched RDE run is still required.
 
 - **RDE-VOS:** the official `BootstrappedCE` (plain CE, then the hardest 15% of
   pixels; warm-up scaled from 20k–70k of 150k iterations to steps 67–233) on
@@ -160,7 +222,12 @@ Selection keeps step 0. **Training did not help.**
   bootstrapped CE rewards suppressing the object. The KL term has median 4e-4, so
   at weight 10 it is about 2% of the loss.
 
-## C6 results *(regenerated)*
+## Archived C6 table *(superseded; do not cite)*
+
+The table below was generated from an older Drive layout that is not in the
+current canonical output folder. It is preserved for historical context only;
+the source-backed C6 ledger near the top of this document is the reportable
+record.
 
 `polypgen/c6/native` and `polypgen/update_rules_new/c6/rde`; analysis in
 `polypgen/update_rules_new/c6/analysis/`. RDE-VOS is its selected step 0, i.e.

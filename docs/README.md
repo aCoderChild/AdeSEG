@@ -73,23 +73,44 @@ labelled polyp frames, which penalizes only gain below that oracle target;
 inference uses past frames only. RDE-VOS uses its official objective
 (bootstrapped CE + KL distillation toward native MedSAM2's bank).
 
-Historical C6 findings (`docs/EXPERIMENTS.md`; C6 = seq16–23, 8 sequences;
-older RKN implementation):
+### Source-backed result ledger
 
-| C6 | Dice | Polyp-frame Dice | Empty-frame FP | Lost polyp frames |
-|---|---|---|---|---|
-| native MedSAM2 | 0.617 | 0.599 | 0.486 | 0.283 |
-| RDE-VOS (step 0 = untrained) | 0.623 | 0.638 | 0.533 | 0.237 |
+The tables below are transcribed from the saved JSON/CSV artifacts named in
+`docs/EXPERIMENTS.md`. They use different prompts and units of aggregation, so
+they must not be compared as though they were one benchmark.
 
-- **Training did not help RDE-VOS.** On whole held-out dev videos every trained
-  checkpoint scored below its untrained start, so selection kept step 0 and the
-  C6 row is an untrained module. Training cut empty-frame false positives (0.89
-  to 0.20) by losing polyp frames.
-- **No difference from native MedSAM2 is significant** on C6 (RDE-VOS − native
-  polyp-frame Dice +0.039, p = 0.38).
-- The untrained RDE-VOS does well for a structural reason: its official mode
-  always reads the prompt memory and the last memory frame, while its compressed
-  slot is randomly initialised.
+**Recurrent propagation on C6 (seq16--23; 8 sequences; older pre-oracle RKN).**
+Every method receives one tight ground-truth box on the first positive frame and
+then propagates. Values are per-sequence means from
+`outputs/polypgen/evaluations/2026-10-10_rkn_c6_audit_rerun/summary.json`.
+
+| Method | Polyp-frame Dice | Empty-frame FP | Lost polyp frames |
+|---|---:|---:|---:|
+| native MedSAM2 | 0.5987 | 0.4864 | 0.2826 |
+| RDE-VOS, untrained | 0.5751 | 0.5443 | 0.3156 |
+| RDE-VOS, untrained + re-detection | 0.7625 | 0.5873 | 0.1181 |
+| YOLOv8 re-detection + MedSAM2 decoder, no recurrent memory | 0.7421 | 0.0863 | 0.1932 |
+| RKN full, older objective | 0.7073 | 0.0883 | 0.2058 |
+
+The stored current RDE training run was stopped by the user at step 324/500 and
+its `ABORTED.md` explicitly rules out reporting its partial checkpoints. Thus,
+the RDE rows above are untrained recurrent-memory controls, not trained-RDE
+claims.
+
+**Frame-wise MedSAM2 (all 23 sequences; 2,225 annotated frames).** Each frame
+is prompted independently, so these are not temporal-propagation results.
+Sequence means come from `metrics_stats.csv` under
+`outputs/MedSAM2_frame/`.
+
+| Prompt for each frame | Dice | IoU | Precision | Recall |
+|---|---:|---:|---:|---:|
+| tight manual/ground-truth box (oracle prompt) | 0.9232 | 0.8834 | 0.9665 | 0.9061 |
+| YOLOv8 box | 0.7700 | 0.7392 | 0.9528 | 0.7717 |
+
+For the same C6 sequence IDs, the respective frame-wise *per-sequence* Dice is
+0.9236 (manual boxes) and 0.7781 (YOLOv8 boxes), over 432 frames. Those counts
+include independently prompted frames, whereas recurrent C6 scoring excludes
+the prompt frame; they are reported for context, not as a direct comparison.
 - **Current recovery-objective development result (seq13--15, one seed):** the
   selected learned dynamic-gain checkpoint achieved Dice/empty-frame-FP/lost =
   0.753/0.032/0.163. The preceding oracle-only objective scored
@@ -187,11 +208,12 @@ of memory), SAM2Long and DAM4SAM (memory selection), and TinySAM 2
 (memory-token compression). Related Kalman work: KalmanNet and Recursive
 KalmanNet (learned Kalman gains; the modified RKN adapts Recursive KalmanNet's
 structure), KEEP (Kalman-inspired feature propagation for video), and SAM2Plus
-(Kalman filter on SAM2 box IoU). RDE-VOS training did not improve on its
-untrained state. The current modified-RKN ablation shows learned-gain FP
-suppression, but not a Dice lift over a matched fixed-gain control; no claim of
-superior learned memory updating is supported until that trade-off reverses on
-multiple seeds and a locked test set.
+(Kalman filter on SAM2 box IoU). The saved current-code RDE-VOS training run
+was aborted, so it supplies no trained-RDE result. The oracle RKN control shows
+learned-gain FP suppression on development data; the recovery RKN control shows
+a C6 Dice/lost-frame improvement at higher FP. These one-seed, previously
+inspected-C6 findings are mechanism evidence, not a general claim of superior
+learned memory updating; multiple seeds and a locked external test are needed.
 
 The project-level contribution remains the **video-level two-region adenoid
 assessment formulation**: segmentation of adenoid and nasopharyngeal airway
