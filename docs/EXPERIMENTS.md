@@ -235,15 +235,33 @@ frames, but raises FP; this is the opposite trade-off from dev. The disagreement
 across splits, with one seed and prior C6 exposure, means the result does not
 establish a general learned-gain advantage.
 
-### Next registered follow-up: present-frame gain recovery
+### Completed follow-up: present-frame gain recovery
 
-The next run retains the absent-frame pressure from the presence and reliability
-objectives, but adds a one-sided oracle term on labelled polyp frames. It only
+This run retained the absent-frame pressure from the presence and reliability
+objectives, but added a one-sided oracle term on labelled polyp frames. It only
 penalizes an effective gain below the oracle gain that improves one-step
 ground-truth-memory error; it does not reward writes on empty frames. Its
-purpose is to test whether the current FP suppression can be retained while
-recovering the Dice lost on dev. It will use the same 200-step protocol and the
-same fixed-0.25 matched ablation. No result is claimed until that run completes.
+purpose was to retain current FP suppression while recovering Dice on dev. The
+same 200-step protocol selected step 200 on seq13--15:
+
+| development, per-sequence mean | Polyp-frame Dice | Empty-frame FP | Lost |
+|---|---:|---:|---:|
+| recovery objective | 0.7525 | 0.0318 | 0.1625 |
+| oracle-only objective | 0.7550 | 0.0320 | 0.1590 |
+
+The recovery term did not improve the development result. The pre-specified
+learned-versus-fixed evaluation on C6 then gave:
+
+| C6, per-sequence mean | Polyp-frame Dice | Empty-frame FP | Lost |
+|---|---:|---:|---:|
+| learned dynamic gain | **0.6876** | 0.1764 | **0.2236** |
+| fixed gain 0.25, same checkpoint | 0.6593 | **0.1333** | 0.2541 |
+| learned minus fixed | **+0.0283** | +0.0431 | **-0.0305** |
+
+Thus learned gain improves C6 Dice and recovery relative to a fixed gain, but
+at a false-positive cost. Since C6 was previously inspected during development
+and only one seed is available, this is evidence for the mechanism, not a
+generalizable final performance claim.
 
 Outputs: Drive `outputs/polypgen/training/2026-10-12_rkn_oracle_gain_isolated_200steps/seed0/`
 and `outputs/polypgen/evaluations/{2026-10-12_oracle_gain_200step_matched_ablation,2026-10-12_oracle_gain_200step_c6_matched_ablation}/`;

@@ -90,21 +90,21 @@ older RKN implementation):
 - The untrained RDE-VOS does well for a structural reason: its official mode
   always reads the prompt memory and the last memory frame, while its compressed
   slot is randomly initialised.
-- **Current learned-gain development ablation (seq13--15, one seed):** the
-  learned dynamic gain achieved Dice/empty-frame-FP/lost = 0.755/0.032/0.159;
-  replacing only its learned gain by fixed gain 0.25 on the same checkpoint gave
-  0.759/0.086/0.160. Thus the learned gain substantially reduced FP, but did
-  not improve Dice. This is development evidence only, not a held-out test or a
-  claim that the learned gain improves segmentation.
-- **Exploratory C6 check of that same checkpoint:** learned versus fixed gain
-  obtained 0.693/0.176/0.219 versus 0.661/0.128/0.254. It improved Dice and
-  lost frames, but increased FP; C6 has already been used during development,
-  so this reversed trade-off cannot be used to select the method or make a
-  performance claim.
+- **Current recovery-objective development result (seq13--15, one seed):** the
+  selected learned dynamic-gain checkpoint achieved Dice/empty-frame-FP/lost =
+  0.753/0.032/0.163. The preceding oracle-only objective scored
+  0.755/0.032/0.159, so recovery supervision did not improve development Dice.
+  This is development evidence only, not a held-out test or a claim that the
+  learned gain improves segmentation.
+- **C6 learned-versus-fixed comparison of the recovery checkpoint:** learned
+  versus fixed gain 0.25 obtained 0.688/0.176/0.224 versus 0.659/0.133/0.254.
+  It improved Dice and reduced lost frames, but increased FP. C6 has already
+  been used during development, so this result cannot be used to select the
+  method or make a final performance claim.
 - C6 is not a pristine test set: it was seen in the first all-sequence protocol
   and used for several frozen comparisons during development.
-- The present-frame recovery objective is implemented for the next matched
-  experiment; it has no reported evaluation yet.
+- The present-frame recovery objective is implemented and evaluated once on C6
+  against the fixed-gain control; results are recorded in `EXPERIMENTS.md`.
 
 It is not a validated component of the adenoid clinical pipeline.
 
