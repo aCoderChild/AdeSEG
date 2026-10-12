@@ -263,8 +263,8 @@ at a false-positive cost. Since C6 was previously inspected during development
 and only one seed is available, this is evidence for the mechanism, not a
 generalizable final performance claim.
 
-Outputs: Drive `outputs/polypgen/training/2026-10-12_rkn_oracle_gain_isolated_200steps/seed0/`
-and `outputs/polypgen/evaluations/{2026-10-12_oracle_gain_200step_matched_ablation,2026-10-12_oracle_gain_200step_c6_matched_ablation}/`;
+Outputs: Drive `outputs/polypgen/training/{rkn_learned_gain_oracle,rkn_learned_gain_recovery}/checkpoint/`
+and `outputs/polypgen/evaluations/{rkn_learned_vs_fixed_validation,rkn_learned_vs_fixed_c6_exploratory,rkn_learned_vs_fixed_c6}/`;
 W&B runs `fws9s3qp` (training), `cp7c2qgt` (dev matched evaluation), and
 `irqig82r` (exploratory C6 matched evaluation).
 
