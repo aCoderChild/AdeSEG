@@ -332,8 +332,15 @@ generalizable final performance claim.
 
 Outputs: Drive `outputs/polypgen/training/{rkn_learned_gain_oracle,rkn_learned_gain_recovery}/checkpoint/`
 and `outputs/polypgen/evaluations/{rkn_learned_vs_fixed_validation,rkn_learned_vs_fixed_c6_exploratory,rkn_learned_vs_fixed_c6}/`;
-W&B runs `fws9s3qp` (training), `cp7c2qgt` (dev matched evaluation), and
-`irqig82r` (exploratory C6 matched evaluation).
+the corresponding W&B records are:
+
+| W&B run | ID | Drive artifact role |
+|---|---|---|
+| RKN learned gain — oracle supervision | [`fws9s3qp`](https://wandb.ai/adenoid-hypertrophy/ade-seg/runs/fws9s3qp) | oracle-objective training |
+| RKN learned vs fixed gain — validation | [`cp7c2qgt`](https://wandb.ai/adenoid-hypertrophy/ade-seg/runs/cp7c2qgt) | oracle learned-vs-fixed dev evaluation |
+| RKN learned vs fixed gain — C6 exploratory | [`irqig82r`](https://wandb.ai/adenoid-hypertrophy/ade-seg/runs/irqig82r) | oracle learned-vs-fixed C6 evaluation |
+| RKN learned gain — recovery objective | [`dpg3de2d`](https://wandb.ai/adenoid-hypertrophy/ade-seg/runs/dpg3de2d) | recovery-objective training |
+| RKN learned vs fixed gain — C6 | [`p3v9spw9`](https://wandb.ai/adenoid-hypertrophy/ade-seg/runs/p3v9spw9) | recovery learned-vs-fixed C6 evaluation |
 
 ### Archived pre-registered: re-detection comparisons and the C6 test (older RKN implementation; written 2026-10-09)
 

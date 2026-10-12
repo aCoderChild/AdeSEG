@@ -78,6 +78,9 @@ inference uses past frames only. RDE-VOS uses its official objective
 The tables below are transcribed from the saved JSON/CSV artifacts named in
 `docs/EXPERIMENTS.md`. They use different prompts and units of aggregation, so
 they must not be compared as though they were one benchmark.
+The paired W&B records, including the current recovery training and C6 control,
+are linked in `docs/EXPERIMENTS.md`; Drive artifacts remain the numerical source
+of record.
 
 **Recurrent propagation on C6 (seq16--23; 8 sequences; older pre-oracle RKN).**
 Every method receives one tight ground-truth box on the first positive frame and
