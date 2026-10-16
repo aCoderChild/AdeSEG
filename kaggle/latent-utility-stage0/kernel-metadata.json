@@ -1,0 +1,13 @@
+{
+  "id": "bunnoob2005/adeseg-latent-utility-stage0",
+  "title": "AdeSEG Latent Utility - Stage 0 B+",
+  "code_file": "latent_utility_stage0.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["lennelenne/davis2017"],
+  "competition_sources": [],
+  "kernel_sources": []
+}

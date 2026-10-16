@@ -34,7 +34,16 @@ def main():
     args = parser.parse_args()
     davis = resolve_davis_root(args.data_root)
     print(f"Resolved DAVIS root: {davis}")
-    protocol = json.loads(args.protocol.read_text())["davis_2017"]
+    protocol_document = json.loads(args.protocol.read_text())
+    if "davis_2017" in protocol_document:
+        protocol = protocol_document["davis_2017"]
+    else:
+        # v2 deliberately reuses the already frozen, explicit v1 sequence lists.
+        # Resolve the reference relative to the selected protocol so Kaggle and
+        # local runs construct exactly the same partition.
+        split_file = protocol_document["datasets"]["davis_train"]["sequence_partition_file"]
+        split_path = args.protocol.parent / split_file
+        protocol = json.loads(split_path.read_text())["davis_2017"]
     holdout = set(protocol["model_selection_holdout"])
     groups = {
         "train": [name for name in protocol["train_sequences"] if name not in holdout],
