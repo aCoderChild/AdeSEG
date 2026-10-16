@@ -79,6 +79,8 @@ def parse_args():
     parser.add_argument("--frame-selection", choices=("failure_onsets", "all", "every_n"),
                         default="failure_onsets")
     parser.add_argument("--every-n", type=int, default=5)
+    parser.add_argument("--minimum-target-frame", type=int, default=1,
+                        help="Ignore earlier targets so pilots can require a filled memory bank.")
     parser.add_argument("--random-null", action=argparse.BooleanOptionalAction, default=True,
                         help="Evaluate the E2 best-of-N matched random control.")
     parser.add_argument("--memory-source", choices=("predicted", "ground_truth", "corrupted"),
@@ -185,7 +187,7 @@ def replace_spatial_memory(predictor, state, output_dict, frames, frame_index, l
 
 @torch.inference_mode()
 def analyze_video(predictor, controller, video_id, frames, label_id, all_label_ids, protocol, rng,
-                  frame_budget, frame_selection, every_n, random_null, memory_source,
+                  frame_budget, frame_selection, every_n, minimum_target_frame, random_null, memory_source,
                   corruption_level, corruption_type):
     records, rows = [], []
     with tempfile.TemporaryDirectory(prefix="utility_frames_") as temporary:
@@ -215,6 +217,10 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
             if every_n < 1:
                 raise ValueError("--every-n must be positive")
             episode_starts = list(range(prompt + 1, len(frames), every_n))
+        episode_starts = [
+            frame_index for frame_index in episode_starts
+            if frame_index >= minimum_target_frame
+        ]
         if frame_budget is not None:
             episode_starts = episode_starts[:frame_budget]
 
@@ -415,7 +421,7 @@ def main():
                 records, rows = analyze_video(
                     predictor, controller, f"{video_id}:{label_id}", frames, label_id,
                     available, protocol, rng, remaining, args.frame_selection, args.every_n,
-                    args.random_null,
+                    args.minimum_target_frame, args.random_null,
                     args.memory_source, args.corruption_level, args.corruption_type,
                 )
                 all_records.extend(records)
