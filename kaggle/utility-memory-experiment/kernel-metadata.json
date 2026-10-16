@@ -1,0 +1,16 @@
+{
+  "id": "bunnoob2005/utility-aware-memory-retrieval-adeseg",
+  "title": "AdeSEG Utility-Aware Memory Retrieval",
+  "code_file": "utility_memory_experiment.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "lennelenne/davis2017",
+    "debeshjha1/polypgen-video-sequence"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}

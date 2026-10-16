@@ -63,7 +63,9 @@ class MemoryAttentionLayer(nn.Module):
         tgt = tgt + self.dropout1(tgt2)
         return tgt
 
-    def _forward_ca(self, tgt, memory, query_pos, pos, num_k_exclude_rope=0):
+    def _forward_ca(
+        self, tgt, memory, query_pos, pos, num_k_exclude_rope=0, attn_mask=None
+    ):
         kwds = {}
         if num_k_exclude_rope > 0:
             assert isinstance(self.cross_attn_image, RoPEAttention)
@@ -75,6 +77,7 @@ class MemoryAttentionLayer(nn.Module):
             q=tgt2 + query_pos if self.pos_enc_at_cross_attn_queries else tgt2,
             k=memory + pos if self.pos_enc_at_cross_attn_keys else memory,
             v=memory,
+            attn_mask=attn_mask,
             **kwds,
         )
         tgt = tgt + self.dropout2(tgt2)
@@ -87,11 +90,14 @@ class MemoryAttentionLayer(nn.Module):
         pos: Optional[Tensor] = None,
         query_pos: Optional[Tensor] = None,
         num_k_exclude_rope: int = 0,
+        attn_mask: Optional[Tensor] = None,
     ) -> torch.Tensor:
 
         # Self-Attn, Cross-Attn
         tgt = self._forward_sa(tgt, query_pos)
-        tgt = self._forward_ca(tgt, memory, query_pos, pos, num_k_exclude_rope)
+        tgt = self._forward_ca(
+            tgt, memory, query_pos, pos, num_k_exclude_rope, attn_mask
+        )
         # MLP
         tgt2 = self.norm3(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
@@ -115,6 +121,11 @@ class MemoryAttention(nn.Module):
         self.norm = nn.LayerNorm(d_model)
         self.pos_enc_at_input = pos_enc_at_input
         self.batch_first = batch_first
+        # Optional experiment-only controller.  With no controller, the original
+        # attention path is bit-for-bit unchanged.
+        self.utility_controller = None
+        self.capture_attention = False
+        self.last_trace = None
 
     def forward(
         self,
@@ -123,6 +134,8 @@ class MemoryAttention(nn.Module):
         curr_pos: Optional[Tensor] = None,  # pos_enc for self-attention inputs
         memory_pos: Optional[Tensor] = None,  # pos_enc for cross-attention inputs
         num_obj_ptr_tokens: int = 0,  # number of object pointer *tokens*
+        memory_units=None,
+        utility_query_context=None,
     ):
         if isinstance(curr, list):
             assert isinstance(curr_pos, list)
@@ -147,23 +160,55 @@ class MemoryAttention(nn.Module):
             memory = memory.transpose(0, 1)
             memory_pos = memory_pos.transpose(0, 1)
 
+        attn_mask = None
+        utilities = None
+        utility_features = None
+        if self.utility_controller is not None and memory_units:
+            attn_mask, utilities, utility_features = self.utility_controller(
+                curr=output,
+                memory=memory,
+                units=memory_units,
+                num_obj_ptr_tokens=num_obj_ptr_tokens,
+                query_context=utility_query_context,
+            )
+
+        layer_attention = []
+        reconstruction_errors = []
+
         for layer in self.layers:
             kwds = {}
             if isinstance(layer.cross_attn_image, RoPEAttention):
                 kwds = {"num_k_exclude_rope": num_obj_ptr_tokens}
+            layer.cross_attn_image.capture_attention = self.capture_attention
 
             output = layer(
                 tgt=output,
                 memory=memory,
                 pos=memory_pos,
                 query_pos=curr_pos,
+                attn_mask=attn_mask,
                 **kwds,
             )
+            cross_attention = layer.cross_attn_image
+            weights = getattr(cross_attention, "last_attention", None)
+            if weights is not None:
+                layer_attention.append(weights)
+                reconstruction_errors.append(
+                    getattr(cross_attention, "last_reconstruction_max_abs", None)
+                )
         normed_output = self.norm(output)
 
         if self.batch_first:
             # Convert back to seq first
             normed_output = normed_output.transpose(0, 1)
             curr_pos = curr_pos.transpose(0, 1)
+
+        self.last_trace = {
+            "units": memory_units or [],
+            "utilities": utilities,
+            "utility_features": utility_features,
+            "attention": layer_attention,
+            "reconstruction_max_abs": reconstruction_errors,
+        }
 
         return normed_output

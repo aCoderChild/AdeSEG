@@ -143,7 +143,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def sequence_scores(predictor, videos, label_ids, recurrent=True):
+def sequence_scores(predictor, videos, label_ids, recurrent=True, prompt_type="box"):
     """Inference-path scores on whole videos (as scripts/infer.py, prompt on the first
     labelled frame), averaged over sequences: polyp-frame Dice, empty-frame FP rate, lost
     polyp frames (Dice < 0.1), and the RKN's mean gain on polyp and on empty frames."""
@@ -153,7 +153,7 @@ def sequence_scores(predictor, videos, label_ids, recurrent=True):
             stage_frames(frames, Path(temporary))
             for label_id in label_ids:
                 logits, prompt, traces, _ = predict_label(predictor, frames, label_id, label_ids, recurrent,
-                                                          Path(temporary), False)
+                                                          Path(temporary), False, prompt_type)
                 if prompt is None:
                     continue
                 dice, empty_fp = [], []

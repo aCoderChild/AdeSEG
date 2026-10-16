@@ -34,6 +34,7 @@ from datasets.video import ManifestFrame, load_manifest
 from modeling.detector import PolypDetector
 from modeling.recurrent_memory import load_memory_update
 from modeling.medsam2 import build_video_predictor
+from modeling.utility_memory import attach_utility_controller, load_utility_head
 
 DIAGNOSTIC_FIELDS = ("frame_idx", "frame", "status", "object_score", "presence",
                      "gain_mean", "feature_change_mean", "memory_status",
@@ -52,9 +53,14 @@ def parse_args():
     parser.add_argument("--nested_labels", action="store_true",
                         help="Prompt and propagate label k as the union of labels >= k; lower labels keep "
                              "only what higher labels do not cover.")
+    parser.add_argument("--prompt_type", choices=("mask", "box"), default="box",
+                        help="Initial ground-truth prompt. Utility-retrieval runs pass mask explicitly; "
+                             "box preserves the repository's earlier experiments.")
     parser.add_argument("--memory_checkpoint", type=Path, default=None,
                         help="Trained memory update (RKN or RDE-VOS) from scripts/train_memory.py; "
                              "without it, MedSAM2's native memory bank is used.")
+    parser.add_argument("--utility_checkpoint", type=Path, default=None,
+                        help="E5 utility head; adds learned bias to native spatial-memory attention.")
     parser.add_argument("--detector", type=Path, default=Path("checkpoints/polypgen_yolov8n.pt"),
                         help="YOLO weights for re-detection and for a memory update that uses detector observations.")
     parser.add_argument("--redetect", action="store_true",
@@ -96,7 +102,7 @@ def retained_memory_mib(output_dict) -> float:
 
 
 def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels: list[int], recurrent: bool,
-                  staged: Path, nested: bool):
+                  staged: Path, nested: bool, prompt_type="box"):
     prompt_index, box = first_box(frames, label_id, labels, nested)
     width, height = Image.open(frames[0].image_path).size  # the video's size, as the predictor outputs
     if box is None:
@@ -111,7 +117,15 @@ def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels:
             state.update({"recurrent_memory": True, "memory_anchor_frame_idx": prompt_index})
         if getattr(predictor, "redetect_enabled", False) or getattr(getattr(predictor, "memory_update", None), "uses_detector", False):
             predictor.detections = predictor.detector.frame_detections([f.image_path for f in frames], predictor.device)
-        predictor.add_new_points_or_box(state, frame_idx=prompt_index, obj_id=1, box=box)
+        if prompt_type == "mask":
+            prompt_mask = load_label_mask(frames[prompt_index].mask_path, labels)
+            prompt_mask = prompt_mask >= label_id if nested else prompt_mask == label_id
+            predictor.add_new_mask(
+                state, frame_idx=prompt_index, obj_id=1,
+                mask=torch.from_numpy(prompt_mask),
+            )
+        else:
+            predictor.add_new_points_or_box(state, frame_idx=prompt_index, obj_id=1, box=box)
         logits = np.full((len(frames), state["video_height"], state["video_width"]), -np.inf, dtype=np.float32)
         traces = {}
         started = time.perf_counter()
@@ -159,6 +173,11 @@ def main():
             raise ValueError("None of --video_ids is in the selected split.")
     target = "modeling.recurrent_memory.RecurrentMemoryVideoPredictor" if recurrent or args.redetect else None
     predictor = build_video_predictor(str(args.sam2_cfg), args.sam2_checkpoint, args.device, predictor_target=target)
+    if args.utility_checkpoint:
+        attach_utility_controller(
+            predictor, load_utility_head(args.utility_checkpoint, predictor.device),
+            capture_attention=False,
+        )
     if recurrent:
         predictor.memory_update = load_memory_update(args.memory_checkpoint, predictor, predictor.device)
     if args.redetect:
@@ -170,9 +189,12 @@ def main():
     run = {
         "manifest": str(args.manifest), "split": args.split, "label_ids": labels,
         "nested_labels": args.nested_labels,
+        "prompt_type": args.prompt_type,
         "memory_update": predictor.memory_update.CHECKPOINT_KIND if recurrent else "native",
         "redetect": bool(args.redetect or getattr(getattr(predictor, "memory_update", None), "uses_detector", False)),
         "memory_checkpoint": str(args.memory_checkpoint) if recurrent else None,
+        "utility_checkpoint": str(args.utility_checkpoint) if args.utility_checkpoint else None,
+        "object_pointer_tokens_modulated": False if args.utility_checkpoint else None,
         "device": str(predictor.device), "videos": {},
     }
     for video_id, frames in videos.items():
@@ -183,7 +205,8 @@ def main():
             label_logits, prompts, traces, efficiency = {}, {}, {}, {}
             for label_id in labels:
                 label_logits[label_id], prompts[label_id], traces[label_id], efficiency[label_id] = predict_label(
-                    predictor, frames, label_id, labels, recurrent, staged, args.nested_labels
+                    predictor, frames, label_id, labels, recurrent, staged, args.nested_labels,
+                    args.prompt_type,
                 )
         height, width = label_logits[labels[0]].shape[-2:]
         merged = np.zeros((len(frames), height, width), dtype=np.uint16 if max(labels) > 255 else np.uint8)

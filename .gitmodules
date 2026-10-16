@@ -1,0 +1,9 @@
+[submodule "external/SAM2Long"]
+	path = external/SAM2Long
+	url = https://github.com/Mark12Ding/SAM2Long.git
+[submodule "external/sam2"]
+	path = external/sam2
+	url = https://github.com/facebookresearch/sam2.git
+[submodule "external/Lean-SAM2"]
+	path = external/Lean-SAM2
+	url = https://github.com/DeawhaleQwQ/Lean-SAM2.git

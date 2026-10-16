@@ -9,6 +9,8 @@ REFUGE are used as stand-ins.
 - [docs/README.md](docs/README.md): scope, what is implemented, how to run it.
 - [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md): every result, marked as
   regenerated from saved outputs or archived.
+- [docs/UTILITY_RETRIEVAL.md](docs/UTILITY_RETRIEVAL.md): the preregistered
+  utility-aware memory retrieval experiment and Kaggle runner.
 - [docs/report.tex](docs/report.tex): internship report (Vietnamese).
 
 ```bash

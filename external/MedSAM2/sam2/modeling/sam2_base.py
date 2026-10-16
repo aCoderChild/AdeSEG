@@ -557,7 +557,10 @@ class SAM2Base(torch.nn.Module):
             selected_cond_outputs, unselected_cond_outputs = select_closest_cond_frames(
                 frame_idx, cond_outputs, self.max_cond_frames_in_attn
             )
-            t_pos_and_prevs = [(0, out) for out in selected_cond_outputs.values()]
+            t_pos_and_prevs = [
+                (0, memory_frame_idx, True, out)
+                for memory_frame_idx, out in selected_cond_outputs.items()
+            ]
             # Add last (self.num_maskmem - 1) frames before current frame for
             # non-conditioning memory. The earliest has t_pos=1 and the latest
             # has t_pos=self.num_maskmem-1. This is MedSAM2's native policy.
@@ -591,7 +594,7 @@ class SAM2Base(torch.nn.Module):
                         # If an unselected conditioning frame is among the last (self.num_maskmem - 1)
                         # frames, we still attend to it as if it's a non-conditioning frame.
                     out = unselected_cond_outputs.get(prev_frame_idx, None)
-                t_pos_and_prevs.append((t_pos, out))
+                t_pos_and_prevs.append((t_pos, prev_frame_idx, False, out))
 
             # TODO: verify which frames in the memory bank
             # if output_dict.get("log_memory_selection", False):
@@ -601,13 +604,27 @@ class SAM2Base(torch.nn.Module):
             #         f"non-conditioning frame indices {selected_non_cond_frame_indices}"
             #     )
 
-            for t_pos, prev in t_pos_and_prevs:
+            memory_units = []
+            memory_token_offset = 0
+            for t_pos, memory_frame_idx, is_conditioning, prev in t_pos_and_prevs:
                 if prev is None:
                     continue  # skip padding frames
                 # "maskmem_features" might have been offloaded to CPU in demo use cases,
                 # so we load it back to GPU (it's a no-op if it's already on GPU).
                 feats = prev["maskmem_features"].to(device, non_blocking=True)
-                to_cat_memory.append(feats.flatten(2).permute(2, 0, 1))
+                memory_tokens = feats.flatten(2).permute(2, 0, 1)
+                to_cat_memory.append(memory_tokens)
+                token_count = memory_tokens.shape[0]
+                memory_units.append({
+                    "start": memory_token_offset,
+                    "end": memory_token_offset + token_count,
+                    "frame_idx": int(memory_frame_idx),
+                    "temporal_distance": int(abs(frame_idx - memory_frame_idx)),
+                    "conditioning": bool(is_conditioning),
+                    "predicted_iou": prev.get("iou_predictions"),
+                    "object_score": prev.get("object_score_logits"),
+                })
+                memory_token_offset += token_count
                 # Spatial positional encoding (it might have been offloaded to CPU in eval)
                 maskmem_enc = prev["maskmem_pos_enc"][-1].to(device)
                 maskmem_enc = maskmem_enc.flatten(2).permute(2, 0, 1)
@@ -694,10 +711,28 @@ class SAM2Base(torch.nn.Module):
             # Use a dummy token on the first frame (to avoid empty memory input to tranformer encoder)
             to_cat_memory = [self.no_mem_embed.expand(1, B, self.mem_dim)]
             to_cat_memory_pos_embed = [self.no_mem_pos_enc.expand(1, B, self.mem_dim)]
+            memory_units = []
 
         # Step 2: Concatenate the memories and forward through the transformer encoder
         memory = torch.cat(to_cat_memory, dim=0)
         memory_pos_embed = torch.cat(to_cat_memory_pos_embed, dim=0)
+
+        current_tokens = current_vision_feats[-1].transpose(0, 1)
+        query_context = {"global": current_tokens.mean(dim=1)}
+        if not is_init_cond_frame:
+            previous = output_dict["non_cond_frame_outputs"].get(
+                frame_idx - 1, output_dict["cond_frame_outputs"].get(frame_idx - 1)
+            )
+            if previous is not None and previous.get("pred_masks") is not None:
+                previous_mask = torch.nn.functional.interpolate(
+                    previous["pred_masks"].float(), size=(H, W), mode="bilinear",
+                    align_corners=False,
+                ).flatten(2).squeeze(1) > 0
+                weights = previous_mask.to(current_tokens.dtype)
+                query_context["foreground"] = (
+                    current_tokens * weights.unsqueeze(-1)
+                ).sum(dim=1) / weights.sum(dim=1, keepdim=True).clamp_min(1)
+        query_context.setdefault("foreground", query_context["global"])
 
         pix_feat_with_mem = self.memory_attention(
             curr=current_vision_feats,
@@ -705,6 +740,8 @@ class SAM2Base(torch.nn.Module):
             memory=memory,
             memory_pos=memory_pos_embed,
             num_obj_ptr_tokens=num_obj_ptr_tokens,
+            memory_units=memory_units,
+            utility_query_context=query_context,
         )
         # reshape the output (HW)BC => BCHW
         pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
