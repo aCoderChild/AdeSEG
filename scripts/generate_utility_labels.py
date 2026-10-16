@@ -450,6 +450,9 @@ def main():
             row["best_of_n_random_dice"] - row["baseline_dice"] for row in all_rows
         ])) if all_rows else None,
         "sanity_no_op_max_abs": max([row["no_op_max_abs"] for row in all_rows], default=None),
+        "sanity_cached_state_restore_max_abs": max(
+            [row["no_op_max_abs"] for row in all_rows], default=None
+        ),
         "sanity_attention_reconstruction_max_abs": max([
             row["attention_reconstruction_max_abs"] for row in all_rows
             if np.isfinite(row["attention_reconstruction_max_abs"])
