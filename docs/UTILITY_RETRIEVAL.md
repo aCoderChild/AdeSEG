@@ -39,7 +39,7 @@ the protocol and checkpoint SHA-256 hashes.
 
 The Kaggle notebook in `kaggle/utility-memory-experiment/` is the canonical
 runner. It attaches public DAVIS 2017 and PolypGen datasets, downloads the
-official SAM2.1 Hiera-T checkpoint, logs to
+official SAM2.1 Hiera-S checkpoint, logs to
 `adenoid-hypertrophy/ade-seg`, and leaves all artifacts in the Kaggle output.
 After a successful kernel version, `scripts/fetch_kaggle_results.sh` downloads
 the kernel output directly to the dated Google Drive directory; it does not
