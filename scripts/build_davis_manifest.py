@@ -6,6 +6,25 @@ import json
 from pathlib import Path
 
 
+def resolve_davis_root(data_root: Path) -> Path:
+    """Resolve the DAVIS directory without assuming Kaggle's mount slug."""
+    data_root = data_root.resolve()
+    candidates = [data_root, data_root / "DAVIS"]
+    candidates.extend(path.parent.parent for path in data_root.glob("*/DAVIS/JPEGImages/480p"))
+    candidates.extend(path.parent.parent for path in data_root.glob("**/JPEGImages/480p"))
+    valid = []
+    for candidate in candidates:
+        if ((candidate / "JPEGImages" / "480p").is_dir()
+                and (candidate / "Annotations" / "480p").is_dir()
+                and candidate not in valid):
+            valid.append(candidate)
+    if len(valid) != 1:
+        raise FileNotFoundError(
+            f"Expected exactly one DAVIS root below {data_root}; found {valid}"
+        )
+    return valid[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, required=True,
@@ -13,7 +32,8 @@ def main():
     parser.add_argument("--protocol", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    davis = args.data_root / "DAVIS" if (args.data_root / "DAVIS").is_dir() else args.data_root
+    davis = resolve_davis_root(args.data_root)
+    print(f"Resolved DAVIS root: {davis}")
     protocol = json.loads(args.protocol.read_text())["davis_2017"]
     holdout = set(protocol["model_selection_holdout"])
     groups = {

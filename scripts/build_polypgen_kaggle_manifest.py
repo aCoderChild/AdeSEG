@@ -17,15 +17,30 @@ def numeric_order(paths):
     return sorted(paths, key=lambda path: int(re.search(r"(\d+)$", path.stem).group(1)))
 
 
+def resolve_sequence_root(data_root: Path) -> Path:
+    """Resolve PolypGen's positive_cropped directory across Kaggle mount slugs."""
+    data_root = data_root.resolve()
+    candidates = [data_root / "positive_cropped", data_root]
+    candidates.extend(data_root.glob("*/positive_cropped"))
+    candidates.extend(data_root.glob("**/positive_cropped"))
+    valid = []
+    for candidate in candidates:
+        if candidate.is_dir() and list(candidate.glob("seq*")) and candidate not in valid:
+            valid.append(candidate)
+    if len(valid) != 1:
+        raise FileNotFoundError(
+            f"Expected exactly one PolypGen sequence root below {data_root}; found {valid}"
+        )
+    return valid[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    roots = [args.data_root / "positive_cropped", args.data_root]
-    sequence_root = next((root for root in roots if list(root.glob("seq*"))), None)
-    if sequence_root is None:
-        raise FileNotFoundError(f"No seq* directories under {args.data_root}")
+    sequence_root = resolve_sequence_root(args.data_root)
+    print(f"Resolved PolypGen sequence root: {sequence_root}")
     rows = []
     sequences = sorted(sequence_root.glob("seq*"), key=lambda path: int(re.search(r"\d+", path.name).group()))
     for sequence in sequences:
