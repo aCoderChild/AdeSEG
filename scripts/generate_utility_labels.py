@@ -13,8 +13,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +34,32 @@ from modeling.medsam2 import build_video_predictor
 from modeling.utility_memory import UtilityController, UtilityHead, attach_utility_controller
 from scripts.infer import predict_label, stage_frames
 from training.tracking import finish, log, start_wandb
+
+
+def save_progress(output_dir, records, rows, *, state, video=None, label_id=None):
+    """Persist completed work so an interrupted Kaggle stage remains recoverable."""
+    output_dir = Path(output_dir)
+    records_tmp = output_dir / "utility_records.pt.tmp"
+    torch.save(records, records_tmp)
+    os.replace(records_tmp, output_dir / "utility_records.pt")
+
+    rows_tmp = output_dir / "frames.jsonl.tmp"
+    with rows_tmp.open("w") as handle:
+        for row in rows:
+            handle.write(json.dumps(row) + "\n")
+    os.replace(rows_tmp, output_dir / "frames.jsonl")
+
+    status = {
+        "state": state,
+        "completed_rows": len(rows),
+        "utility_units": len(records),
+        "last_video": video,
+        "last_label_id": label_id,
+        "updated_unix": time.time(),
+    }
+    status_tmp = output_dir / "status.json.tmp"
+    status_tmp.write_text(json.dumps(status, indent=2) + "\n")
+    os.replace(status_tmp, output_dir / "status.json")
 
 
 def parse_args():
@@ -335,6 +363,7 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
 def main():
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=False)
+    print(f"[utility] stage starting: output={args.output_dir}", flush=True)
     protocol_bytes = args.protocol.read_bytes()
     protocol = json.loads(protocol_bytes)
     torch.manual_seed(args.seed)
@@ -345,14 +374,6 @@ def main():
     if not videos:
         raise ValueError("No requested videos are present in the selected split.")
 
-    predictor = build_video_predictor(
-        args.sam2_cfg, args.sam2_checkpoint, args.device
-    )
-    controller = UtilityController(
-        UtilityHead(query_dim=predictor.hidden_dim, memory_dim=predictor.mem_dim)
-    )
-    controller.enabled = False
-    attach_utility_controller(predictor, controller, capture_attention=True)
     setup = {
         **{key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
         "videos": sorted(videos),
@@ -368,6 +389,18 @@ def main():
         ("utility", "E1", "E2", "E4"),
     )
     all_records, all_rows = [], []
+    save_progress(args.output_dir, all_records, all_rows, state="building_model")
+    print("[utility] W&B initialized; building predictor", flush=True)
+    predictor = build_video_predictor(
+        args.sam2_cfg, args.sam2_checkpoint, args.device
+    )
+    controller = UtilityController(
+        UtilityHead(query_dim=predictor.hidden_dim, memory_dim=predictor.mem_dim)
+    )
+    controller.enabled = False
+    attach_utility_controller(predictor, controller, capture_attention=True)
+    save_progress(args.output_dir, all_records, all_rows, state="running")
+    print(f"[utility] predictor ready; videos={len(videos)}", flush=True)
     remaining = args.max_analyzed_frames
     try:
         for video_id, frames in videos.items():
@@ -387,6 +420,10 @@ def main():
                 )
                 all_records.extend(records)
                 all_rows.extend(rows)
+                save_progress(
+                    args.output_dir, all_records, all_rows,
+                    state="running", video=video_id, label_id=label_id,
+                )
                 if remaining is not None:
                     remaining -= len(rows)
                 for row in rows:
@@ -402,10 +439,7 @@ def main():
     finally:
         finish(run)
 
-    torch.save(all_records, args.output_dir / "utility_records.pt")
-    with (args.output_dir / "frames.jsonl").open("w") as handle:
-        for row in all_rows:
-            handle.write(json.dumps(row) + "\n")
+    save_progress(args.output_dir, all_records, all_rows, state="complete")
     summary = {
         "analyzed_frames": len(all_rows), "utility_units": len(all_records),
         "mean_baseline_dice": float(np.mean([row["baseline_dice"] for row in all_rows])) if all_rows else None,
