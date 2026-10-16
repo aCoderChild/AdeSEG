@@ -725,7 +725,12 @@ class SAM2Base(torch.nn.Module):
             )
             if previous is not None and previous.get("pred_masks") is not None:
                 previous_mask = torch.nn.functional.interpolate(
-                    previous["pred_masks"].float(), size=(H, W), mode="bilinear",
+                    previous["pred_masks"].to(
+                        device=current_tokens.device,
+                        dtype=torch.float32,
+                        non_blocking=True,
+                    ),
+                    size=(H, W), mode="bilinear",
                     align_corners=False,
                 ).flatten(2).squeeze(1) > 0
                 weights = previous_mask.to(current_tokens.dtype)
