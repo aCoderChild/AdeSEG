@@ -1,0 +1,24 @@
+{
+  "id": "region_tokens_v1_2_cholec_amendment",
+  "preregistered_date": "2026-10-17",
+  "parent_protocol": "region_tokens_v1_1.json",
+  "scope": "Data-definition amendment only; it does not alter E0/E1 outcomes, model weights, intervention operators, thresholds, budgets, or statistics.",
+  "authorization": "Applied before any CholecSeg8k E2 intervention result is generated, because the source dataset has semantic rather than instance masks.",
+  "cholecseg8k": {
+    "mask_encoding": "Validate equal-RGB watershed colours, convert once to indexed semantic masks, and retain source_video on every manifest row.",
+    "unit_of_analysis": "One semantic foreground class within one 80-frame clip. Background (class 0) is never prompted or evaluated as an object.",
+    "prompt": "For each eligible clip-class unit, use its first frame with that class labelled foreground; use the same first-labelled-frame policy and prompt_offset + 7 target interval as region_tokens_v1_1.",
+    "classes": {
+      "anatomy": [1, 2, 3, 4, 6, 7, 8, 10, 11, 12],
+      "instruments": [5, 9]
+    },
+    "analysis_population": "All eligible clip-class units from all source videos; source_video is retained for clustered descriptive reporting.",
+    "method_split": {
+      "dev_source_videos": ["video01", "video02", "video03", "video04", "video05", "video06", "video07", "video08", "video09", "video10", "video11", "video12"],
+      "test_source_videos": ["video13", "video14", "video15", "video16", "video17"],
+      "leakage_rule": "No source video may occur in both method splits, including through different clips or semantic classes."
+    },
+    "empty_or_short_units": "Record and exclude a clip-class unit if it has no foreground frame or no eligible target after the fixed post-prompt interval; never substitute another class or lower the target interval."
+  },
+  "reporting": "Report counts by source video, clip, class group, eligibility, and skip reason. Do not generalize a clip-level semantic result to an instance-tracking result."
+}

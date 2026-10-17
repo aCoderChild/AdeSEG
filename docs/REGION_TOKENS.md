@@ -1,6 +1,7 @@
 # Region-token experiment
 
-Active branch: `experiment`. Effective approved preregistration: `protocols/region_tokens_v1_1.json`;
+Active branch: `experiment`. Effective approved preregistration: `protocols/region_tokens_v1_1.json` plus the
+pre-E2 CholecSeg8k data-definition amendment `protocols/region_tokens_v1_2_cholec_amendment.json`;
 the original `protocols/region_tokens_v1.json` is retained unchanged.
 This study tests region-level memory contributions; it does not reuse the old
 latent-capability conclusions as evidence.
@@ -92,7 +93,14 @@ receipt is valid, and the collector has verified artifact checksums.
 
 The next revision adds the E2 value-only path. It preserves keys, RoPE positions,
 and pointers while replacing selected spatial values; an identity replacement is
-now an E0-required bit-exact check before any E2 inference is counted.
+now an E0-required bit-exact check before any E2 inference is counted. The first
+E2 job is a dev-only calibration pass: it produces category means and validates
+that exact value replacement is bit-identical. It is not an E2 result.
+
+Before any CholecSeg8k E2 outcome is generated, its semantic-mask object policy
+and source-video method split are frozen in the v1.2 data-definition amendment.
+Every non-background semantic class is an independently prompted clip-class unit;
+results will retain the source video and never be presented as instance tracking.
 
 The collector verifies every downloaded file against the W&B manifest MD5,
 removing only a mismatched downloaded copy before refetching. This avoids the
