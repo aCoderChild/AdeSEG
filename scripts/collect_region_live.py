@@ -39,7 +39,7 @@ def download_verified(artifact, destination):
         if not matches():
             # Only replace this exact downloaded copy; the source remains in W&B.
             path.unlink(missing_ok=True)
-            entry.download(root=str(destination), skip_cache=True)
+            artifact.get_entry(name).download(root=str(destination), skip_cache=True)
         if not matches():
             raise RuntimeError(f"Artifact checksum mismatch after download: {name}")
 

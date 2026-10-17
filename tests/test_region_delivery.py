@@ -20,8 +20,10 @@ def test_live_download_replaces_stale_same_length_file_and_verifies(tmp_path):
             assert skip_cache and not path.exists()
             path.write_bytes(b"new")
 
+    entry = Entry()
     artifact = SimpleNamespace(
-        manifest=SimpleNamespace(entries={"tracking.json": Entry()})
+        manifest=SimpleNamespace(entries={"tracking.json": entry}),
+        get_entry=lambda name: entry,
     )
     download_verified(artifact, tmp_path)
     assert path.read_bytes() == b"new"
