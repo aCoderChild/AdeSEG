@@ -128,7 +128,17 @@ def logit_changes(baseline, altered, target):
 
 
 @torch.inference_mode()
-def run_sequence(predictor, controller, video, frames, protocol, output, run, e0_only):
+def run_sequence(
+    predictor,
+    controller,
+    video,
+    frames,
+    protocol,
+    output,
+    run,
+    e0_only,
+    value_calibration=None,
+):
     """Natural pointers, c0 spatial memory, independent copies per counterfactual."""
     checks, rows = [], 0
     prompt = prompt_index(frames, protocol)
@@ -201,6 +211,7 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                             f"Unexpected default memory layout at {video}:{t}: {units}"
                         )
                     reconstruction = max(trace["reconstruction_max_abs"])
+                    captured_memory_values = trace["memory_values"].detach().cpu()
                     value_identity = {
                         unit["frame_idx"]: (
                             np.ones(unit["end"] - unit["start"], dtype=bool),
@@ -294,6 +305,46 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                         raise RuntimeError(f"E0 failed: {check}")
                     if e0_only:
                         return checks, rows
+                    if value_calibration is not None:
+                        values = captured_memory_values[0].float()
+                        for unit in units:
+                            labels = taxonomy[unit["frame_idx"]].ravel()
+                            spatial = values[unit["start"] : unit["end"]]
+                            for category, name in enumerate(CATEGORIES):
+                                selected = labels == category
+                                if selected.any():
+                                    value_calibration[name]["sum"] += spatial[selected].sum(0).numpy()
+                                    value_calibration[name]["count"] += int(selected.sum())
+                        controller.excluded_token_masks = {}
+                        controller.excluded_frame_indices = set()
+                        controller.token_biases = {}
+                        controller.token_value_replacements = {}
+                        controller.exclude_pointers = False
+                        replace_spatial_memory(
+                            predictor,
+                            state,
+                            state["output_dict"],
+                            frames,
+                            t,
+                            1,
+                            [1],
+                            "ground_truth",
+                            0,
+                            "mixed",
+                        )
+                        taxonomy[t] = token_categories(
+                            load_label_mask(frames[t].mask_path, [1]) == 1
+                        )["categories"]
+                        write_json(
+                            output / "progress.json",
+                            {
+                                "state": "running",
+                                "video": video,
+                                "frame": int(t),
+                                "rows": rows,
+                            },
+                        )
+                        continue
                     target = load_label_mask(frames[t].mask_path, [1]) == 1
                     base_metrics = metrics(baseline, target)
                     for name, altered, removed in (
@@ -478,11 +529,18 @@ def main():
         "--protocol", type=Path, default=ROOT / "protocols/region_tokens_v1_1.json"
     )
     parser.add_argument("--e0-only", action="store_true")
+    parser.add_argument(
+        "--calibrate-values",
+        action="store_true",
+        help="Record dev-only c0 category value means after E0; do not run E1 effects.",
+    )
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=False)
     protocol = json.loads(args.protocol.read_text())
     videos = load_manifest(args.manifest, "test")
+    if args.e0_only and args.calibrate_values:
+        raise ValueError("--e0-only and --calibrate-values are mutually exclusive")
     requested = (
         protocol["pilot"]["sequences"][:1]
         if args.e0_only
@@ -501,8 +559,12 @@ def main():
         ).strip(),
         "sequences": requested,
         "torch": torch.__version__,
-        "stage": "E0" if args.e0_only else "E1",
-        "scope": "gated region pilot; E2-E6 not executed",
+        "stage": "E0" if args.e0_only else "E2_calibration" if args.calibrate_values else "E1",
+        "scope": (
+            "dev-only c0 value calibration; E2 effects not executed"
+            if args.calibrate_values
+            else "gated region pilot; E2-E6 not executed"
+        ),
         "polypgen_mirror_equivalence": "not checksum-verified against Synapse",
     }
     write_json(args.output_dir / "setup.json", setup)
@@ -527,6 +589,17 @@ def main():
         controller.enabled = False
         attach_utility_controller(predictor, controller)
         checks, total = [], 0
+        calibration = (
+            {
+                name: {
+                    "sum": np.zeros(predictor.mem_dim, dtype=np.float64),
+                    "count": 0,
+                }
+                for name in CATEGORIES
+            }
+            if args.calibrate_values
+            else None
+        )
         for video in requested:
             print(f"[region] sequence={video} starting", flush=True)
             sanity, rows = run_sequence(
@@ -538,6 +611,7 @@ def main():
                 args.output_dir,
                 run,
                 args.e0_only,
+                calibration,
             )
             checks.extend(sanity)
             total += rows
@@ -550,6 +624,25 @@ def main():
             )
             log_results_artifact(
                 run, args.output_dir, [p.name for p in args.output_dir.glob("*.json*")]
+            )
+        if calibration is not None:
+            means = {
+                name: {
+                    "count": item["count"],
+                    "mean": (item["sum"] / item["count"]).tolist()
+                    if item["count"]
+                    else None,
+                }
+                for name, item in calibration.items()
+            }
+            if any(value["mean"] is None for value in means.values()):
+                raise RuntimeError("A preregistered category has no calibration values")
+            write_json(
+                args.output_dir / "value_calibration.json",
+                {
+                    "source": "PolypGen dev pilot sequences; c0 spatial memory; E0 passed each target",
+                    "categories": means,
+                },
             )
         write_json(
             args.output_dir / "status.json",
