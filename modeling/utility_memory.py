@@ -76,6 +76,9 @@ class UtilityController(nn.Module):
             self.register_buffer("log_bias_scale", initial)
         self.enabled = True
         self.excluded_frame_indices: set[int] = set()
+        self.excluded_token_masks: dict[int, torch.Tensor] = {}
+        self.token_biases: dict[int, torch.Tensor] = {}
+        self.exclude_pointers = False
 
     @property
     def bias_scale(self) -> torch.Tensor:
@@ -101,7 +104,6 @@ class UtilityController(nn.Module):
         return torch.stack(rows, dim=1)
 
     def forward(self, curr, memory, units, num_obj_ptr_tokens, query_context):
-        del num_obj_ptr_tokens  # pointer tokens stay at zero bias by construction
         features = self.unit_features(curr, memory, units, query_context)
         utilities = self.head(features)
         token_bias = memory.new_zeros(memory.shape[0], memory.shape[1])
@@ -111,11 +113,28 @@ class UtilityController(nn.Module):
                     self.bias_scale * utilities[:, index]
                 ).unsqueeze(-1)
         for unit in units:
+            start, end = unit["start"], unit["end"]
+            if unit["frame_idx"] in self.token_biases:
+                bias = torch.as_tensor(self.token_biases[unit["frame_idx"]],
+                                       device=memory.device, dtype=memory.dtype).flatten()
+                if bias.numel() != end - start:
+                    raise ValueError("Token bias length does not match spatial memory span")
+                token_bias[:, start:end] += bias
+            if unit["frame_idx"] in self.excluded_token_masks:
+                mask = torch.as_tensor(self.excluded_token_masks[unit["frame_idx"]],
+                                       device=memory.device, dtype=torch.bool).flatten()
+                if mask.numel() != end - start:
+                    raise ValueError("Token mask length does not match spatial memory span")
+                token_bias[:, start:end].masked_fill_(mask, -torch.inf)
             if unit["frame_idx"] in self.excluded_frame_indices:
                 token_bias[:, unit["start"] : unit["end"]] = -torch.inf
+        if self.exclude_pointers and num_obj_ptr_tokens:
+            token_bias[:, -num_obj_ptr_tokens:] = -torch.inf
         # SDPA accepts [B, 1, 1, K], broadcast over heads and queries.
         attention_bias = token_bias[:, None, None, :]
-        if not self.enabled and not self.excluded_frame_indices:
+        if not self.enabled and not self.excluded_frame_indices and not any(
+            torch.as_tensor(mask).any().item() for mask in self.excluded_token_masks.values()
+        ) and not self.token_biases and not self.exclude_pointers:
             attention_bias = None  # preserve the uninstrumented SDPA kernel path exactly
         return attention_bias, utilities, features.detach()
 

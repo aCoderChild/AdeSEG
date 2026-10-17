@@ -743,6 +743,8 @@ class SAM2Base(torch.nn.Module):
             "foreground_mask",
             torch.ones(current_tokens.shape[:2], device=current_tokens.device, dtype=torch.bool),
         )
+        from modeling.region_tokens import query_regions
+        query_context["regions"] = query_regions(query_context["foreground_mask"], H, W)
 
         pix_feat_with_mem = self.memory_attention(
             curr=current_vision_feats,

@@ -1,0 +1,128 @@
+"""Region taxonomy and budget matching for the existing memory-attention hook."""
+
+import cv2
+import numpy as np
+import torch
+from scipy.ndimage import distance_transform_edt
+
+CATEGORIES = ("boundary", "foreground", "near_background", "far_background")
+
+
+def token_categories(mask, grid=(64, 64), band=1, thresholds=(0.1, 0.9), image=None):
+    coverage = cv2.resize(
+        np.asarray(mask, np.float32), grid[::-1], interpolation=cv2.INTER_AREA
+    )
+    low, high = thresholds
+    boundary = ((coverage > low) & (coverage < high)).astype(np.uint8)
+    if band:
+        boundary = cv2.dilate(boundary, np.ones((2 * band + 1,) * 2, np.uint8))
+    boundary = boundary.astype(bool)
+    near = cv2.dilate(boundary.astype(np.uint8), np.ones((7, 7), np.uint8)).astype(bool)
+    categories = np.full(grid, 3, dtype=np.uint8)
+    categories[(coverage >= high) & ~boundary] = 1
+    categories[(coverage <= low) & near & ~boundary] = 2
+    categories[boundary] = 0
+    artifact = np.zeros(grid, bool)
+    if image is not None:
+        # Reuse analyze_illumination.image_stats's actual luminance rule.
+        image = np.asarray(image)
+        luma = np.sum(image * np.array([0.2126, 0.7152, 0.0722]), axis=-1) / 255
+        fraction = cv2.resize(
+            (luma > 0.95).astype(np.float32), grid[::-1], interpolation=cv2.INTER_AREA
+        )
+        artifact = fraction >= 0.25
+    return {"categories": categories, "coverage": coverage, "artifact": artifact}
+
+
+def matched_indices(categories, category, k, seed):
+    """No replacement and no silent budget reduction. None means infeasible."""
+    candidates = np.flatnonzero(np.asarray(categories).ravel() == category)
+    if k <= 0 or len(candidates) < k:
+        return None
+    return np.random.default_rng(seed).choice(candidates, size=k, replace=False)
+
+
+def spatially_matched_indices(categories, reference, seed):
+    """Random positions matched to each reference's integer distance from object.
+
+    Sampling includes the reference support; excluding boundary tokens would
+    make exact distance matching impossible in many frames. Report overlap.
+    """
+    foreground = np.isin(categories, [0, 1])
+    frames = foreground if foreground.ndim == 3 else foreground[None]
+    distance = np.concatenate(
+        [
+            np.floor(distance_transform_edt(~frame)).astype(int).ravel()
+            for frame in frames
+        ]
+    )
+    rng = np.random.default_rng(seed)
+    selected = []
+    for value, count in zip(*np.unique(distance[reference], return_counts=True)):
+        candidates = np.flatnonzero(distance == value)
+        if len(candidates) < count:
+            return None
+        selected.extend(rng.choice(candidates, count, replace=False))
+    return np.asarray(selected, dtype=int)
+
+
+def indices_to_masks(units, selected):
+    masks = {}
+    offset = 0
+    for unit in units:
+        length = unit["end"] - unit["start"]
+        mask = (selected >= offset) & (selected < offset + length)
+        local = np.zeros(length, bool)
+        local[selected[mask] - offset] = True
+        masks[unit["frame_idx"]] = torch.from_numpy(local)
+        offset += length
+    return masks
+
+
+def query_regions(foreground, height, width):
+    """Three disjoint query regions from previous prediction, without GT."""
+    mask = foreground.reshape(-1, 1, height, width).float()
+    outer = torch.nn.functional.max_pool2d(mask, 3, 1, 1) > 0
+    inner = ~(torch.nn.functional.max_pool2d(1 - mask, 3, 1, 1) > 0)
+    boundary = outer & ~inner
+    return {
+        "foreground": inner.flatten(1),
+        "boundary": boundary.flatten(1),
+        "background": (~outer).flatten(1),
+    }
+
+
+def category_attention(layers, units, maps, queries, conditioning=None):
+    """Per-layer/query-region key mass; pointer tokens are reported separately."""
+    output = []
+    for weights in layers:
+        regions = {}
+        for name, query_mask in queries.items():
+            query_mask = query_mask.to(weights.device).bool()
+            selected = weights.permute(0, 2, 1, 3)[query_mask]
+            if not selected.numel():
+                regions[name] = None
+                continue
+            masses = np.zeros(4)
+            spatial_end = 0
+            for unit in units:
+                spatial_end = max(spatial_end, unit["end"])
+                if (
+                    conditioning is not None
+                    and bool(unit["conditioning"]) != conditioning
+                ):
+                    continue
+                keys = selected[..., unit["start"] : unit["end"]]
+                labels = torch.as_tensor(
+                    maps[unit["frame_idx"]], device=keys.device
+                ).flatten()
+                for category in range(4):
+                    masses[category] += float(
+                        keys[..., labels == category].sum(-1).mean()
+                    )
+            regions[name] = dict(zip(CATEGORIES, masses.tolist()))
+            regions[name]["pointers"] = float(
+                selected[..., spatial_end:].sum(-1).mean()
+            )
+        output.append(regions)
+    return output
