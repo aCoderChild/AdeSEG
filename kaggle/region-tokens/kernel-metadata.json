@@ -7,7 +7,11 @@
   "is_private": true,
   "enable_gpu": true,
   "enable_internet": true,
-  "dataset_sources": ["debeshjha1/polypgen-video-sequence"],
+  "dataset_sources": [
+    "debeshjha1/polypgen-video-sequence",
+    "newslab/cholecseg8k",
+    "lennelenne/davis2017"
+  ],
   "competition_sources": [],
   "kernel_sources": []
 }
