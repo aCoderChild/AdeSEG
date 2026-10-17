@@ -47,6 +47,10 @@ def download_verified(artifact, destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", required=True)
+    parser.add_argument(
+        "--root-run-id",
+        help="Optional known orchestrator ID. Avoids eventual-consistency delays in group search.",
+    )
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--folder-name", default="region_tokens_v1")
     parser.add_argument("--watch", action="store_true")
@@ -62,12 +66,18 @@ def main():
     downloaded = {}
     while True:
         api = wandb.Api(overrides={"base_url": os.environ["WANDB_BASE_URL"]})
-        runs = list(
-            api.runs("adenoid-hypertrophy/ade-seg", filters={"group": args.group})
-        )
-        root_run = next(
-            (run for run in runs if run.name == "region-tokens-orchestrator"), None
-        )
+        if args.root_run_id:
+            root_run = api.run(
+                f"adenoid-hypertrophy/ade-seg/{args.root_run_id}"
+            )
+            runs = [root_run]
+        else:
+            runs = list(
+                api.runs("adenoid-hypertrophy/ade-seg", filters={"group": args.group})
+            )
+            root_run = next(
+                (run for run in runs if run.name == "region-tokens-orchestrator"), None
+            )
         for run in runs:
             artifacts = list(run.logged_artifacts())
             if not artifacts:
