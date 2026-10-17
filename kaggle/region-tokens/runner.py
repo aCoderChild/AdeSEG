@@ -12,7 +12,13 @@ import traceback
 
 from kaggle_secrets import UserSecretsClient
 
-OUT = Path("/kaggle/working/region_tokens_v1")
+RUN_STAGE = os.environ.get("REGION_STAGE", "E1")
+if RUN_STAGE not in {"E0", "E1", "E2_calibration"}:
+    raise ValueError(f"Unsupported REGION_STAGE: {RUN_STAGE}")
+OUT = Path("/kaggle/working") / os.environ.get(
+    "REGION_OUTPUT_NAME",
+    "region_tokens_v1" if RUN_STAGE == "E1" else f"region_tokens_{RUN_STAGE}",
+)
 REPO = Path("/kaggle/temp/AdeSEG-region")
 OUT.mkdir(parents=True, exist_ok=False)
 started = time.time()
@@ -143,7 +149,7 @@ try:
         config={
             "git_revision": revision,
             "protocol": "region_tokens_v1_1",
-            "scope": "E0/E1 gates",
+            "scope": f"{RUN_STAGE} region-token execution",
         },
     )
     (OUT / "tracking.json").write_text(
@@ -264,34 +270,51 @@ try:
         raise RuntimeError("E0 gate failed")
     mark("E0", "complete")
     upload()
-    mark("E1")
-    command([*common, "--output-dir", OUT / "E1"])
-    command(
-        [
-            sys.executable,
-            REPO / "scripts/analyze_region_token_pilot.py",
-            "--input",
-            OUT / "E1/frames.jsonl",
-            "--protocol",
-            protocol,
-            "--output",
-            OUT / "E1/decision.json",
-        ]
-    )
-    decision = json.loads((OUT / "E1/decision.json").read_text())
-    run.summary["E1/gate_pass"] = decision["gate_pass"]
-    run.summary["full_study_complete"] = False
-    mark("E1", "complete", decision=decision["decision"], full_study_complete=False)
-    # Analysis/method code must be validated separately after this scientific gate.
-    mark(
-        "pilot_complete",
-        "complete",
-        next_stage="E2 pending implementation/GPU validation"
-        if decision["gate_pass"]
-        else "stop_or_pivot",
-        full_study_complete=False,
-    )
-    upload()
+    if RUN_STAGE == "E0":
+        mark("E0_complete", "complete", next_stage="E1 or E2 calibration")
+        upload()
+    elif RUN_STAGE == "E2_calibration":
+        mark("E2_calibration")
+        command([*common, "--calibrate-values", "--output-dir", OUT / "E2_calibration"])
+        calibration = json.loads((OUT / "E2_calibration/value_calibration.json").read_text())
+        run.summary["E2_calibration/categories"] = len(calibration["categories"])
+        run.summary["full_study_complete"] = False
+        mark(
+            "E2_calibration_complete",
+            "complete",
+            next_stage="E2 interventions pending GPU validation",
+            full_study_complete=False,
+        )
+        upload()
+    else:
+        mark("E1")
+        command([*common, "--output-dir", OUT / "E1"])
+        command(
+            [
+                sys.executable,
+                REPO / "scripts/analyze_region_token_pilot.py",
+                "--input",
+                OUT / "E1/frames.jsonl",
+                "--protocol",
+                protocol,
+                "--output",
+                OUT / "E1/decision.json",
+            ]
+        )
+        decision = json.loads((OUT / "E1/decision.json").read_text())
+        run.summary["E1/gate_pass"] = decision["gate_pass"]
+        run.summary["full_study_complete"] = False
+        mark("E1", "complete", decision=decision["decision"], full_study_complete=False)
+        # Analysis/method code must be validated separately after this scientific gate.
+        mark(
+            "pilot_complete",
+            "complete",
+            next_stage="E2 pending implementation/GPU validation"
+            if decision["gate_pass"]
+            else "stop_or_pivot",
+            full_study_complete=False,
+        )
+        upload()
     run.finish()
 except BaseException as exc:
     mark("failed", "failed", error=str(exc))

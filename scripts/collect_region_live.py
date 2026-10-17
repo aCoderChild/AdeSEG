@@ -48,9 +48,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", required=True)
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--folder-name", default="region_tokens_v1")
     parser.add_argument("--watch", action="store_true")
     args = parser.parse_args()
-    folder = args.output_root / "region_tokens_v1"
+    folder = args.output_root / args.folder_name
     folder.mkdir(parents=True, exist_ok=True)
     # Both artifact payloads and any SDK staging/cache live in the requested Drive.
     os.environ["WANDB_BASE_URL"] = "https://forge.coreweave.com/api/wandb"
@@ -77,7 +78,7 @@ def main():
             stage = run.config.get("stage")
             if run is root_run:
                 destination = folder
-            elif stage in ("E0", "E1"):
+            elif stage in ("E0", "E1", "E2_calibration"):
                 destination = folder / stage
             else:
                 continue
@@ -124,6 +125,17 @@ def main():
                 )
                 if not receipt["delivery_valid"]:
                     raise SystemExit(1)
+                return
+            if root_run.state == "finished" and status.get("stage") == "E2_calibration_complete":
+                receipt = {
+                    "delivery_valid": True,
+                    "delivery_source": "W&B artifacts from Kaggle interactive execution",
+                    "full_study_complete": False,
+                    "kaggle_status": status,
+                }
+                (folder / "delivery_receipt.json").write_text(
+                    json.dumps(receipt, indent=2) + "\n"
+                )
                 return
             raise SystemExit(
                 f"Kaggle orchestrator ended with {root_run.state}; inspect exported failure/status"
