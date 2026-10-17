@@ -134,14 +134,52 @@ def _json_unit(unit):
 
 
 def corrupt_mask(mask, level, kind, frame_index):
-    """Deterministic E3 corruption; level is fixed before the run."""
+    """Apply the frozen cumulative c1--c4 E3 corruption schedule.
+
+    ``level`` uses the preregistered normalized encoding: 0.25, 0.50, 0.75,
+    and 1.00 correspond to c1, c2, c3, and c4.  Named single operators remain
+    available for diagnostic ablations, but ``mixed`` is always cumulative.
+    """
     mask = np.asarray(mask, dtype=np.uint8)
     if not 0 <= level <= 1:
         raise ValueError("--corruption-level must be in [0, 1]")
     if level == 0:
         return mask.astype(bool)
     if kind == "mixed":
-        kind = ("erosion", "dilation", "shift", "blob", "deletion")[frame_index % 5]
+        stage = min(4, max(1, int(np.ceil(level * 4))))
+        result = mask.copy()
+        # c1: deterministic +/- 3 px boundary perturbation at memory-mask
+        # resolution. Alternate the sign across frames without changing stage.
+        boundary_kernel = np.ones((7, 7), np.uint8)
+        result = (
+            cv2.erode(result, boundary_kernel)
+            if frame_index % 2 == 0 else cv2.dilate(result, boundary_kernel)
+        )
+        if stage >= 2:
+            rows, columns = np.nonzero(result)
+            if rows.size:
+                height = max(1, int(rows.max() - rows.min() + 1))
+                width = max(1, int(columns.max() - columns.min() + 1))
+                fraction = 0.05 + 0.05 * ((frame_index % 3) / 2)
+                dy, dx = max(1, round(height * fraction)), max(1, round(width * fraction))
+                shifted = np.zeros_like(result)
+                shifted[dy:, dx:] = result[:-dy, :-dx]
+                result = shifted
+        if stage >= 3:
+            columns = np.flatnonzero(result.any(axis=0))
+            if columns.size:
+                deletion_fraction = 0.20 + 0.05 * (frame_index % 3)
+                delete_width = max(1, round(columns.size * deletion_fraction))
+                result[:, columns[-delete_width:]] = 0
+        if stage >= 4:
+            # Deterministic false-positive blob. The current implementation has
+            # no image-similarity search, so record this as the c4 geometric
+            # proxy rather than claiming a distractor-selected blob.
+            centre = (int(mask.shape[1] * 0.2), int(mask.shape[0] * 0.2))
+            axes = (max(1, round(mask.shape[1] * 0.05)),
+                    max(1, round(mask.shape[0] * 0.05)))
+            cv2.ellipse(result, centre, axes, 0, 0, 360, 1, -1)
+        return result.astype(bool)
     radius = max(1, round(1 + 10 * level))
     kernel = np.ones((2 * radius + 1, 2 * radius + 1), np.uint8)
     if kind == "erosion":

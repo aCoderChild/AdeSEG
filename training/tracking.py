@@ -3,6 +3,11 @@ from pathlib import Path
 
 
 def start_wandb(project, entity, name, mode, base_url, config, output_dir, tags):
+    if mode == "online" and not os.environ.get("WANDB_API_KEY"):
+        raise RuntimeError(
+            "W&B online mode requires WANDB_API_KEY. Attach the Kaggle secret or "
+            "pass --wandb-mode offline/disabled explicitly."
+        )
     if base_url:
         os.environ["WANDB_BASE_URL"] = base_url
     import wandb
