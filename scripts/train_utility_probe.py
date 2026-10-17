@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train and evaluate the E5 utility probe from cached leave-one-out records."""
+"""Train an exploratory MLP utility predictor from cached leave-one-out records."""
 
 from __future__ import annotations
 
@@ -171,7 +171,11 @@ def main():
             "best_baseline": best_baseline,
             "probe_vs_best_baseline": comparison,
             "median_sequence_improvement": float(np.nanmedian(list(differences.values()))),
-            "E5_pass": bool(comparison["p"] < 0.05 and np.nanmedian(list(differences.values())) > 0),
+            # Probe correlation is not E5 causal segmentation evidence, nor the
+            # E4 linear-probe result with preregistered controls.
+            "E4_exploratory_mlp_beats_recorded_proxies": bool(
+                comparison["p"] < 0.05 and np.nanmedian(list(differences.values())) > 0
+            ),
         }
         save_utility_head(controller, args.output_dir / "utility_head.pt", summary)
         (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
