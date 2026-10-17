@@ -89,14 +89,16 @@ first labels. Only eight of the fifteen development sequences have foreground
 at frame zero, so ten first-frame-prompted dev sequences cannot be drawn from
 this mirror under the current rule.
 
-`protocols/region_tokens_initialization_amendment_proposal.json` is a proposal
-only. It would initialize at the first labeled frame, select seq2–6 and seq8–12
-for the ten-sequence pilot, and report unpromptable sequences separately. It
-has not changed the frozen protocol or been used for inference.
+The user approved the documented amendment before any token-intervention
+outcomes. Effective protocol `protocols/region_tokens_v1_1.json` initializes at
+the first labeled frame, selects seq2–6 and seq8–12, and reports unpromptable
+sequences separately. Targets start at prompt offset + 7 for every method.
+The original `region_tokens_v1.json` remains unchanged for provenance.
 
 Kaggle version 3 was Quick Saved with **Always save output** enabled. Its
 initialization-audit JSON downloaded from Kaggle was byte-identical to the file
 downloaded from the W&B run. The idle interactive GPU session was stopped while
-the initialization decision is pending. E2–E6 remain incomplete, and the local
+the initialization decision was pending. The amended rerun is now authorized.
+E2–E6 remain incomplete, and the local
 legacy branch/runs have not been removed because the requested successful-GPU
 validation condition has not been met.

@@ -59,7 +59,7 @@ def validate(folder):
     protocol_path = folder / "protocol.json"
     manifest_path = folder / "polypgen_manifest.jsonl"
     if protocol_path.exists() and manifest_path.exists():
-        import numpy as np
+        from scripts.audit_region_initialization import target_indices
 
         protocol = json.loads(protocol_path.read_text())
         counts = {}
@@ -68,19 +68,28 @@ def validate(folder):
             counts[row["video_id"]] = counts.get(row["video_id"], 0) + 1
         expected = set()
         for video in protocol["pilot"]["sequences"]:
-            eligible = np.arange(7, counts.get(video, 0))
-            if not eligible.size:
+            audit_path = folder / "initialization_audit.json"
+            audit = json.loads(audit_path.read_text()) if audit_path.exists() else {}
+            offsets = {
+                r["video"]: r["first_visible_frame"] for r in audit.get("sequences", [])
+            }
+            prompt = (
+                offsets.get(video)
+                if protocol.get("initialization") == "first_labeled_frame"
+                else 0
+            )
+            if prompt is None:
+                problems.append(f"Missing prompt eligibility audit: {video}")
+                continue
+            try:
+                targets = target_indices(
+                    counts.get(video, 0),
+                    prompt,
+                    protocol["pilot"]["targets_per_sequence"],
+                )
+            except ValueError:
                 problems.append(f"No eligible targets: {video}")
                 continue
-            targets = eligible[
-                np.unique(
-                    np.linspace(
-                        0,
-                        len(eligible) - 1,
-                        min(protocol["pilot"]["targets_per_sequence"], len(eligible)),
-                    ).astype(int)
-                )
-            ]
             for frame in targets:
                 for bank in ("conditioning", "recent"):
                     for category in (

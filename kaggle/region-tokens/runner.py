@@ -140,7 +140,7 @@ try:
         dir=str(OUT),
         config={
             "git_revision": revision,
-            "protocol": "region_tokens_v1",
+            "protocol": "region_tokens_v1_1",
             "scope": "E0/E1 gates",
         },
     )
@@ -170,6 +170,27 @@ try:
         180,
     )
     rows = [json.loads(line) for line in manifest.read_text().splitlines()]
+    protocol = REPO / "protocols/region_tokens_v1_1.json"
+    (OUT / "protocol.json").write_bytes(protocol.read_bytes())
+    command(
+        [
+            sys.executable,
+            REPO / "scripts/audit_region_initialization.py",
+            "--manifest",
+            manifest,
+            "--output",
+            OUT / "initialization_audit.json",
+        ]
+    )
+    audit = json.loads((OUT / "initialization_audit.json").read_text())
+    eligibility = {
+        row["video"]: row["first_visible_frame"] for row in audit["sequences"]
+    }
+    for video in json.loads(protocol.read_text())["pilot"]["sequences"]:
+        if eligibility.get(video) is None:
+            raise RuntimeError(f"Unpromptable preregistered pilot sequence: {video}")
+    mark("initialization_audit", prompt_frames=eligibility)
+    upload()
     counts = {}
     inventory = []
     for index, row in enumerate(rows, start=1):
@@ -225,8 +246,6 @@ try:
     )
     if checkpoint.stat().st_size < 300_000_000:
         raise RuntimeError("Truncated SAM2.1 checkpoint")
-    protocol = REPO / "protocols/region_tokens_v1.json"
-    (OUT / "protocol.json").write_bytes(protocol.read_bytes())
     common = [
         sys.executable,
         REPO / "scripts/run_region_token_pilot.py",
