@@ -8,6 +8,8 @@ collect_region_results.py after the session is saved.
 
 # ruff: noqa: E402 -- direct CLI use
 import argparse
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,6 +19,29 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.collect_region_results import validate, verify_analysis_and_wandb
+
+
+def download_verified(artifact, destination):
+    """Do not trust SDK cached checksums for files overwritten by other exports."""
+    destination = Path(destination).resolve()
+    for name, entry in artifact.manifest.entries.items():
+        path = (destination / name).resolve()
+        if not path.is_relative_to(destination) or entry.ref is not None:
+            raise ValueError(f"Unsupported artifact entry: {name}")
+
+        def matches():
+            return (
+                path.is_file()
+                and base64.b64encode(hashlib.md5(path.read_bytes()).digest()).decode()
+                == entry.digest
+            )
+
+        if not matches():
+            # Only replace this exact downloaded copy; the source remains in W&B.
+            path.unlink(missing_ok=True)
+            entry.download(root=str(destination), skip_cache=True)
+        if not matches():
+            raise RuntimeError(f"Artifact checksum mismatch after download: {name}")
 
 
 def main():
@@ -56,7 +81,7 @@ def main():
                 destination = folder / stage
             else:
                 continue
-            latest.download(root=str(destination), skip_cache=True)
+            download_verified(latest, destination)
             downloaded[run.id] = latest.digest
             print(f"Delivered {run.name}: {latest.name} -> Drive", flush=True)
         snapshot = {

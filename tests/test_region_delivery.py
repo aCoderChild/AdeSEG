@@ -2,6 +2,29 @@ import json
 
 from scripts.analyze_region_token_pilot import analyze
 from scripts.collect_region_results import validate
+from scripts.collect_region_live import download_verified
+import hashlib
+import base64
+from types import SimpleNamespace
+
+
+def test_live_download_replaces_stale_same_length_file_and_verifies(tmp_path):
+    path = tmp_path / "tracking.json"
+    path.write_bytes(b"old")
+
+    class Entry:
+        ref = None
+        digest = base64.b64encode(hashlib.md5(b"new").digest()).decode()
+
+        def download(self, root, skip_cache):
+            assert skip_cache and not path.exists()
+            path.write_bytes(b"new")
+
+    artifact = SimpleNamespace(
+        manifest=SimpleNamespace(entries={"tracking.json": Entry()})
+    )
+    download_verified(artifact, tmp_path)
+    assert path.read_bytes() == b"new"
 
 
 def test_missing_or_failed_results_never_validate(tmp_path):
