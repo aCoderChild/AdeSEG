@@ -69,6 +69,7 @@ subprocess.run([
 ], cwd=REPO, check=True, timeout=900)
 missing = [package for module, package in {
     "hydra": "hydra-core>=1.3.2", "iopath": "iopath>=0.1.10", "wandb": "wandb",
+    "statsmodels": "statsmodels>=0.14",
 }.items() if importlib.util.find_spec(module) is None]
 if missing:
     subprocess.run([sys.executable, "-m", "pip", "install", *missing], check=True, timeout=300)
@@ -141,7 +142,9 @@ run([
 conditions = {
     "natural": ("--memory-source", "predicted"),
     "c0": ("--memory-source", "ground_truth"),
+    "c1": ("--memory-source", "corrupted", "--corruption-level", "0.25"),
     "c2": ("--memory-source", "corrupted", "--corruption-level", "0.50"),
+    "c3": ("--memory-source", "corrupted", "--corruption-level", "0.75"),
     "c4": ("--memory-source", "corrupted", "--corruption-level", "1.00"),
 }
 paths = {}
@@ -154,7 +157,9 @@ run([
     sys.executable, REPO / "scripts/analyze_utility_mechanism.py",
     "--condition", "predicted", paths["natural"] / "frames.jsonl",
     "--condition", "ground_truth", paths["c0"] / "frames.jsonl",
+    "--condition", "corruption_0.25", paths["c1"] / "frames.jsonl",
     "--condition", "corruption_0.50", paths["c2"] / "frames.jsonl",
+    "--condition", "corruption_0.75", paths["c3"] / "frames.jsonl",
     "--condition", "corruption_1.00", paths["c4"] / "frames.jsonl",
     "--output", OUT / "E3/mechanism.json",
 ])

@@ -2,6 +2,7 @@ torch
 torchvision
 numpy
 scipy>=1.10
+statsmodels>=0.14
 Pillow
 opencv-python
 pyyaml

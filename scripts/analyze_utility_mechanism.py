@@ -8,6 +8,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+from statsmodels.regression.mixed_linear_model import MixedLM
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -26,6 +28,29 @@ def sequence_means(rows):
     return {name: float(np.nanmean(values)) for name, values in grouped.items()}
 
 
+def corruption_trend(conditions):
+    names = ("ground_truth", "corruption_0.25", "corruption_0.50",
+             "corruption_0.75", "corruption_1.00")
+    if not all(name in conditions for name in names):
+        return None
+    sequences = set.intersection(*(set(conditions[name]) for name in names))
+    rows = [
+        {"sequence": sequence, "corruption_level": level,
+         "rho": conditions[name][sequence]}
+        for sequence in sorted(sequences)
+        for level, name in enumerate(names)
+        if np.isfinite(conditions[name][sequence])
+    ]
+    if len(sequences) < 2 or len(rows) < 10:
+        return None
+    result = MixedLM.from_formula(
+        "rho ~ corruption_level", groups="sequence", data=pd.DataFrame(rows)
+    ).fit(reml=False)
+    return {"sequence_count": len(sequences), "observations": len(rows),
+            "slope": float(result.params["corruption_level"]),
+            "p_two_sided": float(result.pvalues["corruption_level"])}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--condition", action="append", nargs=2, metavar=("NAME", "FRAMES_JSONL"), required=True)
@@ -41,14 +66,16 @@ def main():
     )
     corruption_means = [float(np.nanmean(list(conditions[name].values()))) for name in corruption_names]
     monotonic = all(left >= right for left, right in zip(corruption_means, corruption_means[1:]))
+    trend = corruption_trend(conditions)
     summary = {
         "mean_spearman": {name: float(np.nanmean(list(values.values()))) for name, values in conditions.items()},
         "bootstrap_95ci": {name: sequence_bootstrap_interval(values) for name, values in conditions.items()},
         "predicted_vs_ground_truth": comparison,
         "corruption_order": corruption_names,
         "corruption_monotonic_nonincreasing": monotonic,
-        # These conditions and summary statistics are a development-scale
-        # diagnostic, not the preregistered c0--c4 mixed-model E3 test.
+        "corruption_mixed_model": trend,
+        # A valid E3 decision additionally needs protocol-compliant utility,
+        # foreground saliency and the frozen target-frame sampling plan.
         "E3_pass": None,
         "exploratory_clean_vs_predicted_difference": bool(
             comparison["p"] < 0.05
