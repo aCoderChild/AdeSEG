@@ -65,6 +65,23 @@ def command(arguments, timeout=21600):
     )
 
 
+def resolve_kaggle_input(*relative_paths: str) -> Path:
+    """Return the one verified Kaggle mount layout for an attached dataset."""
+    candidates = [Path("/kaggle/input") / relative_path for relative_path in relative_paths]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    available = sorted(
+        path.relative_to("/kaggle/input").as_posix()
+        for path in Path("/kaggle/input").glob("**/*")
+        if path.is_dir() and len(path.relative_to("/kaggle/input").parts) <= 3
+    )
+    raise FileNotFoundError(
+        f"None of the expected Kaggle input paths exist: {candidates}. "
+        f"Available directories: {available}"
+    )
+
+
 def upload():
     import wandb
 
@@ -195,10 +212,14 @@ try:
     (OUT / "protocol.json").write_bytes(protocol.read_bytes())
     if RUN_STAGE == "E2_preflight":
         # This is deliberately an input/instrumentation gate, not an E2 result.
-        # The public mounts are resolved by their pinned Kaggle slugs so a missing
-        # or differently shaped attachment fails before any counterfactual run.
-        cholec_root = Path("/kaggle/input/cholecseg8k")
-        davis_root = Path("/kaggle/input/davis2017")
+        # Kaggle sometimes nests attached public datasets beneath ``datasets``.
+        # Accept only the two known layouts, and fail with an inventory otherwise.
+        cholec_root = resolve_kaggle_input(
+            "cholecseg8k", "datasets/newslab/cholecseg8k"
+        )
+        davis_root = resolve_kaggle_input(
+            "davis2017", "datasets/lennelenne/davis2017"
+        )
         cholec_output = OUT / "cholecseg8k"
         davis_manifest = OUT / "davis2017.jsonl"
         command(
@@ -251,12 +272,14 @@ try:
                 },
                 "cholecseg8k": {
                     "dataset": "newslab/cholecseg8k",
+                    "mounted_path": str(cholec_root),
                     "frames": len(cholec_rows),
                     "clips": len({row["video_id"] for row in cholec_rows}),
                     "source_videos": sorted({row["source_video"] for row in cholec_rows}),
                 },
                 "davis2017": {
                     "dataset": "lennelenne/davis2017",
+                    "mounted_path": str(davis_root),
                     "frames": len(davis_rows),
                     "videos": len({row["video_id"] for row in davis_rows}),
                     "splits": sorted(davis_splits),
