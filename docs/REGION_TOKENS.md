@@ -63,8 +63,9 @@ at Kaggle secret retrieval before creating a W&B run. The secret was verified
 attached in the editor. A CPU-only interactive execution of the existing
 `verify_wandb_connection.py --check-only` printed `connected` for the Forge
 project. Version 2 was cancelled after 14 minutes queued; an interactive T4
-session then started the bootstrap at revision `12919339aa4e`. No GPU E0 pass
-is claimed yet.
+session then executed the bootstrap at revision `12919339aa4e` with live W&B
+orchestrator `w3f2tstp` and E0 run `s3owx6fo`. E0 stopped at prompt validation:
+seq1's first mask is empty. No instrumentation check or hypothesis metric ran.
 Kaggle's available accelerator selector offered T4 x2 and TPU; P100 was not
 available. No duplicate GPU job was launched to bypass that queue.
 
@@ -79,3 +80,23 @@ frames before averaging), retains the original notebook decision, uploads
 `decision_verified.json` to the same W&B orchestrator run, and records both
 analysis and inference revisions. A passing pilot never sets
 `full_study_complete` to true.
+
+## Initialization blocker discovered on Kaggle
+
+The subsequent audit of all 23 sequences found no labeled foreground anywhere
+in seq1 (36 frames) or seq7 (48 frames). Several other sequences have delayed
+first labels. Only eight of the fifteen development sequences have foreground
+at frame zero, so ten first-frame-prompted dev sequences cannot be drawn from
+this mirror under the current rule.
+
+`protocols/region_tokens_initialization_amendment_proposal.json` is a proposal
+only. It would initialize at the first labeled frame, select seq2–6 and seq8–12
+for the ten-sequence pilot, and report unpromptable sequences separately. It
+has not changed the frozen protocol or been used for inference.
+
+Kaggle version 3 was Quick Saved with **Always save output** enabled. Its
+initialization-audit JSON downloaded from Kaggle was byte-identical to the file
+downloaded from the W&B run. The idle interactive GPU session was stopped while
+the initialization decision is pending. E2–E6 remain incomplete, and the local
+legacy branch/runs have not been removed because the requested successful-GPU
+validation condition has not been met.
