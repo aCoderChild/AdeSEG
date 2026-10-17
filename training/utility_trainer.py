@@ -1,12 +1,19 @@
 """Frozen-SAM2 training path for the matched-budget attention baseline."""
 
+import tempfile
+from pathlib import Path
+
+import numpy as np
 import torch
 from torch.nn import functional as F
 
 from external.MedSAM2.training.loss_fns import dice_loss, sigmoid_focal_loss
 from external.MedSAM2.training.model.sam2 import SAM2Train
+from external.MedSAM2.training.utils.data_utils import BatchedVideoDatapoint, BatchedVideoMetaData
+from adenoid.io import load_label_mask
 from modeling.medsam2 import build_video_predictor
 from modeling.utility_memory import UtilityController, UtilityHead, attach_utility_controller
+from scripts.infer import predict_label, stage_frames
 
 
 PROMPT_OVERRIDES = {
@@ -59,3 +66,53 @@ def segmentation_loss(outputs, masks):
         inputs = logits.flatten(1)
         terms.append(20.0 * sigmoid_focal_loss(inputs, labels, 1) + dice_loss(inputs, labels, 1))
     return torch.stack(terms).mean()
+
+
+def video_batch(images, masks) -> BatchedVideoDatapoint:
+    """One video with one object: images [T, 3, H, W], masks [T, H, W]."""
+    frames = torch.arange(images.size(0), dtype=torch.int, device=images.device)
+    return BatchedVideoDatapoint(
+        img_batch=images.unsqueeze(1),
+        obj_to_frame_idx=torch.stack([frames, torch.zeros_like(frames)], dim=-1).unsqueeze(1),
+        masks=masks.bool().unsqueeze(1),
+        metadata=BatchedVideoMetaData(
+            unique_objects_identifier=torch.stack(
+                [torch.zeros_like(frames), torch.ones_like(frames), frames], dim=-1
+            ).unsqueeze(1).long(),
+            frame_orig_size=torch.tensor(images.shape[-2:], device=images.device).repeat(images.size(0), 1, 1),
+            batch_size=[images.size(0)],
+        ),
+        dict_key="pseudo_video",
+        batch_size=[images.size(0)],
+    )
+
+
+def sequence_scores(predictor, videos, label_ids):
+    """Average whole-sequence validation Dice and absent-frame false-positive rate."""
+    present_dice, absent_fp = [], []
+    for frames in videos.values():
+        with tempfile.TemporaryDirectory(prefix="utility_val_") as temporary:
+            staged = Path(temporary)
+            stage_frames(frames, staged)
+            for label_id in label_ids:
+                logits, prompt, _, _ = predict_label(
+                    predictor, frames, label_id, label_ids, staged, False, "mask"
+                )
+                if prompt is None:
+                    continue
+                dice, empty_fp = [], []
+                for index in range(prompt + 1, len(frames)):
+                    predicted = logits[index] > 0
+                    target = load_label_mask(frames[index].mask_path, label_ids) == label_id
+                    if target.any():
+                        dice.append(2 * (predicted & target).sum() / (predicted.sum() + target.sum()))
+                    else:
+                        empty_fp.append(predicted.any())
+                if dice:
+                    present_dice.append(np.mean(dice))
+                if empty_fp:
+                    absent_fp.append(np.mean(empty_fp))
+    return {
+        "present_dice": float(np.mean(present_dice)),
+        "absent_fp_rate": float(np.mean(absent_fp)) if absent_fp else None,
+    }

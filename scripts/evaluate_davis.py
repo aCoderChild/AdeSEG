@@ -14,11 +14,10 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "external" / "RDE-VOS-CVPR2022" / "evaluation" / "2017"))
 
 from adenoid.io import load_semantic_mask
 from datasets.video import load_manifest
-from davis2017.metrics import db_eval_boundary, db_eval_iou
+from evaluation.davis2017.metrics import db_eval_boundary, db_eval_iou
 from evaluation.utility_retrieval import temporal_summary
 
 

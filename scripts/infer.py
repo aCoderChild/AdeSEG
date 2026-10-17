@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Run MedSAM2 video inference (native memory bank, or a trained recurrent memory:
-RKN or RDE-VOS) from a labelled-video manifest.
+"""Run frozen SAM2 video inference from a labelled-video manifest.
 
 The first frame containing each requested label supplies that label's box prompt.
 This is an evaluation protocol, not an interactive clinical prompting interface.
@@ -31,15 +30,10 @@ sys.path[:0] = [str(ROOT), str(ROOT / "external" / "MedSAM2")]
 
 from adenoid.io import load_label_mask
 from datasets.video import ManifestFrame, load_manifest
-from modeling.detector import PolypDetector
-from modeling.recurrent_memory import load_memory_update
 from modeling.medsam2 import build_video_predictor
 from modeling.utility_memory import attach_utility_controller, load_utility_head
 
-DIAGNOSTIC_FIELDS = ("frame_idx", "frame", "status", "object_score", "presence",
-                     "gain_mean", "feature_change_mean", "memory_status",
-                     "redetected", "detection_confidence", "mask_box_iou", "rho",
-                     "association", "process_noise", "measurement_noise", "age")
+DIAGNOSTIC_FIELDS = ("frame_idx", "frame", "status", "object_score")
 
 
 def parse_args():
@@ -56,15 +50,8 @@ def parse_args():
     parser.add_argument("--prompt_type", choices=("mask", "box"), default="box",
                         help="Initial ground-truth prompt. Utility-retrieval runs pass mask explicitly; "
                              "box preserves the repository's earlier experiments.")
-    parser.add_argument("--memory_checkpoint", type=Path, default=None,
-                        help="Trained memory update (RKN or RDE-VOS) from scripts/train_memory.py; "
-                             "without it, MedSAM2's native memory bank is used.")
     parser.add_argument("--utility_checkpoint", type=Path, default=None,
                         help="E5 utility head; adds learned bias to native spatial-memory attention.")
-    parser.add_argument("--detector", type=Path, default=Path("checkpoints/polypgen_yolov8n.pt"),
-                        help="YOLO weights for re-detection and for a memory update that uses detector observations.")
-    parser.add_argument("--redetect", action="store_true",
-                        help="Re-detect from the detector box on native MedSAM2 or an update without detector heads.")
     parser.add_argument("--device", choices=("auto", "cuda", "mps", "cpu"), default="auto")
     parser.add_argument("--output_dir", type=Path, required=True)
     return parser.parse_args()
@@ -85,23 +72,19 @@ def stage_frames(frames: list[ManifestFrame], directory: Path) -> None:
 
 
 def retained_memory_mib(output_dict) -> float:
-    """MiB of memory state held at the end of a video: every stored frame memory for
-    native MedSAM2, the prompt memory and recurrent state (with its covariance) otherwise."""
-    if "memory_state" in output_dict:
-        tensors = output_dict["memory_state"].tensors()
-    else:
-        tensors = [
-            tensor
-            for outputs in (output_dict["cond_frame_outputs"], output_dict["non_cond_frame_outputs"])
-            for output in outputs.values()
-            for tensor in [output.get("maskmem_features"), *(output.get("maskmem_pos_enc") or [])]
-            if tensor is not None
-        ]
+    """MiB held by the native SAM2 memory bank at the end of a video."""
+    tensors = [
+        tensor
+        for outputs in (output_dict["cond_frame_outputs"], output_dict["non_cond_frame_outputs"])
+        for output in outputs.values()
+        for tensor in [output.get("maskmem_features"), *(output.get("maskmem_pos_enc") or [])]
+        if tensor is not None
+    ]
     unique = {tensor.untyped_storage().data_ptr(): tensor.untyped_storage().nbytes() for tensor in tensors}
     return sum(unique.values()) / 2 ** 20
 
 
-def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels: list[int], recurrent: bool,
+def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels: list[int],
                   staged: Path, nested: bool, prompt_type="box"):
     prompt_index, box = first_box(frames, label_id, labels, nested)
     width, height = Image.open(frames[0].image_path).size  # the video's size, as the predictor outputs
@@ -113,10 +96,6 @@ def predict_label(predictor, frames: list[ManifestFrame], label_id: int, labels:
         offload_state_to_cpu=predictor.device.type == "cuda",
     )
     try:
-        if recurrent:
-            state.update({"recurrent_memory": True, "memory_anchor_frame_idx": prompt_index})
-        if getattr(predictor, "redetect_enabled", False) or getattr(getattr(predictor, "memory_update", None), "uses_detector", False):
-            predictor.detections = predictor.detector.frame_detections([f.image_path for f in frames], predictor.device)
         if prompt_type == "mask":
             prompt_mask = load_label_mask(frames[prompt_index].mask_path, labels)
             prompt_mask = prompt_mask >= label_id if nested else prompt_mask == label_id
@@ -165,34 +144,24 @@ def write_diagnostics(path: Path, frames: list[ManifestFrame], prompt_index, tra
 @torch.inference_mode()
 def main():
     args = parse_args()
-    recurrent = args.memory_checkpoint is not None
     videos = load_manifest(args.manifest, args.split)
     if args.video_ids is not None:
         videos = {video_id: frames for video_id, frames in videos.items() if video_id in args.video_ids}
         if not videos:
             raise ValueError("None of --video_ids is in the selected split.")
-    target = "modeling.recurrent_memory.RecurrentMemoryVideoPredictor" if recurrent or args.redetect else None
-    predictor = build_video_predictor(str(args.sam2_cfg), args.sam2_checkpoint, args.device, predictor_target=target)
+    predictor = build_video_predictor(str(args.sam2_cfg), args.sam2_checkpoint, args.device)
     if args.utility_checkpoint:
         attach_utility_controller(
             predictor, load_utility_head(args.utility_checkpoint, predictor.device),
             capture_attention=False,
         )
-    if recurrent:
-        predictor.memory_update = load_memory_update(args.memory_checkpoint, predictor, predictor.device)
-    if args.redetect:
-        predictor.redetect_enabled = True
-    if args.redetect or getattr(getattr(predictor, "memory_update", None), "uses_detector", False):
-        predictor.detector = PolypDetector(args.detector, predictor.device.type)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     labels = sorted(args.label_ids) if args.nested_labels else args.label_ids
     run = {
         "manifest": str(args.manifest), "split": args.split, "label_ids": labels,
         "nested_labels": args.nested_labels,
         "prompt_type": args.prompt_type,
-        "memory_update": predictor.memory_update.CHECKPOINT_KIND if recurrent else "native",
-        "redetect": bool(args.redetect or getattr(getattr(predictor, "memory_update", None), "uses_detector", False)),
-        "memory_checkpoint": str(args.memory_checkpoint) if recurrent else None,
+        "memory_update": "native",
         "utility_checkpoint": str(args.utility_checkpoint) if args.utility_checkpoint else None,
         "object_pointer_tokens_modulated": False if args.utility_checkpoint else None,
         "device": str(predictor.device), "videos": {},
@@ -205,7 +174,7 @@ def main():
             label_logits, prompts, traces, efficiency = {}, {}, {}, {}
             for label_id in labels:
                 label_logits[label_id], prompts[label_id], traces[label_id], efficiency[label_id] = predict_label(
-                    predictor, frames, label_id, labels, recurrent, staged, args.nested_labels,
+                    predictor, frames, label_id, labels, staged, args.nested_labels,
                     args.prompt_type,
                 )
         height, width = label_logits[labels[0]].shape[-2:]

@@ -244,7 +244,7 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
         staged = Path(temporary)
         stage_frames(frames, staged)
         baseline_logits, prompt, _, _ = predict_label(
-            predictor, frames, label_id, all_label_ids, False, staged, False, "mask"
+            predictor, frames, label_id, all_label_ids, staged, False, "mask"
         )
         if prompt is None:
             return records, rows

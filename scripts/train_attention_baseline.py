@@ -16,10 +16,11 @@ from datasets.video import ManifestVideoClips, assert_disjoint_videos, load_mani
 from adenoid.io import load_semantic_mask
 from modeling.medsam2 import build_video_predictor
 from modeling.utility_memory import attach_utility_controller, save_utility_head
-from scripts.train_memory import sequence_scores
-from training.memory_trainer import video_batch
 from training.tracking import finish, log, start_wandb
-from training.utility_trainer import build_attention_baseline, run_attention_clip, segmentation_loss
+from training.utility_trainer import (
+    build_attention_baseline, run_attention_clip, segmentation_loss,
+    sequence_scores, video_batch,
+)
 
 
 def parse_args():
@@ -103,7 +104,6 @@ def main():
                 controller.eval()
                 scores = sequence_scores(
                     predictor, validation_videos, args.label_ids,
-                    recurrent=False, prompt_type="mask",
                 )
                 controller.train()
                 log(run, "validation", scores, step)
