@@ -172,7 +172,7 @@ try:
     rows = [json.loads(line) for line in manifest.read_text().splitlines()]
     counts = {}
     inventory = []
-    for row in rows:
+    for index, row in enumerate(rows, start=1):
         counts[row["video_id"]] = counts.get(row["video_id"], 0) + 1
         inventory.append(
             {
@@ -185,6 +185,8 @@ try:
                 ).hexdigest(),
             }
         )
+        if index % 100 == 0 or index == len(rows):
+            mark("data_hashes", frames_hashed=index, total_frames=len(rows))
     (OUT / "data_inventory.json").write_text(
         json.dumps(
             {
