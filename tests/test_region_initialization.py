@@ -1,5 +1,7 @@
 import numpy as np
 from PIL import Image
+import json
+from pathlib import Path
 
 from datasets.video import ManifestFrame
 from scripts.audit_region_initialization import audit_initialization
@@ -39,3 +41,29 @@ def test_targets_respect_full_post_prompt_memory_bank():
     assert targets[0] == 31 and targets[-1] == 90
     with pytest.raises(ValueError):
         target_indices(10, 4, 10)
+
+
+def test_approved_pilot_stays_on_dev_and_keeps_original_frozen():
+    root = Path(__file__).resolve().parents[1] / "protocols"
+    original = json.loads((root / "region_tokens_v1.json").read_text())
+    amended = json.loads((root / "region_tokens_v1_1.json").read_text())
+    assert original["pilot"]["sequences"] == [f"seq{i}" for i in range(1, 11)]
+    assert "initialization" not in original
+    assert amended["initialization"] == "first_labeled_frame"
+    selected = amended["pilot"]["sequences"]
+    assert len(selected) == len(set(selected)) == 10
+    assert not set(selected) & {"seq1", "seq7", *(f"seq{i}" for i in range(16, 24))}
+    # Dataset-audit metadata, not intervention outcomes, defines this grid.
+    audited = [
+        (63, 0),
+        (15, 0),
+        (48, 0),
+        (250, 0),
+        (91, 24),
+        (73, 0),
+        (51, 3),
+        (25, 3),
+        (228, 2),
+        (250, 0),
+    ]
+    assert sum(len(target_indices(n, p, 10)) for n, p in audited) == 98
