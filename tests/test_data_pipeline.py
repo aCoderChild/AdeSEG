@@ -92,3 +92,21 @@ def test_three_class_grey_jpeg_maps_to_labels(tmp_path):
     assert set(np.unique(out)) == {0, 1, 2}
     centres = out[:, [16, 48, 80]]
     assert (centres == np.array([0, 1, 2])).all()
+
+
+def test_cholecseg8k_manifest_preserves_clips_and_decodes_watershed(tmp_path):
+    build = load_script("build_cholecseg8k_manifest")
+    clip = tmp_path / "video01" / "video01_00080"
+    clip.mkdir(parents=True)
+    for index in (80, 81):
+        image = np.zeros((8, 10, 3), np.uint8)
+        Image.fromarray(image).save(clip / f"frame_{index}_endo.png")
+        watershed = np.full((8, 10, 3), 80, np.uint8)
+        watershed[:, :5] = 49  # grasper, class 5
+        Image.fromarray(watershed).save(clip / f"frame_{index}_endo_watershed_mask.png")
+    rows = build.build(tmp_path, tmp_path / "out")
+    assert [row["frame_index"] for row in rows] == [80, 81]
+    assert {row["video_id"] for row in rows} == {"video01_00080"}
+    assert {row["source_video"] for row in rows} == {"video01"}
+    indexed = np.asarray(Image.open(tmp_path / "out/masks/video01_00080/frame_80_endo.png"))
+    assert set(np.unique(indexed)) == {0, 5}
