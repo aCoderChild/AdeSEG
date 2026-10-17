@@ -6,6 +6,7 @@ from pathlib import Path
 from datasets.video import ManifestFrame
 from scripts.audit_region_initialization import audit_initialization
 from scripts.audit_region_initialization import prompt_index, target_indices
+from scripts.run_region_token_pilot import selected_target_indices
 import pytest
 
 
@@ -41,6 +42,12 @@ def test_targets_respect_full_post_prompt_memory_bank():
     assert targets[0] == 31 and targets[-1] == 90
     with pytest.raises(ValueError):
         target_indices(10, 4, 10)
+
+
+def test_e2_target_selection_uses_every_eligible_frame_without_changing_e1():
+    frames = [object()] * 15
+    assert selected_target_indices(frames, 0, 10) == target_indices(15, 0, 10)
+    assert selected_target_indices(frames, 0, None) == list(range(7, 15))
 
 
 def test_approved_pilot_stays_on_dev_and_keeps_original_frozen():

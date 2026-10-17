@@ -14,7 +14,15 @@ import traceback
 from kaggle_secrets import UserSecretsClient
 
 RUN_STAGE = os.environ.get("REGION_STAGE", "E1")
-if RUN_STAGE not in {"E0", "E1", "E2_preflight", "E2_calibration", "E2_mean_smoke"}:
+if RUN_STAGE not in {
+    "E0",
+    "E1",
+    "E2_preflight",
+    "E2_calibration",
+    "E2_mean_smoke",
+    "E2_attention_smoke",
+    "E2_attention_primary",
+}:
     raise ValueError(f"Unsupported REGION_STAGE: {RUN_STAGE}")
 OUT = Path("/kaggle/working") / os.environ.get(
     "REGION_OUTPUT_NAME",
@@ -94,6 +102,33 @@ def upload():
         ):
             artifact.add_file(str(path), name=path.relative_to(OUT).as_posix())
     run.log_artifact(artifact).wait()
+
+
+def e1_gate_artifact():
+    """Fetch and verify the completed E1 decision before an E2 shard starts."""
+    # The reviewed decision is produced by the E1 orchestrator, not the
+    # child E1 inference run (which contains raw rows only).
+    run_id = os.environ.get("REGION_E1_RUN_ID", "7orfgsk2")
+    artifact_root = OUT / "e1_gate_artifact"
+    source = wandb.Api().run(f"adenoid-hypertrophy/ade-seg/{run_id}")
+    artifacts = list(source.logged_artifacts())
+    if not artifacts:
+        raise RuntimeError(f"E1 run {run_id} has no results artifact")
+    max(artifacts, key=lambda item: item.created_at).download(root=str(artifact_root))
+    decisions = sorted(artifact_root.rglob("decision_verified.json"))
+    if not decisions:
+        decisions = sorted(artifact_root.rglob("decision.json"))
+    if len(decisions) != 1:
+        raise RuntimeError("E1 results artifact does not contain one decision file")
+    decision = json.loads(decisions[0].read_text())
+    if not (
+        decision.get("stage") == "E1"
+        and decision.get("gate_pass") is True
+        and decision.get("decision") == "proceed_to_E2"
+        and decision.get("all_required_sequences") is True
+    ):
+        raise RuntimeError(f"E1 gate did not authorize E2: {decision}")
+    return {"run_id": run_id, "decision": decision, "path": str(decisions[0])}
 
 
 try:
@@ -437,6 +472,47 @@ try:
             "complete",
             next_stage="full E2 interventions pending implementation",
             full_study_complete=False,
+        )
+        upload()
+    elif RUN_STAGE in {"E2_attention_smoke", "E2_attention_primary"}:
+        gate = e1_gate_artifact()
+        sequences = [
+            value.strip()
+            for value in os.environ.get("REGION_SEQUENCES", "").split(",")
+            if value.strip()
+        ]
+        if not sequences:
+            raise RuntimeError("Set REGION_SEQUENCES to the explicit E2 shard")
+        if len(sequences) != len(set(sequences)):
+            raise RuntimeError("REGION_SEQUENCES contains duplicates")
+        if set(sequences) - {row["video_id"] for row in rows}:
+            raise RuntimeError("REGION_SEQUENCES contains a video absent from the manifest")
+        if RUN_STAGE == "E2_attention_smoke" and len(sequences) != 1:
+            raise RuntimeError("E2 attention smoke requires exactly one sequence")
+        mark(RUN_STAGE, e1_gate_run=gate["run_id"], sequences=sequences)
+        command(
+            [
+                *common,
+                "--stage",
+                "E2_attention_primary",
+                "--all-eligible-targets",
+                *sum((["--sequence", sequence] for sequence in sequences), []),
+                "--output-dir",
+                OUT / "E2_attention",
+            ]
+        )
+        result = json.loads((OUT / "E2_attention/status.json").read_text())
+        if result.get("state") != "complete" or not result.get("e0_pass"):
+            raise RuntimeError("E2 attention shard failed exactness checks")
+        run.summary["E2_attention/sequences"] = len(sequences)
+        run.summary["E2_attention/rows"] = result["rows"]
+        run.summary["full_study_complete"] = False
+        mark(
+            f"{RUN_STAGE}_complete",
+            "complete",
+            rows=result["rows"],
+            full_study_complete=False,
+            next_stage="remaining E2 interventions and persistent mode",
         )
         upload()
     else:

@@ -61,6 +61,20 @@ def finite(value):
     return float(value) if np.isfinite(value) else None
 
 
+def selected_target_indices(frames, prompt, targets_per_sequence):
+    """Select the frozen pilot grid or every eligible E2 target.
+
+    ``None`` is deliberately the only all-targets value.  It avoids an
+    ambiguous sentinel on the command line and keeps the existing E1 sampling
+    untouched.
+    """
+    return target_indices(
+        len(frames),
+        prompt,
+        len(frames) if targets_per_sequence is None else targets_per_sequence,
+    )
+
+
 def metrics(logits, target):
     from monai.metrics import compute_hausdorff_distance
 
@@ -141,12 +155,13 @@ def run_sequence(
     value_calibration=None,
     e2_mean_smoke=False,
     mean_values=None,
+    targets_per_sequence=None,
 ):
     """Natural pointers, c0 spatial memory, independent copies per counterfactual."""
     checks, rows = [], 0
     prompt = prompt_index(frames, protocol)
     first_mask = load_label_mask(frames[prompt].mask_path, [1]) == 1
-    targets = target_indices(len(frames), prompt, protocol["pilot"]["targets_per_sequence"])
+    targets = selected_target_indices(frames, prompt, targets_per_sequence)
     if e2_mean_smoke:
         targets = targets[:1]
     targets = set(targets)
@@ -590,6 +605,22 @@ def main():
     )
     parser.add_argument("--e0-only", action="store_true")
     parser.add_argument(
+        "--sequence",
+        action="append",
+        help="Repeat to select an explicit, disjoint resumable sequence shard.",
+    )
+    parser.add_argument(
+        "--all-eligible-targets",
+        action="store_true",
+        help="Use every target from prompt + 7 onward; only valid for the E2 attention component.",
+    )
+    parser.add_argument(
+        "--stage",
+        choices=("E1", "E2_attention_primary"),
+        default="E1",
+        help="Result label. E2_attention_primary is only the masking component of E2.",
+    )
+    parser.add_argument(
         "--calibrate-values",
         action="store_true",
         help="Record dev-only c0 category value means after E0; do not run E1 effects.",
@@ -615,11 +646,15 @@ def main():
             for values in mean_values.values()
         ):
             raise ValueError("Value calibration must contain finite 64-D means for every category")
-    requested = (
-        protocol["pilot"]["sequences"][:1]
-        if args.e0_only
-        else protocol["pilot"]["sequences"]
-    )
+    requested = args.sequence or protocol["pilot"]["sequences"]
+    if args.e0_only:
+        requested = requested[:1]
+    if args.all_eligible_targets and args.stage != "E2_attention_primary":
+        raise ValueError("--all-eligible-targets requires --stage E2_attention_primary")
+    if args.stage == "E2_attention_primary" and not args.all_eligible_targets:
+        raise ValueError("E2 attention component requires --all-eligible-targets")
+    if args.stage != "E1" and (args.e0_only or args.calibrate_values or args.e2_mean_smoke):
+        raise ValueError("E2 attention component cannot be combined with a calibration or smoke mode")
     if set(requested) - videos.keys():
         raise ValueError("Missing pilot sequences")
     torch.manual_seed(20261017)
@@ -635,13 +670,15 @@ def main():
         "torch": torch.__version__,
         "stage": (
             "E0" if args.e0_only else "E2_calibration" if args.calibrate_values
-            else "E2_mean_smoke" if args.e2_mean_smoke else "E1"
+            else "E2_mean_smoke" if args.e2_mean_smoke else args.stage
         ),
         "scope": (
             "dev-only c0 value calibration; E2 effects not executed"
             if args.calibrate_values
             else "dev-only E2 mean-value substitution operator smoke; no E2 effect claim"
             if args.e2_mean_smoke
+            else "E2 c0 attention-masking component; mean substitution, swap, persistent, and cross-domain components are not executed"
+            if args.stage == "E2_attention_primary"
             else "gated region pilot; E2-E6 not executed"
         ),
         "polypgen_mirror_equivalence": "not checksum-verified against Synapse",
@@ -693,6 +730,7 @@ def main():
                 calibration,
                 args.e2_mean_smoke,
                 mean_values,
+                None if args.all_eligible_targets else protocol["pilot"]["targets_per_sequence"],
             )
             checks.extend(sanity)
             total += rows
