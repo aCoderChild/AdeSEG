@@ -14,7 +14,7 @@ import traceback
 from kaggle_secrets import UserSecretsClient
 
 RUN_STAGE = os.environ.get("REGION_STAGE", "E1")
-if RUN_STAGE not in {"E0", "E1", "E2_calibration", "E2_mean_smoke"}:
+if RUN_STAGE not in {"E0", "E1", "E2_preflight", "E2_calibration", "E2_mean_smoke"}:
     raise ValueError(f"Unsupported REGION_STAGE: {RUN_STAGE}")
 OUT = Path("/kaggle/working") / os.environ.get(
     "REGION_OUTPUT_NAME",
@@ -193,6 +193,79 @@ try:
     rows = [json.loads(line) for line in manifest.read_text().splitlines()]
     protocol = REPO / "protocols/region_tokens_v1_1.json"
     (OUT / "protocol.json").write_bytes(protocol.read_bytes())
+    if RUN_STAGE == "E2_preflight":
+        # This is deliberately an input/instrumentation gate, not an E2 result.
+        # The public mounts are resolved by their pinned Kaggle slugs so a missing
+        # or differently shaped attachment fails before any counterfactual run.
+        cholec_root = Path("/kaggle/input/cholecseg8k")
+        davis_root = Path("/kaggle/input/davis2017")
+        cholec_output = OUT / "cholecseg8k"
+        davis_manifest = OUT / "davis2017.jsonl"
+        command(
+            [
+                sys.executable,
+                REPO / "scripts/build_cholecseg8k_manifest.py",
+                "--data-root",
+                cholec_root,
+                "--output-dir",
+                cholec_output,
+            ],
+            900,
+        )
+        command(
+            [
+                sys.executable,
+                REPO / "scripts/build_davis_manifest.py",
+                "--data-root",
+                davis_root,
+                "--protocol",
+                REPO / "protocols/utility_retrieval_v1.json",
+                "--output",
+                davis_manifest,
+            ],
+            900,
+        )
+        cholec_rows = [
+            json.loads(line)
+            for line in (cholec_output / "cholecseg8k.jsonl").read_text().splitlines()
+            if line
+        ]
+        davis_rows = [
+            json.loads(line)
+            for line in davis_manifest.read_text().splitlines()
+            if line
+        ]
+        if not cholec_rows or not davis_rows:
+            raise RuntimeError("E2 input preflight produced an empty manifest")
+        davis_splits = {row["split"] for row in davis_rows}
+        if davis_splits != {"train", "holdout", "val"}:
+            raise RuntimeError(f"Unexpected DAVIS splits: {sorted(davis_splits)}")
+        write = {
+            "stage": "E2_preflight",
+            "claim": "input and E0 gate only; no E2 intervention outcome",
+            "inputs": {
+                "polypgen": {
+                    "dataset": "debeshjha1/polypgen-video-sequence",
+                    "frames": len(rows),
+                    "videos": len({row["video_id"] for row in rows}),
+                },
+                "cholecseg8k": {
+                    "dataset": "newslab/cholecseg8k",
+                    "frames": len(cholec_rows),
+                    "clips": len({row["video_id"] for row in cholec_rows}),
+                    "source_videos": sorted({row["source_video"] for row in cholec_rows}),
+                },
+                "davis2017": {
+                    "dataset": "lennelenne/davis2017",
+                    "frames": len(davis_rows),
+                    "videos": len({row["video_id"] for row in davis_rows}),
+                    "splits": sorted(davis_splits),
+                },
+            },
+        }
+        (OUT / "input_preflight.json").write_text(json.dumps(write, indent=2) + "\n")
+        mark("E2_inputs", **write["inputs"])
+        upload()
     command(
         [
             sys.executable,
@@ -285,6 +358,17 @@ try:
     upload()
     if RUN_STAGE == "E0":
         mark("E0_complete", "complete", next_stage="E1 or E2 calibration")
+        upload()
+    elif RUN_STAGE == "E2_preflight":
+        run.summary["E2_preflight/cholecseg8k_frames"] = len(cholec_rows)
+        run.summary["E2_preflight/davis_frames"] = len(davis_rows)
+        run.summary["full_study_complete"] = False
+        mark(
+            "E2_preflight_complete",
+            "complete",
+            next_stage="implement and GPU-validate the full E2 intervention matrix",
+            full_study_complete=False,
+        )
         upload()
     elif RUN_STAGE == "E2_calibration":
         mark("E2_calibration")
