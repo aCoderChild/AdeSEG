@@ -216,7 +216,15 @@ def replace_spatial_memory(predictor, state, output_dict, frames, frame_index, l
     target = load_label_mask(frames[frame_index].mask_path, all_label_ids) == label_id
     if source == "corrupted":
         target = corrupt_mask(target, corruption_level, corruption_type, frame_index)
-    logits = torch.from_numpy(target).to(predictor.device).float()[None, None] * 20 - 10
+    logits = torch.from_numpy(target).to(predictor.device).float()[None, None]
+    # ``_run_memory_encoder`` receives the high-resolution SAM mask tensor,
+    # not an original-video-resolution mask.  ``add_new_mask`` normally does
+    # this resize internally; direct counterfactual memory replacement must
+    # preserve the same contract explicitly.
+    logits = F.interpolate(
+        logits, size=(predictor.image_size, predictor.image_size),
+        mode="bilinear", align_corners=False,
+    ) * 20 - 10
     score = torch.full((1, 1), 10.0 if target.any() else -10.0, device=predictor.device)
     features, position = predictor._run_memory_encoder(
         inference_state=state, frame_idx=frame_index, batch_size=1,
