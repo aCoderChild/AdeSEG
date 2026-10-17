@@ -60,10 +60,19 @@ provenance. Old development notebooks are not the active region-study workflow.
 
 Kaggle notebook: `bunnoob2005/adeseg-region-memory-tokens`. Version 1 failed
 at Kaggle secret retrieval before creating a W&B run. The secret was verified
-attached in the editor; version 2 was submitted through Save & Run All to carry
-that authorization and was last observed queued. No GPU E0 pass is claimed yet.
+attached in the editor. A CPU-only interactive execution of the existing
+`verify_wandb_connection.py --check-only` printed `connected` for the Forge
+project. Version 2 was cancelled after 14 minutes queued; an interactive T4
+session then started the bootstrap at revision `12919339aa4e`. No GPU E0 pass
+is claimed yet.
 Kaggle's available accelerator selector offered T4 x2 and TPU; P100 was not
 available. No duplicate GPU job was launched to bypass that queue.
+
+`scripts/collect_region_live.py --watch --group region-tokens-v1-12919339aa4e
+--output-root <Drive output directory>` delivers stage artifacts while the
+interactive session runs. Artifact downloads use `skip_cache=True`; SDK staging
+paths also point into Drive. The resulting receipt distinguishes W&B artifact
+delivery from a saved Kaggle notebook version export.
 
 The collector recomputes E1 with the reviewed analysis code (matching feasible
 frames before averaging), retains the original notebook decision, uploads
