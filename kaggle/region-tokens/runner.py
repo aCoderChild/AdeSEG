@@ -21,6 +21,14 @@ OUT = Path("/kaggle/working") / os.environ.get(
     "region_tokens_v1" if RUN_STAGE == "E1" else f"region_tokens_{RUN_STAGE}",
 )
 REPO = Path("/kaggle/temp/AdeSEG-region")
+if OUT.exists():
+    previous_status = OUT / "status.json"
+    previous = json.loads(previous_status.read_text()) if previous_status.is_file() else {}
+    if previous.get("state") != "failed":
+        raise FileExistsError(
+            f"Refusing to overwrite non-failed Kaggle output directory: {OUT}"
+        )
+    shutil.rmtree(OUT)
 OUT.mkdir(parents=True, exist_ok=False)
 started = time.time()
 run = None
