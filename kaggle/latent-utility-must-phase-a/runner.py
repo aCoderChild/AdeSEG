@@ -37,19 +37,26 @@ def run(command, timeout=21600):
 
 
 mark("bootstrap")
-try:
-    key = UserSecretsClient().get_secret("WANDB_API_KEY")
-except Exception as exc:
-    key = None
-    print(f"[wandb] Kaggle secret unavailable ({type(exc).__name__}); artifacts will be synced after download", flush=True)
-os.environ.update({"PYTHONUNBUFFERED": "1", "GIT_TERMINAL_PROMPT": "0"})
+key = None
+for attempt in range(1, 6):
+    try:
+        key = UserSecretsClient().get_secret("WANDB_API_KEY")
+        if key:
+            break
+        print(f"[wandb] Empty Kaggle secret (attempt {attempt}/5)", flush=True)
+    except Exception as exc:
+        print(f"[wandb] Kaggle secret read failed: {type(exc).__name__} (attempt {attempt}/5)", flush=True)
+    if attempt < 5:
+        time.sleep(min(2 ** attempt, 10))
+os.environ.update({
+    "PYTHONUNBUFFERED": "1",
+    "GIT_TERMINAL_PROMPT": "0",
+    "WANDB_BASE_URL": "https://forge.coreweave.com/api/wandb",
+    "WANDB_PROJECT": "ade-seg",
+    "WANDB_ENTITY": "adenoid-hypertrophy",
+})
 if key:
-    os.environ.update({
-        "WANDB_API_KEY": key,
-        "WANDB_BASE_URL": "https://forge.coreweave.com/api/wandb",
-        "WANDB_PROJECT": "ade-seg",
-        "WANDB_ENTITY": "adenoid-hypertrophy",
-    })
+    os.environ["WANDB_API_KEY"] = key
 if REPO.exists():
     shutil.rmtree(REPO)
 subprocess.run([
@@ -69,8 +76,16 @@ if importlib.util.find_spec("tensordict") is None:
     subprocess.run([
         sys.executable, "-m", "pip", "install", "--no-deps", "tensordict>=0.7,<0.8",
     ], check=True, timeout=300)
+tracking_mode = "offline"
 if key:
-    run([sys.executable, REPO / "scripts/verify_wandb_connection.py", "--name", "latent-must-phase-a-connectivity"], 120)
+    try:
+        run([sys.executable, REPO / "scripts/verify_wandb_connection.py", "--check-only"], 120)
+        tracking_mode = "online"
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        print(f"[wandb] Connection check failed: {type(exc).__name__}; recording offline runs", flush=True)
+else:
+    print("[wandb] Secret unavailable; recording offline runs for later sync", flush=True)
+mark("tracking", mode=tracking_mode)
 
 protocol = REPO / "protocols/latent_utility_v2.json"
 manifest = TEMP / "davis.jsonl"
@@ -93,14 +108,14 @@ common = [
     "--device", "cuda",
     "--minimum-target-frame", "15",
 ]
-tracking = (["--wandb-base-url", os.environ["WANDB_BASE_URL"]] if key
-            else ["--wandb-mode", "disabled"])
+tracking = ["--wandb-base-url", os.environ["WANDB_BASE_URL"],
+            "--wandb-mode", tracking_mode]
 
 
 def utility(name, *arguments, timeout=21600):
     target = OUT / name
     run([*common, *tracking, "--output-dir", target,
-         *(["--wandb-name", f"latent-must-a-{name.replace('/', '-')}"] if key else []),
+         "--wandb-name", f"latent-must-a-{name.replace('/', '-')}",
          *arguments], timeout)
     return target
 

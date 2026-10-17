@@ -13,6 +13,7 @@ import requests
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", default="ade-seg-connectivity-check")
+    parser.add_argument("--check-only", action="store_true", help="Validate access without creating a W&B run")
     args = parser.parse_args()
 
     api_key = os.environ.get("WANDB_API_KEY")
@@ -39,6 +40,10 @@ def main() -> None:
     result = response.json()
     if result.get("errors") or not result.get("data", {}).get("project"):
         raise RuntimeError(f"W&B GraphQL validation failed: {result}")
+
+    if args.check_only:
+        print(json.dumps({"state": "connected", "entity": entity, "project": project}))
+        return
 
     import wandb
 
