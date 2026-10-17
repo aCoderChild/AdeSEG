@@ -83,6 +83,9 @@ try:
         [
             "git",
             "clone",
+            "--filter=blob:none",
+            "--no-checkout",
+            "--single-branch",
             "--branch",
             "experiment",
             "https://github.com/aCoderChild/AdeSEG.git",
@@ -92,8 +95,7 @@ try:
         timeout=300,
     )
     revision = os.environ.get("ADESEG_REVISION")
-    if revision:
-        command(["git", "checkout", "--detach", revision], 60)
+    command(["git", "checkout", "--detach", revision or "experiment"], 180)
     revision = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
     ).strip()
