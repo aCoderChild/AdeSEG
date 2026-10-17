@@ -6,7 +6,7 @@ latent-capability conclusions as evidence.
 
 ## Entry points
 
-- `modeling/region_tokens.py`: category maps, matched sampling and attention aggregation.
+- `modeling/region_tokens.py`: category maps, matched sampling, attention aggregation and native persistent-propagation wrapper.
 - `modeling/utility_memory.py`: existing additive attention hook, extended to token masks/biases.
 - `scripts/run_region_token_pilot.py`: independently restored counterfactuals, E0 and E1.
 - `scripts/analyze_region_token_pilot.py`: sequence-level pilot decision.
@@ -38,7 +38,7 @@ E1 samples ten fixed frame indices in each of ten dev sequences. Categories with
 fewer than k available tokens are skipped and counted. The distance-matched
 control can overlap the reference; overlap is reported.
 
-**Not yet implemented/validated:** E2–E6, persistent propagation, value-only
+**Not yet implemented/validated:** E2–E6 orchestration, GPU validation of persistent propagation, value-only
 substitution and cross-sequence swap, CholecSeg8k adapter and source-video split,
 RAFT condition analysis, complete external-baseline adapters, and method tuning.
 An E1 pass permits developing/running those stages; it does not make this pilot
@@ -55,3 +55,18 @@ SAM2Long/Lean-SAM2 repositories remain the source for their adapters.
 
 Historical v2 protocols and the exploratory Phase A report retain their original
 provenance. Old development notebooks are not the active region-study workflow.
+
+## Current deployment
+
+Kaggle notebook: `bunnoob2005/adeseg-region-memory-tokens`. Version 1 failed
+at Kaggle secret retrieval before creating a W&B run. The secret was verified
+attached in the editor; version 2 was submitted through Save & Run All to carry
+that authorization and was last observed queued. No GPU E0 pass is claimed yet.
+Kaggle's available accelerator selector offered T4 x2 and TPU; P100 was not
+available. No duplicate GPU job was launched to bypass that queue.
+
+The collector recomputes E1 with the reviewed analysis code (matching feasible
+frames before averaging), retains the original notebook decision, uploads
+`decision_verified.json` to the same W&B orchestrator run, and records both
+analysis and inference revisions. A passing pilot never sets
+`full_study_complete` to true.
