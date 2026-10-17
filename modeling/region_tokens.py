@@ -126,3 +126,70 @@ def category_attention(layers, units, maps, queries, conditioning=None):
             )
         output.append(regions)
     return output
+
+
+def persistent_region_rollout(
+    predictor,
+    state,
+    controller,
+    mask_provider,
+    category,
+    conditioning=False,
+    seed=0,
+    diagnostics=None,
+):
+    """Keep the policy active while native propagation writes its predictions.
+
+    ``mask_provider(frame_idx)`` supplies a stored predicted mask for a deployable
+    policy, or an oracle mask for a labeled analysis. It is called at read time,
+    so newly written, possibly erroneous predictions enter future decisions.
+    This function does not restore or replace memory after each prediction.
+    """
+    if category not in (*CATEGORIES, "random"):
+        raise ValueError(f"Unknown region category: {category}")
+    previous_policy = controller.token_mask_policy
+    previous_masks = controller.excluded_token_masks
+
+    def policy(units):
+        chosen = [unit for unit in units if bool(unit["conditioning"]) == conditioning]
+        if not chosen:
+            return {}
+        maps = []
+        for unit in chosen:
+            side = int(np.sqrt(unit["end"] - unit["start"]))
+            if side * side != unit["end"] - unit["start"]:
+                raise ValueError(
+                    "Persistent region policy requires a square spatial grid"
+                )
+            maps.append(
+                token_categories(mask_provider(unit["frame_idx"]), (side, side))[
+                    "categories"
+                ].ravel()
+            )
+        labels = np.concatenate(maps)
+        k = int((labels == 0).sum())
+        target = max(unit["frame_idx"] + unit["temporal_distance"] for unit in chosen)
+        if category == "random":
+            selected = (
+                np.random.default_rng(seed + target).choice(
+                    len(labels), k, replace=False
+                )
+                if k
+                else None
+            )
+        else:
+            selected = matched_indices(
+                labels, CATEGORIES.index(category), k, seed + target
+            )
+        if diagnostics is not None:
+            diagnostics.append(
+                {"frame": target, "k": k, "feasible": selected is not None}
+            )
+        return {} if selected is None else indices_to_masks(chosen, selected)
+
+    controller.token_mask_policy = policy
+    try:
+        yield from predictor.propagate_in_video(state)
+    finally:
+        controller.token_mask_policy = previous_policy
+        controller.excluded_token_masks = previous_masks

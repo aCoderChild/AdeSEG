@@ -8,6 +8,7 @@ from modeling.region_tokens import (
     query_regions,
     spatially_matched_indices,
     token_categories,
+    persistent_region_rollout,
 )
 from modeling.utility_memory import UtilityController, UtilityHead
 
@@ -90,3 +91,51 @@ def test_query_partition_and_attention_mass_conservation():
     for values in output[0].values():
         if values:
             assert abs(sum(values.values()) - 1) < 1e-6
+
+
+def test_persistent_policy_reads_new_memory_and_native_loop_writes_outputs():
+    controller, args = fixture()
+    mask = np.zeros((128, 128), bool)
+    mask[31:91, 31:91] = True
+    state = {"masks": {0: mask}, "written": []}
+    reads, diagnostics = [], []
+
+    class Predictor:
+        def propagate_in_video(self, state):
+            for t in (1, 2):
+                units = [
+                    {
+                        "start": 0,
+                        "end": 256,
+                        "frame_idx": t - 1,
+                        "temporal_distance": 1,
+                        "conditioning": False,
+                    }
+                ]
+                selected = controller.token_mask_policy(units)
+                assert selected[t - 1].any()
+                # Native propagation writes its output before yielding. The
+                # region wrapper must neither restore nor replace that output.
+                state["masks"][t] = np.roll(state["masks"][t - 1], 1, axis=1)
+                state["written"].append(t)
+                yield t
+
+    def provider(t):
+        reads.append(t)
+        return state["masks"][t]
+
+    values = list(
+        persistent_region_rollout(
+            Predictor(),
+            state,
+            controller,
+            provider,
+            "boundary",
+            diagnostics=diagnostics,
+        )
+    )
+    assert values == state["written"] == [1, 2]
+    assert reads == [0, 1]
+    assert all(row["feasible"] for row in diagnostics)
+    assert controller.token_mask_policy is None
+    assert controller.excluded_token_masks == {}

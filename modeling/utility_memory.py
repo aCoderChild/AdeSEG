@@ -79,6 +79,7 @@ class UtilityController(nn.Module):
         self.excluded_token_masks: dict[int, torch.Tensor] = {}
         self.token_biases: dict[int, torch.Tensor] = {}
         self.exclude_pointers = False
+        self.token_mask_policy = None
 
     @property
     def bias_scale(self) -> torch.Tensor:
@@ -104,6 +105,8 @@ class UtilityController(nn.Module):
         return torch.stack(rows, dim=1)
 
     def forward(self, curr, memory, units, num_obj_ptr_tokens, query_context):
+        if self.token_mask_policy is not None:
+            self.excluded_token_masks = self.token_mask_policy(units)
         features = self.unit_features(curr, memory, units, query_context)
         utilities = self.head(features)
         token_bias = memory.new_zeros(memory.shape[0], memory.shape[1])
