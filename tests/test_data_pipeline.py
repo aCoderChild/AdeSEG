@@ -101,8 +101,8 @@ def test_cholecseg8k_manifest_preserves_clips_and_decodes_watershed(tmp_path):
     for index in (80, 81):
         image = np.zeros((8, 10, 3), np.uint8)
         Image.fromarray(image).save(clip / f"frame_{index}_endo.png")
-        watershed = np.full((8, 10, 3), 80, np.uint8)
-        watershed[:, :5] = 49  # grasper, class 5
+        watershed = np.full((8, 10, 3), 50, np.uint8)
+        watershed[:, :5] = 31  # grasper, class 5
         Image.fromarray(watershed).save(clip / f"frame_{index}_endo_watershed_mask.png")
     rows = build.build(tmp_path, tmp_path / "out")
     assert [row["frame_index"] for row in rows] == [80, 81]
@@ -110,3 +110,11 @@ def test_cholecseg8k_manifest_preserves_clips_and_decodes_watershed(tmp_path):
     assert {row["source_video"] for row in rows} == {"video01"}
     indexed = np.asarray(Image.open(tmp_path / "out/masks/video01_00080/frame_80_endo.png"))
     assert set(np.unique(indexed)) == {0, 5}
+
+
+def test_cholecseg8k_watershed_edges_and_missing_labels_are_ignored(tmp_path):
+    build = load_script("build_cholecseg8k_manifest")
+    watershed = np.array([[[12, 12, 12], [13, 13, 13], [21, 21, 21], [22, 22, 22], [255, 255, 255], [0, 0, 0]]], dtype=np.uint8)
+    path = tmp_path / "watershed.png"
+    Image.fromarray(watershed).save(path)
+    assert np.array_equal(build.indexed_watershed(path), np.array([[4, 3, 2, 10, 13, 13]], dtype=np.uint8))

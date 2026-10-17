@@ -19,21 +19,28 @@ import numpy as np
 from PIL import Image
 
 
-# Published watershed greyscale codes, mapped to the 13 semantic class IDs.
+# CholecSeg8k's published watershed codes, mapped to the 13 semantic class
+# IDs.  The RGB channels of a watershed mask are identical; these values are
+# the channel values, not decimal representations of the hexadecimal colour.
+# The release also uses black for missing labels and white for watershed
+# borders.  Both are deliberately retained as the ignore label (13), as in
+# the upstream preprocessing code.
 WATERSHED_GREY_TO_CLASS = {
-    80: 0,  # black background
-    17: 1,  # abdominal wall
-    33: 2,  # liver
-    19: 3,  # gastrointestinal tract
-    18: 4,  # fat
-    49: 5,  # grasper
-    35: 6,  # connective tissue
-    36: 7,  # blood
-    37: 8,  # cystic duct
-    50: 9,  # L-hook electrocautery
-    34: 10,  # gallbladder
-    51: 11,  # hepatic vein
+    50: 0,  # background
+    11: 1,  # abdominal wall
+    21: 2,  # liver
+    13: 3,  # gastrointestinal tract
+    12: 4,  # fat
+    31: 5,  # grasper
+    23: 6,  # connective tissue
+    24: 7,  # blood
+    25: 8,  # cystic duct
+    32: 9,  # L-hook electrocautery
+    22: 10,  # gallbladder
+    33: 11,  # hepatic vein
     5: 12,  # liver ligament
+    0: 13,  # missing annotation: ignore
+    255: 13,  # watershed boundary: ignore
 }
 
 
