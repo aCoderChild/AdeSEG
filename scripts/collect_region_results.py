@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -158,6 +159,9 @@ def verify_analysis_and_wandb(folder):
         (folder / "E1/decision.json").read_bytes()
     ).hexdigest()
     verified.write_text(json.dumps(decision, indent=2, allow_nan=False) + "\n")
+    # Public Run.upload_file constructs an InternalApi; it also needs the
+    # environment base URL, not just the public Api(overrides=...) setting.
+    os.environ["WANDB_BASE_URL"] = "https://forge.coreweave.com/api/wandb"
     import wandb
 
     api = wandb.Api(overrides={"base_url": "https://forge.coreweave.com/api/wandb"})

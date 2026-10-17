@@ -1,0 +1,14 @@
+{
+  "status": "PROPOSED_ONLY_NOT_AUTHORIZED_OR_APPLIED",
+  "parent": "region_tokens_v1",
+  "date": "2026-10-17",
+  "reason": "Kaggle mirror audit found no labeled foreground in any frame of seq1 or seq7; only eight dev sequences have labeled foreground at frame zero. Strict frame-zero initialization cannot supply ten promptable development sequences.",
+  "proposed_prompt": "first frame with labeled foreground, GT mask, identical initialization and post-prompt evaluation interval for every method",
+  "proposed_pilot_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12"],
+  "proposed_target_sampling": "up to ten evenly spaced targets from prompt_offset + 7 to the final annotated frame; index-only selection before outcomes",
+  "unpromptable_sequences": ["seq1", "seq7"],
+  "unpromptable_reporting": "Report no labeled foreground, not verified biological absence. Exclude from prompted boundary-contribution tests. Presence/false-positive analyses require a separately specified initialization protocol.",
+  "test_coverage": "Report all original 23 sequence counts and eligibility; never silently present 21 promptable sequences as 23 prompted segmentations.",
+  "evidence": "Drive region_tokens_v1/initialization_audit.json, also uploaded to W&B run w3f2tstp",
+  "outcomes_examined": "No token intervention metric or hypothesis result was generated; E0 stopped at prompt validation."
+}
