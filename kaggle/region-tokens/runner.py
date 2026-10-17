@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -84,6 +85,10 @@ try:
         PYTHONUNBUFFERED="1",
     )
     del secret
+    # A notebook draft session can retain a checkout from a completed stage.
+    # This is only the runner's fixed Kaggle scratch directory; outputs stay in OUT.
+    if REPO.exists():
+        shutil.rmtree(REPO)
     REPO.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
