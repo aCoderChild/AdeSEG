@@ -76,11 +76,15 @@ def parse_args():
     parser.add_argument("--device", choices=("cuda", "mps", "cpu"), default="cuda")
     parser.add_argument("--seed", type=int, default=20261016)
     parser.add_argument("--max-analyzed-frames", type=int, default=None)
+    parser.add_argument("--max-frames-per-video-object", type=int, default=None,
+                        help="Stratified cap applied independently to each sequence-object.")
     parser.add_argument("--frame-selection", choices=("failure_onsets", "all", "every_n"),
                         default="failure_onsets")
     parser.add_argument("--every-n", type=int, default=5)
     parser.add_argument("--minimum-target-frame", type=int, default=1,
                         help="Ignore earlier targets so pilots can require a filled memory bank.")
+    parser.add_argument("--target-frames-jsonl", type=Path, default=None,
+                        help="Analyze the exact video/frame pairs from a prior frames.jsonl run.")
     parser.add_argument("--random-null", action=argparse.BooleanOptionalAction, default=True,
                         help="Evaluate the E2 best-of-N matched random control.")
     parser.add_argument("--memory-source", choices=("predicted", "ground_truth", "corrupted"),
@@ -226,7 +230,7 @@ def replace_spatial_memory(predictor, state, output_dict, frames, frame_index, l
 @torch.inference_mode()
 def analyze_video(predictor, controller, video_id, frames, label_id, all_label_ids, protocol, rng,
                   frame_budget, frame_selection, every_n, minimum_target_frame, random_null, memory_source,
-                  corruption_level, corruption_type):
+                  corruption_level, corruption_type, target_frames=None):
     records, rows = [], []
     with tempfile.TemporaryDirectory(prefix="utility_frames_") as temporary:
         staged = Path(temporary)
@@ -240,7 +244,9 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
             dice(baseline_logits[index] > 0, load_label_mask(frame.mask_path, all_label_ids) == label_id)
             for index, frame in enumerate(frames)
         ]
-        if frame_selection == "failure_onsets":
+        if target_frames is not None:
+            episode_starts = sorted(set(map(int, target_frames)))
+        elif frame_selection == "failure_onsets":
             episode_starts = [
                 prompt + 1 + episode.start
                 for episode in failure_episodes(
@@ -417,6 +423,14 @@ def main():
         videos = {name: frames for name, frames in videos.items() if name in set(args.video_ids)}
     if not videos:
         raise ValueError("No requested videos are present in the selected split.")
+    target_frame_map = None
+    if args.target_frames_jsonl is not None:
+        target_frame_map = {}
+        for line in args.target_frames_jsonl.read_text().splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            target_frame_map.setdefault(row["video"], []).append(int(row["frame"]))
 
     setup = {
         **{key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
@@ -456,11 +470,18 @@ def main():
             if missing:
                 raise ValueError(f"{video_id}: requested object IDs absent from first mask: {missing}")
             for label_id in label_ids:
+                local_budget = remaining
+                if args.max_frames_per_video_object is not None:
+                    local_budget = (
+                        args.max_frames_per_video_object
+                        if remaining is None else min(remaining, args.max_frames_per_video_object)
+                    )
                 records, rows = analyze_video(
                     predictor, controller, f"{video_id}:{label_id}", frames, label_id,
-                    available, protocol, rng, remaining, args.frame_selection, args.every_n,
+                    available, protocol, rng, local_budget, args.frame_selection, args.every_n,
                     args.minimum_target_frame, args.random_null,
                     args.memory_source, args.corruption_level, args.corruption_type,
+                    None if target_frame_map is None else target_frame_map.get(f"{video_id}:{label_id}", []),
                 )
                 all_records.extend(records)
                 all_rows.extend(rows)
