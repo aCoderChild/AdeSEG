@@ -13,7 +13,7 @@ import traceback
 from kaggle_secrets import UserSecretsClient
 
 RUN_STAGE = os.environ.get("REGION_STAGE", "E1")
-if RUN_STAGE not in {"E0", "E1", "E2_calibration"}:
+if RUN_STAGE not in {"E0", "E1", "E2_calibration", "E2_mean_smoke"}:
     raise ValueError(f"Unsupported REGION_STAGE: {RUN_STAGE}")
 OUT = Path("/kaggle/working") / os.environ.get(
     "REGION_OUTPUT_NAME",
@@ -283,6 +283,39 @@ try:
             "E2_calibration_complete",
             "complete",
             next_stage="E2 interventions pending GPU validation",
+            full_study_complete=False,
+        )
+        upload()
+    elif RUN_STAGE == "E2_mean_smoke":
+        artifact_name = os.environ.get("REGION_CALIBRATION_ARTIFACT")
+        if not artifact_name:
+            raise RuntimeError("Set REGION_CALIBRATION_ARTIFACT to the finished calibration artifact")
+        mark("E2_mean_smoke", calibration_artifact=artifact_name)
+        calibration_root = OUT / "calibration_artifact"
+        artifact = wandb.Api().artifact(artifact_name)
+        artifact.download(root=str(calibration_root))
+        calibration = calibration_root / "E2_calibration" / "value_calibration.json"
+        if not calibration.is_file():
+            raise RuntimeError("Calibration artifact does not contain E2_calibration/value_calibration.json")
+        command(
+            [
+                *common,
+                "--e2-mean-smoke",
+                "--value-calibration",
+                calibration,
+                "--output-dir",
+                OUT / "E2_mean_smoke",
+            ]
+        )
+        smoke = json.loads((OUT / "E2_mean_smoke/status.json").read_text())
+        if not smoke["e0_pass"]:
+            raise RuntimeError("E2 mean-substitution smoke E0 checks failed")
+        run.summary["E2_mean_smoke/sequences"] = len(smoke["sequences"])
+        run.summary["full_study_complete"] = False
+        mark(
+            "E2_mean_smoke_complete",
+            "complete",
+            next_stage="full E2 interventions pending implementation",
             full_study_complete=False,
         )
         upload()

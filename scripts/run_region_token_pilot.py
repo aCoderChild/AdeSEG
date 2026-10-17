@@ -35,6 +35,7 @@ from modeling.region_tokens import (
     CATEGORIES,
     category_attention,
     indices_to_masks,
+    indices_to_value_replacements,
     matched_indices,
     spatially_matched_indices,
     token_categories,
@@ -138,14 +139,17 @@ def run_sequence(
     run,
     e0_only,
     value_calibration=None,
+    e2_mean_smoke=False,
+    mean_values=None,
 ):
     """Natural pointers, c0 spatial memory, independent copies per counterfactual."""
     checks, rows = [], 0
     prompt = prompt_index(frames, protocol)
     first_mask = load_label_mask(frames[prompt].mask_path, [1]) == 1
-    targets = set(
-        target_indices(len(frames), prompt, protocol["pilot"]["targets_per_sequence"])
-    )
+    targets = target_indices(len(frames), prompt, protocol["pilot"]["targets_per_sequence"])
+    if e2_mean_smoke:
+        targets = targets[:1]
+    targets = set(targets)
     write_json(
         output / f"initialization_{video}.json",
         {"video": video, "prompt_frame": prompt, "target_frames": sorted(targets)},
@@ -347,6 +351,52 @@ def run_sequence(
                         continue
                     target = load_label_mask(frames[t].mask_path, [1]) == 1
                     base_metrics = metrics(baseline, target)
+                    if e2_mean_smoke:
+                        for bank_name, conditioning in (
+                            ("conditioning", True),
+                            ("recent", False),
+                        ):
+                            chosen = [
+                                u for u in units if bool(u["conditioning"]) == conditioning
+                            ]
+                            labels = np.concatenate(
+                                [taxonomy[u["frame_idx"]].ravel() for u in chosen]
+                            )
+                            selected = np.flatnonzero(labels == CATEGORIES.index("boundary"))
+                            k = len(selected)
+                            row = {
+                                "video": video,
+                                "frame": int(t),
+                                "bank": bank_name,
+                                "category": "boundary",
+                                "k": k,
+                                "memory_source": "c0",
+                                "mode": "single_step",
+                                "baseline": base_metrics,
+                            }
+                            if not k:
+                                row.update(state="skipped", reason="empty_boundary_tokens")
+                            else:
+                                replacement = np.repeat(
+                                    np.asarray(mean_values["boundary"])[None], k, axis=0
+                                )
+                                results = {
+                                    "attention_mask": replay(indices_to_masks(chosen, selected)),
+                                    "mean_substitution": replay(
+                                        token_value_replacements=indices_to_value_replacements(
+                                            chosen, selected, replacement
+                                        )
+                                    ),
+                                }
+                                row["state"] = "complete"
+                                row["interventions"] = {
+                                    name: metrics(logits, target)
+                                    for name, logits in results.items()
+                                }
+                            with (output / "mean_smoke.jsonl").open("a") as stream:
+                                stream.write(json.dumps(row, allow_nan=False) + "\n")
+                            rows += 1
+                        return checks, rows
                     for name, altered, removed in (
                         (
                             "all_spatial",
@@ -528,6 +578,16 @@ def main():
     parser.add_argument(
         "--protocol", type=Path, default=ROOT / "protocols/region_tokens_v1_1.json"
     )
+    parser.add_argument(
+        "--e2-mean-smoke",
+        action="store_true",
+        help="Run one preregistered target per dev sequence to validate non-identity mean substitution.",
+    )
+    parser.add_argument(
+        "--value-calibration",
+        type=Path,
+        help="Completed E2_calibration/value_calibration.json used only with --e2-mean-smoke.",
+    )
     parser.add_argument("--e0-only", action="store_true")
     parser.add_argument(
         "--calibrate-values",
@@ -539,8 +599,22 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=False)
     protocol = json.loads(args.protocol.read_text())
     videos = load_manifest(args.manifest, "test")
-    if args.e0_only and args.calibrate_values:
-        raise ValueError("--e0-only and --calibrate-values are mutually exclusive")
+    selected_modes = int(args.e0_only) + int(args.calibrate_values) + int(args.e2_mean_smoke)
+    if selected_modes > 1:
+        raise ValueError("--e0-only, --calibrate-values and --e2-mean-smoke are mutually exclusive")
+    if args.e2_mean_smoke != bool(args.value_calibration):
+        raise ValueError("--e2-mean-smoke requires --value-calibration and vice versa")
+    mean_values = None
+    if args.value_calibration:
+        calibration = json.loads(args.value_calibration.read_text())
+        mean_values = {
+            name: values["mean"] for name, values in calibration["categories"].items()
+        }
+        if set(mean_values) != set(CATEGORIES) or any(
+            len(values) != 64 or not np.isfinite(values).all()
+            for values in mean_values.values()
+        ):
+            raise ValueError("Value calibration must contain finite 64-D means for every category")
     requested = (
         protocol["pilot"]["sequences"][:1]
         if args.e0_only
@@ -559,10 +633,15 @@ def main():
         ).strip(),
         "sequences": requested,
         "torch": torch.__version__,
-        "stage": "E0" if args.e0_only else "E2_calibration" if args.calibrate_values else "E1",
+        "stage": (
+            "E0" if args.e0_only else "E2_calibration" if args.calibrate_values
+            else "E2_mean_smoke" if args.e2_mean_smoke else "E1"
+        ),
         "scope": (
             "dev-only c0 value calibration; E2 effects not executed"
             if args.calibrate_values
+            else "dev-only E2 mean-value substitution operator smoke; no E2 effect claim"
+            if args.e2_mean_smoke
             else "gated region pilot; E2-E6 not executed"
         ),
         "polypgen_mirror_equivalence": "not checksum-verified against Synapse",
@@ -612,6 +691,8 @@ def main():
                 run,
                 args.e0_only,
                 calibration,
+                args.e2_mean_smoke,
+                mean_values,
             )
             checks.extend(sanity)
             total += rows

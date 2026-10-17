@@ -88,7 +88,7 @@ def main():
             stage = run.config.get("stage")
             if run is root_run:
                 destination = folder
-            elif stage in ("E0", "E1", "E2_calibration"):
+            elif stage in ("E0", "E1", "E2_calibration", "E2_mean_smoke"):
                 destination = folder / stage
             else:
                 continue
@@ -136,7 +136,10 @@ def main():
                 if not receipt["delivery_valid"]:
                     raise SystemExit(1)
                 return
-            if root_run.state == "finished" and status.get("stage") == "E2_calibration_complete":
+            if root_run.state == "finished" and status.get("stage") in (
+                "E2_calibration_complete",
+                "E2_mean_smoke_complete",
+            ):
                 receipt = {
                     "delivery_valid": True,
                     "delivery_source": "W&B artifacts from Kaggle interactive execution",
