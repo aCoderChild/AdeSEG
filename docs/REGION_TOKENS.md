@@ -106,6 +106,20 @@ far-background (2,357,379). The final artifact checksum-verified delivery is
 in `region_tokens_e2_calibration_v1`; this validates the substitution operator
 but makes no H1--H4 claim.
 
+The subsequent non-identity E2 **mean-substitution smoke** completed at
+revision `0ffc3840e115` with online W&B orchestrator `a6evelfm` and
+intervention run `591rm6ni`. It used one fixed target in each of the ten dev
+sequences, two banks and boundary tokens only (20 paired rows). E0 passed again
+on every sequence, including the value-identity check. Its whole-sequence mean
+Dice changes were -0.00406 for attention masking (95% bootstrap CI
+[-0.01388, 0.00604]) and -0.00577 for mean value substitution
+([-0.01254, 0.00059]). The conditioning-bank means were slightly positive
+(+0.00204 and +0.00340, respectively), while recent-bank means were negative
+(-0.01017 and -0.01493). The checksum-verified Drive receipt is valid and the
+full result is `region_tokens_e2_mean_smoke_v1/E2_mean_smoke/summary.md`.
+This validates the exercised non-identity value path, not E2 efficacy or any
+H1--H4 conclusion; the full E2 matrix remains required.
+
 Before any CholecSeg8k E2 outcome is generated, its semantic-mask object policy
 and source-video method split are frozen in the v1.2 data-definition amendment.
 Every non-background semantic class is an independently prompted clip-class unit;
