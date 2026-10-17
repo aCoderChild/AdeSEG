@@ -19,42 +19,42 @@ from modeling.region_tokens import CATEGORIES
 def analyze(rows, required_sequences):
     complete = [row for row in rows if row["state"] == "complete"]
     sequences = sorted({row["video"] for row in complete})
-    groups = defaultdict(list)
-    for row in complete:
-        for metric in ("dice", "boundary_f"):
-            groups[
-                (row["bank"], row["category"], row["seed"], row["video"], metric)
-            ].append(row["harm"][metric])
-    sequence_means = {key: float(np.mean(value)) for key, value in groups.items()}
+    lookup = {
+        (row["bank"], row["category"], row["seed"], row["video"], row["frame"]): row
+        for row in complete
+    }
     effects, gate_effect = {}, False
     for bank in ("conditioning", "recent"):
         for metric, minimum in (("dice", 0.01), ("boundary_f", 0.02)):
             for category in ("boundary", "near_background"):
-                # Same sequences across all five random controls and category.
-                names = [
-                    video
-                    for video in sequences
-                    if (bank, category, 0, video, metric) in sequence_means
-                    and all(
-                        (bank, "random", seed, video, metric) in sequence_means
-                        for seed in range(5)
-                    )
-                ]
+                # Match frames before sequence averaging. Categories can be
+                # infeasible on some frames; controls on those frames must not
+                # enter the paired comparison.
+                paired = defaultdict(list)
+                for (name, kind, seed, video, frame), row in lookup.items():
+                    if name != bank or kind != category or seed != 0:
+                        continue
+                    controls = [
+                        lookup.get((bank, "random", s, video, frame)) for s in range(5)
+                    ]
+                    if all(control is not None for control in controls):
+                        paired[video].append(
+                            [
+                                row["harm"][metric],
+                                *[control["harm"][metric] for control in controls],
+                            ]
+                        )
+                sequence_means = {
+                    video: np.mean(values, axis=0) for video, values in paired.items()
+                }
+                names = sorted(sequence_means)
                 if not names:
                     continue
                 by_sequence = {
-                    video: sequence_means[(bank, category, 0, video, metric)]
-                    for video in names
+                    video: float(sequence_means[video][0]) for video in names
                 }
                 random_means = [
-                    float(
-                        np.mean(
-                            [
-                                sequence_means[(bank, "random", seed, video, metric)]
-                                for video in names
-                            ]
-                        )
-                    )
+                    float(np.mean([sequence_means[video][seed + 1] for video in names]))
                     for seed in range(5)
                 ]
                 mean = float(np.mean(list(by_sequence.values())))

@@ -19,3 +19,34 @@ def test_pilot_empty_or_incomplete_sequence_coverage_never_passes():
     assert not result["full_study_complete"]
 
 
+def test_random_controls_match_feasible_category_frames_before_averaging():
+    rows = [
+        {
+            "state": "complete",
+            "video": "seq1",
+            "frame": 1,
+            "bank": "recent",
+            "category": "near_background",
+            "seed": 0,
+            "harm": {"dice": 0.02, "boundary_f": 0.03},
+            "attention": [],
+        }
+    ]
+    for seed in range(5):
+        for frame, harm in ((1, 0.0), (2, 0.9)):
+            rows.append(
+                {
+                    "state": "complete",
+                    "video": "seq1",
+                    "frame": frame,
+                    "bank": "recent",
+                    "category": "random",
+                    "seed": seed,
+                    "harm": {"dice": harm, "boundary_f": harm},
+                }
+            )
+    result = analyze(rows, ["seq1"])
+    effect = result["effects"]["recent/near_background/dice"]
+    assert effect["random_seed_range"] == [0, 0]
+    assert effect["excess_over_max_random"] == 0.02
+    assert not result["gate_pass"]  # one sequence cannot pass the minimum-n gate
