@@ -59,9 +59,11 @@ the ten amended pilot sequences). Categories with
 fewer than k available tokens are skipped and counted. The distance-matched
 control can overlap the reference; overlap is reported.
 
-**Not yet implemented/validated:** E2–E6 orchestration, GPU validation of persistent propagation, value-only
-substitution and cross-sequence swap, CholecSeg8k adapter and source-video split,
+**Not yet implemented/validated:** the full E2–E6 orchestration, GPU validation
+of persistent propagation, cross-sequence swap, CholecSeg8k and DAVIS execution,
 RAFT condition analysis, complete external-baseline adapters, and method tuning.
+The E2 calibration and bounded mean-value smoke validate the value-only operator,
+but not the full E2 design.
 An E1 pass permits developing/running those stages; it does not make this pilot
 a full study. An E0 failure stops inference; an E1 failure stops/pivots the study.
 
