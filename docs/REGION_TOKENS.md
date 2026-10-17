@@ -97,6 +97,15 @@ now an E0-required bit-exact check before any E2 inference is counted. The first
 E2 job is a dev-only calibration pass: it produces category means and validates
 that exact value replacement is bit-identical. It is not an E2 result.
 
+That calibration completed on Kaggle T4 x2 at revision `07e1b199dc77` with
+online W&B runs `cyls6h3w` (orchestrator), `5udert26` (E0), and `o2cischg`
+(calibration). The E0 artifact passed all seven checks, including value identity
+exactness. The c0 dev means are finite 64-dimensional vectors for boundary
+(129,240 tokens), foreground (159,556), near-background (163,681), and
+far-background (2,357,379). The final artifact checksum-verified delivery is
+in `region_tokens_e2_calibration_v1`; this validates the substitution operator
+but makes no H1--H4 claim.
+
 Before any CholecSeg8k E2 outcome is generated, its semantic-mask object policy
 and source-video method split are frozen in the v1.2 data-definition amendment.
 Every non-background semantic class is an independently prompted clip-class unit;
