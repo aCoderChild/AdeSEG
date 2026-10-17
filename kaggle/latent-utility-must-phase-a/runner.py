@@ -37,17 +37,19 @@ def run(command, timeout=21600):
 
 
 mark("bootstrap")
-key = UserSecretsClient().get_secret("WANDB_API_KEY")
-if not key:
-    raise RuntimeError("The full experiment notebook requires the attached WANDB_API_KEY secret.")
-os.environ.update({
-    "WANDB_API_KEY": key,
-    "WANDB_BASE_URL": "https://forge.coreweave.com/api/wandb",
-    "WANDB_PROJECT": "ade-seg",
-    "WANDB_ENTITY": "adenoid-hypertrophy",
-    "PYTHONUNBUFFERED": "1",
-    "GIT_TERMINAL_PROMPT": "0",
-})
+try:
+    key = UserSecretsClient().get_secret("WANDB_API_KEY")
+except Exception as exc:
+    key = None
+    print(f"[wandb] Kaggle secret unavailable ({type(exc).__name__}); artifacts will be synced after download", flush=True)
+os.environ.update({"PYTHONUNBUFFERED": "1", "GIT_TERMINAL_PROMPT": "0"})
+if key:
+    os.environ.update({
+        "WANDB_API_KEY": key,
+        "WANDB_BASE_URL": "https://forge.coreweave.com/api/wandb",
+        "WANDB_PROJECT": "ade-seg",
+        "WANDB_ENTITY": "adenoid-hypertrophy",
+    })
 if REPO.exists():
     shutil.rmtree(REPO)
 subprocess.run([
@@ -67,7 +69,8 @@ if importlib.util.find_spec("tensordict") is None:
     subprocess.run([
         sys.executable, "-m", "pip", "install", "--no-deps", "tensordict>=0.7,<0.8",
     ], check=True, timeout=300)
-run([sys.executable, REPO / "scripts/verify_wandb_connection.py", "--name", "latent-must-phase-a-connectivity"], 120)
+if key:
+    run([sys.executable, REPO / "scripts/verify_wandb_connection.py", "--name", "latent-must-phase-a-connectivity"], 120)
 
 protocol = REPO / "protocols/latent_utility_v2.json"
 manifest = TEMP / "davis.jsonl"
@@ -89,13 +92,16 @@ common = [
     "--protocol", protocol,
     "--device", "cuda",
     "--minimum-target-frame", "15",
-    "--wandb-base-url", os.environ["WANDB_BASE_URL"],
 ]
+tracking = (["--wandb-base-url", os.environ["WANDB_BASE_URL"]] if key
+            else ["--wandb-mode", "disabled"])
 
 
 def utility(name, *arguments, timeout=21600):
     target = OUT / name
-    run([*common, "--output-dir", target, "--wandb-name", f"latent-must-a-{name.replace('/', '-')}", *arguments], timeout)
+    run([*common, *tracking, "--output-dir", target,
+         *(["--wandb-name", f"latent-must-a-{name.replace('/', '-')}"] if key else []),
+         *arguments], timeout)
     return target
 
 
