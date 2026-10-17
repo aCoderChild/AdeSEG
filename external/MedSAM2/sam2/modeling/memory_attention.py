@@ -64,7 +64,14 @@ class MemoryAttentionLayer(nn.Module):
         return tgt
 
     def _forward_ca(
-        self, tgt, memory, query_pos, pos, num_k_exclude_rope=0, attn_mask=None
+        self,
+        tgt,
+        memory,
+        query_pos,
+        pos,
+        num_k_exclude_rope=0,
+        attn_mask=None,
+        memory_values=None,
     ):
         kwds = {}
         if num_k_exclude_rope > 0:
@@ -76,7 +83,7 @@ class MemoryAttentionLayer(nn.Module):
         tgt2 = self.cross_attn_image(
             q=tgt2 + query_pos if self.pos_enc_at_cross_attn_queries else tgt2,
             k=memory + pos if self.pos_enc_at_cross_attn_keys else memory,
-            v=memory,
+            v=memory if memory_values is None else memory_values,
             attn_mask=attn_mask,
             **kwds,
         )
@@ -91,12 +98,19 @@ class MemoryAttentionLayer(nn.Module):
         query_pos: Optional[Tensor] = None,
         num_k_exclude_rope: int = 0,
         attn_mask: Optional[Tensor] = None,
+        memory_values: Optional[Tensor] = None,
     ) -> torch.Tensor:
 
         # Self-Attn, Cross-Attn
         tgt = self._forward_sa(tgt, query_pos)
         tgt = self._forward_ca(
-            tgt, memory, query_pos, pos, num_k_exclude_rope, attn_mask
+            tgt,
+            memory,
+            query_pos,
+            pos,
+            num_k_exclude_rope,
+            attn_mask,
+            memory_values,
         )
         # MLP
         tgt2 = self.norm3(tgt)
@@ -163,6 +177,7 @@ class MemoryAttention(nn.Module):
         attn_mask = None
         utilities = None
         utility_features = None
+        memory_values = None
         if self.utility_controller is not None and memory_units:
             attn_mask, utilities, utility_features = self.utility_controller(
                 curr=output,
@@ -170,6 +185,9 @@ class MemoryAttention(nn.Module):
                 units=memory_units,
                 num_obj_ptr_tokens=num_obj_ptr_tokens,
                 query_context=utility_query_context,
+            )
+            memory_values = self.utility_controller.replace_memory_values(
+                memory, memory_units
             )
 
         layer_attention = []
@@ -187,6 +205,7 @@ class MemoryAttention(nn.Module):
                 pos=memory_pos,
                 query_pos=curr_pos,
                 attn_mask=attn_mask,
+                memory_values=memory_values,
                 **kwds,
             )
             cross_attention = layer.cross_attn_image

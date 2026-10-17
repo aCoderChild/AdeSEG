@@ -1,6 +1,6 @@
-import numpy as np
 import pytest
 import torch
+from torch import nn
 
 from evaluation.utility_retrieval import (
     failure_episodes,
@@ -10,6 +10,7 @@ from evaluation.utility_retrieval import (
     temporal_summary,
 )
 from modeling.utility_memory import UtilityController, UtilityHead
+from external.MedSAM2.sam2.modeling.memory_attention import MemoryAttentionLayer
 from external.MedSAM2.sam2.modeling.sam.transformer import RoPEAttention
 
 
@@ -73,3 +74,35 @@ def test_rope_attention_zero_bias_is_noop_and_reconstruction_matches():
     assert torch.equal(baseline, instrumented)
     assert attention.last_attention.shape == (1, 1, 4, 8)
     assert attention.last_reconstruction_max_abs < 1e-5
+
+
+def test_value_substitution_keeps_cross_attention_keys_unchanged():
+    class IdentityAttention(nn.Module):
+        def forward(self, q, k, v, **_):
+            return v if v.shape == q.shape else q.new_zeros(q.shape)
+
+    class Recorder(nn.Module):
+        def forward(self, q, k, v, **_):
+            self.key = k.detach().clone()
+            self.value = v.detach().clone()
+            return q.new_zeros(q.shape)
+
+    recorder = Recorder()
+    layer = MemoryAttentionLayer(
+        activation="relu",
+        cross_attention=recorder,
+        d_model=4,
+        dim_feedforward=8,
+        dropout=0,
+        pos_enc_at_attn=False,
+        pos_enc_at_cross_attn_keys=True,
+        pos_enc_at_cross_attn_queries=False,
+        self_attention=IdentityAttention(),
+    ).eval()
+    target = torch.randn(1, 2, 4)
+    memory = torch.randn(1, 3, 4)
+    position = torch.randn(1, 3, 4)
+    replacement = torch.full_like(memory, 7)
+    layer._forward_ca(target, memory, None, position, memory_values=replacement)
+    assert torch.equal(recorder.key, memory + position)
+    assert torch.equal(recorder.value, replacement)

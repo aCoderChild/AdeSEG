@@ -58,6 +58,24 @@ def test_pointer_reference_does_not_mask_spatial_keys():
     assert (bias[..., :-2] == 0).all()
 
 
+def test_value_substitution_changes_only_selected_spatial_values():
+    controller, args = fixture()
+    _, memory, units, _, _ = args
+    replacement = torch.full((4, 2), 9.0)
+    controller.token_value_replacements = {
+        0: (torch.tensor([False, True, False, True]), replacement)
+    }
+    changed = controller.replace_memory_values(memory, units)
+    assert changed is not memory
+    assert torch.equal(changed[:, 4:], memory[:, 4:])
+    assert torch.equal(changed[:, 0], memory[:, 0])
+    assert torch.equal(changed[:, 2], memory[:, 2])
+    assert torch.equal(changed[:, 1], replacement[1].expand_as(changed[:, 1]))
+    assert torch.equal(changed[:, 3], replacement[3].expand_as(changed[:, 3]))
+    controller.token_value_replacements = {}
+    assert controller.replace_memory_values(memory, units) is memory
+
+
 def test_taxonomy_partition_artifact_and_no_budget_reduction():
     mask = np.zeros((256, 256), bool)
     mask[79:171, 79:171] = True

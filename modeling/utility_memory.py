@@ -78,6 +78,10 @@ class UtilityController(nn.Module):
         self.excluded_frame_indices: set[int] = set()
         self.excluded_token_masks: dict[int, torch.Tensor] = {}
         self.token_biases: dict[int, torch.Tensor] = {}
+        # E2 substitution controls replace values only.  Each entry is a
+        # ``(selected_mask, replacement_values)`` pair for one spatial-memory
+        # frame; keys, positions, and object pointers stay untouched.
+        self.token_value_replacements: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
         self.exclude_pointers = False
         self.token_mask_policy = None
 
@@ -103,6 +107,33 @@ class UtilityController(nn.Module):
                 current_global, current_foreground, memory_key, metadata
             ], dim=-1))
         return torch.stack(rows, dim=1)
+
+    def replace_memory_values(self, memory, units):
+        """Apply explicit spatial-value substitutions, leaving keys unchanged.
+
+        ``memory`` is batch-first ``[B, K, D]``.  A replacement provides a
+        boolean mask and one replacement vector per spatial key in the named
+        memory frame.  Returning the original tensor for an empty mapping keeps
+        the upstream cross-attention path exactly unchanged.
+        """
+        if not self.token_value_replacements:
+            return memory
+        result = memory.clone()
+        for unit in units:
+            replacement = self.token_value_replacements.get(unit["frame_idx"])
+            if replacement is None:
+                continue
+            selected, values = replacement
+            start, end = unit["start"], unit["end"]
+            selected = torch.as_tensor(selected, device=memory.device, dtype=torch.bool).flatten()
+            values = torch.as_tensor(values, device=memory.device, dtype=memory.dtype)
+            length = end - start
+            if selected.numel() != length:
+                raise ValueError("Value-replacement mask length does not match spatial memory span")
+            if values.shape != (length, memory.shape[-1]):
+                raise ValueError("Value replacements must have shape [spatial_tokens, memory_dim]")
+            result[:, start:end][:, selected] = values[selected].unsqueeze(0)
+        return result
 
     def forward(self, curr, memory, units, num_obj_ptr_tokens, query_context):
         if self.token_mask_policy is not None:
