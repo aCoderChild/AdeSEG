@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""Deliver live Kaggle W&B artifacts directly to Drive, without a local cache.
+
+Works for an interactive notebook before Kaggle publishes a terminal version.
+Kaggle's notebook/version export is a separate delivery checked by
+collect_region_results.py after the session is saved.
+"""
+
+# ruff: noqa: E402 -- direct CLI use
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.collect_region_results import validate, verify_analysis_and_wandb
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--group", required=True)
+    parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--watch", action="store_true")
+    args = parser.parse_args()
+    folder = args.output_root / "region_tokens_v1"
+    folder.mkdir(parents=True, exist_ok=True)
+    # Both artifact payloads and any SDK staging/cache live in the requested Drive.
+    os.environ["WANDB_BASE_URL"] = "https://forge.coreweave.com/api/wandb"
+    os.environ["WANDB_CACHE_DIR"] = str(folder / ".wandb-cache")
+    os.environ["WANDB_DATA_DIR"] = str(folder / ".wandb-staging")
+    import wandb
+
+    downloaded = {}
+    while True:
+        api = wandb.Api(overrides={"base_url": os.environ["WANDB_BASE_URL"]})
+        runs = list(
+            api.runs("adenoid-hypertrophy/ade-seg", filters={"group": args.group})
+        )
+        root_run = next(
+            (run for run in runs if run.name == "region-tokens-orchestrator"), None
+        )
+        for run in runs:
+            artifacts = list(run.logged_artifacts())
+            if not artifacts:
+                continue
+            latest = max(artifacts, key=lambda artifact: artifact.created_at)
+            if downloaded.get(run.id) == latest.digest:
+                continue
+            stage = run.config.get("stage")
+            if run is root_run:
+                destination = folder
+            elif stage in ("E0", "E1"):
+                destination = folder / stage
+            else:
+                continue
+            latest.download(root=str(destination), skip_cache=True)
+            downloaded[run.id] = latest.digest
+            print(f"Delivered {run.name}: {latest.name} -> Drive", flush=True)
+        snapshot = {
+            "group": args.group,
+            "updated_unix": time.time(),
+            "runs": [
+                {"id": r.id, "name": r.name, "state": r.state, "url": r.url}
+                for r in runs
+            ],
+            "artifact_digests": downloaded,
+            "kaggle_version_export_verified": False,
+            "full_study_complete": False,
+        }
+        (folder / "live_tracking.json").write_text(
+            json.dumps(snapshot, indent=2) + "\n"
+        )
+        print(json.dumps(snapshot["runs"]), flush=True)
+        if root_run and root_run.state in ("finished", "failed", "crashed", "killed"):
+            status = (
+                json.loads((folder / "status.json").read_text())
+                if (folder / "status.json").exists()
+                else {}
+            )
+            if root_run.state == "finished" and status.get("stage") == "pilot_complete":
+                verify_analysis_and_wandb(folder)
+                (folder / "failure.txt").unlink(missing_ok=True)
+                receipt = validate(folder)
+                receipt["delivery_source"] = (
+                    "W&B artifacts from Kaggle interactive execution"
+                )
+                receipt["kaggle_version_export_verified"] = False
+                (folder / "delivery_receipt.json").write_text(
+                    json.dumps(receipt, indent=2) + "\n"
+                )
+                print(
+                    json.dumps(
+                        {k: v for k, v in receipt.items() if k != "sha256"}, indent=2
+                    ),
+                    flush=True,
+                )
+                if not receipt["delivery_valid"]:
+                    raise SystemExit(1)
+                return
+            raise SystemExit(
+                f"Kaggle orchestrator ended with {root_run.state}; inspect exported failure/status"
+            )
+        if not args.watch:
+            return
+        time.sleep(30)
+
+
+if __name__ == "__main__":
+    main()
