@@ -28,7 +28,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "external" / "MedSAM2")]
 
-from adenoid.io import load_label_mask
+from datasets.io import load_label_mask
 from datasets.video import ManifestFrame, load_manifest
 from modeling.medsam2 import build_video_predictor
 from modeling.utility_memory import attach_utility_controller, load_utility_head

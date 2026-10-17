@@ -8,15 +8,17 @@ and the E1 pilot gate the later analysis and method experiments.
 
 - [`docs/REGION_TOKENS.md`](docs/REGION_TOKENS.md): implementation map,
   execution commands, recording guarantees, and remaining work.
-- [`protocols/region_tokens_v1.json`](protocols/region_tokens_v1.json):
+- [`protocols/region_tokens_v1_1.json`](protocols/region_tokens_v1_1.json):
   preregistration, pilot sampling, controls and decision rules.
 - [`kaggle/region-tokens/`](kaggle/region-tokens/): the active notebook and runner.
-- [`scripts/`](scripts/): manifest preparation, utility labels, probes,
-  attention baseline, inference, and evaluation.
+- [`scripts/`](scripts/): active region pilot, delivery, manifest preparation,
+  reused memory/corruption utilities, inference, and evaluation.
+- [`datasets/io.py`](datasets/io.py): shared mask I/O, formerly `adenoid/io.py`.
 - [`modeling/utility_memory.py`](modeling/utility_memory.py): frozen SAM2
   memory-attention intervention.
 - [`training/utility_trainer.py`](training/utility_trainer.py): matched-budget
-  attention baseline training.
+  training infrastructure retained for the design's optional learned method;
+  the current pilot is frozen and training-free.
 - [`evaluation/`](evaluation/): segmentation, temporal, and official DAVIS
   metrics. The DAVIS metric source and license are retained from the upstream
   DAVIS evaluation package previously bundled with RDE-VOS.
@@ -27,6 +29,11 @@ The earlier frame-level utility study is documented by the frozen
 `protocols/latent_utility_v2.json` and `docs/UTILITY_RETRIEVAL.md`.
 Its components supply the intervention, metrics, data and tracking infrastructure.
 Historical studies remain recoverable from Git history.
+
+Clinical grading/ratio code, old Phase A launchers and legacy one-off analysis,
+backfill and training entry points have been removed from the active tree.
+The three `modeling` modules are all active dependencies. Frozen protocol
+ancestors remain because the approved region protocol references them.
 
 ## Verify
 

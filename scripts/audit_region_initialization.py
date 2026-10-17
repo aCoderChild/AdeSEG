@@ -12,7 +12,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from adenoid.io import load_label_mask
+from datasets.io import load_label_mask
 from datasets.video import load_manifest
 
 

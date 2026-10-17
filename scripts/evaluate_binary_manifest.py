@@ -13,7 +13,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from adenoid.io import load_semantic_mask
+from datasets.io import load_semantic_mask
 from datasets.video import load_manifest
 from evaluation.segmentation import calculate_scores
 from evaluation.utility_retrieval import temporal_summary

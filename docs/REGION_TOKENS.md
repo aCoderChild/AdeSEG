@@ -7,6 +7,7 @@ latent-capability conclusions as evidence.
 
 ## Entry points
 
+- `datasets/io.py`: existing shared mask decoding moved out of the removed clinical `adenoid` package, without changing behavior.
 - `modeling/region_tokens.py`: category maps, matched sampling, attention aggregation and native persistent-propagation wrapper.
 - `modeling/utility_memory.py`: existing additive attention hook, extended to token masks/biases.
 - `scripts/run_region_token_pilot.py`: independently restored counterfactuals, E0 and E1.
@@ -14,6 +15,19 @@ latent-capability conclusions as evidence.
 - `kaggle/region-tokens/region_tokens.ipynb`: pinned GitHub revision bootstrap.
 - `kaggle/region-tokens/runner.py`: credentials, data checks, E0 → E1 orchestration.
 - `scripts/collect_region_results.py`: terminal-status polling, direct Drive export and checksum receipt.
+
+Read the workflow in this order: `runner.py` → `run_region_token_pilot.py` →
+`analyze_region_token_pilot.py` → the two collectors. The model stays in the
+pinned upstream repositories; project code supplies experiment controls and
+recording, not a replacement SAM2 implementation.
+
+All three `modeling` files are needed: `medsam2.py` loads the existing upstream
+predictor; `utility_memory.py` is the reused intervention hook; `region_tokens.py`
+adds the study's taxonomy, matched sampling and aggregation. `training/tracking.py`
+is required even for frozen inference. `training/utility_trainer.py` remains only
+because the design explicitly reuses it for the optional learned-method arm.
+Frozen protocol ancestors are retained for their split/provenance references;
+the authorized amendment replaces the redundant proposal file.
 
 The notebook requires the **attached** Kaggle secret `WANDB_API_KEY`. It checks
 Forge access before inference. It creates online orchestrator/E0/E1 runs in

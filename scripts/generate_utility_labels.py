@@ -27,7 +27,7 @@ from torch.nn import functional as F
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "external" / "MedSAM2")]
 
-from adenoid.io import load_label_mask, load_semantic_mask
+from datasets.io import load_label_mask, load_semantic_mask
 from datasets.video import load_manifest
 from evaluation.utility_retrieval import failure_episodes, rank_agreement
 from modeling.medsam2 import build_video_predictor

@@ -1,9 +1,9 @@
-# Utility-aware memory retrieval experiment
+# Historical utility-aware memory experiment
 
-This branch implements the preregistered experiment in
-`protocols/utility_retrieval_v1.json`. It extends the bundled MedSAM2/SAM2 path;
-it does not replace the repository's loaders, predictor, metrics, or W&B
-tracking.
+This document describes the earlier frame-level study, not the active runner.
+Its frozen protocols and results preserve provenance. The current workflow is
+documented in `docs/REGION_TOKENS.md`. Reused attention, memory, statistics and
+tracking helpers remain; obsolete launchers and clinical-only tools were removed.
 
 ## What is implemented
 
@@ -37,13 +37,10 @@ the protocol and checkpoint SHA-256 hashes.
 
 ## Execution
 
-The Kaggle notebook in `kaggle/utility-memory-experiment/` is the canonical
-runner. It attaches public DAVIS 2017 and PolypGen datasets, downloads the
-official SAM2.1 Hiera-B+ checkpoint, logs to
-`adenoid-hypertrophy/ade-seg`, and leaves all artifacts in the Kaggle output.
-After a successful kernel version, `scripts/fetch_kaggle_results.sh` downloads
-the kernel output directly to the dated Google Drive directory; it does not
-stage results in the repository.
+The historical notebooks and delivery scripts are recoverable from Git history,
+but are not active entry points. Use `kaggle/region-tokens/` and the verified
+region collectors for the current study. Do not rerun an old launcher against
+the cleaned tree.
 
 Local verification:
 

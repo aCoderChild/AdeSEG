@@ -10,7 +10,7 @@ from torch.nn import functional as F
 from external.MedSAM2.training.loss_fns import dice_loss, sigmoid_focal_loss
 from external.MedSAM2.training.model.sam2 import SAM2Train
 from external.MedSAM2.training.utils.data_utils import BatchedVideoDatapoint, BatchedVideoMetaData
-from adenoid.io import load_label_mask
+from datasets.io import load_label_mask
 from modeling.medsam2 import build_video_predictor
 from modeling.utility_memory import UtilityController, UtilityHead, attach_utility_controller
 from scripts.infer import predict_label, stage_frames

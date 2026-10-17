@@ -1,4 +1,4 @@
-"""Shared binary-mask I/O helpers for AdeSEG experiments."""
+"""Shared mask decoding and visualization for video-segmentation datasets."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def load_semantic_mask(mask_path: Path, binary_threshold: int = 127) -> np.ndarr
 
     Binary masks stored as RGB or grayscale JPEG (PolypGen) collapse to a single
     foreground label 1, thresholding JPEG compression noise. Indexed PNG masks
-    (e.g. adenoid: 1 adenoid, 2 airway) keep their label values.
+    (multi-object or anatomical labels) keep their label values.
     """
     image = Image.open(mask_path)
     array = np.asarray(image)

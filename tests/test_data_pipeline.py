@@ -1,7 +1,6 @@
-"""Guards for the data path: frame order, mask decoding and two-region scoring."""
+"""Guards for the data path: frame order and mask decoding."""
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -12,8 +11,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from adenoid.io import load_semantic_mask  # noqa: E402
-from evaluation.two_region import evaluate  # noqa: E402
+from datasets.io import load_semantic_mask  # noqa: E402
 
 
 def load_script(name):
@@ -60,7 +58,7 @@ def test_binary_jpeg_masks_load_as_zero_one(tmp_path):
 
 
 def test_wrongly_encoded_masks_raise(tmp_path):
-    from adenoid.io import load_label_mask
+    from datasets.io import load_label_mask
 
     binary = np.zeros((32, 32), np.uint8)
     binary[8:24, 8:24] = 255
@@ -94,24 +92,3 @@ def test_three_class_grey_jpeg_maps_to_labels(tmp_path):
     assert set(np.unique(out)) == {0, 1, 2}
     centres = out[:, [16, 48, 80]]
     assert (centres == np.array([0, 1, 2])).all()
-
-
-def test_two_region_evaluation_is_perfect_on_identical_masks(tmp_path):
-    rows = []
-    for i, (adenoid, airway) in enumerate(((600, 400), (100, 900))):
-        mask = np.zeros((40, 50), np.uint8)
-        mask.flat[:airway] = 1
-        mask.flat[airway:airway + adenoid] = 2
-        Image.fromarray(np.zeros((40, 50, 3), np.uint8)).save(tmp_path / f"img{i}.png")
-        Image.fromarray(mask).save(tmp_path / f"gt{i}.png")
-        (tmp_path / "pred" / "masks" / f"v{i}").mkdir(parents=True)
-        Image.fromarray(mask).save(tmp_path / "pred" / "masks" / f"v{i}" / f"img{i}.png")
-        rows.append({"split": "test", "video_id": f"v{i}", "frame_index": 0,
-                     "image": f"img{i}.png", "mask": f"gt{i}.png"})
-    (tmp_path / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    frames, summary = evaluate(tmp_path / "manifest.jsonl", "test", tmp_path / "pred",
-                               ("adenoid", 2), ("airway", 1), "fraction_of_total", [0.5, 0.75])
-    assert summary["adenoid_dice"] == summary["airway_dice"] == 1.0
-    assert summary["frame_ratio"]["mae"] == 0.0
-    assert [round(f["ground_truth_ratio"], 2) for f in frames] == [0.6, 0.1]
-    assert summary["grade"]["accuracy"] == 1.0

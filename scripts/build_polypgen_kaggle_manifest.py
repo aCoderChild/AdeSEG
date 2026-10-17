@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from adenoid.io import MASK_EXTENSIONS, resolve_mask_path
+from datasets.io import MASK_EXTENSIONS, resolve_mask_path
 
 
 def numeric_order(paths):

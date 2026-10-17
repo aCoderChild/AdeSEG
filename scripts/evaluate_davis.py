@@ -15,7 +15,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from adenoid.io import load_semantic_mask
+from datasets.io import load_semantic_mask
 from datasets.video import load_manifest
 from evaluation.davis2017.metrics import db_eval_boundary, db_eval_iou
 from evaluation.utility_retrieval import temporal_summary
