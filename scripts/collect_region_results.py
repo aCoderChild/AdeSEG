@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 import time
 
 
@@ -54,7 +55,59 @@ def validate(folder):
         problems.append("Recorded E1 row count does not match output")
     if not rows:
         problems.append("No E1 records")
-    decision_path = folder / "E1/decision.json"
+    protocol_path = folder / "protocol.json"
+    manifest_path = folder / "polypgen_manifest.jsonl"
+    if protocol_path.exists() and manifest_path.exists():
+        import numpy as np
+
+        protocol = json.loads(protocol_path.read_text())
+        counts = {}
+        for line in manifest_path.read_text().splitlines():
+            row = json.loads(line)
+            counts[row["video_id"]] = counts.get(row["video_id"], 0) + 1
+        expected = set()
+        for video in protocol["pilot"]["sequences"]:
+            eligible = np.arange(7, counts.get(video, 0))
+            if not eligible.size:
+                problems.append(f"No eligible targets: {video}")
+                continue
+            targets = eligible[
+                np.unique(
+                    np.linspace(
+                        0,
+                        len(eligible) - 1,
+                        min(protocol["pilot"]["targets_per_sequence"], len(eligible)),
+                    ).astype(int)
+                )
+            ]
+            for frame in targets:
+                for bank in ("conditioning", "recent"):
+                    for category in (
+                        "boundary",
+                        "foreground",
+                        "near_background",
+                        "far_background",
+                        "random",
+                        "spatial_random",
+                    ):
+                        for seed in (
+                            range(5)
+                            if category in ("random", "spatial_random")
+                            else (0,)
+                        ):
+                            expected.add((video, int(frame), bank, category, seed))
+        actual = [
+            (r["video"], r["frame"], r["bank"], r["category"], r["seed"]) for r in rows
+        ]
+        if set(actual) != expected or len(actual) != len(set(actual)):
+            problems.append(
+                "E1 targets/controls do not match preregistered sample grid"
+            )
+    else:
+        problems.append("Missing protocol or input manifest")
+    decision_path = folder / "E1/decision_verified.json"
+    if not decision_path.exists():
+        decision_path = folder / "E1/decision.json"
     decision = json.loads(decision_path.read_text()) if decision_path.exists() else {}
     if not decision.get("all_required_sequences"):
         problems.append("Incomplete E1 sequence coverage")
@@ -78,6 +131,51 @@ def validate(folder):
     }
     (folder / "delivery_receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return receipt
+
+
+def verify_analysis_and_wandb(folder):
+    """Recompute the gate with the reviewed analyzer; retain original output."""
+    root = Path(__file__).resolve().parents[1]
+    verified = folder / "E1/decision_verified.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/analyze_region_token_pilot.py"),
+            "--input",
+            str(folder / "E1/frames.jsonl"),
+            "--protocol",
+            str(folder / "protocol.json"),
+            "--output",
+            str(verified),
+        ],
+        check=True,
+    )
+    decision = json.loads(verified.read_text())
+    decision["analysis_git_revision"] = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    decision["original_decision_sha256"] = hashlib.sha256(
+        (folder / "E1/decision.json").read_bytes()
+    ).hexdigest()
+    verified.write_text(json.dumps(decision, indent=2, allow_nan=False) + "\n")
+    import wandb
+
+    api = wandb.Api(overrides={"base_url": "https://forge.coreweave.com/api/wandb"})
+    for relative in ("tracking.json", "E0/tracking.json", "E1/tracking.json"):
+        tracking = json.loads((folder / relative).read_text())
+        remote = api.run(f"adenoid-hypertrophy/ade-seg/{tracking['run_id']}")
+        if remote.state != "finished":
+            raise RuntimeError(
+                f"W&B run {tracking['run_id']} is {remote.state}, expected finished"
+            )
+    orchestrator = api.run(
+        f"adenoid-hypertrophy/ade-seg/{json.loads((folder / 'tracking.json').read_text())['run_id']}"
+    )
+    orchestrator.upload_file(str(verified), root=str(folder))
+    orchestrator.summary["E1/verified_gate_pass"] = decision["gate_pass"]
+    orchestrator.summary["E1/verified_decision"] = decision["decision"]
+    orchestrator.summary["analysis_git_revision"] = decision["analysis_git_revision"]
+    orchestrator.summary.update()
 
 
 def main():
@@ -109,7 +207,16 @@ def main():
         ],
         check=True,
     )
-    receipt = validate(args.output_root / "region_tokens_v1")
+    folder = args.output_root / "region_tokens_v1"
+    status_path = folder / "status.json"
+    if (
+        status_path.exists()
+        and json.loads(status_path.read_text()).get("state") == "complete"
+    ):
+        verify_analysis_and_wandb(folder)
+        # A prior failed bootstrap can have left this file during --force export.
+        (folder / "failure.txt").unlink(missing_ok=True)
+    receipt = validate(folder)
     print(
         json.dumps(
             {key: value for key, value in receipt.items() if key != "sha256"}, indent=2
