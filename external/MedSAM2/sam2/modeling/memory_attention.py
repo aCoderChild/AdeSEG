@@ -208,6 +208,8 @@ class MemoryAttention(nn.Module):
             "utilities": utilities,
             "utility_features": utility_features,
             "attention": layer_attention,
+            "foreground_query_mask": utility_query_context.get("foreground_mask")
+            if utility_query_context is not None else None,
             "reconstruction_max_abs": reconstruction_errors,
         }
 

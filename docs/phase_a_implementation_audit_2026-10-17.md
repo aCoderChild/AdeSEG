@@ -40,6 +40,13 @@ summary for the preregistered hypothesis go/no-go decision.
    comparisons, E4 held-out linear-probe controls, E5 causal readout
    comparisons, or E7 PolypGen transfer. It cannot establish C0–C5.
 
+Subsequent code on the experiment branch now computes primary soft-Dice
+utility, keeps hard-Dice utility separately, and records foreground-query
+saliency by layer. These corrections have unit tests but **have not been
+validated on Kaggle**; they do not retroactively correct script version
+`359186175`. The remaining protocol gaps above still need implementation and
+GPU validation before a confirmatory full run.
+
 Do not modify the frozen v2 protocol to conceal these differences. Correct and
 version the implementation, rerun sanity checks and test controls, then use
 only the corrected experiment for the preregistered decision.

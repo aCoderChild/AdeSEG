@@ -111,18 +111,37 @@ def _mask_at_original_size(logits, shape):
     return resized[0, 0].detach().cpu().numpy() > 0
 
 
+def soft_dice(logits, target):
+    target = torch.as_tensor(target, device=logits.device, dtype=torch.float32)
+    probabilities = F.interpolate(
+        logits.float(), size=target.shape, mode="bilinear", align_corners=False
+    )[0, 0].sigmoid()
+    return float(
+        ((2 * (probabilities * target).sum() + 1e-6)
+         / (probabilities.sum() + target.sum() + 1e-6)).item()
+    )
+
+
 def _attention_by_unit(trace):
     units, layers = trace["units"], trace["attention"]
     if not layers:
-        return [float("nan")] * len(units)
-    values = []
-    for unit in units:
-        per_layer = [
-            weights[..., unit["start"] : unit["end"]].sum(dim=-1).mean().item()
-            for weights in layers
+        return [float("nan")] * len(units), []
+    foreground = trace.get("foreground_query_mask")
+    if foreground is None:
+        raise ValueError("Foreground query mask is required for E3 saliency")
+    foreground = foreground.bool()
+    if not foreground.any():
+        return [float("nan")] * len(units), [
+            [float("nan")] * len(units) for _ in layers
         ]
-        values.append(float(np.mean(per_layer)))
-    return values
+    per_layer = []
+    for weights in layers:
+        selected = weights.permute(0, 2, 1, 3)[foreground]
+        per_layer.append([
+            float(selected[..., unit["start"] : unit["end"]].sum(-1).mean())
+            for unit in units
+        ])
+    return np.mean(per_layer, axis=0).tolist(), per_layer
 
 
 def _json_unit(unit):
@@ -299,6 +318,7 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
                 target = load_label_mask(frames[frame_index].mask_path, all_label_ids) == label_id
                 baseline_prediction = mask_logits[0, 0].detach().cpu().numpy() > 0
                 baseline_score = dice(baseline_prediction, target)
+                baseline_soft_score = soft_dice(mask_logits[:, :1], target)
                 trace = predictor.memory_attention.last_trace
                 units = trace["units"]
                 if not units:
@@ -308,7 +328,7 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
                     )
                     continue
                 features = trace["utility_features"][0].detach().cpu()
-                attention = _attention_by_unit(trace)
+                attention, attention_per_layer = _attention_by_unit(trace)
                 reconstruction_error = max(
                     [value for value in trace["reconstruction_max_abs"] if value is not None],
                     default=float("nan"),
@@ -322,24 +342,29 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
                         is_init_cond_frame=False, point_inputs=None, mask_inputs=None,
                         reverse=False, run_mem_encoder=False,
                     )
-                    return dice(_mask_at_original_size(rerun_logits, target.shape), target), rerun_logits
+                    return (
+                        soft_dice(rerun_logits, target),
+                        dice(_mask_at_original_size(rerun_logits, target.shape), target),
+                        rerun_logits,
+                    )
 
-                no_op_score, no_op_logits = score_excluding(set())
+                no_op_soft_score, no_op_score, no_op_logits = score_excluding(set())
                 stored = output_dict["non_cond_frame_outputs"][frame_index]["pred_masks"]
                 no_op_max_abs = float((no_op_logits.float().cpu() - stored.float().cpu()).abs().max())
-                utilities = []
+                utilities, hard_utilities = [], []
                 for unit in units:
-                    excluded_score, _ = score_excluding({unit["frame_idx"]})
-                    utilities.append(baseline_score - excluded_score)
+                    excluded_soft_score, excluded_score, _ = score_excluding({unit["frame_idx"]})
+                    utilities.append(baseline_soft_score - excluded_soft_score)
+                    hard_utilities.append(baseline_score - excluded_score)
 
                 harmful = {unit["frame_idx"] for unit, utility in zip(units, utilities) if utility < 0}
-                oracle_score, _ = score_excluding(harmful) if harmful else (baseline_score, None)
+                _, oracle_score, _ = score_excluding(harmful) if harmful else (baseline_soft_score, baseline_score, None)
                 random_scores = []
                 if harmful and random_null:
                     candidates = [unit["frame_idx"] for unit in units]
                     for _ in range(len(units)):
                         selected = rng.choice(candidates, size=len(harmful), replace=False)
-                        random_scores.append(score_excluding(set(map(int, selected)))[0])
+                        random_scores.append(score_excluding(set(map(int, selected)))[1])
                 controller.excluded_frame_indices = set()
                 best_random = max(random_scores, default=baseline_score)
 
@@ -367,20 +392,44 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
                     oracle_prompt_score = float("nan")
 
                 agreement = rank_agreement(attention, utilities)
+                layer_agreement = [
+                    rank_agreement(values, utilities)["spearman"]
+                    for values in attention_per_layer
+                ]
+                helpful = np.asarray(utilities) >= 0
+                attention_array = np.asarray(attention, dtype=float)
+                valid_attention = np.isfinite(attention_array)
+                attention_total = attention_array[valid_attention].sum()
+                harmful_mass = (
+                    float(attention_array[valid_attention & ~helpful].sum() / attention_total)
+                    if attention_total > 0 else float("nan")
+                )
+                top_count = min(2, len(units))
+                top_overlap = (
+                    len(set(np.argsort(attention_array)[-top_count:])
+                        & set(np.argsort(utilities)[-top_count:])) / top_count
+                    if np.isfinite(attention_array).all() else float("nan")
+                )
                 rows.append({
                     "video": video_id, "frame": frame_index, "baseline_dice": baseline_score,
                     "memory_source": memory_source, "corruption_level": corruption_level,
                     "corruption_type": corruption_type,
-                    "no_op_dice": no_op_score, "no_op_max_abs": no_op_max_abs,
+                    "baseline_soft_dice": baseline_soft_score,
+                    "no_op_dice": no_op_score, "no_op_soft_dice": no_op_soft_score,
+                    "no_op_max_abs": no_op_max_abs,
                     "oracle_retrieval_dice": oracle_score,
                     "best_of_n_random_dice": best_random, "random_n": len(units),
                     "oracle_prompt_dice": oracle_prompt_score,
                     "excluded_harmful_units": len(harmful),
                     "attention_spearman": agreement["spearman"],
                     "attention_kendall": agreement["kendall"],
+                    "attention_spearman_per_layer": layer_agreement,
+                    "harmful_attention_mass": harmful_mass,
+                    "top2_attention_utility_overlap": top_overlap,
                     "attention_reconstruction_max_abs": reconstruction_error,
                     "units": [_json_unit(unit) for unit in units],
-                    "utility": utilities, "attention": attention,
+                    "utility": utilities, "hard_dice_utility": hard_utilities,
+                    "attention": attention, "attention_per_layer": attention_per_layer,
                 })
                 query_dim, memory_dim = predictor.hidden_dim, predictor.mem_dim
                 anchor_index = next(
@@ -403,6 +452,7 @@ def analyze_video(predictor, controller, video_id, frames, label_id, all_label_i
                         "video": video_id, "frame": frame_index,
                         "memory_frame": unit["frame_idx"],
                         "features": feature, "utility": float(utility),
+                        "hard_dice_utility": float(hard_utilities[index]),
                         "attention": float(attention[index]),
                         "semantic_similarity": float(similarity),
                         "confidence": confidence,
@@ -445,7 +495,7 @@ def main():
         "videos": sorted(videos),
         "protocol_sha256": hashlib.sha256(protocol_bytes).hexdigest(),
         "checkpoint_sha256": hashlib.sha256(args.sam2_checkpoint.read_bytes()).hexdigest(),
-        "utility_definition": "baseline Dice - Dice when one spatial-memory frame is excluded",
+        "utility_definition": "baseline soft Dice - soft Dice when one spatial-memory frame is excluded",
         "object_pointer_tokens_modulated": False,
     }
     (args.output_dir / "setup.json").write_text(json.dumps(setup, indent=2) + "\n")
@@ -523,9 +573,7 @@ def main():
             row["best_of_n_random_dice"] - row["baseline_dice"] for row in all_rows
         ])) if all_rows else None,
         "sanity_no_op_max_abs": max([row["no_op_max_abs"] for row in all_rows], default=None),
-        "sanity_cached_state_restore_max_abs": max(
-            [row["no_op_max_abs"] for row in all_rows], default=None
-        ),
+        "sanity_cached_state_restore_max_abs": None,
         "sanity_attention_reconstruction_max_abs": max([
             row["attention_reconstruction_max_abs"] for row in all_rows
             if np.isfinite(row["attention_reconstruction_max_abs"])

@@ -733,11 +733,16 @@ class SAM2Base(torch.nn.Module):
                     size=(H, W), mode="bilinear",
                     align_corners=False,
                 ).flatten(2).squeeze(1) > 0
+                query_context["foreground_mask"] = previous_mask
                 weights = previous_mask.to(current_tokens.dtype)
                 query_context["foreground"] = (
                     current_tokens * weights.unsqueeze(-1)
                 ).sum(dim=1) / weights.sum(dim=1, keepdim=True).clamp_min(1)
         query_context.setdefault("foreground", query_context["global"])
+        query_context.setdefault(
+            "foreground_mask",
+            torch.ones(current_tokens.shape[:2], device=current_tokens.device, dtype=torch.bool),
+        )
 
         pix_feat_with_mem = self.memory_attention(
             curr=current_vision_feats,
