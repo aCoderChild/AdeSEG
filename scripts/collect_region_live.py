@@ -18,7 +18,11 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.collect_region_results import validate, verify_analysis_and_wandb
+from scripts.collect_region_results import (
+    validate,
+    validate_study_shard,
+    verify_analysis_and_wandb,
+)
 
 
 def download_verified(artifact, destination):
@@ -67,9 +71,7 @@ def main():
     while True:
         api = wandb.Api(overrides={"base_url": os.environ["WANDB_BASE_URL"]})
         if args.root_run_id:
-            root_run = api.run(
-                f"adenoid-hypertrophy/ade-seg/{args.root_run_id}"
-            )
+            root_run = api.run(f"adenoid-hypertrophy/ade-seg/{args.root_run_id}")
             runs = [root_run]
         else:
             runs = list(
@@ -90,6 +92,15 @@ def main():
                 destination = folder
             elif stage in ("E0", "E1", "E2_calibration", "E2_mean_smoke"):
                 destination = folder / stage
+            elif stage in (
+                "E2",
+                "E3",
+                "E4_conditions",
+                "E6_dev",
+                "E6_test",
+                "E6_baseline",
+            ):
+                destination = folder / "study"
             else:
                 continue
             download_verified(latest, destination)
@@ -139,6 +150,8 @@ def main():
             if root_run.state == "finished" and status.get("stage") in (
                 "E2_calibration_complete",
                 "E2_mean_smoke_complete",
+                "E2_attention_smoke_complete",
+                "E2_attention_primary_complete",
             ):
                 receipt = {
                     "delivery_valid": True,
@@ -149,6 +162,22 @@ def main():
                 (folder / "delivery_receipt.json").write_text(
                     json.dumps(receipt, indent=2) + "\n"
                 )
+                return
+            if (
+                root_run.state == "finished"
+                and status.get("stage") == "study_shard_complete"
+            ):
+                receipt = validate_study_shard(folder)
+                receipt["delivery_source"] = (
+                    "W&B artifacts downloaded directly to Google Drive"
+                )
+                (folder / "delivery_receipt.json").write_text(
+                    json.dumps(receipt, indent=2) + "\n"
+                )
+                if not receipt["delivery_valid"]:
+                    raise SystemExit(
+                        "Study shard delivery failed validation; inspect delivery_receipt.json"
+                    )
                 return
             raise SystemExit(
                 f"Kaggle orchestrator ended with {root_run.state}; inspect exported failure/status"

@@ -32,6 +32,20 @@ class ManifestFrame:
     mask_path: Path
 
 
+def foreground_labels(frames):
+    """Indexed classes present anywhere in a clip, including ignore labels.
+
+    Callers retain ignore labels for decoding and exclude them when selecting
+    prompted objects. Binary JPEG normalization stays in the shared decoder.
+    """
+    labels = set()
+    for frame in frames:
+        labels.update(
+            np.unique(load_label_mask(frame.mask_path, range(1, 256))).tolist()
+        )
+    return sorted(labels - {0})
+
+
 def _resolve(value: str, manifest: Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else manifest.parent / path
@@ -41,7 +55,9 @@ def load_manifest(manifest: Path, split: str) -> dict[str, list[ManifestFrame]]:
     """Load one split, rejecting malformed rows before training starts."""
     manifest = Path(manifest)
     videos: dict[str, list[ManifestFrame]] = defaultdict(list)
-    for line_number, line in enumerate(manifest.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, line in enumerate(
+        manifest.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         if not line.strip():
             continue
         try:
@@ -56,9 +72,13 @@ def load_manifest(manifest: Path, split: str) -> dict[str, list[ManifestFrame]]:
         image_path = _resolve(str(row["image"]), manifest)
         mask_path = _resolve(str(row["mask"]), manifest)
         if not image_path.is_file() or not mask_path.is_file():
-            raise FileNotFoundError(f"{manifest}:{line_number}: image or mask does not exist")
+            raise FileNotFoundError(
+                f"{manifest}:{line_number}: image or mask does not exist"
+            )
         videos[str(row["video_id"])].append(
-            ManifestFrame(str(row["video_id"]), int(row["frame_index"]), image_path, mask_path)
+            ManifestFrame(
+                str(row["video_id"]), int(row["frame_index"]), image_path, mask_path
+            )
         )
     if not videos:
         raise ValueError(f"No valid frames for split {split!r} in {manifest}.")
@@ -74,7 +94,9 @@ def assert_disjoint_videos(*splits: dict[str, list[ManifestFrame]]) -> None:
     for videos in splits:
         overlap = seen & videos.keys()
         if overlap:
-            raise ValueError(f"A video appears in more than one split: {sorted(overlap)[:3]}")
+            raise ValueError(
+                f"A video appears in more than one split: {sorted(overlap)[:3]}"
+            )
         seen.update(videos)
 
 
@@ -108,27 +130,39 @@ class ManifestVideoClips:
         self.label_ids = label_ids
         self.clip_length = clip_length
         self.sample_by_video = sample_by_video
-        self.absence_fraction = absence_fraction  # share of samples drawn from clips with an absent frame
+        self.absence_fraction = (
+            absence_fraction  # share of samples drawn from clips with an absent frame
+        )
         self.clips: list[tuple[list[ManifestFrame], int]] = []
         self.has_absence: list[bool] = []
         seen_labels: set[int] = set()
         for frames in videos.values():
             if len(frames) < clip_length:
                 continue
-            labels_by_frame = [_semantic_mask(frame.mask_path, label_ids) for frame in frames]
+            labels_by_frame = [
+                _semantic_mask(frame.mask_path, label_ids) for frame in frames
+            ]
             for label_id in label_ids:
                 present = [bool((mask == label_id).any()) for mask in labels_by_frame]
                 if any(present):
                     seen_labels.add(label_id)
                 for start in range(len(frames) - clip_length + 1):
                     if present[start]:
-                        self.clips.append((frames[start : start + clip_length], label_id))
-                        self.has_absence.append(not all(present[start : start + clip_length]))
+                        self.clips.append(
+                            (frames[start : start + clip_length], label_id)
+                        )
+                        self.has_absence.append(
+                            not all(present[start : start + clip_length])
+                        )
         missing = sorted(set(label_ids) - seen_labels)
         if missing:
-            raise ValueError(f"Requested label_ids are absent from this split: {missing}")
+            raise ValueError(
+                f"Requested label_ids are absent from this split: {missing}"
+            )
         if not self.clips:
-            raise ValueError("No clip has a prompted object followed by enough annotated frames.")
+            raise ValueError(
+                "No clip has a prompted object followed by enough annotated frames."
+            )
 
     def __len__(self) -> int:
         return len(self.clips)
@@ -138,16 +172,26 @@ class ManifestVideoClips:
         if image is None:
             raise FileNotFoundError(path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        return cv2.resize(image, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
+        return cv2.resize(
+            image, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA
+        )
 
     def _mask(self, path: Path, label_id: int) -> np.ndarray:
         mask = (_semantic_mask(path, self.label_ids) == label_id).astype(np.uint8)
-        return cv2.resize(mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST)
+        return cv2.resize(
+            mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST
+        )
 
     def sample(self, rng: np.random.Generator) -> dict[str, torch.Tensor | str | int]:
         pool = self.clips
-        if self.absence_fraction > 0 and any(self.has_absence) and rng.random() < self.absence_fraction:
-            pool = [clip for clip, absent in zip(self.clips, self.has_absence) if absent]
+        if (
+            self.absence_fraction > 0
+            and any(self.has_absence)
+            and rng.random() < self.absence_fraction
+        ):
+            pool = [
+                clip for clip, absent in zip(self.clips, self.has_absence) if absent
+            ]
         if self.sample_by_video:
             # A video first, then one of its clips, so a long video does not dominate.
             videos = sorted({frames[0].video_id for frames, _ in pool})
@@ -156,13 +200,26 @@ class ManifestVideoClips:
             frames, label_id = candidates[int(rng.integers(len(candidates)))]
         else:
             frames, label_id = pool[int(rng.integers(len(pool)))]
-        images = np.stack([self._image(frame.image_path) for frame in frames]).astype(np.float32) / 255.0
+        images = (
+            np.stack([self._image(frame.image_path) for frame in frames]).astype(
+                np.float32
+            )
+            / 255.0
+        )
         masks = np.stack([self._mask(frame.mask_path, label_id) for frame in frames])
         return {
-            "images": torch.from_numpy((images - IMAGE_MEAN) / IMAGE_STD).permute(0, 3, 1, 2).float(),
+            "images": torch.from_numpy((images - IMAGE_MEAN) / IMAGE_STD)
+            .permute(0, 3, 1, 2)
+            .float(),
             "masks": torch.from_numpy(masks.astype(np.float32)),
             "frame_gaps": torch.tensor(
-                [0, *[right.frame_index - left.frame_index for left, right in zip(frames, frames[1:])]],
+                [
+                    0,
+                    *[
+                        right.frame_index - left.frame_index
+                        for left, right in zip(frames, frames[1:])
+                    ],
+                ],
                 dtype=torch.float32,
             ),
             "present": torch.from_numpy(masks.reshape(len(masks), -1).any(axis=1)),

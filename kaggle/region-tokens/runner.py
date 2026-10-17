@@ -22,6 +22,7 @@ if RUN_STAGE not in {
     "E2_mean_smoke",
     "E2_attention_smoke",
     "E2_attention_primary",
+    "study_shard",
 }:
     raise ValueError(f"Unsupported REGION_STAGE: {RUN_STAGE}")
 OUT = Path("/kaggle/working") / os.environ.get(
@@ -31,7 +32,9 @@ OUT = Path("/kaggle/working") / os.environ.get(
 REPO = Path("/kaggle/temp/AdeSEG-region")
 if OUT.exists():
     previous_status = OUT / "status.json"
-    previous = json.loads(previous_status.read_text()) if previous_status.is_file() else {}
+    previous = (
+        json.loads(previous_status.read_text()) if previous_status.is_file() else {}
+    )
     if previous.get("state") != "failed":
         raise FileExistsError(
             f"Refusing to overwrite non-failed Kaggle output directory: {OUT}"
@@ -75,7 +78,9 @@ def command(arguments, timeout=21600):
 
 def resolve_kaggle_input(*relative_paths: str) -> Path:
     """Return the one verified Kaggle mount layout for an attached dataset."""
-    candidates = [Path("/kaggle/input") / relative_path for relative_path in relative_paths]
+    candidates = [
+        Path("/kaggle/input") / relative_path for relative_path in relative_paths
+    ]
     for candidate in candidates:
         if candidate.is_dir():
             return candidate
@@ -98,6 +103,7 @@ def upload():
         if (
             path.is_file()
             and "wandb" not in path.relative_to(OUT).parts
+            and "dependencies" not in path.relative_to(OUT).parts
             and path.suffix != ".tmp"
         ):
             artifact.add_file(str(path), name=path.relative_to(OUT).as_posix())
@@ -177,6 +183,8 @@ try:
         "monai": "monai>=1.3",
         "skimage": "scikit-image",
         "scipy": "scipy",
+        "statsmodels": "statsmodels>=0.14",
+        "matplotlib": "matplotlib>=3.7",
     }
     missing = [
         package
@@ -203,7 +211,9 @@ try:
     )
     import wandb
 
-    os.environ["WANDB_RUN_GROUP"] = f"region-tokens-v1-{revision[:12]}"
+    os.environ["WANDB_RUN_GROUP"] = (
+        f"region-tokens-v1-{revision[:12]}-{OUT.name}-{int(started)}"
+    )
     run = wandb.init(
         project="ade-seg",
         entity="adenoid-hypertrophy",
@@ -245,16 +255,18 @@ try:
     rows = [json.loads(line) for line in manifest.read_text().splitlines()]
     protocol = REPO / "protocols/region_tokens_v1_1.json"
     (OUT / "protocol.json").write_bytes(protocol.read_bytes())
-    if RUN_STAGE == "E2_preflight":
+    if RUN_STAGE == "study_shard":
+        (OUT / "execution_protocol.json").write_bytes(
+            (REPO / "protocols/region_tokens_execution_v1.json").read_bytes()
+        )
+    if RUN_STAGE in {"E2_preflight", "study_shard"}:
         # This is deliberately an input/instrumentation gate, not an E2 result.
         # Kaggle sometimes nests attached public datasets beneath ``datasets``.
         # Accept only the two known layouts, and fail with an inventory otherwise.
         cholec_root = resolve_kaggle_input(
             "cholecseg8k", "datasets/newslab/cholecseg8k"
         )
-        davis_root = resolve_kaggle_input(
-            "davis2017", "datasets/lennelenne/davis2017"
-        )
+        davis_root = resolve_kaggle_input("davis2017", "datasets/lennelenne/davis2017")
         cholec_output = OUT / "cholecseg8k"
         davis_manifest = OUT / "davis2017.jsonl"
         command(
@@ -287,9 +299,7 @@ try:
             if line
         ]
         davis_rows = [
-            json.loads(line)
-            for line in davis_manifest.read_text().splitlines()
-            if line
+            json.loads(line) for line in davis_manifest.read_text().splitlines() if line
         ]
         if not cholec_rows or not davis_rows:
             raise RuntimeError("E2 input preflight produced an empty manifest")
@@ -310,7 +320,9 @@ try:
                     "mounted_path": str(cholec_root),
                     "frames": len(cholec_rows),
                     "clips": len({row["video_id"] for row in cholec_rows}),
-                    "source_videos": sorted({row["source_video"] for row in cholec_rows}),
+                    "source_videos": sorted(
+                        {row["source_video"] for row in cholec_rows}
+                    ),
                 },
                 "davis2017": {
                     "dataset": "lennelenne/davis2017",
@@ -414,7 +426,175 @@ try:
         raise RuntimeError("E0 gate failed")
     mark("E0", "complete")
     upload()
-    if RUN_STAGE == "E0":
+    if RUN_STAGE == "study_shard":
+        # New experiment components are dispatched explicitly; running this
+        # branch never implies that unrequested components were executed.
+        gate = e1_gate_artifact()
+        job = json.loads(os.environ.get("REGION_JOB", "{}"))
+        stage = job.get("stage")
+        if stage not in {
+            "E2",
+            "E3",
+            "E2_calibration",
+            "E4_conditions",
+            "E6_dev",
+            "E6_test",
+            "E6_baseline",
+        }:
+            raise ValueError("REGION_JOB requires an explicit implemented study stage")
+        dataset = job.get("dataset")
+        manifests = {
+            "polypgen": manifest,
+            "cholecseg8k": cholec_output / "cholecseg8k.jsonl",
+            "davis": davis_manifest,
+        }
+        if dataset not in manifests or not job.get("split") or not job.get("sequences"):
+            raise ValueError("REGION_JOB requires dataset, split and sequences")
+        sequences = job["sequences"]
+        if (
+            not isinstance(sequences, list)
+            or not all(isinstance(v, str) for v in sequences)
+            or len(sequences) != len(set(sequences))
+        ):
+            raise ValueError("REGION_JOB sequences must be a unique list")
+        (OUT / "job.json").write_text(json.dumps(job, indent=2) + "\n")
+        stage_output = OUT / "study"
+        entry = (
+            "measure_region_conditions.py"
+            if stage == "E4_conditions"
+            else "run_region_baseline.py"
+            if stage == "E6_baseline"
+            else "run_region_experiments.py"
+        )
+        arguments = [
+            sys.executable,
+            REPO / "scripts" / entry,
+            "--manifest",
+            manifests[dataset],
+            "--dataset",
+            dataset,
+            "--split",
+            job["split"],
+            "--output-dir",
+            stage_output,
+            *sum((["--sequence", v] for v in sequences), []),
+        ]
+        if stage != "E4_conditions":
+            arguments += [
+                "--checkpoint",
+                checkpoint,
+                "--gate-dir",
+                OUT / "e1_gate_artifact",
+            ]
+        if stage == "E6_baseline":
+            baseline = job.get("baseline")
+            if baseline not in {"SAM2Long", "Lean-SAM2"}:
+                raise ValueError(
+                    "Only complete, author-provided upstream baselines are supported"
+                )
+            command(
+                [
+                    "git",
+                    "submodule",
+                    "update",
+                    "--init",
+                    "--depth",
+                    "1",
+                    f"external/{baseline}",
+                ],
+                600,
+            )
+            arguments += ["--baseline", baseline, "--partition", job["partition"]]
+        elif stage != "E4_conditions":
+            arguments += [
+                "--stage",
+                stage,
+                "--mode",
+                job.get("mode", "single_step"),
+                "--intervention",
+                job.get("intervention", "attention_mask"),
+                "--memory-condition",
+                job.get("memory_condition", "c0"),
+                "--band",
+                str(job.get("band", 1)),
+                "--thresholds",
+                *map(str, job.get("thresholds", [0.1, 0.9])),
+            ]
+            for label in job.get("label_ids", []):
+                arguments += ["--label-id", str(label)]
+            if job.get("calibration_artifact"):
+                dependency = OUT / "dependencies/calibration"
+                wandb.Api().artifact(job["calibration_artifact"]).download(
+                    root=str(dependency)
+                )
+                provenance = list(dependency.rglob("calibration_provenance.json"))
+                if len(provenance) != 1:
+                    raise ValueError(
+                        "Calibration artifact must contain exactly one completed calibration"
+                    )
+                arguments += ["--calibration-dir", provenance[0].parent]
+            if job.get("method_artifact"):
+                dependency = OUT / "dependencies/method"
+                wandb.Api().artifact(job["method_artifact"]).download(
+                    root=str(dependency)
+                )
+                method = dependency / job.get("method_file", "method_frozen.json")
+                if (
+                    not method.resolve().is_relative_to(dependency.resolve())
+                    or not method.is_file()
+                ):
+                    raise ValueError(
+                        "Method config file missing from the selected artifact"
+                    )
+                arguments += ["--method-config", method]
+        # Pure-method E5 reuse needs only the pinned upstream source file.
+        command(
+            [
+                "git",
+                "submodule",
+                "update",
+                "--init",
+                "--depth",
+                "1",
+                "external/Lean-SAM2",
+            ],
+            600,
+        )
+        mark(stage, e1_gate_run=gate["run_id"], dataset=dataset, sequences=sequences)
+        command(arguments)
+        result = json.loads((stage_output / "status.json").read_text())
+        if result.get("state") != "complete":
+            raise RuntimeError("Study shard did not complete")
+        frame_files = sorted(stage_output.glob("*/frames.jsonl"))
+        rollout_files = sorted(stage_output.glob("*/rollout.jsonl"))
+        if (stage_output / "rollout.jsonl").exists():
+            rollout_files.append(stage_output / "rollout.jsonl")
+        if frame_files or rollout_files:
+            command(
+                [
+                    sys.executable,
+                    REPO / "scripts/analyze_region_experiments.py",
+                    *sum(
+                        (
+                            ["--input", str(path)]
+                            for path in frame_files + rollout_files
+                        ),
+                        [],
+                    ),
+                    "--output",
+                    stage_output / "analysis.json",
+                    "--figures",
+                ]
+            )
+        run.summary["full_study_complete"] = False
+        mark(
+            "study_shard_complete",
+            "complete",
+            experiment_stage=stage,
+            full_study_complete=False,
+        )
+        upload()
+    elif RUN_STAGE == "E0":
         mark("E0_complete", "complete", next_stage="E1 or E2 calibration")
         upload()
     elif RUN_STAGE == "E2_preflight":
@@ -431,7 +611,9 @@ try:
     elif RUN_STAGE == "E2_calibration":
         mark("E2_calibration")
         command([*common, "--calibrate-values", "--output-dir", OUT / "E2_calibration"])
-        calibration = json.loads((OUT / "E2_calibration/value_calibration.json").read_text())
+        calibration = json.loads(
+            (OUT / "E2_calibration/value_calibration.json").read_text()
+        )
         run.summary["E2_calibration/categories"] = len(calibration["categories"])
         run.summary["full_study_complete"] = False
         mark(
@@ -444,14 +626,18 @@ try:
     elif RUN_STAGE == "E2_mean_smoke":
         artifact_name = os.environ.get("REGION_CALIBRATION_ARTIFACT")
         if not artifact_name:
-            raise RuntimeError("Set REGION_CALIBRATION_ARTIFACT to the finished calibration artifact")
+            raise RuntimeError(
+                "Set REGION_CALIBRATION_ARTIFACT to the finished calibration artifact"
+            )
         mark("E2_mean_smoke", calibration_artifact=artifact_name)
         calibration_root = OUT / "calibration_artifact"
         artifact = wandb.Api().artifact(artifact_name)
         artifact.download(root=str(calibration_root))
         calibration = calibration_root / "E2_calibration" / "value_calibration.json"
         if not calibration.is_file():
-            raise RuntimeError("Calibration artifact does not contain E2_calibration/value_calibration.json")
+            raise RuntimeError(
+                "Calibration artifact does not contain E2_calibration/value_calibration.json"
+            )
         command(
             [
                 *common,
@@ -486,7 +672,9 @@ try:
         if len(sequences) != len(set(sequences)):
             raise RuntimeError("REGION_SEQUENCES contains duplicates")
         if set(sequences) - {row["video_id"] for row in rows}:
-            raise RuntimeError("REGION_SEQUENCES contains a video absent from the manifest")
+            raise RuntimeError(
+                "REGION_SEQUENCES contains a video absent from the manifest"
+            )
         if RUN_STAGE == "E2_attention_smoke" and len(sequences) != 1:
             raise RuntimeError("E2 attention smoke requires exactly one sequence")
         mark(RUN_STAGE, e1_gate_run=gate["run_id"], sequences=sequences)

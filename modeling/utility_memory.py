@@ -82,9 +82,14 @@ class UtilityController(nn.Module):
         # ``(selected_mask, replacement_values)`` pair for one spatial-memory
         # frame; keys, positions, and object pointers stay untouched.
         self.token_value_replacements: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
+        self.token_memory_replacements: dict[
+            int, tuple[torch.Tensor, torch.Tensor]
+        ] = {}
         self.exclude_pointers = False
         self.token_mask_policy = None
+        self.token_bias_policy = None
         self.token_value_replacement_policy = None
+        self.token_memory_replacement_policy = None
 
     @property
     def bias_scale(self) -> torch.Tensor:
@@ -98,18 +103,23 @@ class UtilityController(nn.Module):
         rows = []
         for unit in units:
             memory_key = memory[:, unit["start"] : unit["end"]].mean(dim=1)
-            metadata = torch.cat([
-                _metadata_value(unit["temporal_distance"], batch, device, dtype),
-                _metadata_value(unit["conditioning"], batch, device, dtype),
-                _metadata_value(unit.get("predicted_iou"), batch, device, dtype),
-                _metadata_value(unit.get("object_score"), batch, device, dtype),
-            ], dim=-1)
-            rows.append(torch.cat([
-                current_global, current_foreground, memory_key, metadata
-            ], dim=-1))
+            metadata = torch.cat(
+                [
+                    _metadata_value(unit["temporal_distance"], batch, device, dtype),
+                    _metadata_value(unit["conditioning"], batch, device, dtype),
+                    _metadata_value(unit.get("predicted_iou"), batch, device, dtype),
+                    _metadata_value(unit.get("object_score"), batch, device, dtype),
+                ],
+                dim=-1,
+            )
+            rows.append(
+                torch.cat(
+                    [current_global, current_foreground, memory_key, metadata], dim=-1
+                )
+            )
         return torch.stack(rows, dim=1)
 
-    def replace_memory_values(self, memory, units):
+    def replace_memory_values(self, memory, units, replacements=None):
         """Apply explicit spatial-value substitutions, leaving keys unchanged.
 
         ``memory`` is batch-first ``[B, K, D]``.  A replacement provides a
@@ -117,9 +127,10 @@ class UtilityController(nn.Module):
         memory frame.  Returning the original tensor for an empty mapping keeps
         the upstream cross-attention path exactly unchanged.
         """
-        replacements = self.token_value_replacements
-        if self.token_value_replacement_policy is not None:
-            replacements = self.token_value_replacement_policy(memory, units)
+        if replacements is None:
+            replacements = self.token_value_replacements
+            if self.token_value_replacement_policy is not None:
+                replacements = self.token_value_replacement_policy(memory, units)
         if not replacements:
             return memory
         result = memory.clone()
@@ -129,19 +140,27 @@ class UtilityController(nn.Module):
                 continue
             selected, values = replacement
             start, end = unit["start"], unit["end"]
-            selected = torch.as_tensor(selected, device=memory.device, dtype=torch.bool).flatten()
+            selected = torch.as_tensor(
+                selected, device=memory.device, dtype=torch.bool
+            ).flatten()
             values = torch.as_tensor(values, device=memory.device, dtype=memory.dtype)
             length = end - start
             if selected.numel() != length:
-                raise ValueError("Value-replacement mask length does not match spatial memory span")
+                raise ValueError(
+                    "Value-replacement mask length does not match spatial memory span"
+                )
             if values.shape != (length, memory.shape[-1]):
-                raise ValueError("Value replacements must have shape [spatial_tokens, memory_dim]")
+                raise ValueError(
+                    "Value replacements must have shape [spatial_tokens, memory_dim]"
+                )
             result[:, start:end][:, selected] = values[selected].unsqueeze(0)
         return result
 
     def forward(self, curr, memory, units, num_obj_ptr_tokens, query_context):
         if self.token_mask_policy is not None:
             self.excluded_token_masks = self.token_mask_policy(units)
+        if self.token_bias_policy is not None:
+            self.token_biases = self.token_bias_policy(units)
         features = self.unit_features(curr, memory, units, query_context)
         utilities = self.head(features)
         token_bias = memory.new_zeros(memory.shape[0], memory.shape[1])
@@ -153,16 +172,26 @@ class UtilityController(nn.Module):
         for unit in units:
             start, end = unit["start"], unit["end"]
             if unit["frame_idx"] in self.token_biases:
-                bias = torch.as_tensor(self.token_biases[unit["frame_idx"]],
-                                       device=memory.device, dtype=memory.dtype).flatten()
+                bias = torch.as_tensor(
+                    self.token_biases[unit["frame_idx"]],
+                    device=memory.device,
+                    dtype=memory.dtype,
+                ).flatten()
                 if bias.numel() != end - start:
-                    raise ValueError("Token bias length does not match spatial memory span")
+                    raise ValueError(
+                        "Token bias length does not match spatial memory span"
+                    )
                 token_bias[:, start:end] += bias
             if unit["frame_idx"] in self.excluded_token_masks:
-                mask = torch.as_tensor(self.excluded_token_masks[unit["frame_idx"]],
-                                       device=memory.device, dtype=torch.bool).flatten()
+                mask = torch.as_tensor(
+                    self.excluded_token_masks[unit["frame_idx"]],
+                    device=memory.device,
+                    dtype=torch.bool,
+                ).flatten()
                 if mask.numel() != end - start:
-                    raise ValueError("Token mask length does not match spatial memory span")
+                    raise ValueError(
+                        "Token mask length does not match spatial memory span"
+                    )
                 token_bias[:, start:end].masked_fill_(mask, -torch.inf)
             if unit["frame_idx"] in self.excluded_frame_indices:
                 token_bias[:, unit["start"] : unit["end"]] = -torch.inf
@@ -170,14 +199,25 @@ class UtilityController(nn.Module):
             token_bias[:, -num_obj_ptr_tokens:] = -torch.inf
         # SDPA accepts [B, 1, 1, K], broadcast over heads and queries.
         attention_bias = token_bias[:, None, None, :]
-        if not self.enabled and not self.excluded_frame_indices and not any(
-            torch.as_tensor(mask).any().item() for mask in self.excluded_token_masks.values()
-        ) and not self.token_biases and not self.exclude_pointers:
-            attention_bias = None  # preserve the uninstrumented SDPA kernel path exactly
+        if (
+            not self.enabled
+            and not self.excluded_frame_indices
+            and not any(
+                torch.as_tensor(mask).any().item()
+                for mask in self.excluded_token_masks.values()
+            )
+            and not self.token_biases
+            and not self.exclude_pointers
+        ):
+            attention_bias = (
+                None  # preserve the uninstrumented SDPA kernel path exactly
+            )
         return attention_bias, utilities, features.detach()
 
 
-def attach_utility_controller(model, controller: UtilityController, capture_attention=False):
+def attach_utility_controller(
+    model, controller: UtilityController, capture_attention=False
+):
     """Attach to a built predictor and return the same model for fluent setup."""
     model.memory_attention.utility_controller = controller.to(model.device)
     model.memory_attention.capture_attention = capture_attention

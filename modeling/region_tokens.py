@@ -8,6 +8,95 @@ from scipy.ndimage import distance_transform_edt
 CATEGORIES = ("boundary", "foreground", "near_background", "far_background")
 
 
+def matched_experiments(labels, seeds=(0, 1, 2, 3, 4)):
+    """One shared budget for the four categories and both random controls."""
+    labels = np.asarray(labels)
+    reference = np.flatnonzero(labels.ravel() == 0)
+    k = len(reference)
+    experiments = [
+        (name, 0, matched_indices(labels, i, k, 0)) for i, name in enumerate(CATEGORIES)
+    ]
+    for seed in seeds:
+        uniform = (
+            np.random.default_rng(seed).choice(labels.size, k, replace=False)
+            if k
+            else None
+        )
+        spatial = spatially_matched_indices(labels, reference, seed) if k else None
+        experiments.extend(
+            [("random", seed, uniform), ("spatial_random", seed, spatial)]
+        )
+    return k, reference, experiments
+
+
+def region_memory_mask(mask, condition, frame_index, conditioning=False):
+    """Reuse the frozen corruption operators at the registered 64x64 resolution.
+
+    Conditioning memory is never corrupted. Natural memory is supplied by the
+    caller from the model prediction rather than reconstructed from labels.
+    """
+    if condition not in {"c0", "c1", "c2"}:
+        raise ValueError(f"Not an oracle/corrupted memory condition: {condition}")
+    if conditioning or condition == "c0":
+        return np.asarray(mask, dtype=bool)
+    from scripts.generate_utility_labels import corrupt_mask
+
+    grid = cv2.resize(
+        np.asarray(mask, np.uint8), (64, 64), interpolation=cv2.INTER_NEAREST
+    )
+    return corrupt_mask(grid, {"c1": 0.25, "c2": 0.5}[condition], "mixed", frame_index)
+
+
+def reliability_bias(units, taxonomy, weights, scale, ablation="full", seed=0):
+    """E6 fixed formula; no labels are accessed by this function.
+
+    r = clip(predicted IoU,.01,1) * sigmoid(object score) *
+        exp(-age/6) * (1-.75*artifact). Missing confidence is an error.
+    Random control permutes the same vector, preserving its norm exactly.
+    """
+    if ablation not in {
+        "full",
+        "no_reliability",
+        "boundary_only",
+        "artifact_off",
+        "random",
+    }:
+        raise ValueError(ablation)
+    weights = np.asarray(weights, dtype=float)
+    if weights.shape != (4,) or not np.isfinite(weights).all() or (weights <= 0).any():
+        raise ValueError("Four finite positive category weights are required")
+    if float(scale) == 0:
+        return {}
+    if ablation == "boundary_only":
+        weights = np.array([weights[0], 1.0, 1.0, 1.0])
+    result = {}
+    for unit in units:
+        item = taxonomy[unit["frame_idx"]]
+        values = weights[np.asarray(item["categories"]).ravel()].copy()
+        if ablation != "no_reliability":
+            if unit.get("predicted_iou") is None or unit.get("object_score") is None:
+                raise ValueError("E6 requires recorded predicted IoU and object score")
+            iou = float(torch.as_tensor(unit["predicted_iou"]).float().mean())
+            presence = float(
+                torch.as_tensor(unit["object_score"]).float().sigmoid().mean()
+            )
+            reliability = (
+                np.clip(iou, 0.01, 1.0)
+                * presence
+                * np.exp(-abs(unit["temporal_distance"]) / 6.0)
+            )
+            values *= reliability
+            if ablation != "artifact_off":
+                values *= 1.0 - 0.75 * np.asarray(item["artifact"]).ravel()
+        bias = float(scale) * np.log(np.maximum(values, 1e-8))
+        if ablation == "random":
+            bias = np.random.default_rng(seed + int(unit["frame_idx"])).permutation(
+                bias
+            )
+        result[unit["frame_idx"]] = bias
+    return result
+
+
 def token_categories(mask, grid=(64, 64), band=1, thresholds=(0.1, 0.9), image=None):
     coverage = cv2.resize(
         np.asarray(mask, np.float32), grid[::-1], interpolation=cv2.INTER_AREA
@@ -91,7 +180,10 @@ def indices_to_value_replacements(units, selected, replacement_values):
     if values.ndim != 2 or values.shape[0] != len(selected):
         raise ValueError("Need one replacement vector for every selected token")
     order = np.argsort(selected)
-    selected, values = selected[order], values[torch.as_tensor(order, device=values.device)]
+    selected, values = (
+        selected[order],
+        values[torch.as_tensor(order, device=values.device)],
+    )
     replacements = {}
     offset = 0
     cursor = 0

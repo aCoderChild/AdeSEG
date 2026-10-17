@@ -1,0 +1,45 @@
+{
+  "id": "region_tokens_execution_v1",
+  "recorded_date": "2026-10-18",
+  "parents": ["region_tokens_v1_1.json", "region_tokens_v1_2_cholec_amendment.json"],
+  "scope": "Prospective executable choices for the remaining E2-E6 components. Existing E0/E1 and smoke results keep their original provenance. This supplement contains no new experimental result.",
+  "execution": {
+    "shard": "Explicit dataset, split, sequence-object, operator, mode, memory condition and taxonomy settings. Every eligible target from prompt+7 is used; no outcome-based sampling.",
+    "resume": "Skip only complete units with identical setup. Preserve partial units and fail rather than append duplicate rows; rerun failed units in a new shard directory.",
+    "persistent_analysis": "Start all arms with identical c0 spatial memory through prompt+6, then intervene from prompt+7 onward. Native modified predictions enter later memory. Pointers remain natural and unchanged by the intervention.",
+    "persistent_method": "Natural memory throughout; bias starts at prompt+7. Categories use each arm's stored predictions. Oracle categories occur only in the explicitly labeled oracle ablation.",
+    "cache": "Reuse encoder features across persistent arms with a sequence-local disk cache in remote Kaggle scratch; no experiment output is placed on local Mac storage outside Drive.",
+    "swap": "Replace both key/value source features at the original positions, before projection; position embeddings and pointer tokens unchanged. Same-category donor tokens at identical grid coordinates, from other sequences ordered by relative-time distance. If any token lacks a donor, skip the comparison without reducing k. Record donor sequences. Cholec donors must have the same semantic class.",
+    "calibration": "Dataset-specific dev-only category value means and swap donor pools, same checkpoint/protocol. Ten index-selected calibration targets per dev sequence-object; do not use test masks for calibration.",
+    "unavailable_baseline": "The public MA-SAM2 release is incomplete. Mark unavailable; do not alias missing packages to SAM2 or claim an approximation reproduces MA-SAM2."
+  },
+  "E4": {
+    "contrast": "Euclidean distance between mean CIELAB colours of foreground interior and near-background on the 64x64 grid; undefined without both regions.",
+    "motion": "Torchvision RAFT-small DEFAULT weights, median optical-flow magnitude rescaled to original-image pixels per sampled pair. PolypGen gaps are unknown, so this is not velocity.",
+    "specular": "Existing analyze_illumination.image_stats luminance>0.95 pixel fraction.",
+    "conditions": "Continuous contrast, flow, specular fraction and coverage; registered size strata; anatomy vs instruments class-group interaction. Undefined values and nonconvergent mixed models are reported."
+  },
+  "E5": {
+    "attention": "Per-frame category-rank Spearman, per layer and query region, with whole-sequence bootstrap; require all four feasible categories. Report both category mass and category mass divided by available tokens.",
+    "anchor_diagnostic": "Reuse upstream Lean-SAM2 max-cosine similarity methods verbatim with all prompt-foreground anchors. Label this support choice explicitly; it is not the complete TAMP criterion. Run the complete upstream TAMP implementation separately in E6."
+  },
+  "E6": {
+    "weight_order": ["boundary", "foreground", "near_background", "far_background"],
+    "category_weights": "Dev-only sequence-mean E2 attention-masking boundary-F harm per token, c0, band1, thresholds0.1/0.9. w_c=clip(1+effect_c/max_abs_effect,0.25,4). Require at least three independent dev clusters per category.",
+    "reliability": "r=clip(predicted_IoU,0.01,1)*sigmoid(object_score)*exp(-abs(temporal_distance)/6)*(1-0.75*artifact_flag). Reject missing confidence. Bias=lambda*log(max(w_c*r,1e-8)); never bias pointers.",
+    "lambda_grid": [0, 0.25, 0.5, 1, 2],
+    "lambda_selection": "Require every grid candidate on all thirteen promptable PolypGen dev sequences and all ten frozen DAVIS train-holdout sequences, identical targets. Maximize equal-domain mean of sequence-averaged Dice/boundary-F gains over baseline; ties choose smaller lambda. Record hashes and freeze before test.",
+    "controls": "lambda0 requires bit-identical full rollout logits; random bias permutes the same per-frame token bias vector and preserves its norm. Ablations: no reliability, boundary-only, artifact-off, oracle categories.",
+    "baselines": "Native SAM2.1; unmodified upstream SAM2Long with 3 pathways, IoU threshold0.1, uncertainty2; upstream Lean-SAM2 topk_usage_anchor mode with no SWR/insurance; Efficient-SAM2-style current-target attention-saliency pruning at the boundary token budget, using a read-only measurement pass then native propagation.",
+    "primary_comparisons": ["SAM2.1", "SAM2Long", "Lean-SAM2 TAMP", "Efficient-SAM2-style saliency"],
+    "method_statistics": "Use baseline-defined failure episodes (Dice<0.5 for at least3 consecutive frames), success and transient-failure frames separately. Pair target frames before sequence averaging. Holm within dataset/stratum/endpoint across the four primary comparators. Ablations descriptive.",
+    "optional_learned_head": "Not required for the training-free H4 test; retained as optional follow-up using existing utility_trainer, not claimed implemented by this supplement."
+  },
+  "metrics": {
+    "ignore": "Cholec label13 excluded from overlap metrics, passed as void_pixels to the existing DAVIS boundary-F evaluator. HD95 is null when void pixels exist because MONAI has no void-aware surface-distance interface; record undefined explicitly.",
+    "decoder": "Use actual native pred_masks logits for low-resolution Dice. If a baseline adapter does not expose the selected decoder path, report null rather than label final-resolution metrics as decoder metrics.",
+    "independence": "PolypGen sequence; DAVIS sequence-object; Cholec source-video cluster to avoid treating clips/classes from one video as independent.",
+    "query_matrix": "Save direct absolute-logit changes and signed query-region Dice harm at the query grid for three deployable query regions against all four disjoint memory categories. Keep near/far background separate; do not silently merge them into a 3x3 display. Missing/void annotations break consecutive failure episodes and are never evidence of recovery."
+  },
+  "completion": "CPU tests do not establish GPU correctness. Fresh E0 is required on the changed hook. A completed shard never declares the full study complete. All scientific claims require complete coverage, confirmed delivery and the registered sequence-level evidence bars."
+}

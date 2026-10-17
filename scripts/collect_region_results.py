@@ -14,6 +14,94 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
+def validate_study_shard(folder):
+    """Validate component delivery without applying the E1-only report schema."""
+    folder = Path(folder)
+    problems = []
+    for relative in (
+        "status.json",
+        "tracking.json",
+        "study/status.json",
+        "study/tracking.json",
+    ):
+        if not (folder / relative).is_file():
+            problems.append(f"Missing {relative}")
+    if problems:
+        return {
+            "delivery_valid": False,
+            "problems": problems,
+            "full_study_complete": False,
+        }
+    status = json.loads((folder / "study/status.json").read_text())
+    if status.get("state") != "complete":
+        problems.append("Study component is incomplete")
+    for relative in ("tracking.json", "study/tracking.json"):
+        tracking = json.loads((folder / relative).read_text())
+        if tracking.get("mode") != "online" or not tracking.get("run_id"):
+            problems.append(f"Invalid online tracking: {relative}")
+    for name in status.get("completed_units", []):
+        unit = folder / "study" / name
+        if not unit.resolve().is_relative_to((folder / "study").resolve()):
+            problems.append("Unsafe unit path")
+            continue
+        unit_status = json.loads((unit / "status.json").read_text())
+        if (
+            unit_status.get("state") != "complete"
+            or unit_status.get("fresh_e0_pass") is not True
+        ):
+            problems.append(f"Missing fresh exactness checks: {name}")
+        frames = unit / "frames.jsonl"
+        if frames.is_file():
+            rows = [
+                json.loads(line) for line in frames.read_text().splitlines() if line
+            ]
+            if len(rows) != unit_status.get("rows"):
+                problems.append(f"Recorded row count differs: {name}")
+            targets = {}
+            for row in rows:
+                key = (row["bank"], row["category"], row["seed"])
+                target = targets.setdefault(row["frame"], set())
+                if key in target:
+                    problems.append(f"Repeated target/arm: {name}:{row['frame']}")
+                target.add(key)
+            if any(len(arms) != 28 for arms in targets.values()):
+                problems.append(f"Incomplete matched-control matrix: {name}")
+        rollout = unit / "rollout.jsonl"
+        if rollout.is_file():
+            rows = [
+                json.loads(line) for line in rollout.read_text().splitlines() if line
+            ]
+            if len(rows) != unit_status.get("rows"):
+                problems.append(f"Recorded rollout row count differs: {name}")
+            arms = {}
+            for row in rows:
+                key = (row["category"], row.get("bank"), row.get("seed", 0))
+                frames = arms.setdefault(key, set())
+                if row["frame"] in frames:
+                    problems.append(f"Repeated rollout frame: {name}")
+                frames.add(row["frame"])
+            baseline = arms.get(("baseline", None, 0))
+            if baseline is None or any(frames != baseline for frames in arms.values()):
+                problems.append(
+                    f"Rollout arms do not cover the same baseline frames: {name}"
+                )
+    files = {
+        str(p.relative_to(folder)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in folder.rglob("*.json*")
+        if not any(
+            s.startswith(".wandb") or s == "wandb" for s in p.relative_to(folder).parts
+        )
+    }
+    return {
+        "delivery_valid": not problems,
+        "problems": problems,
+        "sha256": files,
+        "stage": status.get("stage"),
+        "full_study_complete": False,
+        "kaggle_version_export_verified": False,
+    }
+
+
 def validate(folder):
     problems = []
     status_path = folder / "status.json"

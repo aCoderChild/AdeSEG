@@ -180,6 +180,13 @@ class MemoryAttention(nn.Module):
         utility_features = None
         memory_values = None
         if self.utility_controller is not None and memory_units:
+            if self.utility_controller.token_memory_replacement_policy is not None:
+                self.utility_controller.token_memory_replacements = (
+                    self.utility_controller.token_memory_replacement_policy(memory, memory_units)
+                )
+            memory = self.utility_controller.replace_memory_values(
+                memory, memory_units, self.utility_controller.token_memory_replacements
+            )
             attn_mask, utilities, utility_features = self.utility_controller(
                 curr=output,
                 memory=memory,

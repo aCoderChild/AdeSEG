@@ -16,7 +16,7 @@ from datasets.io import load_label_mask
 from datasets.video import load_manifest
 
 
-def prompt_index(frames, protocol, label_id=1):
+def prompt_index(frames, protocol, label_id=1, label_ids=None):
     """Honor the frozen frame-zero protocol or its explicitly approved amendment."""
     candidates = (
         range(len(frames))
@@ -24,7 +24,7 @@ def prompt_index(frames, protocol, label_id=1):
         else (0,)
     )
     for index in candidates:
-        if (load_label_mask(frames[index].mask_path, [label_id]) == label_id).any():
+        if (load_label_mask(frames[index].mask_path, label_ids or [label_id]) == label_id).any():
             return index
     raise ValueError("No eligible labeled prompt under the selected protocol")
 

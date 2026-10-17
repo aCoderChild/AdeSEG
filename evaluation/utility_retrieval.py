@@ -43,7 +43,11 @@ def recovered_fraction(oracle_gain, matched_random_gain, oracle_memory_gain):
 def rank_agreement(criterion, utility):
     criterion, utility = np.asarray(criterion), np.asarray(utility)
     valid = np.isfinite(criterion) & np.isfinite(utility)
-    if valid.sum() < 2 or np.unique(criterion[valid]).size < 2 or np.unique(utility[valid]).size < 2:
+    if (
+        valid.sum() < 2
+        or np.unique(criterion[valid]).size < 2
+        or np.unique(utility[valid]).size < 2
+    ):
         return {"spearman": float("nan"), "kendall": float("nan")}
     return {
         "spearman": float(spearmanr(criterion[valid], utility[valid]).statistic),
@@ -60,10 +64,16 @@ def paired_wilcoxon(left_by_sequence, right_by_sequence):
     if valid.sum() < 2 or np.allclose(left[valid], right[valid]):
         return {"n": int(valid.sum()), "statistic": float("nan"), "p": 1.0}
     result = wilcoxon(left[valid], right[valid], alternative="two-sided")
-    return {"n": int(valid.sum()), "statistic": float(result.statistic), "p": float(result.pvalue)}
+    return {
+        "n": int(valid.sum()),
+        "statistic": float(result.statistic),
+        "p": float(result.pvalue),
+    }
 
 
-def sequence_bootstrap_interval(values_by_sequence, seed=20261016, resamples=10_000, confidence=0.95):
+def sequence_bootstrap_interval(
+    values_by_sequence, seed=20261016, resamples=10_000, confidence=0.95
+):
     values = np.asarray(list(values_by_sequence.values()), dtype=float)
     values = values[np.isfinite(values)]
     if values.size == 0:
@@ -88,10 +98,27 @@ def holm_adjust(p_values):
 
 
 def temporal_summary(scores, threshold=0.5, minimum_length=3):
+    scores = np.asarray(scores, dtype=float)
+    valid = np.isfinite(scores)
     episodes = failure_episodes(scores, threshold, minimum_length)
     return {
-        "failure_rate": float(np.mean(np.asarray(scores) < threshold)),
+        "failure_rate": float(np.mean(scores[valid] < threshold))
+        if valid.any()
+        else None,
         "episode_count": len(episodes),
-        "mean_episode_length": float(np.mean([item.length for item in episodes])) if episodes else 0.0,
-        "recovery_rate": float(np.mean([item.end < len(scores) - 1 for item in episodes])) if episodes else 1.0,
+        "mean_episode_length": float(np.mean([item.length for item in episodes]))
+        if episodes
+        else 0.0,
+        "recovery_rate": float(
+            np.mean(
+                [
+                    item.end < len(scores) - 1
+                    and np.isfinite(scores[item.end + 1])
+                    and scores[item.end + 1] >= threshold
+                    for item in episodes
+                ]
+            )
+        )
+        if episodes
+        else (1.0 if valid.any() else None),
     }

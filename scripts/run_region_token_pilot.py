@@ -36,8 +36,8 @@ from modeling.region_tokens import (
     category_attention,
     indices_to_masks,
     indices_to_value_replacements,
-    matched_indices,
-    spatially_matched_indices,
+    matched_experiments,
+    region_memory_mask,
     token_categories,
 )
 from modeling.utility_memory import (
@@ -75,7 +75,7 @@ def selected_target_indices(frames, prompt, targets_per_sequence):
     )
 
 
-def metrics(logits, target):
+def metrics(logits, target, void=None, decoder_logits=None):
     from monai.metrics import compute_hausdorff_distance
 
     prediction = (
@@ -86,9 +86,21 @@ def metrics(logits, target):
         .numpy()
         > 0
     )
-    values = calculate_scores(prediction, target)
+    valid = np.ones_like(target, dtype=bool) if void is None else ~void
+    if not valid.any():
+        return {
+            "dice": None,
+            "iou": None,
+            "boundary_f": None,
+            "hd95": None,
+            "low_resolution_dice": None,
+            "hd95_undefined": True,
+        }
+    values = calculate_scores(prediction[valid], target[valid])
     values = {key: values[key] for key in ("dice", "iou")}
-    values["boundary_f"] = float(db_eval_boundary(target, prediction))
+    values["boundary_f"] = float(db_eval_boundary(target, prediction, void_pixels=void))
+    prediction = prediction & valid
+    target = target & valid
     if not target.any() and not prediction.any():
         values["hd95"] = 0.0
     elif not target.any() or not prediction.any():
@@ -103,6 +115,15 @@ def metrics(logits, target):
             ).item()
         )
     values["hd95_undefined"] = values["hd95"] is None
+    if void is not None and void.any():
+        # MONAI has no void-aware surface-distance operator.
+        values["hd95"] = None
+        values["hd95_undefined"] = True
+    if decoder_logits is False:
+        values["low_resolution_dice"] = None
+        return values
+    if decoder_logits is not None:
+        logits = decoder_logits
     low_target = (
         cv2.resize(
             target.astype(np.float32),
@@ -111,13 +132,21 @@ def metrics(logits, target):
         )
         >= 0.5
     )
+    low_valid = (
+        cv2.resize(
+            valid.astype(np.float32),
+            logits.shape[-2:][::-1],
+            interpolation=cv2.INTER_AREA,
+        )
+        >= 1
+    )
     values["low_resolution_dice"] = calculate_scores(
-        logits[0, 0].cpu().numpy() > 0, low_target
+        (logits[0, 0].cpu().numpy() > 0)[low_valid], low_target[low_valid]
     )["dice"]
     return values
 
 
-def logit_changes(baseline, altered, target):
+def logit_changes(baseline, altered, target, void=None):
     difference = (
         F.interpolate(
             (baseline - altered).abs().float(),
@@ -132,6 +161,9 @@ def logit_changes(baseline, altered, target):
     outer = cv2.dilate(foreground, np.ones((11, 11), np.uint8)).astype(bool)
     inner = cv2.erode(foreground, np.ones((11, 11), np.uint8)).astype(bool)
     band = outer & ~inner
+    if void is not None:
+        band &= ~void
+        inner &= ~void
     return {
         "boundary_band_logit_change": float(difference[band].mean())
         if band.any()
@@ -140,6 +172,93 @@ def logit_changes(baseline, altered, target):
         if inner.any()
         else None,
     }
+
+
+def query_logit_changes(baseline, altered, queries):
+    """Deployable query regions; save the 3 x memory-category effect matrix."""
+    difference = (baseline - altered).abs().float()
+    result = {}
+    for name, mask in queries.items():
+        side = int(np.sqrt(mask.shape[-1]))
+        resized = F.interpolate(
+            difference, (side, side), mode="bilinear", align_corners=False
+        ).flatten(1)
+        mask = mask.to(resized.device).bool()
+        result[name] = float(resized[mask].mean()) if mask.any() else None
+    return result
+
+
+def query_dice_harm(baseline, altered, target, queries, void=None):
+    """Signed overlap changes on the deployable 64x64 query regions."""
+    side = int(np.sqrt(next(iter(queries.values())).shape[-1]))
+    truth = (
+        cv2.resize(
+            target.astype(np.float32), (side, side), interpolation=cv2.INTER_AREA
+        ).ravel()
+        >= 0.5
+    )
+    predictions = [
+        (
+            F.interpolate(
+                value.float(), (side, side), mode="bilinear", align_corners=False
+            )[0, 0]
+            .cpu()
+            .numpy()
+            .ravel()
+            > 0
+        )
+        for value in (baseline, altered)
+    ]
+    result = {}
+    valid = (
+        np.ones(side * side, dtype=bool)
+        if void is None
+        else cv2.resize(
+            (~void).astype(np.float32), (side, side), interpolation=cv2.INTER_AREA
+        ).ravel()
+        >= 1
+    )
+    for name, query in queries.items():
+        selected = query[0].cpu().numpy().astype(bool) & valid
+        result[name] = (
+            (
+                calculate_scores(predictions[0][selected], truth[selected])["dice"]
+                - calculate_scores(predictions[1][selected], truth[selected])["dice"]
+            )
+            if selected.any()
+            else None
+        )
+    return result
+
+
+def swap_replacements(chosen, selected, labels, donors, video, relative_time):
+    """Same-category donor tokens at the exact same 64x64 spatial position.
+
+    Try other sequences in temporal-distance order. If any selected token has
+    no eligible donor, skip the entire comparison without reducing its budget.
+    """
+    local = np.asarray(selected) % 4096
+    replacements = np.empty((len(selected), 64), np.float32)
+    pending = np.ones(len(selected), bool)
+    used = set()
+    candidates = sorted(
+        (d for d in donors if d["video"] != video),
+        key=lambda d: (abs(d["relative_time"] - relative_time), d["path"]),
+    )
+    for donor in candidates:
+        with np.load(donor["path"], allow_pickle=False) as data:
+            available = pending & (
+                data["categories"].ravel()[local] == labels[selected]
+            )
+            if available.any():
+                replacements[available] = data["values"][local[available]]
+                pending[available] = False
+                used.add(donor["video"])
+        if not pending.any():
+            return indices_to_value_replacements(
+                chosen, selected, replacements
+            ), sorted(used)
+    return None, sorted(used)
 
 
 @torch.inference_mode()
@@ -156,11 +275,21 @@ def run_sequence(
     e2_mean_smoke=False,
     mean_values=None,
     targets_per_sequence=None,
+    experiment=None,
 ):
     """Natural pointers, c0 spatial memory, independent copies per counterfactual."""
     checks, rows = [], 0
-    prompt = prompt_index(frames, protocol)
-    first_mask = load_label_mask(frames[prompt].mask_path, [1]) == 1
+    experiment = experiment or {}
+    condition = experiment.get("memory_condition", "c0")
+    label_id = experiment.get("label_id", 1)
+    label_ids = experiment.get("label_ids", [1])
+
+    def gt(index):
+        return load_label_mask(frames[index].mask_path, label_ids) == label_id
+
+    prompt = prompt_index(frames, protocol, label_id, label_ids)
+    first_mask = gt(prompt)
+    donors = experiment.get("donors", [])
     targets = selected_target_indices(frames, prompt, targets_per_sequence)
     if e2_mean_smoke:
         targets = targets[:1]
@@ -192,6 +321,7 @@ def run_sequence(
                         excluded_frames=(),
                         token_biases=None,
                         token_value_replacements=None,
+                        token_memory_replacements=None,
                         pointers=False,
                     ):
                         state["cached_features"] = copy.deepcopy(cached)
@@ -200,6 +330,9 @@ def run_sequence(
                         controller.token_biases = token_biases or {}
                         controller.token_value_replacements = (
                             token_value_replacements or {}
+                        )
+                        controller.token_memory_replacements = (
+                            token_memory_replacements or {}
                         )
                         controller.exclude_pointers = pointers
                         return (
@@ -254,6 +387,18 @@ def run_sequence(
                             ("recent", False),
                         )
                     }
+                    queries = trace["query_regions"]
+                    # Anchor similarity uses the official Lean-SAM2 max-cosine
+                    # implementation, imported only when E5 is requested.
+                    anchor_scores = None
+                    if experiment.get("anchor_similarity"):
+                        from scripts.run_region_experiments import (
+                            lean_anchor_similarity,
+                        )
+
+                        anchor_scores = lean_anchor_similarity(
+                            captured_memory_values, units, taxonomy
+                        )
                     predictor.memory_attention.capture_attention = False
                     predictor.memory_attention.capture_memory_values = False
                     # Drop the multi-GB raw attention tensors before counterfactuals.
@@ -271,6 +416,7 @@ def run_sequence(
                         token_biases={u["frame_idx"]: np.zeros(4096) for u in units}
                     )
                     value_noop = replay(token_value_replacements=value_identity)
+                    memory_noop = replay(token_memory_replacements=value_identity)
                     # Independent restore: mutate the bank, run from the mutation, then
                     # restore a separate saved copy. This is not a duplicated no-op.
                     saved = copy.deepcopy(bank)
@@ -291,6 +437,7 @@ def run_sequence(
                         "empty_token_mask_exact": torch.equal(bare, empty),
                         "zero_bias_exact": torch.equal(bare, zero),
                         "value_identity_exact": torch.equal(bare, value_noop),
+                        "memory_identity_exact": torch.equal(bare, memory_noop),
                         "independent_restore_exact": torch.equal(baseline, restored),
                         "mutation_changed_prediction": not torch.equal(
                             baseline, mutated
@@ -332,8 +479,27 @@ def run_sequence(
                             for category, name in enumerate(CATEGORIES):
                                 selected = labels == category
                                 if selected.any():
-                                    value_calibration[name]["sum"] += spatial[selected].sum(0).numpy()
-                                    value_calibration[name]["count"] += int(selected.sum())
+                                    value_calibration[name]["sum"] += (
+                                        spatial[selected].sum(0).numpy()
+                                    )
+                                    value_calibration[name]["count"] += int(
+                                        selected.sum()
+                                    )
+                            if experiment.get("save_donors"):
+                                path = (
+                                    output
+                                    / f"donor_{video}_object{label_id}_{unit['frame_idx']}.npz"
+                                )
+                                if not path.exists():
+                                    np.savez_compressed(
+                                        path,
+                                        values=spatial.numpy(),
+                                        categories=taxonomy[unit["frame_idx"]],
+                                        video=video,
+                                        label_id=label_id,
+                                        relative_time=unit["frame_idx"]
+                                        / max(1, len(frames) - 1),
+                                    )
                         controller.excluded_token_masks = {}
                         controller.excluded_frame_indices = set()
                         controller.token_biases = {}
@@ -345,14 +511,16 @@ def run_sequence(
                             state["output_dict"],
                             frames,
                             t,
-                            1,
-                            [1],
+                            label_id,
+                            label_ids,
                             "ground_truth",
                             0,
                             "mixed",
                         )
                         taxonomy[t] = token_categories(
-                            load_label_mask(frames[t].mask_path, [1]) == 1
+                            gt(t),
+                            band=experiment.get("band", 1),
+                            thresholds=experiment.get("thresholds", (0.1, 0.9)),
                         )["categories"]
                         write_json(
                             output / "progress.json",
@@ -364,20 +532,28 @@ def run_sequence(
                             },
                         )
                         continue
-                    target = load_label_mask(frames[t].mask_path, [1]) == 1
-                    base_metrics = metrics(baseline, target)
+                    target = gt(t)
+                    void = np.isin(
+                        load_label_mask(frames[t].mask_path, label_ids),
+                        experiment.get("ignore_labels", []),
+                    )
+                    base_metrics = metrics(baseline, target, void)
                     if e2_mean_smoke:
                         for bank_name, conditioning in (
                             ("conditioning", True),
                             ("recent", False),
                         ):
                             chosen = [
-                                u for u in units if bool(u["conditioning"]) == conditioning
+                                u
+                                for u in units
+                                if bool(u["conditioning"]) == conditioning
                             ]
                             labels = np.concatenate(
                                 [taxonomy[u["frame_idx"]].ravel() for u in chosen]
                             )
-                            selected = np.flatnonzero(labels == CATEGORIES.index("boundary"))
+                            selected = np.flatnonzero(
+                                labels == CATEGORIES.index("boundary")
+                            )
                             k = len(selected)
                             row = {
                                 "video": video,
@@ -390,13 +566,17 @@ def run_sequence(
                                 "baseline": base_metrics,
                             }
                             if not k:
-                                row.update(state="skipped", reason="empty_boundary_tokens")
+                                row.update(
+                                    state="skipped", reason="empty_boundary_tokens"
+                                )
                             else:
                                 replacement = np.repeat(
                                     np.asarray(mean_values["boundary"])[None], k, axis=0
                                 )
                                 results = {
-                                    "attention_mask": replay(indices_to_masks(chosen, selected)),
+                                    "attention_mask": replay(
+                                        indices_to_masks(chosen, selected)
+                                    ),
                                     "mean_substitution": replay(
                                         token_value_replacements=indices_to_value_replacements(
                                             chosen, selected, replacement
@@ -429,7 +609,7 @@ def run_sequence(
                                         "control": name,
                                         "removed_tokens": removed,
                                         "baseline": base_metrics,
-                                        "intervention": metrics(altered, target),
+                                        "intervention": metrics(altered, target, void),
                                     },
                                     allow_nan=False,
                                 )
@@ -445,32 +625,43 @@ def run_sequence(
                         labels = np.concatenate(
                             [taxonomy[u["frame_idx"]].ravel() for u in chosen]
                         )
-                        k = int((labels == 0).sum())
-                        reference = np.flatnonzero(labels == 0)
-                        experiments = [
-                            (name, 0, matched_indices(labels, i, k, 0))
-                            for i, name in enumerate(CATEGORIES)
-                        ]
-                        for seed in protocol["budget"]["seeds"]:
-                            uniform = (
-                                np.random.default_rng(seed).choice(
-                                    len(labels), k, replace=False
+                        k, reference, experiments = matched_experiments(
+                            labels.reshape(-1, 64, 64), protocol["budget"]["seeds"]
+                        )
+                        intervention_kind = experiment.get(
+                            "intervention", "attention_mask"
+                        )
+                        memory_dice = []
+                        for u in chosen:
+                            truth = gt(u["frame_idx"])
+                            if condition == "natural":
+                                stored = bank[
+                                    "cond_frame_outputs"
+                                    if u["conditioning"]
+                                    else "non_cond_frame_outputs"
+                                ][u["frame_idx"]]["pred_masks"]
+                                encoded_mask = (
+                                    F.interpolate(
+                                        stored.float(),
+                                        truth.shape,
+                                        mode="bilinear",
+                                        align_corners=False,
+                                    )[0, 0]
+                                    .cpu()
+                                    .numpy()
+                                    > 0
                                 )
-                                if k
-                                else None
-                            )
-                            spatial = (
-                                spatially_matched_indices(
-                                    labels.reshape(-1, 64, 64), reference, seed
+                            else:
+                                encoded_mask = region_memory_mask(
+                                    truth, condition, u["frame_idx"], u["conditioning"]
                                 )
-                                if k
-                                else None
-                            )
-                            experiments.extend(
-                                [
-                                    ("random", seed, uniform),
-                                    ("spatial_random", seed, spatial),
-                                ]
+                                encoded_mask = cv2.resize(
+                                    encoded_mask.astype(np.uint8),
+                                    truth.shape[::-1],
+                                    interpolation=cv2.INTER_NEAREST,
+                                ).astype(bool)
+                            memory_dice.append(
+                                calculate_scores(encoded_mask, truth)["dice"]
                             )
                         for category, seed, selected in experiments:
                             row = {
@@ -480,10 +671,24 @@ def run_sequence(
                                 "category": category,
                                 "seed": seed,
                                 "k": k,
-                                "memory_source": "c0",
+                                "memory_source": condition,
+                                "mean_memory_mask_dice": float(np.mean(memory_dice)),
+                                "intervention_kind": intervention_kind,
+                                "dataset": experiment.get("dataset", "polypgen"),
+                                "category_source": experiment.get(
+                                    "category_source", "oracle"
+                                ),
+                                "source_video": experiment.get("source_video", video),
+                                "split": experiment.get("split", "test"),
+                                "label_id": label_id,
+                                "band": experiment.get("band", 1),
+                                "thresholds": experiment.get("thresholds", [0.1, 0.9]),
                                 "mode": "single_step",
                                 "baseline": base_metrics,
                                 "attention": attention[bank_name],
+                                "anchor_similarity": anchor_scores.get(bank_name)
+                                if anchor_scores
+                                else None,
                                 "category_counts": dict(
                                     zip(
                                         CATEGORIES,
@@ -491,14 +696,62 @@ def run_sequence(
                                     )
                                 ),
                             }
-                            if selected is None:
+                            if void.all():
+                                row.update(
+                                    state="skipped", reason="fully_unannotated_target"
+                                )
+                            elif selected is None:
                                 row.update(
                                     state="skipped",
                                     reason="empty_boundary_or_insufficient_category_tokens",
                                 )
                             else:
-                                altered = replay(indices_to_masks(chosen, selected))
-                                scores = metrics(altered, target)
+                                if intervention_kind == "attention_mask":
+                                    altered = replay(indices_to_masks(chosen, selected))
+                                elif intervention_kind == "mean_substitution":
+                                    means = np.asarray(
+                                        [
+                                            mean_values[CATEGORIES[c]]
+                                            for c in labels[selected]
+                                        ]
+                                    )
+                                    altered = replay(
+                                        token_value_replacements=indices_to_value_replacements(
+                                            chosen, selected, means
+                                        )
+                                    )
+                                elif intervention_kind == "swap":
+                                    replacement, donor_videos = swap_replacements(
+                                        chosen,
+                                        selected,
+                                        labels,
+                                        donors,
+                                        video,
+                                        t / max(1, len(frames) - 1),
+                                    )
+                                    if replacement is None:
+                                        row.update(
+                                            state="skipped",
+                                            reason="no_cross_sequence_category_donor",
+                                        )
+                                        with (output / "frames.jsonl").open(
+                                            "a"
+                                        ) as stream:
+                                            stream.write(
+                                                json.dumps(row, allow_nan=False) + "\n"
+                                            )
+                                        rows += 1
+                                        continue
+                                    row.update(
+                                        donor_videos=donor_videos,
+                                        donor_position_distance=0.0,
+                                    )
+                                    altered = replay(
+                                        token_memory_replacements=replacement
+                                    )
+                                else:
+                                    raise ValueError(intervention_kind)
+                                scores = metrics(altered, target, void)
                                 effects = {
                                     name: (base_metrics[name] - scores[name])
                                     if base_metrics[name] is not None
@@ -529,11 +782,17 @@ def run_sequence(
                                     reference_overlap=float(
                                         np.isin(selected, reference).mean()
                                     ),
-                                    **logit_changes(baseline, altered, target),
+                                    **logit_changes(baseline, altered, target, void),
+                                    query_logit_changes=query_logit_changes(
+                                        baseline, altered, queries
+                                    ),
+                                    query_dice_harm=query_dice_harm(
+                                        baseline, altered, target, queries, void
+                                    ),
                                 )
                                 run.log(
                                     {
-                                        f"E1/{bank_name}/{category}/{name}": value
+                                        f"{experiment.get('stage', 'E1')}/{bank_name}/{category}/{name}": value
                                         for name, value in effects.items()
                                         if value is not None
                                     }
@@ -558,6 +817,7 @@ def run_sequence(
                 controller.excluded_frame_indices = set()
                 controller.token_biases = {}
                 controller.token_value_replacements = {}
+                controller.token_memory_replacements = {}
                 controller.exclude_pointers = False
                 # Preserve the natural pointer, replace only spatial memory.
                 replace_spatial_memory(
@@ -566,20 +826,39 @@ def run_sequence(
                     state["output_dict"],
                     frames,
                     t,
-                    1,
-                    [1],
-                    "ground_truth",
+                    label_id,
+                    label_ids,
+                    "predicted" if condition == "natural" else "ground_truth",
                     0,
                     "mixed",
+                    mask_override=None
+                    if condition == "natural"
+                    else region_memory_mask(gt(t), condition, t, t == prompt),
                 )
+                category_mask = gt(t)
+                if experiment.get("category_source") == "deployable":
+                    category_mask = (
+                        state["output_dict"][
+                            "cond_frame_outputs"
+                            if t == prompt
+                            else "non_cond_frame_outputs"
+                        ][t]["pred_masks"][0, 0]
+                        .float()
+                        .cpu()
+                        .numpy()
+                        > 0
+                    )
                 taxonomy[t] = token_categories(
-                    load_label_mask(frames[t].mask_path, [1]) == 1
+                    category_mask,
+                    band=experiment.get("band", 1),
+                    thresholds=experiment.get("thresholds", (0.1, 0.9)),
                 )["categories"]
         finally:
             controller.excluded_token_masks = {}
             controller.excluded_frame_indices = set()
             controller.token_biases = {}
             controller.token_value_replacements = {}
+            controller.token_memory_replacements = {}
             controller.exclude_pointers = False
             predictor.reset_state(state)
     return checks, rows
@@ -630,9 +909,13 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=False)
     protocol = json.loads(args.protocol.read_text())
     videos = load_manifest(args.manifest, "test")
-    selected_modes = int(args.e0_only) + int(args.calibrate_values) + int(args.e2_mean_smoke)
+    selected_modes = (
+        int(args.e0_only) + int(args.calibrate_values) + int(args.e2_mean_smoke)
+    )
     if selected_modes > 1:
-        raise ValueError("--e0-only, --calibrate-values and --e2-mean-smoke are mutually exclusive")
+        raise ValueError(
+            "--e0-only, --calibrate-values and --e2-mean-smoke are mutually exclusive"
+        )
     if args.e2_mean_smoke != bool(args.value_calibration):
         raise ValueError("--e2-mean-smoke requires --value-calibration and vice versa")
     mean_values = None
@@ -645,7 +928,9 @@ def main():
             len(values) != 64 or not np.isfinite(values).all()
             for values in mean_values.values()
         ):
-            raise ValueError("Value calibration must contain finite 64-D means for every category")
+            raise ValueError(
+                "Value calibration must contain finite 64-D means for every category"
+            )
     requested = args.sequence or protocol["pilot"]["sequences"]
     if args.e0_only:
         requested = requested[:1]
@@ -653,8 +938,12 @@ def main():
         raise ValueError("--all-eligible-targets requires --stage E2_attention_primary")
     if args.stage == "E2_attention_primary" and not args.all_eligible_targets:
         raise ValueError("E2 attention component requires --all-eligible-targets")
-    if args.stage != "E1" and (args.e0_only or args.calibrate_values or args.e2_mean_smoke):
-        raise ValueError("E2 attention component cannot be combined with a calibration or smoke mode")
+    if args.stage != "E1" and (
+        args.e0_only or args.calibrate_values or args.e2_mean_smoke
+    ):
+        raise ValueError(
+            "E2 attention component cannot be combined with a calibration or smoke mode"
+        )
     if set(requested) - videos.keys():
         raise ValueError("Missing pilot sequences")
     torch.manual_seed(20261017)
@@ -669,8 +958,13 @@ def main():
         "sequences": requested,
         "torch": torch.__version__,
         "stage": (
-            "E0" if args.e0_only else "E2_calibration" if args.calibrate_values
-            else "E2_mean_smoke" if args.e2_mean_smoke else args.stage
+            "E0"
+            if args.e0_only
+            else "E2_calibration"
+            if args.calibrate_values
+            else "E2_mean_smoke"
+            if args.e2_mean_smoke
+            else args.stage
         ),
         "scope": (
             "dev-only c0 value calibration; E2 effects not executed"
@@ -730,7 +1024,9 @@ def main():
                 calibration,
                 args.e2_mean_smoke,
                 mean_values,
-                None if args.all_eligible_targets else protocol["pilot"]["targets_per_sequence"],
+                None
+                if args.all_eligible_targets
+                else protocol["pilot"]["targets_per_sequence"],
             )
             checks.extend(sanity)
             total += rows

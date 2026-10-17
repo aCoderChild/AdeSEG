@@ -14,7 +14,11 @@ latent-capability conclusions as evidence.
 - `scripts/run_region_token_pilot.py`: independently restored counterfactuals, E0 and E1.
 - `scripts/analyze_region_token_pilot.py`: sequence-level pilot decision.
 - `kaggle/region-tokens/region_tokens.ipynb`: pinned GitHub revision bootstrap.
-- `kaggle/region-tokens/runner.py`: credentials, data checks, E0 → E1 orchestration.
+- `scripts/run_region_experiments.py`: gated sequence-object shards for full-target E2, E3, calibration and persistent E6.
+- `scripts/measure_region_conditions.py`: E4 contrast, existing luminance/specular measurements and torchvision RAFT-small motion.
+- `scripts/analyze_region_experiments.py`: matched-frame E2 comparisons, E3/E4 mixed models, E5 sequence-bootstrap agreement, E6 paired comparisons and dev-only method freezing.
+- `scripts/run_region_baseline.py`: isolated-process adapters to upstream SAM2Long and Lean-SAM2 TAMP, without reimplementing their models.
+- `kaggle/region-tokens/runner.py`: credentials, data checks, E0 → E1 and explicit study-shard orchestration.
 - `scripts/collect_region_results.py`: terminal-status polling, direct Drive export and checksum receipt.
 
 Read the workflow in this order: `runner.py` → `run_region_token_pilot.py` →
@@ -59,13 +63,84 @@ the ten amended pilot sequences). Categories with
 fewer than k available tokens are skipped and counted. The distance-matched
 control can overlap the reference; overlap is reported.
 
-**Not yet implemented/validated:** the full E2–E6 orchestration, GPU validation
-of persistent propagation, cross-sequence swap, CholecSeg8k and DAVIS execution,
-RAFT condition analysis, complete external-baseline adapters, and method tuning.
+**Implemented for validation, not yet GPU-validated:** the remaining E2 operators
+and persistent mode, full-target multiclass Cholec/DAVIS shards, E3 corruption,
+E4 RAFT conditions, E5 agreement, upstream SAM2Long/TAMP adapters, and the
+training-free E6 tuning/evaluation path. Prospective operational choices are in
+`protocols/region_tokens_execution_v1.json`. CPU tests verify token swaps,
+corruption resolution, independent rollout states, cached features, no-op bias,
+matched statistics and split guards. This is implementation evidence only.
+The optional learned E6 head and optional MedSAM2 transfer are not implemented
+by this extension; the incomplete MA-SAM2 release is still unavailable.
 The E2 calibration and bounded mean-value smoke validate the value-only operator,
 but not the full E2 design.
 An E1 pass permits developing/running those stages; it does not make this pilot
 a full study. An E0 failure stops inference; an E1 failure stops/pivots the study.
+
+## Remaining-stage execution
+
+The existing running notebook remains pinned to its original revision. After
+that gate finishes, GPU-validate each new operator and baseline on a dev shard
+before the full matrix. Set `REGION_STAGE=study_shard` in a new pinned notebook
+execution and supply one explicit JSON `REGION_JOB`, for example:
+
+```json
+{"stage":"E3","dataset":"polypgen","split":"test","sequences":["seq2"],"memory_condition":"c1"}
+```
+
+`split=test` is the existing PolypGen manifest label; actual dev/test eligibility
+uses sequence IDs, not that label. Cholec uses `split=analysis`; DAVIS uses its
+frozen `train`, `holdout`, `val` splits. The runner enforces the registered
+first-labeled-frame prompt and uses every target from prompt+7 onward. Set
+`mode=persistent` for accumulated E2 effects, `intervention=mean_substitution`
+or `swap` for substitution controls, and `band`/`thresholds` for the registered
+sensitivity settings. Pointer-only and all-spatial references are recorded.
+Infeasible categories and missing exact-position donors are explicit skips.
+
+Run `stage=E2_calibration` separately on dev sequences of each dataset, then
+reference its completed `calibration_artifact` for mean/swap jobs. Earlier
+mean-only smoke artifacts do not include swap donors and are not accepted as
+complete calibration. E3 conditions are c0/c1/c2/natural; reuse matching E2 c0
+rows rather than concatenate duplicate c0 reruns. E4 condition files join by
+dataset, sequence, object and frame. Analysis rejects repeated completed arms.
+
+For E6, prepare the fixed weight/lambda candidates from dev E2 rows:
+
+```sh
+python scripts/analyze_region_experiments.py --prepare-method \
+  --input /kaggle/working/dev_E2/seq2__object1/frames.jsonl \
+  --input /kaggle/working/dev_E2/seq3__object1/frames.jsonl \
+  --input /kaggle/working/dev_E2/seq4__object1/frames.jsonl \
+  --output /kaggle/working/method_candidates
+```
+
+Run each candidate through `stage=E6_dev`. The preparation command publishes the
+candidate JSONs to a W&B artifact; reference that `method_artifact` and the chosen
+`method_file` in the job. The dev
+runner executes only baseline/full arms; test also runs the specified controls
+and ablations. Freeze lambda only after every grid candidate completes on the
+thirteen promptable PolypGen dev sequences and ten DAVIS holdout sequences:
+
+```sh
+python scripts/analyze_region_experiments.py --freeze-method \
+  --candidate-dir /kaggle/working/method_candidates \
+  --trial-dir /kaggle/working/completed_lambda_trial \
+  --output /kaggle/working/method_frozen.json
+```
+
+Repeat `--trial-dir` for all sequence/dataset shards of all five candidates.
+`E6_test` rejects an unfrozen choice or a different checkpoint. For upstream
+comparators use `stage=E6_baseline`, `baseline=SAM2Long` or `Lean-SAM2`, and
+`partition=dev`/`test`. Both adapters use the author code in a separate process
+to prevent their `sam2` packages from colliding. MA-SAM2 is not replaced by a
+guessed SAM2 package alias.
+
+Every child run requires online W&B, records setup/checkpoint/protocol hashes,
+and uploads raw JSONL plus status artifacts. Each notebook execution has its
+own W&B group. The existing live collector supports `study_shard_complete`,
+downloads directly to the requested Drive root and validates component delivery.
+Its receipt still distinguishes Drive files from Google cloud-sync status and
+saved Kaggle-version export; it never declares the whole study complete.
 
 PolypGen mirror equivalence to Synapse remains unverified. The runner records
 per-file checksums, names and counts and explicitly retains that limitation.

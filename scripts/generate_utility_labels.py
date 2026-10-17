@@ -229,11 +229,13 @@ def corrupt_mask(mask, level, kind, frame_index):
 
 
 def replace_spatial_memory(predictor, state, output_dict, frames, frame_index, label_id,
-                           all_label_ids, source, corruption_level, corruption_type):
+                           all_label_ids, source, corruption_level, corruption_type,
+                           mask_override=None):
     if source == "predicted":
         return
-    target = load_label_mask(frames[frame_index].mask_path, all_label_ids) == label_id
-    if source == "corrupted":
+    target = (load_label_mask(frames[frame_index].mask_path, all_label_ids) == label_id
+              if mask_override is None else np.asarray(mask_override, dtype=bool))
+    if source == "corrupted" and mask_override is None:
         target = corrupt_mask(target, corruption_level, corruption_type, frame_index)
     logits = torch.from_numpy(target).to(predictor.device).float()[None, None]
     # ``_run_memory_encoder`` receives the high-resolution SAM mask tensor,
