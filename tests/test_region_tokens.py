@@ -49,6 +49,14 @@ def test_empty_and_full_token_masks_match_original_paths():
     assert (token_bias[..., 8:] == 0).all()
 
 
+def test_pointer_reference_does_not_mask_spatial_keys():
+    controller, args = fixture()
+    controller.exclude_pointers = True
+    bias = controller(*args)[0]
+    assert torch.isneginf(bias[..., -2:]).all()
+    assert (bias[..., :-2] == 0).all()
+
+
 def test_taxonomy_partition_artifact_and_no_budget_reduction():
     mask = np.zeros((256, 256), bool)
     mask[79:171, 79:171] = True

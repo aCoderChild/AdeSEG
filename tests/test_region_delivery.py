@@ -19,11 +19,3 @@ def test_pilot_empty_or_incomplete_sequence_coverage_never_passes():
     assert not result["full_study_complete"]
 
 
-def test_pointer_reference_does_not_mask_spatial_keys():
-    import torch
-    from tests.test_region_tokens import fixture
-    controller, args = fixture()
-    controller.exclude_pointers = True
-    bias = controller(*args)[0]
-    assert torch.isneginf(bias[..., -2:]).all()
-    assert (bias[..., :-2] == 0).all()
