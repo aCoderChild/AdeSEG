@@ -139,6 +139,7 @@ class MemoryAttention(nn.Module):
         # attention path is bit-for-bit unchanged.
         self.utility_controller = None
         self.capture_attention = False
+        self.capture_memory_values = False
         self.last_trace = None
 
     def forward(
@@ -233,5 +234,7 @@ class MemoryAttention(nn.Module):
             if utility_query_context is not None else None,
             "reconstruction_max_abs": reconstruction_errors,
         }
+        if self.capture_memory_values:
+            self.last_trace["memory_values"] = memory.detach().clone()
 
         return normed_output

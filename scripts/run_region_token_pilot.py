@@ -162,12 +162,16 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                         token_masks=None,
                         excluded_frames=(),
                         token_biases=None,
+                        token_value_replacements=None,
                         pointers=False,
                     ):
                         state["cached_features"] = copy.deepcopy(cached)
                         controller.excluded_token_masks = token_masks or {}
                         controller.excluded_frame_indices = set(excluded_frames)
                         controller.token_biases = token_biases or {}
+                        controller.token_value_replacements = (
+                            token_value_replacements or {}
+                        )
                         controller.exclude_pointers = pointers
                         return (
                             predictor.run_single_frame_inference(
@@ -186,6 +190,7 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                         )
 
                     predictor.memory_attention.capture_attention = True
+                    predictor.memory_attention.capture_memory_values = True
                     baseline = replay()
                     trace = predictor.memory_attention.last_trace
                     units = trace["units"]
@@ -196,6 +201,13 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                             f"Unexpected default memory layout at {video}:{t}: {units}"
                         )
                     reconstruction = max(trace["reconstruction_max_abs"])
+                    value_identity = {
+                        unit["frame_idx"]: (
+                            np.ones(unit["end"] - unit["start"], dtype=bool),
+                            trace["memory_values"][0, unit["start"] : unit["end"]],
+                        )
+                        for unit in units
+                    }
                     pointer_count = trace["attention"][0].shape[-1] - max(
                         u["end"] for u in units
                     )
@@ -213,6 +225,7 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                         )
                     }
                     predictor.memory_attention.capture_attention = False
+                    predictor.memory_attention.capture_memory_values = False
                     # Drop the multi-GB raw attention tensors before counterfactuals.
                     trace["attention"] = []
                     del trace
@@ -227,6 +240,7 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                     zero = replay(
                         token_biases={u["frame_idx"]: np.zeros(4096) for u in units}
                     )
+                    value_noop = replay(token_value_replacements=value_identity)
                     # Independent restore: mutate the bank, run from the mutation, then
                     # restore a separate saved copy. This is not a duplicated no-op.
                     saved = copy.deepcopy(bank)
@@ -246,6 +260,7 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                         "detached_noop_exact": torch.equal(bare, baseline),
                         "empty_token_mask_exact": torch.equal(bare, empty),
                         "zero_bias_exact": torch.equal(bare, zero),
+                        "value_identity_exact": torch.equal(bare, value_noop),
                         "independent_restore_exact": torch.equal(baseline, restored),
                         "mutation_changed_prediction": not torch.equal(
                             baseline, mutated
@@ -426,6 +441,7 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
                 controller.excluded_token_masks = {}
                 controller.excluded_frame_indices = set()
                 controller.token_biases = {}
+                controller.token_value_replacements = {}
                 controller.exclude_pointers = False
                 # Preserve the natural pointer, replace only spatial memory.
                 replace_spatial_memory(
@@ -447,6 +463,7 @@ def run_sequence(predictor, controller, video, frames, protocol, output, run, e0
             controller.excluded_token_masks = {}
             controller.excluded_frame_indices = set()
             controller.token_biases = {}
+            controller.token_value_replacements = {}
             controller.exclude_pointers = False
             predictor.reset_state(state)
     return checks, rows

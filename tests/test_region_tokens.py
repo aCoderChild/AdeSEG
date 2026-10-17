@@ -76,6 +76,19 @@ def test_value_substitution_changes_only_selected_spatial_values():
     assert controller.replace_memory_values(memory, units) is memory
 
 
+def test_value_identity_replacement_is_exact():
+    controller, args = fixture()
+    _, memory, units, _, _ = args
+    controller.token_value_replacements = {
+        unit["frame_idx"]: (
+            torch.ones(unit["end"] - unit["start"], dtype=torch.bool),
+            memory[0, unit["start"] : unit["end"]].clone(),
+        )
+        for unit in units
+    }
+    assert torch.equal(controller.replace_memory_values(memory, units), memory)
+
+
 def test_taxonomy_partition_artifact_and_no_budget_reduction():
     mask = np.zeros((256, 256), bool)
     mask[79:171, 79:171] = True
