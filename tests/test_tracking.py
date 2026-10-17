@@ -35,11 +35,15 @@ def test_backfill_collects_only_saved_results(tmp_path):
     stage.mkdir(parents=True)
     (stage / "summary.json").write_text('{"analyzed_frames": 2, "mean_baseline_dice": 0.4, "note": null}')
     (stage / "frames.jsonl").write_text('{"frame": 1}\n{"frame": 2}\n')
+    (stage / "utility_records.pt").write_bytes(b"saved labels and frozen features")
+    (stage / "utility_records.pt.tmp").write_bytes(b"incomplete")
     metrics, files = collect(tmp_path)
     assert metrics == {
         "E1_E2/natural_failures/analyzed_frames": 2,
         "E1_E2/natural_failures/mean_baseline_dice": 0.4,
         "E1_E2/natural_failures/recorded_frames": 2,
     }
-    assert len(files) == 2
+    assert {path.name for path in files} == {
+        "summary.json", "frames.jsonl", "utility_records.pt"
+    }
 

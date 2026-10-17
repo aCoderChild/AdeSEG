@@ -47,10 +47,12 @@ def main():
         "predicted_vs_ground_truth": comparison,
         "corruption_order": corruption_names,
         "corruption_monotonic_nonincreasing": monotonic,
-        "E3_pass": bool(
+        # These conditions and summary statistics are a development-scale
+        # diagnostic, not the preregistered c0--c4 mixed-model E3 test.
+        "E3_pass": None,
+        "exploratory_clean_vs_predicted_difference": bool(
             comparison["p"] < 0.05
             and summary_value(conditions["predicted"]) < summary_value(conditions["ground_truth"])
-            and monotonic
         ),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

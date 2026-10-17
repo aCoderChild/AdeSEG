@@ -456,7 +456,7 @@ def main():
     )
     all_records, all_rows = [], []
     save_progress(args.output_dir, all_records, all_rows, state="building_model")
-    print("[utility] W&B initialized; building predictor", flush=True)
+    print(f"[utility] W&B mode={args.wandb_mode}; building predictor", flush=True)
     predictor = build_video_predictor(
         args.sam2_cfg, args.sam2_checkpoint, args.device
     )
