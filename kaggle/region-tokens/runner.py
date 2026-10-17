@@ -117,10 +117,19 @@ def e1_gate_artifact():
     run_id = os.environ.get("REGION_E1_RUN_ID", "7orfgsk2")
     artifact_root = OUT / "e1_gate_artifact"
     source = wandb.Api().run(f"adenoid-hypertrophy/ade-seg/{run_id}")
-    artifacts = list(source.logged_artifacts())
-    if not artifacts:
-        raise RuntimeError(f"E1 run {run_id} has no results artifact")
-    max(artifacts, key=lambda item: item.created_at).download(root=str(artifact_root))
+    from training.tracking import latest_results_artifact
+
+    latest_results_artifact(
+        source, ("decision_verified.json", "decision.json")
+    ).download(root=str(artifact_root))
+    # The independently reviewed decision is a run file uploaded after the
+    # original notebook artifact. Prefer it without confusing run history with
+    # results artifacts.
+    reviewed = [
+        item for item in source.files() if item.name == "E1/decision_verified.json"
+    ]
+    if reviewed:
+        reviewed[0].download(root=str(artifact_root), replace=True)
     decisions = sorted(artifact_root.rglob("decision_verified.json"))
     if not decisions:
         decisions = sorted(artifact_root.rglob("decision.json"))
@@ -173,6 +182,7 @@ try:
     )
     revision = os.environ.get("ADESEG_REVISION")
     command(["git", "checkout", "--detach", revision or "experiment"], 180)
+    sys.path.insert(0, str(REPO))
     revision = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=REPO, text=True
     ).strip()
@@ -263,48 +273,73 @@ try:
         # This is deliberately an input/instrumentation gate, not an E2 result.
         # Kaggle sometimes nests attached public datasets beneath ``datasets``.
         # Accept only the two known layouts, and fail with an inventory otherwise.
-        cholec_root = resolve_kaggle_input(
-            "cholecseg8k", "datasets/newslab/cholecseg8k"
+        requested_dataset = json.loads(os.environ.get("REGION_JOB", "{}")).get(
+            "dataset"
         )
-        davis_root = resolve_kaggle_input("davis2017", "datasets/lennelenne/davis2017")
+        need_cholec = RUN_STAGE == "E2_preflight" or requested_dataset == "cholecseg8k"
+        need_davis = RUN_STAGE == "E2_preflight" or requested_dataset == "davis"
+        cholec_root = (
+            resolve_kaggle_input("cholecseg8k", "datasets/newslab/cholecseg8k")
+            if need_cholec
+            else None
+        )
+        davis_root = (
+            resolve_kaggle_input("davis2017", "datasets/lennelenne/davis2017")
+            if need_davis
+            else None
+        )
         cholec_output = OUT / "cholecseg8k"
         davis_manifest = OUT / "davis2017.jsonl"
-        command(
+        if need_cholec:
+            command(
+                [
+                    sys.executable,
+                    REPO / "scripts/build_cholecseg8k_manifest.py",
+                    "--data-root",
+                    cholec_root,
+                    "--output-dir",
+                    cholec_output,
+                ],
+                900,
+            )
+        if need_davis:
+            command(
+                [
+                    sys.executable,
+                    REPO / "scripts/build_davis_manifest.py",
+                    "--data-root",
+                    davis_root,
+                    "--protocol",
+                    REPO / "protocols/utility_retrieval_v1.json",
+                    "--output",
+                    davis_manifest,
+                ],
+                900,
+            )
+        cholec_rows = (
             [
-                sys.executable,
-                REPO / "scripts/build_cholecseg8k_manifest.py",
-                "--data-root",
-                cholec_root,
-                "--output-dir",
-                cholec_output,
-            ],
-            900,
+                json.loads(line)
+                for line in (cholec_output / "cholecseg8k.jsonl")
+                .read_text()
+                .splitlines()
+                if line
+            ]
+            if need_cholec
+            else []
         )
-        command(
+        davis_rows = (
             [
-                sys.executable,
-                REPO / "scripts/build_davis_manifest.py",
-                "--data-root",
-                davis_root,
-                "--protocol",
-                REPO / "protocols/utility_retrieval_v1.json",
-                "--output",
-                davis_manifest,
-            ],
-            900,
+                json.loads(line)
+                for line in davis_manifest.read_text().splitlines()
+                if line
+            ]
+            if need_davis
+            else []
         )
-        cholec_rows = [
-            json.loads(line)
-            for line in (cholec_output / "cholecseg8k.jsonl").read_text().splitlines()
-            if line
-        ]
-        davis_rows = [
-            json.loads(line) for line in davis_manifest.read_text().splitlines() if line
-        ]
-        if not cholec_rows or not davis_rows:
+        if (need_cholec and not cholec_rows) or (need_davis and not davis_rows):
             raise RuntimeError("E2 input preflight produced an empty manifest")
         davis_splits = {row["split"] for row in davis_rows}
-        if davis_splits != {"train", "holdout", "val"}:
+        if need_davis and davis_splits != {"train", "holdout", "val"}:
             raise RuntimeError(f"Unexpected DAVIS splits: {sorted(davis_splits)}")
         write = {
             "stage": "E2_preflight",
@@ -333,6 +368,10 @@ try:
                 },
             },
         }
+        if not need_cholec:
+            del write["inputs"]["cholecseg8k"]
+        if not need_davis:
+            del write["inputs"]["davis2017"]
         (OUT / "input_preflight.json").write_text(json.dumps(write, indent=2) + "\n")
         mark("E2_inputs", **write["inputs"])
         upload()

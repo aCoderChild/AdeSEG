@@ -23,12 +23,17 @@ from scripts.collect_region_results import (
     validate_study_shard,
     verify_analysis_and_wandb,
 )
+from training.tracking import latest_results_artifact
 
 
-def download_verified(artifact, destination):
+def download_verified(artifact, destination, names=None):
     """Do not trust SDK cached checksums for files overwritten by other exports."""
     destination = Path(destination).resolve()
+    if names is not None and set(names) - artifact.manifest.entries.keys():
+        raise ValueError("Requested file is missing from artifact manifest")
     for name, entry in artifact.manifest.entries.items():
+        if names is not None and name not in names:
+            continue
         path = (destination / name).resolve()
         if not path.is_relative_to(destination) or entry.ref is not None:
             raise ValueError(f"Unsupported artifact entry: {name}")
@@ -81,10 +86,10 @@ def main():
                 (run for run in runs if run.name == "region-tokens-orchestrator"), None
             )
         for run in runs:
-            artifacts = list(run.logged_artifacts())
-            if not artifacts:
+            try:
+                latest = latest_results_artifact(run)
+            except ValueError:
                 continue
-            latest = max(artifacts, key=lambda artifact: artifact.created_at)
             if downloaded.get(run.id) == latest.digest:
                 continue
             stage = run.config.get("stage")

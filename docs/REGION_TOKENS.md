@@ -1,10 +1,17 @@
 # Region-token experiment
 
 Active branch: `experiment`. Effective approved preregistration: `protocols/region_tokens_v1_1.json` plus the
-pre-E2 CholecSeg8k data-definition amendment `protocols/region_tokens_v1_2_cholec_amendment.json`;
+pre-E2 CholecSeg8k data-definition amendment `protocols/region_tokens_v1_2_cholec_amendment.json`
+and the approved actual-source split correction `protocols/region_tokens_v1_3_cholec_split.json`;
 the original `protocols/region_tokens_v1.json` is retained unchanged.
 This study tests region-level memory contributions; it does not reuse the old
 latent-capability conclusions as evidence.
+
+Cholec method development uses video01, video09, video12, video17, video18,
+video20, video24, video25, video26, video27, video28 and video35. Held-out method
+testing uses video37, video43, video48, video52 and video55. All clips/classes
+from a source video remain together. The previous consecutive-ID split is
+retained only as superseded provenance, not used for new tuning or testing.
 
 ## Entry points
 

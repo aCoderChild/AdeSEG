@@ -149,11 +149,15 @@ def donor_inventory(directory):
     return inventory
 
 
+def cholec_method_split():
+    return json.loads(
+        (ROOT / "protocols/region_tokens_v1_3_cholec_split.json").read_text()
+    )["method_split"]
+
+
 def validate_method_split(dataset, test, sequences, sources, raw):
     polyp = json.loads((ROOT / "datasets/splits/polypgen/protocol_a.json").read_text())
-    cholec = json.loads(
-        (ROOT / "protocols/region_tokens_v1_2_cholec_amendment.json").read_text()
-    )["cholecseg8k"]["method_split"]
+    cholec = cholec_method_split()
     allowed = (
         {f"seq{n}" for n in polyp["test" if test else "dev"]}
         if dataset == "polypgen"
@@ -808,6 +812,9 @@ def main():
         "manifest_sha256": digest(args.manifest),
         "checkpoint_sha256": digest(args.checkpoint),
         "protocol_sha256": digest(args.protocol),
+        "cholec_split_protocol_sha256": digest(
+            ROOT / "protocols/region_tokens_v1_3_cholec_split.json"
+        ),
         "git_revision": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),

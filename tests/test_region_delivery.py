@@ -6,6 +6,33 @@ from scripts.collect_region_live import download_verified
 import hashlib
 import base64
 from types import SimpleNamespace
+import pytest
+from training.tracking import latest_results_artifact
+
+
+def test_results_selection_ignores_newer_automatic_history_and_incomplete_gates():
+    def artifact(name, kind, date, files):
+        return SimpleNamespace(
+            name=name,
+            type=kind,
+            created_at=date,
+            manifest=SimpleNamespace(entries=dict.fromkeys(files)),
+        )
+
+    complete = artifact(
+        "results:v1", "experiment-results", "2026-10-17T13:00:00", ["E1/decision.json"]
+    )
+    incomplete = artifact(
+        "results:v2", "experiment-results", "2026-10-17T14:00:00", ["status.json"]
+    )
+    history = artifact(
+        "history:v0", "wandb-history", "2026-10-17T15:00:00", ["history.parquet"]
+    )
+    source = SimpleNamespace(logged_artifacts=lambda: [complete, incomplete, history])
+    assert latest_results_artifact(source).name == "results:v2"
+    assert latest_results_artifact(source, ("decision.json",)).name == "results:v1"
+    with pytest.raises(ValueError, match="required evidence"):
+        latest_results_artifact(source, ("nonexistent.json",))
 
 
 def test_live_download_replaces_stale_same_length_file_and_verifies(tmp_path):

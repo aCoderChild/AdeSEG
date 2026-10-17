@@ -3,6 +3,26 @@ import os
 from pathlib import Path
 
 
+def latest_results_artifact(source, required_any=()):
+    """Ignore automatic W&B history/config artifacts when loading results."""
+    candidates = []
+    for artifact in source.logged_artifacts():
+        if artifact.type != "experiment-results":
+            continue
+        if required_any and not any(
+            name.endswith(suffix)
+            for name in artifact.manifest.entries
+            for suffix in required_any
+        ):
+            continue
+        candidates.append(artifact)
+    if not candidates:
+        raise ValueError(
+            "No experiment-results artifact contains the required evidence"
+        )
+    return max(candidates, key=lambda artifact: artifact.created_at)
+
+
 def start_wandb(project, entity, name, mode, base_url, config, output_dir, tags):
     if mode == "online" and not os.environ.get("WANDB_API_KEY"):
         raise RuntimeError(
@@ -15,11 +35,25 @@ def start_wandb(project, entity, name, mode, base_url, config, output_dir, tags)
 
     wandb_dir = Path(output_dir) / "wandb"
     wandb_dir.mkdir(parents=True, exist_ok=True)
-    run = wandb.init(project=project, entity=entity, name=name, mode=mode,
-                     config=config, dir=str(wandb_dir), tags=tags)
-    tracking = {"mode": mode, "entity": entity, "project": project,
-                "run_id": run.id, "url": run.url}
-    (Path(output_dir) / "tracking.json").write_text(json.dumps(tracking, indent=2) + "\n")
+    run = wandb.init(
+        project=project,
+        entity=entity,
+        name=name,
+        mode=mode,
+        config=config,
+        dir=str(wandb_dir),
+        tags=tags,
+    )
+    tracking = {
+        "mode": mode,
+        "entity": entity,
+        "project": project,
+        "run_id": run.id,
+        "url": run.url,
+    }
+    (Path(output_dir) / "tracking.json").write_text(
+        json.dumps(tracking, indent=2) + "\n"
+    )
     return run
 
 
@@ -35,7 +69,14 @@ def log_results_artifact(run, output_dir, names):
 
 def log(run, prefix, values, step):
     if run:
-        run.log({f"{prefix}/{key}": value for key, value in values.items() if value is not None}, step=step)
+        run.log(
+            {
+                f"{prefix}/{key}": value
+                for key, value in values.items()
+                if value is not None
+            },
+            step=step,
+        )
 
 
 def finish(run):

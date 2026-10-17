@@ -27,6 +27,7 @@ from evaluation.utility_retrieval import (
 )
 from modeling.region_tokens import CATEGORIES
 from scripts.run_region_token_pilot import write_json
+from scripts.run_region_experiments import cholec_method_split
 
 
 def clean(value):
@@ -635,7 +636,9 @@ def dev_row(row):
         return row["video"] in {f"seq{i}" for i in range(1, 16)}
     if dataset == "davis":
         return row.get("split") in {"train", "holdout"}
-    return row.get("source_video") in {f"video{i:02}" for i in range(1, 13)}
+    if dataset == "cholecseg8k":
+        return row.get("source_video") in cholec_method_split()["dev_source_videos"]
+    return False
 
 
 def category_weights(rows):

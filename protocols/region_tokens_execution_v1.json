@@ -1,7 +1,7 @@
 {
   "id": "region_tokens_execution_v1",
   "recorded_date": "2026-10-18",
-  "parents": ["region_tokens_v1_1.json", "region_tokens_v1_2_cholec_amendment.json"],
+  "parents": ["region_tokens_v1_1.json", "region_tokens_v1_2_cholec_amendment.json", "region_tokens_v1_3_cholec_split.json"],
   "scope": "Prospective executable choices for the remaining E2-E6 components. Existing E0/E1 and smoke results keep their original provenance. This supplement contains no new experimental result.",
   "execution": {
     "shard": "Explicit dataset, split, sequence-object, operator, mode, memory condition and taxonomy settings. Every eligible target from prompt+7 is used; no outcome-based sampling.",

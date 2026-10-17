@@ -18,12 +18,14 @@ from scripts.analyze_region_experiments import (
     persistent_effect_rows,
     freeze_method,
     episode_frames,
+    dev_row,
 )
 from scripts.run_region_experiments import (
     lean_anchor_similarity,
     require_gate,
     rollout,
     validate_method_split,
+    cholec_method_split,
 )
 from scripts.run_region_token_pilot import swap_replacements
 from external.MedSAM2.sam2.modeling.memory_attention import (
@@ -159,9 +161,48 @@ def test_method_split_and_weight_selection_reject_test_outcomes():
     with pytest.raises(ValueError, match="dev/test"):
         validate_method_split("polypgen", False, ["seq16"], {"seq16": "seq16"}, [])
     with pytest.raises(ValueError, match="dev/test"):
-        validate_method_split("cholecseg8k", False, ["clip"], {"clip": "video17"}, [])
+        validate_method_split("cholecseg8k", False, ["clip"], {"clip": "video55"}, [])
     with pytest.raises(ValueError, match="dev data"):
         category_weights([{"video": "seq16", "dataset": "polypgen"}])
+
+
+def test_cholec_actual_source_split_is_exhaustive_and_clip_safe():
+    actual = {
+        "video01",
+        "video09",
+        "video12",
+        "video17",
+        "video18",
+        "video20",
+        "video24",
+        "video25",
+        "video26",
+        "video27",
+        "video28",
+        "video35",
+        "video37",
+        "video43",
+        "video48",
+        "video52",
+        "video55",
+    }
+    split = cholec_method_split()
+    dev = set(split["dev_source_videos"])
+    test = set(split["test_source_videos"])
+    assert len(dev) == 12 and len(test) == 5
+    assert not dev & test
+    assert dev | test == actual
+    assert sorted(actual)[:12] == split["dev_source_videos"]
+    for source in sorted(actual):
+        clips = [f"{source}_clip0", f"{source}_clip1"]
+        sources = dict.fromkeys(clips, source)
+        validate_method_split("cholecseg8k", source in test, clips, sources, [])
+        with pytest.raises(ValueError, match="dev/test"):
+            validate_method_split("cholecseg8k", source in dev, clips, sources, [])
+        for label in (1, 5, 12):
+            assert dev_row(
+                {"dataset": "cholecseg8k", "source_video": source, "label_id": label}
+            ) == (source in dev)
 
 
 def test_lambda_freezing_requires_the_complete_grid_and_completed_dev_trials(tmp_path):
