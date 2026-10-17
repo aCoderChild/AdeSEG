@@ -66,9 +66,17 @@ provenance. Old development notebooks are not the active region-study workflow.
 
 The approved-amendment rerun has started on T4 x2 at revision `ef1195b39352`,
 with online orchestrator `7orfgsk2` and group `region-tokens-v1-ef1195b39352`.
-This is not yet an E0 pass or an experimental result. The editor reported
-"Failed to save draft"; a new saved-version export must still be verified.
+E0 run `oo2f3bjc` passed on seq2 frame 7: detached/empty/zero-bias no-ops,
+independent mutation and restoration, full-token/frame equivalence, and attention
+reconstruction (maximum absolute error 0.0). E1 run `wg2nrbsd` is online and
+running. This is not a hypothesis result. Local verification: 46 tests pass.
+The editor's stale-draft concurrency error was cleared by refresh; Quick Save
+version 4 now exists, but its exported files still require verification.
 The live collector is watching this new group, not the historical group below.
+
+The collector verifies every downloaded file against the W&B manifest MD5,
+removing only a mismatched downloaded copy before refetching. This avoids the
+SDK's cached-checksum shortcut retaining a stale same-length tracking file.
 
 Kaggle notebook: `bunnoob2005/adeseg-region-memory-tokens`. Version 1 failed
 at Kaggle secret retrieval before creating a W&B run. The secret was verified
