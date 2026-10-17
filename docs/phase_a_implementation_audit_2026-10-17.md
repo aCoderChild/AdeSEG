@@ -15,9 +15,10 @@ summary for the preregistered hypothesis go/no-go decision.
   claiming Drive delivery.
 - Script version `359186175` passed `--wandb-mode disabled`; its “W&B
   initialized” message was misleading and does not signify a live run. The
-  next runner version selects online tracking when the Kaggle secret and Forge
-  connection check work, otherwise offline tracking for later sync. A saved
-  version can also be backfilled with provenance marked `not-live`.
+  corrected runner requires the Kaggle secret and a successful Forge connection
+  check before expensive work, then starts online W&B stage runs. It fails
+  rather than silently falling back to offline tracking. A saved older version
+  can still be backfilled with provenance marked `not-live`.
 - The backfill artifact now includes the feature/label tensor file, not just
   JSON summaries. Check completion status and file counts after export.
 

@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -14,8 +15,22 @@ def start_wandb(project, entity, name, mode, base_url, config, output_dir, tags)
 
     wandb_dir = Path(output_dir) / "wandb"
     wandb_dir.mkdir(parents=True, exist_ok=True)
-    return wandb.init(project=project, entity=entity, name=name, mode=mode,
-                      config=config, dir=str(wandb_dir), tags=tags)
+    run = wandb.init(project=project, entity=entity, name=name, mode=mode,
+                     config=config, dir=str(wandb_dir), tags=tags)
+    tracking = {"mode": mode, "entity": entity, "project": project,
+                "run_id": run.id, "url": run.url}
+    (Path(output_dir) / "tracking.json").write_text(json.dumps(tracking, indent=2) + "\n")
+    return run
+
+
+def log_results_artifact(run, output_dir, names):
+    import wandb
+
+    output_dir = Path(output_dir)
+    artifact = wandb.Artifact(f"utility-results-{run.id}", type="experiment-results")
+    for name in names:
+        artifact.add_file(str(output_dir / name), name=name)
+    run.log_artifact(artifact).wait()
 
 
 def log(run, prefix, values, step):

@@ -15,7 +15,7 @@ def collect(output_dir):
         if not path.is_file() or path.name not in {
             "summary.json", "frames.jsonl", "setup.json", "status.json",
             "events.jsonl", "taxonomy.json", "mechanism.json",
-            "utility_records.pt",
+            "utility_records.pt", "tracking.json", "delivery_receipt.json",
         }:
             continue
         files.append(path)

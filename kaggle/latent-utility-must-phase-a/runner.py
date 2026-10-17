@@ -1,5 +1,6 @@
 """Kaggle runner for frozen-protocol Must-tier sanity and E1--E3 evidence."""
 
+import atexit
 import importlib.util
 import json
 import os
@@ -17,6 +18,7 @@ REPO = TEMP / "AdeSEG"
 OUT = WORK / "latent_utility_must_phase_a"
 OUT.mkdir(parents=True, exist_ok=True)
 STARTED = time.time()
+wandb_run = None
 
 
 def mark(stage, state="running", **details):
@@ -27,13 +29,20 @@ def mark(stage, state="running", **details):
     with (OUT / "events.jsonl").open("a") as stream:
         stream.write(json.dumps(payload, sort_keys=True) + "\n")
     print("[status]", json.dumps(payload, sort_keys=True), flush=True)
+    if wandb_run is not None:
+        wandb_run.log({"runner/elapsed_seconds": payload["elapsed_seconds"],
+                       "runner/stage": stage, "runner/state": state})
 
 
 def run(command, timeout=21600):
     command = list(map(str, command))
     mark("command", command=" ".join(command))
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, cwd=REPO, env=os.environ.copy(), check=True, timeout=timeout)
+    try:
+        subprocess.run(command, cwd=REPO, env=os.environ.copy(), check=True, timeout=timeout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        mark("command", state="failed", command=" ".join(command), error=type(exc).__name__)
+        raise
 
 
 mark("bootstrap")
@@ -57,6 +66,9 @@ os.environ.update({
 })
 if key:
     os.environ["WANDB_API_KEY"] = key
+else:
+    mark("tracking_preflight", state="failed", reason="WANDB_API_KEY unavailable")
+    raise RuntimeError("Attach the WANDB_API_KEY Kaggle secret before starting this experiment")
 if REPO.exists():
     shutil.rmtree(REPO)
 subprocess.run([
@@ -77,16 +89,24 @@ if importlib.util.find_spec("tensordict") is None:
     subprocess.run([
         sys.executable, "-m", "pip", "install", "--no-deps", "tensordict>=0.7,<0.8",
     ], check=True, timeout=300)
-tracking_mode = "offline"
-if key:
-    try:
-        run([sys.executable, REPO / "scripts/verify_wandb_connection.py", "--check-only"], 120)
-        tracking_mode = "online"
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        print(f"[wandb] Connection check failed: {type(exc).__name__}; recording offline runs", flush=True)
-else:
-    print("[wandb] Secret unavailable; recording offline runs for later sync", flush=True)
-mark("tracking", mode=tracking_mode)
+run([sys.executable, REPO / "scripts/verify_wandb_connection.py", "--check-only"], 120)
+wandb = importlib.import_module("wandb")
+
+revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+os.environ["WANDB_RUN_GROUP"] = f"latent-utility-phase-a-{revision[:12]}"
+wandb_run = wandb.init(
+    project="ade-seg", entity="adenoid-hypertrophy",
+    name="latent-utility-phase-a-orchestrator", mode="online",
+    group=os.environ["WANDB_RUN_GROUP"],
+    config={"git_revision": revision, "protocol": "latent_utility_v2"},
+    dir=str(OUT), settings=wandb.Settings(init_timeout=60),
+)
+atexit.register(wandb_run.finish)
+(OUT / "tracking.json").write_text(json.dumps({
+    "mode": "online", "project": "ade-seg", "entity": "adenoid-hypertrophy",
+    "run_id": wandb_run.id, "url": wandb_run.url, "git_revision": revision,
+}, indent=2) + "\n")
+mark("tracking", mode="online", wandb_run_id=wandb_run.id, git_revision=revision)
 
 protocol = REPO / "protocols/latent_utility_v2.json"
 manifest = TEMP / "davis.jsonl"
@@ -110,14 +130,16 @@ common = [
     "--minimum-target-frame", "15",
 ]
 tracking = ["--wandb-base-url", os.environ["WANDB_BASE_URL"],
-            "--wandb-mode", tracking_mode]
+            "--wandb-mode", "online"]
 
 
 def utility(name, *arguments, timeout=21600):
     target = OUT / name
+    mark(name)
     run([*common, *tracking, "--output-dir", target,
          "--wandb-name", f"latent-must-a-{name.replace('/', '-')}",
          *arguments], timeout)
+    mark(name, state="complete")
     return target
 
 
@@ -163,5 +185,17 @@ run([
     "--condition", "corruption_1.00", paths["c4"] / "frames.jsonl",
     "--output", OUT / "E3/mechanism.json",
 ])
+artifact = wandb.Artifact(f"latent-utility-phase-a-{wandb_run.id}", type="experiment-summary")
+for result in (OUT / "status.json", OUT / "events.jsonl", OUT / "tracking.json",
+               OUT / "E1_E2/taxonomy.json",
+               OUT / "E3/mechanism.json", *OUT.rglob("summary.json")):
+    artifact.add_file(str(result), name=result.relative_to(OUT).as_posix())
+try:
+    wandb_run.log_artifact(artifact).wait()
+except Exception as exc:
+    mark("artifact_upload", state="failed", error=type(exc).__name__)
+    raise
 mark("complete", state="complete")
+atexit.unregister(wandb_run.finish)
+wandb_run.finish()
 

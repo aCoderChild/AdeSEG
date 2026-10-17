@@ -33,7 +33,7 @@ from evaluation.utility_retrieval import failure_episodes, rank_agreement
 from modeling.medsam2 import build_video_predictor
 from modeling.utility_memory import UtilityController, UtilityHead, attach_utility_controller
 from scripts.infer import predict_label, stage_frames
-from training.tracking import finish, log, start_wandb
+from training.tracking import finish, log, log_results_artifact, start_wandb
 
 
 def save_progress(output_dir, records, rows, *, state, video=None, label_id=None):
@@ -518,6 +518,7 @@ def main():
     save_progress(args.output_dir, all_records, all_rows, state="running")
     print(f"[utility] predictor ready; videos={len(videos)}", flush=True)
     remaining = args.max_analyzed_frames
+    processed_pairs = 0
     try:
         for video_id, frames in videos.items():
             if remaining is not None and remaining <= 0:
@@ -555,31 +556,43 @@ def main():
                         "oracle_retrieval_gain": row["oracle_retrieval_dice"] - row["baseline_dice"],
                         "best_of_n_random_gain": row["best_of_n_random_dice"] - row["baseline_dice"],
                         "attention_utility_spearman": row["attention_spearman"],
-                    }, len(all_rows))
+                    }, None)
+                processed_pairs += 1
+                run.log({"progress/completed_sequence_objects": processed_pairs,
+                         "progress/recorded_frames": len(all_rows),
+                         "progress/utility_units": len(all_records)})
                 print(f"{video_id}:{label_id}: {len(rows)} frames analyzed ({args.frame_selection})", flush=True)
                 if remaining is not None and remaining <= 0:
                     break
+    except Exception:
+        save_progress(args.output_dir, all_records, all_rows, state="failed")
+        raise
+    else:
+        summary = {
+            "analyzed_frames": len(all_rows), "utility_units": len(all_records),
+            "mean_baseline_dice": float(np.mean([row["baseline_dice"] for row in all_rows])) if all_rows else None,
+            "mean_oracle_retrieval_gain": float(np.mean([
+                row["oracle_retrieval_dice"] - row["baseline_dice"] for row in all_rows
+            ])) if all_rows else None,
+            "mean_best_of_n_random_gain": float(np.mean([
+                row["best_of_n_random_dice"] - row["baseline_dice"] for row in all_rows
+            ])) if all_rows else None,
+            "sanity_no_op_max_abs": max([row["no_op_max_abs"] for row in all_rows], default=None),
+            "sanity_cached_state_restore_max_abs": None,
+            "sanity_attention_reconstruction_max_abs": max([
+                row["attention_reconstruction_max_abs"] for row in all_rows
+                if np.isfinite(row["attention_reconstruction_max_abs"])
+            ], default=None),
+        }
+        (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        save_progress(args.output_dir, all_records, all_rows, state="complete")
+        run.summary.update({key: value for key, value in summary.items() if value is not None})
+        log_results_artifact(run, args.output_dir, (
+            "setup.json", "summary.json", "status.json", "tracking.json",
+            "frames.jsonl", "utility_records.pt",
+        ))
     finally:
         finish(run)
-
-    save_progress(args.output_dir, all_records, all_rows, state="complete")
-    summary = {
-        "analyzed_frames": len(all_rows), "utility_units": len(all_records),
-        "mean_baseline_dice": float(np.mean([row["baseline_dice"] for row in all_rows])) if all_rows else None,
-        "mean_oracle_retrieval_gain": float(np.mean([
-            row["oracle_retrieval_dice"] - row["baseline_dice"] for row in all_rows
-        ])) if all_rows else None,
-        "mean_best_of_n_random_gain": float(np.mean([
-            row["best_of_n_random_dice"] - row["baseline_dice"] for row in all_rows
-        ])) if all_rows else None,
-        "sanity_no_op_max_abs": max([row["no_op_max_abs"] for row in all_rows], default=None),
-        "sanity_cached_state_restore_max_abs": None,
-        "sanity_attention_reconstruction_max_abs": max([
-            row["attention_reconstruction_max_abs"] for row in all_rows
-            if np.isfinite(row["attention_reconstruction_max_abs"])
-        ], default=None),
-    }
-    (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
 
 
 if __name__ == "__main__":
