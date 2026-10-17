@@ -1,6 +1,7 @@
 # Region-token experiment
 
-Active branch: `experiment`. Frozen preregistration: `protocols/region_tokens_v1.json`.
+Active branch: `experiment`. Effective approved preregistration: `protocols/region_tokens_v1_1.json`;
+the original `protocols/region_tokens_v1.json` is retained unchanged.
 This study tests region-level memory contributions; it does not reuse the old
 latent-capability conclusions as evidence.
 
@@ -21,20 +22,25 @@ Kaggle retains outputs under `/kaggle/working/region_tokens_v1`. The Mac exports
 these directly to the existing Drive directory, without a second local results
 directory. The local Drive client must sync them to the cloud. Kaggle working
 storage is remote scratch, not the user's local disk. Drive delivery occurs
-after Kaggle publishes the terminal version's output; W&B provides live progress.
+through live W&B artifact collection; a separate terminal export verifies the
+saved Kaggle version. W&B provides live progress.
 
 ```sh
-kaggle kernels push -p kaggle/region-tokens --accelerator NvidiaTeslaT4
 .venv/bin/python scripts/collect_region_results.py --wait --output-root \
   '/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/16:10:2026'
 ```
+
+Launch the pinned notebook from the authenticated Kaggle editor with its secret
+attached. API-pushed versions have previously failed to receive the secret;
+do not launch a duplicate GPU job to work around an interactive queue.
 
 ## Scientific status
 
 Implemented: E0/E1 pilot, all four categories, two banks, five uniform and
 distance-matched random controls, pointer/spatial bounds, per-layer/query-region
 saliency, Dice/IoU/boundary F/HD95, low-resolution output and logit changes.
-E1 samples ten fixed frame indices in each of ten dev sequences. Categories with
+E1 samples up to ten fixed frame indices per dev sequence (98 targets across
+the ten amended pilot sequences). Categories with
 fewer than k available tokens are skipped and counted. The distance-matched
 control can overlap the reference; overlap is reported.
 
@@ -57,6 +63,12 @@ Historical v2 protocols and the exploratory Phase A report retain their original
 provenance. Old development notebooks are not the active region-study workflow.
 
 ## Current deployment
+
+The approved-amendment rerun has started on T4 x2 at revision `ef1195b39352`,
+with online orchestrator `7orfgsk2` and group `region-tokens-v1-ef1195b39352`.
+This is not yet an E0 pass or an experimental result. The editor reported
+"Failed to save draft"; a new saved-version export must still be verified.
+The live collector is watching this new group, not the historical group below.
 
 Kaggle notebook: `bunnoob2005/adeseg-region-memory-tokens`. Version 1 failed
 at Kaggle secret retrieval before creating a W&B run. The secret was verified
