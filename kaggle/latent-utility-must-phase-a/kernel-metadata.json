@@ -1,0 +1,13 @@
+{
+  "id": "bunnoob2005/utility-aware-memory-retrieval-adeseg",
+  "title": "AdeSEG Latent Utility Must Phase A",
+  "code_file": "runner.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["lennelenne/davis2017", "debeshjha1/polypgen-video-sequence"],
+  "competition_sources": [],
+  "kernel_sources": []
+}
