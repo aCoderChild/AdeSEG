@@ -79,6 +79,40 @@ def indices_to_masks(units, selected):
     return masks
 
 
+def indices_to_value_replacements(units, selected, replacement_values):
+    """Map selected global spatial indices to per-frame value replacements.
+
+    ``replacement_values`` contains one ``memory_dim`` vector per selected key,
+    in the order supplied by ``selected``.  Unselected entries are ignored by
+    the attention hook, so they are left zero rather than copied from memory.
+    """
+    selected = np.asarray(selected, dtype=int).reshape(-1)
+    values = torch.as_tensor(replacement_values)
+    if values.ndim != 2 or values.shape[0] != len(selected):
+        raise ValueError("Need one replacement vector for every selected token")
+    order = np.argsort(selected)
+    selected, values = selected[order], values[torch.as_tensor(order, device=values.device)]
+    replacements = {}
+    offset = 0
+    cursor = 0
+    for unit in units:
+        length = unit["end"] - unit["start"]
+        local = np.zeros(length, dtype=bool)
+        fill = torch.zeros(length, values.shape[1], dtype=values.dtype)
+        while cursor < len(selected) and selected[cursor] < offset + length:
+            if selected[cursor] < offset:
+                raise ValueError("Selected token index is outside the memory spans")
+            index = selected[cursor] - offset
+            local[index] = True
+            fill[index] = values[cursor]
+            cursor += 1
+        replacements[unit["frame_idx"]] = (torch.from_numpy(local), fill)
+        offset += length
+    if cursor != len(selected):
+        raise ValueError("Selected token index is outside the memory spans")
+    return replacements
+
+
 def query_regions(foreground, height, width):
     """Three disjoint query regions from previous prediction, without GT."""
     mask = foreground.reshape(-1, 1, height, width).float()
@@ -149,6 +183,7 @@ def persistent_region_rollout(
         raise ValueError(f"Unknown region category: {category}")
     previous_policy = controller.token_mask_policy
     previous_masks = controller.excluded_token_masks
+    previous_value_policy = controller.token_value_replacement_policy
 
     def policy(units):
         chosen = [unit for unit in units if bool(unit["conditioning"]) == conditioning]
@@ -193,3 +228,4 @@ def persistent_region_rollout(
     finally:
         controller.token_mask_policy = previous_policy
         controller.excluded_token_masks = previous_masks
+        controller.token_value_replacement_policy = previous_value_policy

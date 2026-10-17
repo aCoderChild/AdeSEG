@@ -3,6 +3,7 @@ import torch
 
 from modeling.region_tokens import (
     category_attention,
+    indices_to_value_replacements,
     indices_to_masks,
     matched_indices,
     query_regions,
@@ -87,6 +88,23 @@ def test_value_identity_replacement_is_exact():
         for unit in units
     }
     assert torch.equal(controller.replace_memory_values(memory, units), memory)
+
+
+def test_selected_values_map_to_their_original_memory_frames():
+    _, args = fixture()
+    _, _, units, _, _ = args
+    replacements = indices_to_value_replacements(
+        units,
+        np.array([1, 4, 7]),
+        torch.tensor([[10.0, 11.0], [20.0, 21.0], [30.0, 31.0]]),
+    )
+    first_mask, first_values = replacements[0]
+    second_mask, second_values = replacements[1]
+    assert first_mask.tolist() == [False, True, False, False]
+    assert second_mask.tolist() == [True, False, False, True]
+    assert torch.equal(first_values[1], torch.tensor([10.0, 11.0]))
+    assert torch.equal(second_values[0], torch.tensor([20.0, 21.0]))
+    assert torch.equal(second_values[3], torch.tensor([30.0, 31.0]))
 
 
 def test_taxonomy_partition_artifact_and_no_budget_reduction():

@@ -84,6 +84,7 @@ class UtilityController(nn.Module):
         self.token_value_replacements: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
         self.exclude_pointers = False
         self.token_mask_policy = None
+        self.token_value_replacement_policy = None
 
     @property
     def bias_scale(self) -> torch.Tensor:
@@ -116,11 +117,14 @@ class UtilityController(nn.Module):
         memory frame.  Returning the original tensor for an empty mapping keeps
         the upstream cross-attention path exactly unchanged.
         """
-        if not self.token_value_replacements:
+        replacements = self.token_value_replacements
+        if self.token_value_replacement_policy is not None:
+            replacements = self.token_value_replacement_policy(memory, units)
+        if not replacements:
             return memory
         result = memory.clone()
         for unit in units:
-            replacement = self.token_value_replacements.get(unit["frame_idx"])
+            replacement = replacements.get(unit["frame_idx"])
             if replacement is None:
                 continue
             selected, values = replacement
