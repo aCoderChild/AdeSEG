@@ -78,15 +78,21 @@ provenance. Old development notebooks are not the active region-study workflow.
 
 ## Current deployment
 
-The approved-amendment rerun has started on T4 x2 at revision `ef1195b39352`,
+The approved-amendment rerun completed on T4 x2 at revision `ef1195b39352`,
 with online orchestrator `7orfgsk2` and group `region-tokens-v1-ef1195b39352`.
 E0 run `oo2f3bjc` passed on seq2 frame 7: detached/empty/zero-bias no-ops,
 independent mutation and restoration, full-token/frame equivalence, and attention
-reconstruction (maximum absolute error 0.0). E1 run `wg2nrbsd` is online and
-running. This is not a hypothesis result. Local verification: 46 tests pass.
-The editor's stale-draft concurrency error was cleared by refresh; Quick Save
-version 4 now exists, but its exported files still require verification.
-The live collector is watching this new group, not the historical group below.
+reconstruction (maximum absolute error 0.0). E1 run `wg2nrbsd` completed all ten
+promptable sequences (2,744 rows; 2,463 feasible and 281 explicit skips). The
+reviewed sequence-level gate is `proceed_to_E2`: masking recent boundary tokens
+caused mean Dice harm 0.0322 (95% CI 0.0044–0.0695) and boundary-F harm 0.0413
+(95% CI 0.0167–0.0727), beyond every uniform-random seed mean. This only gates
+E2; it does not confirm H1–H4 or mark the full study complete. The Drive delivery
+receipt is valid, and the collector has verified artifact checksums.
+
+The next revision adds the E2 value-only path. It preserves keys, RoPE positions,
+and pointers while replacing selected spatial values; an identity replacement is
+now an E0-required bit-exact check before any E2 inference is counted.
 
 The collector verifies every downloaded file against the W&B manifest MD5,
 removing only a mismatched downloaded copy before refetching. This avoids the
