@@ -3,6 +3,48 @@ import os
 from pathlib import Path
 
 
+def download_forge_run_file(file, destination):
+    """Fetch a Forge run file with explicit auth and its advertised checksum.
+
+    Kaggle's W&B service downloader returned a project-not-found 404 for this
+    same URL; the authenticated HTTP endpoint returns the verified payload.
+    """
+    import base64
+    import hashlib
+    from urllib.parse import urlsplit
+
+    import requests
+
+    url = urlsplit(file.url)
+    if url.scheme != "https" or url.netloc != "forge.coreweave.com":
+        raise ValueError("Refusing to send Forge credentials to another origin")
+    key = os.environ.get("WANDB_API_KEY")
+    if not key:
+        raise RuntimeError("Forge run-file download requires WANDB_API_KEY")
+    path = (Path(destination).resolve() / file.name).resolve()
+    if not path.is_relative_to(Path(destination).resolve()):
+        raise ValueError("Unsafe run-file path")
+    response = requests.get(
+        file.url,
+        headers={"Authorization": f"Bearer {key}"},
+        timeout=30,
+        # Requests strips Authorization on cross-origin redirects to the signed
+        # storage URL. Verify the final payload against W&B's size and checksum.
+        allow_redirects=True,
+    )
+    response.raise_for_status()
+    content = response.content
+    if (
+        response.status_code != 200
+        or len(content) != file.size
+        or base64.b64encode(hashlib.md5(content).digest()).decode() != file.md5
+    ):
+        raise ValueError("Forge run-file checksum or size mismatch")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
 def latest_results_artifact(source, required_any=()):
     """Ignore automatic W&B history/config artifacts when loading results."""
     candidates = []

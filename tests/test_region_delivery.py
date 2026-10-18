@@ -8,6 +8,7 @@ import base64
 from types import SimpleNamespace
 import pytest
 from training.tracking import latest_results_artifact
+from training.tracking import download_forge_run_file
 
 
 def test_results_selection_ignores_newer_automatic_history_and_incomplete_gates():
@@ -33,6 +34,50 @@ def test_results_selection_ignores_newer_automatic_history_and_incomplete_gates(
     assert latest_results_artifact(source, ("decision.json",)).name == "results:v1"
     with pytest.raises(ValueError, match="required evidence"):
         latest_results_artifact(source, ("nonexistent.json",))
+
+
+def test_forge_run_file_requires_origin_auth_and_verified_payload(
+    tmp_path, monkeypatch
+):
+    import requests
+
+    payload = b'{"gate_pass":true}'
+    file = SimpleNamespace(
+        url="https://forge.coreweave.com/files/entity/project/run/E1/decision_verified.json",
+        name="E1/decision_verified.json",
+        size=len(payload),
+        md5=base64.b64encode(hashlib.md5(payload).digest()).decode(),
+    )
+    monkeypatch.setenv("WANDB_API_KEY", "test-secret")
+
+    def get(url, **kwargs):
+        assert kwargs["headers"] == {"Authorization": "Bearer test-secret"}
+        assert kwargs["allow_redirects"] is True and kwargs["timeout"] == 30
+        return SimpleNamespace(
+            content=payload, status_code=200, raise_for_status=lambda: None
+        )
+
+    monkeypatch.setattr(requests, "get", get)
+    redirected = requests.Request(
+        "GET",
+        "https://storage.googleapis.com/signed-file",
+        headers={"Authorization": "Bearer test-secret"},
+    ).prepare()
+    requests.Session().rebuild_auth(
+        redirected, SimpleNamespace(request=SimpleNamespace(url=file.url))
+    )
+    assert "Authorization" not in redirected.headers
+    assert download_forge_run_file(file, tmp_path).read_bytes() == payload
+    file.md5 = "wrong"
+    with pytest.raises(ValueError, match="checksum"):
+        download_forge_run_file(file, tmp_path)
+    file.url = "https://example.com/files/secret"
+    with pytest.raises(ValueError, match="another origin"):
+        download_forge_run_file(file, tmp_path)
+    file.url = "https://forge.coreweave.com/files/test"
+    file.name = "../outside.json"
+    with pytest.raises(ValueError, match="Unsafe"):
+        download_forge_run_file(file, tmp_path)
 
 
 def test_live_download_replaces_stale_same_length_file_and_verifies(tmp_path):

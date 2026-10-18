@@ -117,7 +117,7 @@ def e1_gate_artifact():
     run_id = os.environ.get("REGION_E1_RUN_ID", "7orfgsk2")
     artifact_root = OUT / "e1_gate_artifact"
     source = wandb.Api().run(f"adenoid-hypertrophy/ade-seg/{run_id}")
-    from training.tracking import latest_results_artifact
+    from training.tracking import latest_results_artifact, download_forge_run_file
 
     latest_results_artifact(
         source, ("decision_verified.json", "decision.json")
@@ -129,7 +129,7 @@ def e1_gate_artifact():
         item for item in source.files() if item.name == "E1/decision_verified.json"
     ]
     if reviewed:
-        reviewed[0].download(root=str(artifact_root), replace=True)
+        download_forge_run_file(reviewed[0], artifact_root)
     decisions = sorted(artifact_root.rglob("decision_verified.json"))
     if not decisions:
         decisions = sorted(artifact_root.rglob("decision.json"))
