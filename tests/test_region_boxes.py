@@ -32,3 +32,12 @@ def test_region_bias_uses_predicted_mask_at_actual_tiny_grid(monkeypatch):
     assert np.ptp(result[0]) > 0
     assert bias_for_bank([unit], {0: mask}, [SimpleNamespace(image_path="unused")],
                          32, [1.2, 1., 1., .8], 0., "full", 0) == {}
+
+
+def test_development_gate_rejects_failed_validation(tmp_path):
+    import json
+    from scripts.run_medsam2_region_boxes import check_development_gate
+    (tmp_path / "status.json").write_text(json.dumps({"state": "failed"}))
+    (tmp_path / "setup.json").write_text(json.dumps({"scale": 0}))
+    with pytest.raises(ValueError, match="zero-scale"):
+        check_development_gate(tmp_path, tmp_path / "absent.pt", "mps")
