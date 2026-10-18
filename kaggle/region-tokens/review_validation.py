@@ -1,4 +1,4 @@
-"""Separate GPU validation of reviewed region-token controls; not a full study."""
+"""Reuse the pinned runner for validation or explicit PolypGen diagnostic phases."""
 
 import json
 import os
@@ -16,6 +16,41 @@ url = (
 )
 with urllib.request.urlopen(url, timeout=60) as response:
     source = response.read().decode("utf-8")
+
+phase = os.environ.get("REGION_REVIEW_PHASE", "validation")
+if phase not in {"validation", "frame_matched", "corruption"}:
+    raise ValueError("Unknown REGION_REVIEW_PHASE")
+if phase != "validation":
+    # Source-index partitions, not selected by observed effects. seq1/7 have
+    # no labeled foreground. The small seq3 validation is not pooled here.
+    batches = (
+        ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12"],
+        ["seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    )
+    # One selected condition per corruption submission keeps each notebook
+    # within a bounded workload. Each submission still has independent E0.
+    condition = "c0" if phase == "frame_matched" else os.environ.get("REGION_CORRUPTION", "c1")
+    if condition not in {"c0", "c1", "c2", "natural"}:
+        raise ValueError("Unknown REGION_CORRUPTION")
+    for batch, sequences in enumerate(batches, 1):
+        job = dict(
+            stage="E2" if phase == "frame_matched" else "E3",
+            dataset="polypgen", split="test", sequences=sequences,
+            mode="single_step", intervention="attention_mask", memory_condition=condition,
+            band=1, thresholds=[0.1, 0.9], label_ids=[1],
+            boundary_definition="mixed_coverage",
+            spatial_match="frame_distance" if phase == "frame_matched" else "pooled_distance",
+        )
+        output = f"region_tokens_{phase}_{condition}_batch{batch:02d}_v1"
+        os.environ.pop("REGION_E0_TARGET_FRAME", None)
+        os.environ.pop("REGION_E0_SEQUENCE", None)
+        os.environ.update(REGION_STAGE="study_shard", REGION_JOB=json.dumps(job), REGION_OUTPUT_NAME=output)
+        print("[diagnostics] starting explicit batch", json.dumps(job), flush=True)
+        exec(compile(source, "region_tokens_runner.py", "exec"), {"__name__": "__main__"})
+        status = json.loads((Path("/kaggle/working") / output / "status.json").read_text())
+        assert status.get("state") == "complete", "Diagnostic batch failed; stop"
+    print("[diagnostics] selected phase complete; E6 remains deferred; full study incomplete", flush=True)
+    raise SystemExit(0)
 
 os.environ.pop("REGION_E0_TARGET_FRAME", None)
 os.environ.update(
