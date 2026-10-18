@@ -228,10 +228,11 @@ try:
         project="ade-seg",
         entity="adenoid-hypertrophy",
         mode="online",
-        name="region-tokens-orchestrator",
+        name=f"{RUN_STAGE} | pipeline | {OUT.name}",
         group=os.environ["WANDB_RUN_GROUP"],
         dir=str(OUT),
         config={
+            "role": "orchestrator",
             "git_revision": revision,
             "protocol": "region_tokens_v1_1",
             "scope": f"{RUN_STAGE} region-token execution",

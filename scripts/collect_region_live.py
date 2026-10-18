@@ -84,7 +84,13 @@ def main():
                 api.runs("adenoid-hypertrophy/ade-seg", filters={"group": args.group})
             )
             root_run = next(
-                (run for run in runs if run.name == "region-tokens-orchestrator"), None
+                (
+                    run
+                    for run in runs
+                    if run.config.get("role") == "orchestrator"
+                    or run.name == "region-tokens-orchestrator"
+                ),
+                None,
             )
         for run in runs:
             try:
