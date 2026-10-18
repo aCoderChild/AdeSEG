@@ -90,6 +90,7 @@ def test_standalone_e0_delivery_requires_independent_evidence_and_online_provena
             "empty_token_mask_exact",
             "zero_bias_exact",
             "value_identity_exact",
+            "memory_identity_exact",
             "independent_restore_exact",
             "mutation_changed_prediction",
             "full_token_equals_frame",
@@ -104,6 +105,7 @@ def test_standalone_e0_delivery_requires_independent_evidence_and_online_provena
     assert len(receipt["sha256"]) == 6
     for key, value in (
         ("independent_restore_exact", False),
+        ("memory_identity_exact", False),
         ("attention_reconstruction_max_abs", float("nan")),
         ("video", "seq3"),
     ):

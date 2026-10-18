@@ -55,6 +55,7 @@ def validate_e0_delivery(folder):
             "empty_token_mask_exact",
             "zero_bias_exact",
             "value_identity_exact",
+            "memory_identity_exact",
             "independent_restore_exact",
             "mutation_changed_prediction",
             "full_token_equals_frame",
