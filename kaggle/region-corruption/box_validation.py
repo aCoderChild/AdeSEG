@@ -13,7 +13,7 @@ import sys
 
 from kaggle_secrets import UserSecretsClient
 
-REVISION = "fb086b7"
+REVISION = "e748f61"
 repo = Path("/kaggle/temp/AdeSEG-boxes")
 os.environ["WANDB_API_KEY"] = UserSecretsClient().get_secret("WANDB_API_KEY")
 os.environ["WANDB_BASE_URL"] = "https://forge.coreweave.com/api/wandb"
