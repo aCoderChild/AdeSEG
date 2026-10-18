@@ -556,6 +556,8 @@ def rollout(predictor, controller, frames, protocol, config, output, run):
                                 )
                             )
                             row = {
+                                "experiment_stage": config["stage"],
+                                "rollout_operator": config["intervention"],
                                 "video": config["video"],
                                 "frame": int(t),
                                 "category": category,

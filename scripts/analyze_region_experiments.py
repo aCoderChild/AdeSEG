@@ -219,11 +219,24 @@ def stratified_rows(rows, conditions):
 
 def persistent_effect_rows(rows):
     """Pair every accumulated arm with the unmodified rollout on the same frame."""
-    baseline = {
-        unit_key(r): r
-        for r in rows
-        if r.get("category") == "baseline" and "metrics" in r
-    }
+
+    def identity(row):
+        return (
+            unit_key(row),
+            row.get("experiment_stage", "E2"),
+            row.get("rollout_operator", "attention_mask"),
+            row.get("memory_source", "c0_initialized_then_predicted"),
+            row.get("band", 1),
+            tuple(row.get("thresholds", [0.1, 0.9])),
+        )
+
+    baseline = {}
+    for row in rows:
+        if row.get("category") == "baseline" and "metrics" in row:
+            key = identity(row)
+            if key in baseline:
+                raise ValueError("Duplicate persistent baseline configuration/frame")
+            baseline[key] = row
     output = []
     for row in rows:
         if (
@@ -232,7 +245,7 @@ def persistent_effect_rows(rows):
             or not row.get("k")
         ):
             continue
-        reference = baseline.get(unit_key(row))
+        reference = baseline.get(identity(row))
         if reference is None:
             raise ValueError("Persistent row has no matching baseline frame")
         harm = {
@@ -273,6 +286,7 @@ def attention_agreement(rows):
             arm = (
                 row.get("dataset", "polypgen"),
                 row.get("intervention_kind", "attention_mask"),
+                row.get("mode", "single_step"),
                 row.get("memory_source", "c0"),
                 row["bank"],
                 row.get("band", 1),
@@ -362,6 +376,7 @@ def interaction_models(rows, conditions):
                 "dataset": row.get("dataset", "polypgen"),
                 "bank": row["bank"],
                 "operator": row.get("intervention_kind", "attention_mask"),
+                "mode": row.get("mode", "single_step"),
                 "band": row.get("band", 1),
                 "thresholds": tuple(row.get("thresholds", [0.1, 0.9])),
                 "harm": row["harm"]["boundary_f"],
@@ -379,8 +394,7 @@ def interaction_models(rows, conditions):
         & (data["thresholds"] == (0.1, 0.9))
     ]
     output = {}
-    for bank in ("conditioning", "recent"):
-        group = data[data["bank"] == bank]
+    for (bank, mode), group in data.groupby(["bank", "mode"]):
         for condition in (
             "corruption",
             "contrast",
@@ -389,7 +403,7 @@ def interaction_models(rows, conditions):
             "coverage_tokens",
             "class_group",
         ):
-            key = f"{bank}/{condition}"
+            key = f"{bank}/{mode}/{condition}"
             if condition not in group:
                 output[key] = {
                     "state": "unavailable",
@@ -440,6 +454,11 @@ def interaction_models(rows, conditions):
 
 
 def method_comparisons(rows):
+    if not any(r.get("category") == "full" for r in rows):
+        return {}
+    # E2 persistent controls are not E6 baselines. Their trajectories can differ
+    # by operator/taxonomy even on the same sequence and frame.
+    rows = [r for r in rows if r.get("experiment_stage") not in {"E2", "E3"}]
     baseline, lookup = {}, {}
     for row in rows:
         if row.get("state") != "complete" or "metrics" not in row:
@@ -694,6 +713,7 @@ def query_matrix(rows):
                 key = (
                     row.get("dataset", "polypgen"),
                     row.get("intervention_kind", "attention_mask"),
+                    row.get("mode", "single_step"),
                     row.get("memory_source", "c0"),
                     row["bank"],
                     row.get("band", 1),

@@ -19,6 +19,7 @@ from scripts.analyze_region_experiments import (
     freeze_method,
     episode_frames,
     dev_row,
+    attention_agreement,
 )
 from scripts.run_region_experiments import (
     lean_anchor_similarity,
@@ -368,6 +369,71 @@ def test_persistent_effects_exclude_infeasible_arms_without_reducing_budget():
     row = persistent_effect_rows([baseline, altered])[0]
     assert row["state"] == "skipped" and row["k"] == 10
     assert row["harm"]["dice"] == pytest.approx(0.2)
+
+
+def test_combined_persistent_shards_pair_only_with_their_own_baseline():
+    rows = []
+    for operator, score in (("attention_mask", 0.8), ("swap", 0.6)):
+        for band in (0, 1):
+            baseline = {
+                "video": "seq2",
+                "frame": 7,
+                "dataset": "polypgen",
+                "experiment_stage": "E2",
+                "rollout_operator": operator,
+                "band": band,
+                "category": "baseline",
+                "bank": None,
+                "metrics": {"dice": score + band * 0.1},
+            }
+            rows += [
+                baseline,
+                {
+                    **baseline,
+                    "category": "boundary",
+                    "bank": "recent",
+                    "k": 10,
+                    "feasible": True,
+                    "metrics": {"dice": score + band * 0.1 - 0.05},
+                },
+            ]
+    effects = persistent_effect_rows(rows)
+    assert len(effects) == 4
+    assert all(r["harm"]["dice"] == pytest.approx(0.05) for r in effects)
+    assert method_comparisons(rows) == {}
+    with pytest.raises(ValueError, match="Duplicate persistent baseline"):
+        persistent_effect_rows(rows + [rows[0]])
+    with pytest.raises(ValueError, match="no matching baseline"):
+        persistent_effect_rows(rows[1:])
+
+
+def test_attention_agreement_keeps_direct_and_accumulated_effects_separate():
+    from modeling.region_tokens import CATEGORIES
+
+    rows = []
+    mass = {name: i + 1.0 for i, name in enumerate(CATEGORIES)}
+    attention = [{q: mass for q in ("foreground", "boundary", "background")}]
+    for mode, sign in (("single_step", 1), ("persistent", -1)):
+        for name in CATEGORIES:
+            rows.append(
+                {
+                    "video": "seq2",
+                    "frame": 7,
+                    "state": "complete",
+                    "bank": "recent",
+                    "category": name,
+                    "mode": mode,
+                    "attention": attention,
+                    "category_counts": dict.fromkeys(CATEGORIES, 1),
+                    "harm_per_token": {"boundary_f": sign * mass[name]},
+                }
+            )
+    result = attention_agreement(rows)["agreement"]
+    assert result
+    for key, value in result.items():
+        assert value["rho"] == pytest.approx(1 if "single_step" in key else -1)
+    assert any("single_step" in key for key in result)
+    assert any("persistent" in key for key in result)
 
 
 def test_persistent_rollout_uses_independent_states_and_reuses_features(
