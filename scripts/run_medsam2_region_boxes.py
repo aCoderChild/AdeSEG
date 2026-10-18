@@ -50,7 +50,7 @@ def detect(yolo, frame, device):
                               device=device, verbose=False)[0]
     if result.boxes is None or not len(result.boxes):
         return None
-    top = int(result.boxes.conf.argmax())
+    top = int(np.argsort(result.boxes.conf.cpu().numpy())[::-1][0])
     return {"box": result.boxes.xyxy[top].cpu().tolist(),
             "confidence": float(result.boxes.conf[top])}
 
