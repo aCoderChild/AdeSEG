@@ -27,6 +27,7 @@
     "A1_feasibility": "All 21 promptable PolypGen sequences; oracle GT geometry only, no prediction or performance claim; report full-budget and support counts",
     "MPS_validation": "seq2 prefix, 12 frames from prompt, independent native and zero-controller rollouts; require bit-identical logits before diagnosis",
     "Bplus_diagnosis": "seq13 and seq14, natural propagation and all spatial keys suppressed; same single mask prompt; pointers retained",
+    "sampled_counterfactual": "After fresh validation, eight dev sequences seq2-6,8-10; two index-selected targets (first eligible and last); independent c0,c1,c2,natural spatial-bank reconstructions at each target; preserve natural pointers and history outside selected bank. Existing corruption operators and equal-budget interventions, five random seeds, conditioning/recent separate. Includes fixed oracle category supports, recorded overlap, signed query-region Dice harm. This is a sampled matched-bank perturbation experiment, not accumulated corrupted rollouts or full A3.",
     "diagnosis_interpretation": "Spatial suppression is not complete memory-off and may remove target identity. Differences do not alone prove errors were carried by a particular region.",
     "deadline": "2026-10-19T00:00:00+07:00",
     "deadline_policy": "Stop cleanly at a frame boundary; retain partial results with completed=false; never claim whole-sequence coverage from a prefix"
