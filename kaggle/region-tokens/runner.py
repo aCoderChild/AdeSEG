@@ -266,6 +266,9 @@ try:
     rows = [json.loads(line) for line in manifest.read_text().splitlines()]
     protocol = REPO / "protocols/region_tokens_v1_1.json"
     (OUT / "protocol.json").write_bytes(protocol.read_bytes())
+    (OUT / "restore_control_protocol.json").write_bytes(
+        (REPO / "protocols/region_tokens_restore_control_v2.json").read_bytes()
+    )
     if RUN_STAGE == "study_shard":
         (OUT / "execution_protocol.json").write_bytes(
             (REPO / "protocols/region_tokens_execution_v1.json").read_bytes()
