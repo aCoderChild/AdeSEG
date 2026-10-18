@@ -21,6 +21,7 @@ def build_video_predictor(
     device="auto",
     predictor_target=None,
     predictor_overrides=None,
+    apply_postprocessing=True,
 ):
     """Build native MedSAM2 or a custom video predictor.
 
@@ -42,6 +43,7 @@ def build_video_predictor(
         str(checkpoint),
         device=device,
         hydra_overrides_extra=hydra_overrides,
+        apply_postprocessing=apply_postprocessing,
     )
     # MedSAM2 fills small mask holes only when its compiled _C extension is installed, so
     # outputs would depend on the machine; every reported run had no hole filling.
