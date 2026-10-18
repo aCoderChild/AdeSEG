@@ -68,8 +68,24 @@ shows the existing `WANDB_API_KEY` checked; that does not prove the API-submitte
 saved version can retrieve it. Its diagnostic log is in Drive under
 `region_tokens_tracking_preflight_v6`. Validate an editor-submitted preflight
 before allocating another GPU session. Never embed the key in notebook source.
+Editor-submitted Version 7 (script version 359528953) subsequently passed:
+secret retrieval succeeded and the existing authenticated project check returned
+connected at 11.1 seconds. Kaggle marked it successful (20.7-second run). Its
+output, log and checksum receipt are in Drive under
+`region_tokens_tracking_preflight_v7`. This proves credential/project access,
+not model correctness or a completed W&B experiment run. Version 8 was then
+submitted through that same editor path for fresh E0 checks, with PolypGen only.
 The default metadata now attaches only PolypGen for E0; add Cholec/DAVIS only
 for a stage that needs that dataset.
+
+For standalone E0 terminal export, select its actual output folder; do not apply
+the E1 pilot verifier to an E0-only run:
+
+```sh
+.venv/bin/python scripts/collect_region_results.py --wait \
+  --folder-name region_tokens_execution_e0_v2 --output-root \
+  '/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/16:10:2026'
+```
 
 ## Scientific status
 

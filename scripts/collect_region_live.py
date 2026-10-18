@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.collect_region_results import (
     validate,
+    validate_e0_delivery,
     validate_study_shard,
     verify_analysis_and_wandb,
 )
@@ -132,6 +133,17 @@ def main():
                 if (folder / "status.json").exists()
                 else {}
             )
+            if root_run.state == "finished" and status.get("stage") == "E0_complete":
+                receipt = validate_e0_delivery(folder)
+                receipt["delivery_source"] = (
+                    "W&B artifacts downloaded directly to Google Drive"
+                )
+                (folder / "delivery_receipt.json").write_text(
+                    json.dumps(receipt, indent=2) + "\n"
+                )
+                if not receipt["delivery_valid"]:
+                    raise SystemExit("Standalone E0 delivery failed validation")
+                return
             if root_run.state == "finished" and status.get("stage") == "pilot_complete":
                 verify_analysis_and_wandb(folder)
                 (folder / "failure.txt").unlink(missing_ok=True)

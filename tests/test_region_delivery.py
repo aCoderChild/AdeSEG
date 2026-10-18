@@ -1,7 +1,7 @@
 import json
 
 from scripts.analyze_region_token_pilot import analyze
-from scripts.collect_region_results import validate
+from scripts.collect_region_results import validate, validate_e0_delivery
 from scripts.collect_region_live import download_verified
 import hashlib
 import base64
@@ -62,6 +62,57 @@ def test_missing_or_failed_results_never_validate(tmp_path):
     assert not receipt["delivery_valid"]
     assert not receipt["full_study_complete"]
     assert "No E1 records" in receipt["problems"]
+
+
+def test_standalone_e0_delivery_requires_independent_evidence_and_online_provenance(
+    tmp_path,
+):
+    assert not validate_e0_delivery(tmp_path)["delivery_valid"]
+    (tmp_path / "E0").mkdir()
+    values = {
+        "status.json": {"state": "complete", "stage": "E0_complete"},
+        "tracking.json": {"mode": "online", "run_id": "root", "git_revision": "abc"},
+        "E0/tracking.json": {"mode": "online", "run_id": "child"},
+        "E0/status.json": {"state": "complete", "e0_pass": True, "sequences": ["seq2"]},
+        "E0/setup.json": {
+            "git_revision": "abc",
+            "sequences": ["seq2"],
+            "checkpoint_sha256": "a" * 64,
+            "protocol_sha256": "b" * 64,
+        },
+    }
+    for name, value in values.items():
+        (tmp_path / name).write_text(json.dumps(value))
+    check = dict.fromkeys(
+        (
+            "passed",
+            "detached_noop_exact",
+            "empty_token_mask_exact",
+            "zero_bias_exact",
+            "value_identity_exact",
+            "independent_restore_exact",
+            "mutation_changed_prediction",
+            "full_token_equals_frame",
+        ),
+        True,
+    )
+    check.update(video="seq2", attention_reconstruction_max_abs=0.0)
+    sanity = tmp_path / "E0/sanity.jsonl"
+    sanity.write_text(json.dumps(check) + "\n")
+    receipt = validate_e0_delivery(tmp_path)
+    assert receipt["delivery_valid"] and not receipt["full_study_complete"]
+    assert len(receipt["sha256"]) == 6
+    for key, value in (
+        ("independent_restore_exact", False),
+        ("attention_reconstruction_max_abs", float("nan")),
+        ("video", "seq3"),
+    ):
+        invalid = {**check, key: value}
+        sanity.write_text(json.dumps(invalid) + "\n")
+        assert not validate_e0_delivery(tmp_path)["delivery_valid"]
+    sanity.write_text(json.dumps(check) + "\n")
+    (tmp_path / "E0/tracking.json").write_text(json.dumps({"mode": "disabled"}))
+    assert not validate_e0_delivery(tmp_path)["delivery_valid"]
 
 
 def test_pilot_empty_or_incomplete_sequence_coverage_never_passes():

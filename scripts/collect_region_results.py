@@ -14,6 +14,85 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
+def validate_e0_delivery(folder):
+    """Validate a standalone E0 export without inventing missing E1 results."""
+    folder = Path(folder)
+    problems = []
+    required = (
+        "status.json",
+        "tracking.json",
+        "E0/status.json",
+        "E0/tracking.json",
+        "E0/setup.json",
+        "E0/sanity.jsonl",
+    )
+    missing = [name for name in required if not (folder / name).is_file()]
+    if missing:
+        problems.extend(f"Missing {name}" for name in missing)
+    else:
+        status = json.loads((folder / "status.json").read_text())
+        child = json.loads((folder / "E0/status.json").read_text())
+        setup = json.loads((folder / "E0/setup.json").read_text())
+        checks = [
+            json.loads(line)
+            for line in (folder / "E0/sanity.jsonl").read_text().splitlines()
+            if line
+        ]
+        if status.get("state") != "complete" or status.get("stage") != "E0_complete":
+            problems.append("Standalone E0 pipeline did not complete")
+        if child.get("state") != "complete" or child.get("e0_pass") is not True:
+            problems.append("E0 child did not pass")
+        sequences = setup.get("sequences", [])
+        if (
+            not sequences
+            or set(sequences) != {c.get("video") for c in checks}
+            or child.get("sequences") != sequences
+        ):
+            problems.append("E0 sanity sequence coverage differs from setup")
+        flags = (
+            "passed",
+            "detached_noop_exact",
+            "empty_token_mask_exact",
+            "zero_bias_exact",
+            "value_identity_exact",
+            "independent_restore_exact",
+            "mutation_changed_prediction",
+            "full_token_equals_frame",
+        )
+        for check in checks:
+            error = check.get("attention_reconstruction_max_abs")
+            if (
+                any(check.get(flag) is not True for flag in flags)
+                or not isinstance(error, (int, float))
+                or not 0 <= error < 1e-5
+            ):
+                problems.append("Missing or failed independent E0 exactness evidence")
+        for name in ("tracking.json", "E0/tracking.json"):
+            tracking = json.loads((folder / name).read_text())
+            if tracking.get("mode") != "online" or not tracking.get("run_id"):
+                problems.append(f"Invalid online tracking: {name}")
+        tracking = json.loads((folder / "tracking.json").read_text())
+        if not setup.get("git_revision") or setup["git_revision"] != tracking.get(
+            "git_revision"
+        ):
+            problems.append("E0 and orchestrator revisions differ")
+        for key in ("protocol_sha256", "checkpoint_sha256"):
+            if len(setup.get(key, "")) != 64:
+                problems.append(f"Missing E0 provenance: {key}")
+    return {
+        "stage": "E0",
+        "delivery_valid": not problems,
+        "problems": problems,
+        "full_study_complete": False,
+        "kaggle_version_export_verified": False,
+        "sha256": {
+            name: hashlib.sha256((folder / name).read_bytes()).hexdigest()
+            for name in required
+            if (folder / name).is_file()
+        },
+    }
+
+
 def validate_study_shard(folder):
     """Validate component delivery without applying the E1-only report schema."""
     folder = Path(folder)
@@ -286,6 +365,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kernel", default="bunnoob2005/adeseg-region-memory-tokens")
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--folder-name", default="region_tokens_v1")
     parser.add_argument("--wait", action="store_true")
     args = parser.parse_args()
     while True:
@@ -311,16 +391,30 @@ def main():
         ],
         check=True,
     )
-    folder = args.output_root / "region_tokens_v1"
+    folder = args.output_root / args.folder_name
     status_path = folder / "status.json"
-    if (
-        status_path.exists()
-        and json.loads(status_path.read_text()).get("state") == "complete"
-    ):
+    saved_status = json.loads(status_path.read_text()) if status_path.exists() else {}
+    stage = saved_status.get("stage")
+    if saved_status.get("state") == "complete" and stage == "pilot_complete":
         verify_analysis_and_wandb(folder)
         # A prior failed bootstrap can have left this file during --force export.
         (folder / "failure.txt").unlink(missing_ok=True)
-    receipt = validate(folder)
+    receipt = (
+        validate_e0_delivery(folder)
+        if stage == "E0_complete"
+        else validate_study_shard(folder)
+        if stage == "study_shard_complete"
+        else validate(folder)
+    )
+    receipt["kaggle_terminal_status"] = status.strip()
+    receipt["kaggle_version_export_verified"] = (
+        receipt["delivery_valid"] and "KERNELWORKERSTATUS.COMPLETE" in status.upper()
+    )
+    receipt["delivery_source"] = (
+        "Kaggle terminal output export directly to Google Drive"
+    )
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "delivery_receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     print(
         json.dumps(
             {key: value for key, value in receipt.items() if key != "sha256"}, indent=2
