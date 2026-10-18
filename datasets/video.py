@@ -32,6 +32,12 @@ class ManifestFrame:
     mask_path: Path
 
 
+def stage_frames(frames: list[ManifestFrame], directory: Path) -> None:
+    """Link manifest-ordered frames to SAM2's contiguous JPEG input names."""
+    for index, frame in enumerate(frames):
+        (directory / f"{index:06d}.jpg").symlink_to(frame.image_path.resolve())
+
+
 def foreground_labels(frames):
     """Indexed classes present anywhere in a clip, including ignore labels.
 

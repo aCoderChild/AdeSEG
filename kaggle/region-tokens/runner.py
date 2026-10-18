@@ -4,6 +4,8 @@ import hashlib
 import importlib.util
 import json
 import os
+import selectors
+import signal
 from pathlib import Path
 import shutil
 import subprocess
@@ -31,15 +33,10 @@ OUT = Path("/kaggle/working") / os.environ.get(
 )
 REPO = Path("/kaggle/temp/AdeSEG-region")
 if OUT.exists():
-    previous_status = OUT / "status.json"
-    previous = (
-        json.loads(previous_status.read_text()) if previous_status.is_file() else {}
+    raise FileExistsError(
+        f"Preserving existing Kaggle outputs, including failures: {OUT}. "
+        "Use a fresh REGION_OUTPUT_NAME for the rerun."
     )
-    if previous.get("state") != "failed":
-        raise FileExistsError(
-            f"Refusing to overwrite non-failed Kaggle output directory: {OUT}"
-        )
-    shutil.rmtree(OUT)
 OUT.mkdir(parents=True, exist_ok=False)
 started = time.time()
 run = None
@@ -68,12 +65,89 @@ def mark(stage, state="running", **details):
         )
 
 
-def command(arguments, timeout=21600):
+def command(arguments, timeout=21600, idle_timeout=1800, heartbeat=60):
+    """Save child output and distinguish supervisor liveness from child activity.
+
+    Silence is not proof of a GPU deadlock. Fail explicitly after 30 minutes
+    without output rather than silently spending the remainder of the quota.
+    """
     arguments = list(map(str, arguments))
     print("+", " ".join(arguments), flush=True)
-    subprocess.run(
-        arguments, cwd=REPO, check=True, timeout=timeout, env=os.environ.copy()
-    )
+    logs = OUT / "command_logs"
+    logs.mkdir(exist_ok=True)
+    log_path = logs / f"{time.time_ns()}.log"
+    start = last_output = last_heartbeat = time.monotonic()
+    with (
+        log_path.open("wb") as log,
+        subprocess.Popen(
+            arguments,
+            cwd=REPO,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        ) as process,
+        selectors.DefaultSelector() as selector,
+    ):
+        selector.register(process.stdout, selectors.EVENT_READ)
+        try:
+            while process.poll() is None or selector.get_map():
+                for key, _ in selector.select(timeout=0.1):
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    log.write(chunk)
+                    log.flush()
+                    sys.stdout.write(chunk.decode("utf-8", errors="replace"))
+                    sys.stdout.flush()
+                    last_output = time.monotonic()
+                now = time.monotonic()
+                if now - last_heartbeat >= heartbeat:
+                    mark(
+                        "command_heartbeat",
+                        child_pid=process.pid,
+                        command_elapsed_seconds=now - start,
+                        seconds_since_child_output=now - last_output,
+                        command_log=str(log_path),
+                        interpretation="Supervisor alive; not proof of model progress",
+                    )
+                    last_heartbeat = now
+                if now - start >= timeout or now - last_output >= idle_timeout:
+                    reason = (
+                        "wall_timeout"
+                        if now - start >= timeout
+                        else "no_output_timeout"
+                    )
+                    mark(
+                        "command_timeout",
+                        state="failed",
+                        reason=reason,
+                        child_pid=process.pid,
+                        command_log=str(log_path),
+                    )
+                    raise subprocess.TimeoutExpired(
+                        arguments, timeout if reason == "wall_timeout" else idle_timeout
+                    )
+            returncode = process.wait()
+            if returncode:
+                raise subprocess.CalledProcessError(returncode, arguments)
+        finally:
+            # Kill descendants too: subprocess.run(timeout=...) only kills its
+            # direct child, which can leave GPU workers alive after a timeout.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def resolve_kaggle_input(*relative_paths: str) -> Path:
@@ -107,7 +181,7 @@ def upload():
             and path.suffix != ".tmp"
         ):
             artifact.add_file(str(path), name=path.relative_to(OUT).as_posix())
-    run.log_artifact(artifact).wait()
+    run.log_artifact(artifact).wait(timeout=600)
 
 
 def e1_gate_artifact():
@@ -252,18 +326,27 @@ try:
     )
     mark("tracking", wandb_run_id=run.id)
     manifest = OUT / "polypgen_manifest.jsonl"
-    command(
-        [
-            sys.executable,
-            REPO / "scripts/build_polypgen_kaggle_manifest.py",
-            "--data-root",
-            "/kaggle/input",
-            "--output",
-            manifest,
-        ],
-        180,
-    )
+    manifest_arguments = [
+        sys.executable,
+        REPO / "scripts/build_polypgen_kaggle_manifest.py",
+        "--data-root",
+        os.environ.get("REGION_POLYPGEN_ROOT", "/kaggle/input"),
+        "--output",
+        manifest,
+    ]
+    if os.environ.get("REGION_POLYPGEN_FRAME_ORDER_MAP"):
+        manifest_arguments += [
+            "--frame-order-map",
+            os.environ["REGION_POLYPGEN_FRAME_ORDER_MAP"],
+        ]
+    command(manifest_arguments, 180)
     rows = [json.loads(line) for line in manifest.read_text().splitlines()]
+    if not rows or any(
+        not row.get("chronological_assumption_allowed", False) for row in rows
+    ):
+        raise ValueError(
+            "Chronological input verification is mandatory before model execution"
+        )
     protocol = REPO / "protocols/region_tokens_v1_1.json"
     (OUT / "protocol.json").write_bytes(protocol.read_bytes())
     (OUT / "restore_control_protocol.json").write_bytes(

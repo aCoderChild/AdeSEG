@@ -1,6 +1,6 @@
 import numpy as np
 
-from scripts.generate_utility_labels import corrupt_mask
+from modeling.memory_interventions import corrupt_mask
 
 
 def test_mixed_corruption_is_deterministic_and_cumulative():

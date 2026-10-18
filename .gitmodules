@@ -13,3 +13,12 @@
 [submodule "external/MA-SAM2"]
 	path = external/MA-SAM2
 	url = https://github.com/Fawke108/MA-SAM2.git
+[submodule "external/Cutie"]
+	path = external/Cutie
+	url = https://github.com/hkchengrex/Cutie.git
+[submodule "external/MemSAM"]
+	path = external/MemSAM
+	url = https://github.com/dengxl0520/MemSAM.git
+[submodule "external/Efficient-SAM2"]
+	path = external/Efficient-SAM2
+	url = https://github.com/jingjing0419/Efficient-SAM2.git

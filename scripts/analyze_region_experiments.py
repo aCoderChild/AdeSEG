@@ -18,7 +18,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from evaluation.utility_retrieval import (
+from evaluation.statistics import (
     failure_episodes,
     holm_adjust,
     paired_wilcoxon,

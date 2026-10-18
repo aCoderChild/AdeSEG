@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.run_region_token_pilot import write_json
 from scripts.run_medsam2_region_boxes import check_development_gate
-from evaluation.utility_retrieval import paired_wilcoxon, sequence_bootstrap_interval, holm_adjust
+from evaluation.statistics import paired_wilcoxon, sequence_bootstrap_interval, holm_adjust
 from training.tracking import start_wandb, log_results_artifact
 
 

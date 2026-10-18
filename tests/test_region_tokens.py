@@ -11,11 +11,11 @@ from modeling.region_tokens import (
     token_categories,
     persistent_region_rollout,
 )
-from modeling.utility_memory import UtilityController, UtilityHead
+from modeling.memory_attention import UtilityController
 
 
 def fixture():
-    controller = UtilityController(UtilityHead(4, 2, 8), learn_scale=False)
+    controller = UtilityController(learn_scale=False)
     controller.enabled = False
     curr, memory = torch.randn(1, 4, 4), torch.randn(1, 10, 2)
     units = [

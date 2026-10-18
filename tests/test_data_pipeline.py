@@ -27,6 +27,25 @@ def test_polypgen_frames_are_in_numeric_order():
     assert [int(p.stem.rsplit("_", 1)[1]) for p in order(paths)] == [7, 69, 104, 1000]
 
 
+def test_staging_preserves_manifest_order_and_source_files(tmp_path):
+    from datasets.video import ManifestFrame, stage_frames
+
+    sources = [tmp_path / name for name in ("source_104.jpg", "source_7.jpg")]
+    for path in sources:
+        path.write_bytes(path.name.encode())
+    frames = [ManifestFrame("seq", i, path, tmp_path / "mask.png")
+              for i, path in enumerate(sources)]
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    stage_frames(frames, staged)
+    assert sorted(path.name for path in staged.iterdir()) == ["000000.jpg", "000001.jpg"]
+    for index, source in enumerate(sources):
+        link = staged / f"{index:06d}.jpg"
+        assert link.is_symlink()
+        assert link.resolve() == source.resolve()
+        assert link.read_bytes() == source.read_bytes()
+
+
 def test_inference_and_evaluation_use_the_same_frame_order(tmp_path):
     """infer.py follows the manifest (numeric_order); temporal.py sorts mask files with
     natural_sort_key. Reappearance metrics depend on row order, so the two must agree."""

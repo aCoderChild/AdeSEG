@@ -1,11 +1,291 @@
 """Region taxonomy and budget matching for the existing memory-attention hook."""
 
 import cv2
+from contextlib import contextmanager
 import numpy as np
 import torch
 from scipy.ndimage import distance_transform_edt
 
 CATEGORIES = ("boundary", "foreground", "near_background", "far_background")
+
+
+@contextmanager
+def capture_chunked_region_attention(
+    memory_attention, units, maps, chunk_size=32, failure_dir=None
+):
+    """Observe native post-RoPE attention without retaining Q×K matrices.
+
+    Adapt the bundled SAM2 Attention._attention reconstruction, in query chunks.
+    Always return its original SDPA output; this is measurement, not a new
+    attention implementation. Mass averages all queries/heads, not GT queries.
+    """
+    records, originals = [], []
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be positive")
+    try:
+        for layer_index, layer in enumerate(memory_attention.layers):
+            module = layer.cross_attn_image
+            originals.append((module, module.__dict__.get("_attention")))
+            native = module._attention
+
+            def observe(
+                q,
+                k,
+                v,
+                attn_mask=None,
+                _native=native,
+                _index=layer_index,
+                _module=module,
+            ):
+                if _module.training:
+                    raise ValueError("Attention observation requires eval mode")
+                out = _native(q, k, v, attn_mask=attn_mask)
+                key_mass = torch.zeros(
+                    k.shape[-2], device=q.device, dtype=torch.float32
+                )
+                maximum_error = 0.0
+                worst_start = 0
+                with torch.no_grad():
+                    for start in range(0, q.shape[-2], chunk_size):
+                        end = start + chunk_size
+                        logits = q[..., start:end, :].float() @ k.float().transpose(
+                            -2, -1
+                        )
+                        logits /= q.shape[-1] ** 0.5
+                        if attn_mask is not None:
+                            mask = (
+                                attn_mask
+                                if attn_mask.shape[-2] == 1
+                                else attn_mask[..., start:end, :]
+                            )
+                            if mask.dtype == torch.bool:
+                                logits.masked_fill_(~mask, float("-inf"))
+                            else:
+                                logits += mask
+                        weights = logits.softmax(-1)
+                        key_mass += weights.sum(dim=(0, 1, 2))
+                        manual = weights @ v.float()
+                        if (
+                            not torch.isfinite(manual).all()
+                            or not torch.isfinite(out[..., start:end, :]).all()
+                        ):
+                            raise ValueError("Nonfinite attention reconstruction")
+                        error = float(
+                            (manual - out[..., start:end, :].float()).abs().max()
+                        )
+                        if error > maximum_error:
+                            maximum_error, worst_start = error, start
+                if failure_dir is not None and maximum_error > 1e-4:
+                    from pathlib import Path
+
+                    destination = Path(failure_dir)
+                    destination.mkdir(parents=True, exist_ok=True)
+                    torch.save(
+                        {
+                            "q": q[..., worst_start : worst_start + chunk_size, :]
+                            .detach()
+                            .cpu(),
+                            "k": k.detach().cpu(),
+                            "v": v.detach().cpu(),
+                            "native": out[
+                                ..., worst_start : worst_start + chunk_size, :
+                            ]
+                            .detach()
+                            .cpu(),
+                            "attn_mask": attn_mask.detach().cpu()
+                            if attn_mask is not None
+                            else None,
+                            "query_start": worst_start,
+                            "mps_max_abs": maximum_error,
+                        },
+                        destination / f"layer{_index}.pt",
+                    )
+                key_mass /= q.shape[0] * q.shape[1] * q.shape[-2]
+                key_mass = key_mass.cpu().numpy()
+                regions = []
+                for unit in units:
+                    labels = np.asarray(maps[unit["frame_idx"]]).reshape(-1)
+                    mass = key_mass[unit["start"] : unit["end"]]
+                    if labels.size != mass.size:
+                        raise ValueError("Region labels do not match spatial keys")
+                    regions.append(
+                        {
+                            "frame": unit["frame_idx"],
+                            "conditioning": bool(unit["conditioning"]),
+                            "regions": {
+                                name: {
+                                    "tokens": int((labels == i).sum()),
+                                    "mass": float(mass[labels == i].sum()),
+                                }
+                                for i, name in enumerate(CATEGORIES)
+                            },
+                        }
+                    )
+                spatial_end = max(u["end"] for u in units)
+                records.append(
+                    {
+                        "layer": _index,
+                        "units": regions,
+                        "pointer_tokens": len(key_mass) - spatial_end,
+                        "pointer_mass": float(key_mass[spatial_end:].sum()),
+                        "total_mass": float(key_mass.sum()),
+                        "reconstruction_max_abs": maximum_error,
+                        "query_pool": "all native queries, averaged over heads",
+                    }
+                )
+                return out
+
+            module._attention = observe
+        yield records
+    finally:
+        for module, previous in originals:
+            if previous is None:
+                module.__dict__.pop("_attention", None)
+            else:
+                module._attention = previous
+
+
+def region_geometry(mask, grid=(64, 64), thresholds=(0.1, 0.9)):
+    """V2 symmetric distance strata, reusing the area-coverage taxonomy.
+
+    Distance is between token centres and the inner contour of coverage >= .5.
+    Empty masks have undefined distances, not an invented foreground contour.
+    Mixed coverage is a mask property, not an image-edge detector.
+    """
+    coverage = token_categories(mask, grid, thresholds=thresholds)["coverage"]
+    inside = coverage >= 0.5
+    mixed = (coverage > thresholds[0]) & (coverage < thresholds[1])
+    if not inside.any():
+        distance = np.full(grid, np.nan)
+    else:
+        eroded = cv2.erode(
+            inside.astype(np.uint8),
+            np.ones((3, 3), np.uint8),
+            borderType=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        ).astype(bool)
+        contour = inside & ~eroded
+        distance = distance_transform_edt(~contour)
+    # Symmetric absolute bins: 0, (0,1], (1,3], >3 token-centre units.
+    bins = np.digitize(distance, [0, 1, 3], right=True).astype(np.int8)
+    bins[~np.isfinite(distance)] = -1
+    return {
+        "coverage": coverage,
+        "inside": inside,
+        "mixed": mixed,
+        "absolute_distance": distance,
+        "distance_bin": bins,
+        "signed_distance": np.where(inside, -distance, distance),
+    }
+
+
+def disjoint_distance_match(target, eligible, distance_bins, seed=0):
+    """Match counts per frame/bin without replacement, overlap or relaxation.
+
+    Arrays are [H,W] or [frames,H,W]. None means the full budget is infeasible.
+    """
+    target = np.asarray(target, dtype=bool)
+    eligible = np.asarray(eligible, dtype=bool)
+    bins = np.asarray(distance_bins)
+    if target.shape != eligible.shape or bins.shape != target.shape:
+        raise ValueError("Target, eligibility and distance shapes must match")
+    if target.ndim not in (2, 3):
+        raise ValueError("Expected [H,W] or [frames,H,W]")
+    if not target.any() or (bins[target] < 0).any():
+        return None
+    if target.ndim == 2:
+        target, eligible, bins = target[None], eligible[None], bins[None]
+    rng, selected = np.random.default_rng(seed), []
+    for frame, (support, pool, strata) in enumerate(zip(target, eligible, bins)):
+        pool = pool & ~support
+        for value, count in zip(*np.unique(strata[support], return_counts=True)):
+            candidates = np.flatnonzero(pool.ravel() & (strata.ravel() == value))
+            if len(candidates) < count:
+                return None
+            selected.extend(
+                rng.choice(candidates, int(count), replace=False) + frame * support.size
+            )
+    return np.asarray(selected, dtype=int)
+
+
+def subsampled_disjoint_match(target, eligible, strata, cap=64, seed=0):
+    """Explicit common-support subsampling, not a relaxed full-budget match.
+
+    Reuse disjoint_distance_match after sampling at most cap target keys with
+    quotas supported by BOTH groups in each memory-frame/exact-distance stratum.
+    """
+    target, eligible, strata = (
+        np.asarray(target, bool),
+        np.asarray(eligible, bool),
+        np.asarray(strata),
+    )
+    if (
+        target.shape != eligible.shape
+        or target.shape != strata.shape
+        or target.ndim != 3
+        or cap < 1
+    ):
+        raise ValueError("Expected matching [frames,H,W] arrays and a positive cap")
+    eligible = eligible & ~target
+    rng = np.random.default_rng(seed)
+    groups, slots = [], []
+    for frame in range(len(target)):
+        for value in np.unique(strata[frame][target[frame]]):
+            if value < 0:
+                continue
+            left = np.flatnonzero(target[frame] & (strata[frame] == value))
+            right = np.flatnonzero(eligible[frame] & (strata[frame] == value))
+            capacity = min(len(left), len(right))
+            if capacity:
+                slots.extend([len(groups)] * capacity)
+                groups.append((frame, left))
+    metadata = {
+        "target_support": int(target.sum()),
+        "control_support": int(eligible.sum()),
+        "common_capacity": len(slots),
+        "cap": cap,
+        "selected": min(cap, len(slots)),
+    }
+    if not slots:
+        return None, None, metadata
+    quotas = np.bincount(
+        rng.choice(slots, metadata["selected"], replace=False), minlength=len(groups)
+    )
+    sampled = np.zeros_like(target)
+    for quota, (frame, candidates) in zip(quotas, groups):
+        sampled[frame].flat[rng.choice(candidates, int(quota), replace=False)] = True
+    control = disjoint_distance_match(sampled, eligible, strata, seed=seed)
+    if control is None:
+        raise RuntimeError("Common-support quota construction failed")
+    return np.flatnonzero(sampled), control, metadata
+
+
+def regional_bias_candidates(categories, seed=None):
+    """Eight ±1-logit regional candidates; optional within-frame permutation.
+
+    Same candidate count, per-frame token norm and value histogram in the null.
+    Zero is evaluated separately and available to both searches. No GT masks.
+    """
+    result = []
+    for category in range(4):
+        for direction in (-1, 1):
+            biases = {}
+            for index, labels in categories.items():
+                value = direction * (np.asarray(labels).reshape(-1) == category).astype(
+                    np.float32
+                )
+                value -= value.mean()
+                if seed is not None:
+                    value = np.random.default_rng(
+                        np.random.SeedSequence(
+                            [seed, category, direction + 1, int(index)]
+                        )
+                    ).permutation(value)
+                biases[index] = value
+            result.append((f"{CATEGORIES[category]}_{direction:+d}", biases))
+    return result
+
+
 
 
 def matched_experiments(labels, seeds=(0, 1, 2, 3, 4), spatial_match="pooled_distance"):
@@ -24,9 +304,16 @@ def matched_experiments(labels, seeds=(0, 1, 2, 3, 4), spatial_match="pooled_dis
             if k
             else None
         )
-        spatial = spatially_matched_indices(
-            labels, reference, seed, frame_stratified=spatial_match == "frame_distance"
-        ) if k else None
+        spatial = (
+            spatially_matched_indices(
+                labels,
+                reference,
+                seed,
+                frame_stratified=spatial_match == "frame_distance",
+            )
+            if k
+            else None
+        )
         experiments.extend(
             [("random", seed, uniform), ("spatial_random", seed, spatial)]
         )
@@ -43,7 +330,7 @@ def region_memory_mask(mask, condition, frame_index, conditioning=False):
         raise ValueError(f"Not an oracle/corrupted memory condition: {condition}")
     if conditioning or condition == "c0":
         return np.asarray(mask, dtype=bool)
-    from scripts.generate_utility_labels import corrupt_mask
+    from modeling.memory_interventions import corrupt_mask
 
     grid = cv2.resize(
         np.asarray(mask, np.uint8), (64, 64), interpolation=cv2.INTER_NEAREST
@@ -101,8 +388,14 @@ def reliability_bias(units, taxonomy, weights, scale, ablation="full", seed=0):
     return result
 
 
-def token_categories(mask, grid=(64, 64), band=1, thresholds=(0.1, 0.9), image=None,
-                     boundary_definition="mixed_coverage"):
+def token_categories(
+    mask,
+    grid=(64, 64),
+    band=1,
+    thresholds=(0.1, 0.9),
+    image=None,
+    boundary_definition="mixed_coverage",
+):
     coverage = cv2.resize(
         np.asarray(mask, np.float32), grid[::-1], interpolation=cv2.INTER_AREA
     )
@@ -113,8 +406,12 @@ def token_categories(mask, grid=(64, 64), band=1, thresholds=(0.1, 0.9), image=N
         # object edge aligns exactly with grid cells. Padding treats outside
         # the image as background. Keep fractional-coverage edge cells too.
         occupied = (coverage >= 0.5).astype(np.uint8)
-        interior = cv2.erode(occupied, np.ones((3, 3), np.uint8),
-                             borderType=cv2.BORDER_CONSTANT, borderValue=0)
+        interior = cv2.erode(
+            occupied,
+            np.ones((3, 3), np.uint8),
+            borderType=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
         boundary |= occupied & ~interior
     elif boundary_definition != "mixed_coverage":
         raise ValueError(boundary_definition)
@@ -160,11 +457,15 @@ def spatially_matched_indices(categories, reference, seed, frame_stratified=Fals
         selected = []
         offset = 0
         for frame_index, frame in enumerate(frames):
-            local = reference[(reference >= offset) & (reference < offset + frame.size)] - offset
+            local = (
+                reference[(reference >= offset) & (reference < offset + frame.size)]
+                - offset
+            )
             if len(local):
                 result = spatially_matched_indices(
                     np.asarray(categories).reshape(frames.shape)[frame_index],
-                    local, seed + frame_index,
+                    local,
+                    seed + frame_index,
                 )
                 if result is None:
                     return None

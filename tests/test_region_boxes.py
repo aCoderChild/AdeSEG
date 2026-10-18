@@ -9,6 +9,12 @@ import torch
 from scripts.run_medsam2_region_boxes import box_points, bias_for_bank
 
 
+
+
+
+
+
+
 def test_native_box_corner_scaling_and_labels():
     result = box_points([20, 10, 180, 90], 100, 200, 512, "cpu")
     assert result["point_coords"].shape == (1, 2, 2)
@@ -72,3 +78,36 @@ def test_memory_disabled_video_control_never_builds_or_reads_a_bank(tmp_path, mo
     assert reads["video_no_memory"] == 0
     assert rows[1]["prediction_area"] == 0
     assert rows[0]["object_score_logit"] == 2.
+
+
+def test_detector_refresh_keeps_memory_but_reads_it_only_without_detection(tmp_path, monkeypatch):
+    from PIL import Image
+    import scripts.run_medsam2_region_boxes as module
+    import external.MedSAM2.sam2.sam2_image_predictor as upstream
+    monkeypatch.setattr(upstream, "SAM2ImagePredictor", lambda predictor: None)
+    monkeypatch.setattr(module, "stage_frames", lambda *args: None)
+    monkeypatch.setattr(module, "load_label_mask", lambda *args: np.ones((8, 8), np.uint8))
+    image = tmp_path / "frame.png"
+    Image.fromarray(np.zeros((8, 8, 3), np.uint8)).save(image)
+    frames = [SimpleNamespace(image_path=image, mask_path=image, video_id="seq2") for _ in range(3)]
+    attention = torch.nn.Identity()
+    calls = []
+
+    def inference(**kwargs):
+        calls.append(kwargs["is_init_cond_frame"])
+        assert kwargs["run_mem_encoder"]
+        if not kwargs["is_init_cond_frame"]:
+            assert kwargs["output_dict"]["cond_frame_outputs"]
+            attention(torch.ones(1))
+        return {"object_score_logits": torch.tensor([[2.]]),
+                "iou_predictions": torch.tensor([[.8]])}, torch.ones(1, 1, 2, 2)
+
+    predictor = SimpleNamespace(image_size=512, backbone_stride=16, device="cpu",
+        memory_attention=attention, init_state=lambda **kw: {},
+        reset_state=lambda state: None, run_single_frame_inference=inference)
+    detections = [{"box": [0, 0, 8, 8]}, None, {"box": [0, 0, 8, 8]}]
+    rows, reads = module.run_video(predictor, SimpleNamespace(), frames, detections,
+        tmp_path, ["detector_refresh"], [1, 1, 1, 1], 0, save_masks=False)
+    assert calls == [True, False, True]
+    assert reads["detector_refresh"] == 1
+    assert [r["detector_refresh"] for r in rows] == [True, False, True]

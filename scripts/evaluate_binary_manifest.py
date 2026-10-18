@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402 -- direct CLI bootstraps the repository import path
 """Evaluate binary video masks from scripts/infer.py by sequence."""
 
 import argparse
@@ -16,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 from datasets.io import load_semantic_mask
 from datasets.video import load_manifest
 from evaluation.segmentation import calculate_scores
-from evaluation.utility_retrieval import temporal_summary
+from evaluation.statistics import temporal_summary
 
 
 def main():

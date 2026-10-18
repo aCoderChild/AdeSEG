@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402 -- direct CLI bootstraps the repository import path
 """Run frozen SAM2 video inference from a labelled-video manifest.
 
 The first frame containing each requested label supplies that label's box prompt.
@@ -29,9 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "external" / "MedSAM2")]
 
 from datasets.io import load_label_mask
-from datasets.video import ManifestFrame, load_manifest
+from datasets.video import ManifestFrame, load_manifest, stage_frames
 from modeling.medsam2 import build_video_predictor
-from modeling.utility_memory import attach_utility_controller, load_utility_head
 
 DIAGNOSTIC_FIELDS = ("frame_idx", "frame", "status", "object_score")
 
@@ -50,8 +50,6 @@ def parse_args():
     parser.add_argument("--prompt_type", choices=("mask", "box"), default="box",
                         help="Initial ground-truth prompt. Utility-retrieval runs pass mask explicitly; "
                              "box preserves the repository's earlier experiments.")
-    parser.add_argument("--utility_checkpoint", type=Path, default=None,
-                        help="E5 utility head; adds learned bias to native spatial-memory attention.")
     parser.add_argument("--device", choices=("auto", "cuda", "mps", "cpu"), default="auto")
     parser.add_argument("--output_dir", type=Path, required=True)
     return parser.parse_args()
@@ -64,11 +62,6 @@ def first_box(frames: list[ManifestFrame], label_id: int, labels: list[int], nes
         if rows.size:
             return index, np.array([columns.min(), rows.min(), columns.max(), rows.max()], dtype=np.float32)
     return None, None
-
-
-def stage_frames(frames: list[ManifestFrame], directory: Path) -> None:
-    for index, frame in enumerate(frames):
-        (directory / f"{index:06d}.jpg").symlink_to(frame.image_path.resolve())
 
 
 def retained_memory_mib(output_dict) -> float:
@@ -150,11 +143,6 @@ def main():
         if not videos:
             raise ValueError("None of --video_ids is in the selected split.")
     predictor = build_video_predictor(str(args.sam2_cfg), args.sam2_checkpoint, args.device)
-    if args.utility_checkpoint:
-        attach_utility_controller(
-            predictor, load_utility_head(args.utility_checkpoint, predictor.device),
-            capture_attention=False,
-        )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     labels = sorted(args.label_ids) if args.nested_labels else args.label_ids
     run = {
@@ -162,8 +150,6 @@ def main():
         "nested_labels": args.nested_labels,
         "prompt_type": args.prompt_type,
         "memory_update": "native",
-        "utility_checkpoint": str(args.utility_checkpoint) if args.utility_checkpoint else None,
-        "object_pointer_tokens_modulated": False if args.utility_checkpoint else None,
         "device": str(predictor.device), "videos": {},
     }
     for video_id, frames in videos.items():

@@ -10,7 +10,7 @@ from torch import nn
 
 from datasets.video import ManifestFrame
 from modeling.region_tokens import region_memory_mask, reliability_bias
-from modeling.utility_memory import UtilityController, UtilityHead
+from modeling.memory_attention import UtilityController
 from scripts.analyze_region_experiments import (
     category_weights,
     method_comparisons,
@@ -166,7 +166,7 @@ def test_memory_swap_changes_keys_and_values_but_not_positions_or_pointer_tokens
         "relu", Recorder(), 4, 8, 0, False, True, False, Recorder()
     )
     module = MemoryAttention(4, True, layer, 1, batch_first=True).eval()
-    controller = UtilityController(UtilityHead(4, 4, 8))
+    controller = UtilityController()
     controller.enabled = False
     module.utility_controller = controller
     memory = torch.randn(6, 1, 4)
@@ -451,7 +451,7 @@ def test_method_failure_episodes_are_fixed_by_baseline_for_all_comparators():
 
 
 def test_missing_annotation_breaks_failure_episodes_and_is_not_recovery():
-    from evaluation.utility_retrieval import temporal_summary
+    from evaluation.statistics import temporal_summary
 
     assert episode_frames({1: 0.1, 2: 0.1, 4: 0.1}) == set()
     assert episode_frames({1: 0.1, 2: 0.1, 3: 0.1, 5: 0.9}) == {1, 2, 3}
@@ -580,7 +580,7 @@ def test_persistent_rollout_uses_independent_states_and_reuses_features(
         Image.fromarray(image).save(ip)
         Image.fromarray(mask).save(mp)
         frames.append(ManifestFrame("seq2", t, ip, mp))
-    controller = UtilityController(UtilityHead(4, 2, 8))
+    controller = UtilityController()
     controller.enabled = False
 
     class Predictor:

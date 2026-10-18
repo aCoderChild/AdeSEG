@@ -2,6 +2,43 @@
   "version": "2.0-local-diagnostics",
   "written_at": "2026-10-18T19:53:48+07:00",
   "status": "post-interim amendment, not outcome-blind preregistration",
+  "geometry_headroom_followup_2026_10_19": {
+    "status": "post-interim plan, recorded before these runs; exploratory development evidence",
+    "validation": "seq3 two-target adapter run before all 13 promptable dev sequences; repeat seq3 validation is not pooled",
+    "cohort": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "targets": "Same first/last eligible rule as prior replays; no outcome selection",
+    "conditions": ["natural", "c0"],
+    "geometry": {
+      "bank": "recent spatial memory; conditioning and pointers unchanged",
+      "supports": "Four existing categories against their respective complements; mixed coverage against pure coverage additionally matches inside/outside",
+      "strata": "Same memory frame and exact squared Euclidean token-centre distance to the existing inner contour; mixed/pure additionally matches side. Empty masks have no defined distance and contribute no matched stratum.",
+      "budget": "At most 64 keys per arm per target-bank comparison. Explicit common-support subsampling: capacity=min(target count, disjoint control count) in each stratum; sample quotas then exact-match controls without replacement. No support means skipped, not relaxed matching.",
+      "seeds": [0, 1, 2],
+      "estimand": "Regional removal harm minus its own disjoint exact-distance control, on matched common support only; not full-region importance or an estimate over unsupported strata"
+    },
+    "headroom": {
+      "regions": "Stored native predicted masks before the target; no GT region supports in bias construction",
+      "bank": "recent only; conditioning and pointers unchanged",
+      "candidates": "Eight candidates: +1 and -1 logit for each of four categories, centered per memory frame. Shared unmodified baseline available to both searches.",
+      "null": "Eight randomized candidates per seed, obtained by within-frame permutation of each actual regional bias vector; identical per-frame norm and value histogram; seeds 0,1,2",
+      "selection": "Max target GT Dice including baseline; boundary F evaluated for that same Dice-selected candidate. No writeback. Oracle diagnostic only; not a deployable score or a fair test-set method comparison.",
+      "statistics": "Regional oracle gain minus mean best-of-8 random gain, paired within target then averaged within sequence. Two conditions form one Holm family per endpoint. Geometry uses ten region-by-condition tests per endpoint. Bootstrap whole sequences 10000 times; no independent-frame or independent-seed inference."
+    },
+    "method_gate": "Do not auto-launch training. Report natural-condition headroom gain and excess versus equal-search null. Recommend a CUDA training preflight only if at least ten sequences support the headroom comparison, mean regional-oracle Dice gain >=0.01 and its excess-gain 95% CI lower bound >0; also require evidence of regional effects beyond geometry. Otherwise retain diagnostic framing, distinguishing insufficient power/support from a negative finding.",
+    "runtime": "Sequential MPS sequence shards, fresh output names, mandatory online W&B and Drive outputs. Per-shard wall bound 45 minutes. Stop queue on failed exactness check. Existing midnight cutoff applied to the previous queue, not this newly authorized follow-up."
+  },
+  "local_attention_followup_2026_10_18": {
+    "timing": "Written after earlier local diagnostic results, before new attention measurements",
+    "question": "How do foreground-interior, boundary, near-background and far-background tokens differ in native attention allocation and segmentation removal effects?",
+    "adapter_validation": "seq3, same two index-selected targets, all four existing conditions. Chunked post-RoPE attention reconstruction must have max absolute error <= 1e-4, total mass within 1e-4 of one, and bit-identical decoder logits compared with the native unobserved replay. Do not pool the repeat seq3 intervention rows with the previous seq3 shard.",
+    "sequences": ["seq11", "seq12", "seq13", "seq14", "seq15"],
+    "selection": "All remaining promptable development sequences not in the earlier eight-sequence counterfactual sample; not selected for observed benefit",
+    "measurement": "Reuse native SAM2 SDPA output. Reconstruct weights in 32-query chunks after native projection and RoPE, all layers, all native queries averaged over heads. Report spatial categories per stored frame and pointers separately; normalize mass by token count before interpreting enrichment. Oracle category supports are diagnostic only, not deployable inputs.",
+    "controls": "Unchanged existing four conditions, two index-selected targets, two banks, equal-boundary-budget regional removals and five random-control seeds. No relaxed matching or tuning from these results.",
+    "aggregation": "Targets first, then equal sequence weights. Each sequence is a separate shard; incomplete shards excluded. Attention mass is descriptive saliency, not causal importance. Pair against removal harms, and retain feasibility limitations.",
+    "deadline": "2026-10-19T00:00:00+07:00",
+    "scope": "Local regional diagnostics; not the full study or evidence of a trained-method gain"
+  },
   "scope": "Foreground/background/boundary memory-token study; excludes superseded latent-utility claims",
   "prior_evidence": "docs/REGION_TOKENS_RESULTS_2026-10-18.md",
   "running_kaggle": "Leave the pinned frame-matched E2 job unchanged",

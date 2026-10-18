@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "external/MedSAM2")]
 
 from datasets.io import load_label_mask
-from datasets.video import load_manifest
+from datasets.video import load_manifest, stage_frames
 from evaluation.davis2017.metrics import db_eval_boundary
 from evaluation.segmentation import calculate_scores
 from modeling.medsam2 import build_video_predictor
@@ -40,13 +40,11 @@ from modeling.region_tokens import (
     region_memory_mask,
     token_categories,
 )
-from modeling.utility_memory import (
+from modeling.memory_attention import (
     UtilityController,
-    UtilityHead,
     attach_utility_controller,
 )
-from scripts.generate_utility_labels import replace_spatial_memory
-from scripts.infer import stage_frames
+from modeling.memory_interventions import replace_spatial_memory
 from scripts.audit_region_initialization import prompt_index, target_indices
 from training.tracking import start_wandb, log_results_artifact
 
@@ -1141,9 +1139,7 @@ def main():
         predictor = build_video_predictor(
             protocol["model"]["config"], args.checkpoint, args.device
         ).eval()
-        controller = UtilityController(
-            UtilityHead(predictor.hidden_dim, predictor.mem_dim)
-        )
+        controller = UtilityController()
         controller.enabled = False
         attach_utility_controller(predictor, controller)
         checks, total = [], 0

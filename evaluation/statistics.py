@@ -1,4 +1,4 @@
-"""Preregistered statistics for utility-aware memory retrieval experiments."""
+"""Shared sequence-level statistics and failure summaries for region experiments."""
 
 from __future__ import annotations
 

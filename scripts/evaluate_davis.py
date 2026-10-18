@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402 -- direct CLI bootstraps the repository import path
 """Evaluate indexed DAVIS predictions with official region J and boundary F."""
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 from datasets.io import load_semantic_mask
 from datasets.video import load_manifest
 from evaluation.davis2017.metrics import db_eval_boundary, db_eval_iou
-from evaluation.utility_retrieval import temporal_summary
+from evaluation.statistics import temporal_summary
 
 
 def parse_args():

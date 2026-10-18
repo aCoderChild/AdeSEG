@@ -25,12 +25,11 @@ from torch.nn import functional as F
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from datasets.io import load_label_mask
-from datasets.video import load_manifest
+from datasets.video import load_manifest, stage_frames
 from evaluation.segmentation import calculate_scores
 from modeling.medsam2 import build_video_predictor
 from modeling.region_tokens import reliability_bias, token_categories
-from modeling.utility_memory import UtilityController, UtilityHead, attach_utility_controller
-from scripts.infer import stage_frames
+from modeling.memory_attention import UtilityController, attach_utility_controller
 from scripts.run_region_token_pilot import write_json
 from training.tracking import start_wandb, log_results_artifact
 
@@ -103,7 +102,7 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
             state = predictor.init_state(video_path=directory, offload_video_to_cpu=True,
                                          offload_state_to_cpu=True)
             bank = {"cond_frame_outputs": {}, "non_cond_frame_outputs": {}}
-            if arm not in {"framewise", "memory", "video_no_memory"}:
+            if arm not in {"framewise", "memory", "video_no_memory", "detector_refresh"}:
                 controller.token_bias_policy = lambda units: bias_for_bank(
                     units, predictions, frames, grid, weights,
                     0. if arm == "zero_bias" else scale, arm, 0)
@@ -130,7 +129,8 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
                                 detection["box"], height, width, predictor.image_size, predictor.device)
                             current, logits = predictor.run_single_frame_inference(
                                 inference_state=state, output_dict=bank, frame_idx=t,
-                                batch_size=1, is_init_cond_frame=not initialized or arm == "video_no_memory",
+                                batch_size=1, is_init_cond_frame=not initialized or arm == "video_no_memory"
+                                or (arm == "detector_refresh" and detection is not None),
                                 point_inputs=points, mask_inputs=None, reverse=False,
                                 run_mem_encoder=arm != "video_no_memory")
                             if arm != "video_no_memory":
@@ -154,6 +154,7 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
                     truth = load_label_mask(frame.mask_path, [1]) > 0
                     row = {"video": frame.video_id, "frame": t, "arm": arm,
                            "detected": detection is not None, "present": bool(truth.any()),
+                           "detector_refresh": arm == "detector_refresh" and detection is not None,
                            "object_score_logit": object_score, "predicted_iou": predicted_iou,
                            "prediction_area": int(mask.sum()), "ground_truth_area": int(truth.sum()),
                            **calculate_scores(mask, truth)}
@@ -172,12 +173,16 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
             hashes[arm], memory_calls[arm] = arm_hashes, calls[0]
     if "zero_bias" in hashes and hashes["zero_bias"] != hashes["memory"]:
         raise RuntimeError("Independent zero-bias rollout differs from ordinary memory")
-    if scale == 0 and "memory" in hashes and any(hashes[arm] != hashes["memory"] for arm in arms if arm not in {"framewise", "video_no_memory"}):
+    if scale == 0 and "memory" in hashes and any(hashes[arm] != hashes["memory"] for arm in arms if arm not in {"framewise", "video_no_memory", "detector_refresh"}):
         raise RuntimeError("A zero-scale method arm differs from ordinary memory")
     for arm in arms:
         if arm == "video_no_memory" and memory_calls[arm]:
             raise RuntimeError("Memory-disabled video control unexpectedly read memory")
-        if arm not in {"framewise", "video_no_memory"} and sum(d is not None for d in detections) >= 2 and not memory_calls[arm]:
+        if arm == "detector_refresh":
+            first = next((i for i, d in enumerate(detections) if d is not None), len(detections))
+            if memory_calls[arm] != sum(d is None for d in detections[first + 1:]):
+                raise RuntimeError("Detector refresh must read memory exactly on missing-detection frames")
+        elif arm not in {"framewise", "video_no_memory"} and sum(d is not None for d in detections) >= 2 and not memory_calls[arm]:
             raise RuntimeError(f"No memory attention executed for {arm}")
     return rows, memory_calls
 
@@ -195,7 +200,7 @@ def main():
     parser.add_argument("--selection", type=Path,
                         help="Frozen development-only selection; required for held-out evaluation")
     parser.add_argument("--gate-dir", type=Path)
-    parser.add_argument("--arm", action="append", choices=["framewise", "video_no_memory", "memory", "zero_bias", "reliability_only", "region_only", "full"])
+    parser.add_argument("--arm", action="append", choices=["framewise", "video_no_memory", "memory", "zero_bias", "reliability_only", "region_only", "full", "detector_refresh"])
     parser.add_argument("--save-masks", action="store_true")
     parser.add_argument("--detections-dir", type=Path,
                         help="Reuse frozen per-frame detections from an earlier matched run")
@@ -209,7 +214,7 @@ def main():
     args = parser.parse_args()
     if not np.isfinite(args.weights).all() or min(args.weights) <= 0 or not np.isfinite(args.scale) or args.scale < 0:
         parser.error("Weights must be finite positive numbers; scale must be finite and nonnegative")
-    # This revision is validation-only. No test-time hyperparameter search.
+    # No test-time hyperparameter search.
     if sum((args.validation, args.development, args.evaluation)) != 1:
         parser.error("Choose exactly one of --validation, --development or --evaluation")
     if args.validation and (args.max_frames < 2 or args.reference is None):
@@ -248,7 +253,7 @@ def main():
         yolo = YOLO(str(args.yolo_checkpoint))
         predictor = build_video_predictor(config["config"], args.checkpoint, args.device,
                                            apply_postprocessing=False).eval()
-        controller = UtilityController(UtilityHead(predictor.hidden_dim, predictor.mem_dim))
+        controller = UtilityController()
         controller.enabled = False
         attach_utility_controller(predictor, controller)
         videos = load_manifest(args.manifest, "dev" if args.development else "test")

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402 -- direct CLI bootstraps the repository import path
 """Evaluate MedSAM2 mask outputs on PolypGen sequences.
 
 MedSAM2 inference scripts write one indexed mask per frame to
