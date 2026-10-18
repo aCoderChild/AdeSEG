@@ -99,3 +99,33 @@ def test_clustered_interaction_matches_statsmodels_and_reports_cluster_count():
     assert result["p_interaction"] == pytest.approx(float(fit.wald_test(contrast, use_f=True, scalar=True).pvalue))
     tiny = data[data.sequence.isin(["0", "1"])]
     assert clustered_interaction(tiny, formula)["state"] == "unavailable"
+
+
+@pytest.mark.parametrize("phase,stage,spatial", [
+    ("frame_matched", "E2", "frame_distance"),
+    ("corruption", "E3", "pooled_distance"),
+])
+def test_diagnostic_launcher_reuses_runner_and_covers_promptable_sequences(monkeypatch, phase, stage, spatial):
+    import builtins
+    import io
+    from pathlib import Path
+    import runpy
+    import urllib.request
+
+    jobs = []
+    monkeypatch.setattr(builtins, "region_test_jobs", jobs, raising=False)
+    monkeypatch.setenv("REGION_REVIEW_PHASE", phase)
+    monkeypatch.setenv("REGION_CORRUPTION", "c2")
+    source = b"import builtins, json, os\nbuiltins.region_test_jobs.append(json.loads(os.environ['REGION_JOB']))\n"
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: io.BytesIO(source))
+    monkeypatch.setattr(Path, "read_text", lambda *args, **kwargs: '{"state":"complete"}')
+    script = Path(__file__).resolve().parents[1] / "kaggle/region-tokens/review_validation.py"
+    with pytest.raises(SystemExit) as stopped:
+        runpy.run_path(str(script))
+    assert stopped.value.code == 0
+    assert len(jobs) == 2
+    sequences = [s for job in jobs for s in job["sequences"]]
+    assert len(sequences) == len(set(sequences)) == 21
+    assert set(sequences) == {f"seq{i}" for i in range(2, 24) if i != 7}
+    assert all(j["stage"] == stage and j["spatial_match"] == spatial for j in jobs)
+    assert all(j["memory_condition"] == ("c0" if phase == "frame_matched" else "c2") for j in jobs)
