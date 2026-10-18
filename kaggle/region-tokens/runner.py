@@ -572,6 +572,10 @@ try:
                 str(job.get("band", 1)),
                 "--thresholds",
                 *map(str, job.get("thresholds", [0.1, 0.9])),
+                "--boundary-definition",
+                job.get("boundary_definition", "mixed_coverage"),
+                "--spatial-match",
+                job.get("spatial_match", "pooled_distance"),
             ]
             for label in job.get("label_ids", []):
                 arguments += ["--label-id", str(label)]

@@ -8,8 +8,10 @@ from scipy.ndimage import distance_transform_edt
 CATEGORIES = ("boundary", "foreground", "near_background", "far_background")
 
 
-def matched_experiments(labels, seeds=(0, 1, 2, 3, 4)):
+def matched_experiments(labels, seeds=(0, 1, 2, 3, 4), spatial_match="pooled_distance"):
     """One shared budget for the four categories and both random controls."""
+    if spatial_match not in {"pooled_distance", "frame_distance"}:
+        raise ValueError(spatial_match)
     labels = np.asarray(labels)
     reference = np.flatnonzero(labels.ravel() == 0)
     k = len(reference)
@@ -22,7 +24,9 @@ def matched_experiments(labels, seeds=(0, 1, 2, 3, 4)):
             if k
             else None
         )
-        spatial = spatially_matched_indices(labels, reference, seed) if k else None
+        spatial = spatially_matched_indices(
+            labels, reference, seed, frame_stratified=spatial_match == "frame_distance"
+        ) if k else None
         experiments.extend(
             [("random", seed, uniform), ("spatial_random", seed, spatial)]
         )
@@ -97,12 +101,23 @@ def reliability_bias(units, taxonomy, weights, scale, ablation="full", seed=0):
     return result
 
 
-def token_categories(mask, grid=(64, 64), band=1, thresholds=(0.1, 0.9), image=None):
+def token_categories(mask, grid=(64, 64), band=1, thresholds=(0.1, 0.9), image=None,
+                     boundary_definition="mixed_coverage"):
     coverage = cv2.resize(
         np.asarray(mask, np.float32), grid[::-1], interpolation=cv2.INTER_AREA
     )
     low, high = thresholds
     boundary = ((coverage > low) & (coverage < high)).astype(np.uint8)
+    if boundary_definition == "contour_union":
+        # Prospective sensitivity: include the inner contour even when a hard
+        # object edge aligns exactly with grid cells. Padding treats outside
+        # the image as background. Keep fractional-coverage edge cells too.
+        occupied = (coverage >= 0.5).astype(np.uint8)
+        interior = cv2.erode(occupied, np.ones((3, 3), np.uint8),
+                             borderType=cv2.BORDER_CONSTANT, borderValue=0)
+        boundary |= occupied & ~interior
+    elif boundary_definition != "mixed_coverage":
+        raise ValueError(boundary_definition)
     if band:
         boundary = cv2.dilate(boundary, np.ones((2 * band + 1,) * 2, np.uint8))
     boundary = boundary.astype(bool)
@@ -131,7 +146,7 @@ def matched_indices(categories, category, k, seed):
     return np.random.default_rng(seed).choice(candidates, size=k, replace=False)
 
 
-def spatially_matched_indices(categories, reference, seed):
+def spatially_matched_indices(categories, reference, seed, frame_stratified=False):
     """Random positions matched to each reference's integer distance from object.
 
     Sampling includes the reference support; excluding boundary tokens would
@@ -139,6 +154,23 @@ def spatially_matched_indices(categories, reference, seed):
     """
     foreground = np.isin(categories, [0, 1])
     frames = foreground if foreground.ndim == 3 else foreground[None]
+    if frame_stratified:
+        # Same frame and same integer-distance histogram as the reference.
+        # This preserves temporal composition without excluding overlap.
+        selected = []
+        offset = 0
+        for frame_index, frame in enumerate(frames):
+            local = reference[(reference >= offset) & (reference < offset + frame.size)] - offset
+            if len(local):
+                result = spatially_matched_indices(
+                    np.asarray(categories).reshape(frames.shape)[frame_index],
+                    local, seed + frame_index,
+                )
+                if result is None:
+                    return None
+                selected.extend(result + offset)
+            offset += frame.size
+        return np.asarray(selected, dtype=int)
     distance = np.concatenate(
         [
             np.floor(distance_transform_edt(~frame)).astype(int).ravel()

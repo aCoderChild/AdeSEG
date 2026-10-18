@@ -40,6 +40,18 @@ def clean(value):
     return value
 
 
+def analysis_variant(rows):
+    """Reject silent pooling of prospective controls with historical results."""
+    variants = {
+        (r.get("boundary_definition", "mixed_coverage"),
+         r.get("spatial_match", "pooled_distance")) for r in rows
+    }
+    if len(variants) > 1:
+        raise ValueError("Analyze taxonomy/spatial-control variants separately")
+    boundary, spatial = next(iter(variants), ("mixed_coverage", "pooled_distance"))
+    return {"boundary_definition": boundary, "spatial_match": spatial}
+
+
 def cluster(row):
     # Cholec clips/classes from one source video cannot be resampled as
     # independent patients/videos. DAVIS follows sequence-object analysis.
@@ -65,6 +77,21 @@ def sequence_means(values):
     return {key: float(np.mean(v)) for key, v in values.items() if len(v)}
 
 
+def feasibility_summary(rows, conditions):
+    """Expose selection coverage rather than treating skipped arms as no effect."""
+    counts = defaultdict(lambda: defaultdict(int))
+    for row in rows:
+        if "category_counts" not in row:
+            continue
+        size = conditions.get(unit_key(row), {}).get("coverage_tokens")
+        stratum = "unmeasured" if size is None else "small" if size < 64 else "medium" if size < 512 else "large"
+        key = json.dumps([row.get("dataset", "polypgen"), cluster(row), row.get("bank"), row.get("category"), stratum])
+        counts[key][row.get("state", "unknown")] += 1
+        if row.get("reason"):
+            counts[key]["reason:" + row["reason"]] += 1
+    return dict(counts)
+
+
 def episode_frames(frames):
     """Missing annotations/sampled targets break consecutive-frame episodes."""
     if not frames:
@@ -80,6 +107,7 @@ def episode_frames(frames):
 
 def paired_effects(rows):
     """E2 category-vs-control contrasts, exact target/arm match before averaging."""
+    analysis_variant(rows)
     lookup = {}
     for row in rows:
         if row.get("state") != "complete" or "harm" not in row:
@@ -275,6 +303,7 @@ def persistent_effect_rows(rows):
 
 
 def attention_agreement(rows):
+    analysis_variant(rows)
     targets = defaultdict(dict)
     for row in rows:
         if (
@@ -294,6 +323,7 @@ def attention_agreement(rows):
             )
             targets[(arm, unit_key(row))][row["category"]] = row
     values, coverage = defaultdict(lambda: defaultdict(list)), defaultdict(int)
+    query_values = defaultdict(lambda: defaultdict(list))
     for (arm, target), categories in targets.items():
         if set(categories) != set(CATEGORIES):
             coverage[(arm, "infeasible_category_frames")] += 1
@@ -331,6 +361,16 @@ def attention_agreement(rows):
                     ]
                     if any(v is None for v in (*saliency, *effect)):
                         continue
+                    local_effect = [
+                        categories[name].get("query_dice_harm", {}).get(query)
+                        for name in CATEGORIES
+                    ]
+                    if all(v is not None and np.isfinite(v) for v in local_effect):
+                        local_rho = rank_agreement(saliency, local_effect)["spearman"]
+                        if np.isfinite(local_rho):
+                            query_values[(arm, query, layer_idx, criterion)][cluster(first)].append(local_rho)
+                    else:
+                        coverage[(arm, query, "missing_query_effect")] += 1
                     rho = rank_agreement(saliency, effect)["spearman"]
                     if np.isfinite(rho):
                         values[(arm, query, layer_idx, criterion)][
@@ -350,12 +390,62 @@ def attention_agreement(rows):
         }
     return {
         "agreement": output,
+        "agreement_effect_scope": "whole_object_boundary_F_harm_per_token",
+        "query_specific_agreement": {
+            json.dumps(key): {
+                "rho": float(np.mean(list(sequence_means(by_sequence).values()))),
+                "ci95": sequence_bootstrap_interval(sequence_means(by_sequence)),
+                "n_sequences": len(by_sequence),
+                "n_frames": sum(map(len, by_sequence.values())),
+                "effect_scope": "signed_Dice_harm_in_same_query_region",
+            }
+            for key, by_sequence in query_values.items()
+        },
         "coverage": {json.dumps(k): v for k, v in coverage.items()},
         "anchor_scope": "Official Lean max-cosine function with all prompted-foreground anchors; complete TAMP reported separately",
     }
 
 
+def clustered_interaction(data, formula):
+    """OLS sensitivity with sandwich covariance clustered by independent unit.
+
+    Statsmodels supplies the estimator and finite-sample correction. This is
+    separate from, not a replacement for, the registered random-intercept fit.
+    Within-cluster target pairing and serial dependence may be arbitrary.
+    """
+    import statsmodels.formula.api as smf
+
+    n = int(data["sequence"].nunique())
+    try:
+        fit = smf.ols(formula, data=data, missing="raise").fit(
+            cov_type="cluster",
+            cov_kwds={"groups": data["sequence"], "use_correction": True, "df_correction": True},
+            use_t=True,
+        )
+        terms = [i for i, name in enumerate(fit.params.index) if ":" in name]
+        if not terms or n <= len(terms) + 1:
+            return {"state": "unavailable", "reason": "too few clusters for interaction degrees of freedom", "n_clusters": n}
+        contrast = np.eye(len(fit.params))[terms]
+        covariance = contrast @ fit.cov_params() @ contrast.T
+        if np.linalg.matrix_rank(covariance) < len(terms):
+            return {"state": "unavailable", "reason": "singular interaction covariance", "n_clusters": n}
+        test = fit.wald_test(contrast, use_f=True, scalar=True)
+        p = float(test.pvalue)
+        if not np.isfinite(p):
+            raise ValueError("Nonfinite cluster-robust interaction p-value")
+        return {
+            "state": "complete", "estimator": "OLS with sequence-clustered sandwich covariance",
+            "n_clusters": n, "n_rows": len(data), "p_interaction": p,
+            "finite_sample_correction": True,
+            "few_cluster_warning": n < 30,
+            "inference_scope": "sensitivity only; few-cluster inference may be unreliable",
+        }
+    except (ValueError, np.linalg.LinAlgError, ZeroDivisionError) as exc:
+        return {"state": "failed", "reason": str(exc), "n_clusters": n}
+
+
 def interaction_models(rows, conditions):
+    analysis_variant(rows)
     import pandas as pd
     import statsmodels.formula.api as smf
 
@@ -419,12 +509,13 @@ def interaction_models(rows, conditions):
                     "reason": "insufficient independent sequences or condition variation",
                 }
                 continue
-            try:
-                rhs = (
+            rhs = (
                     f"C({condition})"
                     if condition in ("corruption", "class_group")
                     else condition
                 )
+            robust = clustered_interaction(subset, f"harm ~ C(category) * {rhs}")
+            try:
                 with warnings.catch_warnings(record=True) as messages:
                     model = smf.mixedlm(
                         f"harm ~ C(category) * {rhs}", subset, groups=subset["sequence"]
@@ -442,14 +533,22 @@ def interaction_models(rows, conditions):
                     "coefficients": model.fe_params.to_dict(),
                     "p_interaction": float(interaction.pvalue),
                     "warnings": [str(w.message) for w in messages],
+                    "sequence_clustered_sensitivity": robust,
                 }
             except (ValueError, np.linalg.LinAlgError) as exc:
-                output[key] = {"state": "failed", "reason": str(exc)}
+                output[key] = {"state": "failed", "reason": str(exc), "sequence_clustered_sensitivity": robust}
     valid = {
         k: v["p_interaction"] for k, v in output.items() if v.get("state") == "complete"
     }
     for key, p in holm_adjust(valid).items():
         output[key]["p_holm"] = p
+    robust_valid = {
+        k: v["sequence_clustered_sensitivity"]["p_interaction"]
+        for k, v in output.items()
+        if v.get("sequence_clustered_sensitivity", {}).get("state") == "complete"
+    }
+    for key, p in holm_adjust(robust_valid).items():
+        output[key]["sequence_clustered_sensitivity"]["p_holm"] = p
     return output
 
 
@@ -662,6 +761,8 @@ def dev_row(row):
 
 def category_weights(rows):
     """Fixed dev-only mapping from E2 per-token harm to positive weights."""
+    if analysis_variant(rows) != {"boundary_definition": "mixed_coverage", "spatial_match": "pooled_distance"}:
+        raise ValueError("Sensitivity variants cannot select the registered E6 weights")
     if not rows or any(not dev_row(r) for r in rows):
         raise ValueError("All weight-selection rows must come from registered dev data")
     values = {name: defaultdict(list) for name in CATEGORIES}
@@ -929,6 +1030,9 @@ def main():
                 }
     effect_rows = rows + persistent_effect_rows(rows)
     result = {
+        "analysis_variant": analysis_variant(rows),
+        "review_protocol": "region_tokens_review_v1",
+        "feasibility_by_cluster_bank_category_size": feasibility_summary(rows, conditions),
         "E2": paired_effects(stratified_rows(effect_rows, conditions)),
         "E3_E4": interaction_models(rows, conditions),
         "E5": attention_agreement(rows),

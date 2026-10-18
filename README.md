@@ -16,19 +16,18 @@ and the E1 pilot gate the later analysis and method experiments.
 - [`datasets/io.py`](datasets/io.py): shared mask I/O, formerly `adenoid/io.py`.
 - [`modeling/utility_memory.py`](modeling/utility_memory.py): frozen SAM2
   memory-attention intervention.
-- [`training/utility_trainer.py`](training/utility_trainer.py): matched-budget
-  training infrastructure retained for the design's optional learned method;
-  the current pilot is frozen and training-free.
 - [`evaluation/`](evaluation/): segmentation, temporal, and official DAVIS
   metrics. The DAVIS metric source and license are retained from the upstream
   DAVIS evaluation package previously bundled with RDE-VOS.
 - [`external/`](external/): upstream models needed for this study: SAM2,
   SAM2Long, Lean-SAM2, MedSAM2, MA-SAM2, and DINOv2.
 
-The earlier frame-level utility study is documented by the frozen
-`protocols/latent_utility_v2.json` and `docs/UTILITY_RETRIEVAL.md`.
-Its components supply the intervention, metrics, data and tracking infrastructure.
-Historical studies remain recoverable from Git history.
+Only the region-token E0–E6 study is active. Shared intervention, corruption,
+metrics and tracking helpers retain some historical utility names; these are
+dependencies of the region study, not a separate latent-capability experiment.
+Frozen protocol ancestors remain solely for split and provenance references.
+Historical studies remain recoverable from Git history. The old standalone
+latent-study analysis and optional training adapter have been removed.
 
 Clinical grading/ratio code, old Phase A launchers and legacy one-off analysis,
 backfill and training entry points have been removed from the active tree.

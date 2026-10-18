@@ -369,6 +369,7 @@ def rollout(predictor, controller, frames, protocol, config, output, run):
                             band=config.get("band", 1),
                             thresholds=config.get("thresholds", [0.1, 0.9]),
                             image=image,
+                            boundary_definition=config.get("boundary_definition", "mixed_coverage"),
                         )
                     return maps[t]
 
@@ -386,7 +387,8 @@ def rollout(predictor, controller, frames, protocol, config, output, run):
                         [taxonomy(u["frame_idx"])["categories"].ravel() for u in chosen]
                     )
                     k, _, experiments = matched_experiments(
-                        labels.reshape(-1, 64, 64), [seed]
+                        labels.reshape(-1, 64, 64), [seed],
+                        spatial_match=config.get("spatial_match", "pooled_distance"),
                     )
                     selected = next(
                         (
@@ -597,6 +599,8 @@ def rollout(predictor, controller, frames, protocol, config, output, run):
                                 "category_source": "oracle"
                                 if category == "oracle"
                                 else config.get("category_source", "oracle"),
+                                "boundary_definition": config.get("boundary_definition", "mixed_coverage"),
+                                "spatial_match": config.get("spatial_match", "pooled_distance"),
                                 "metrics": scores,
                                 "stability_error": stability,
                                 "logits_sha256": hashlib.sha256(
@@ -700,8 +704,14 @@ def main():
     parser.add_argument("--method-config", type=Path)
     parser.add_argument("--band", type=int, choices=[0, 1, 2], default=1)
     parser.add_argument("--thresholds", nargs=2, type=float, default=[0.1, 0.9])
+    parser.add_argument("--boundary-definition", choices=["mixed_coverage", "contour_union"], default="mixed_coverage")
+    parser.add_argument("--spatial-match", choices=["pooled_distance", "frame_distance"], default="pooled_distance")
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
+    if args.stage not in {"E2", "E3"} and (
+        args.boundary_definition != "mixed_coverage" or args.spatial_match != "pooled_distance"
+    ):
+        raise ValueError("New taxonomy/control variants are E2/E3 sensitivity analyses only")
     gate = require_gate(args.gate_dir)
     output = validate_output(args.output_dir)
     protocol = json.loads(args.protocol.read_text())
@@ -745,6 +755,8 @@ def main():
         "intervention": args.intervention,
         "band": args.band,
         "thresholds": args.thresholds,
+        "boundary_definition": args.boundary_definition,
+        "spatial_match": args.spatial_match,
         "anchor_similarity": args.stage != "E2_calibration",
         "category_source": "deployable" if args.stage.startswith("E6") else "oracle",
         "ignore_labels": [13] if args.dataset == "cholecseg8k" else [],
@@ -835,6 +847,7 @@ def main():
         "execution_protocol_sha256": digest(
             ROOT / "protocols/region_tokens_execution_v1.json"
         ),
+        "review_protocol_sha256": digest(ROOT / "protocols/region_tokens_review_v1.json"),
         "sequences": args.sequence,
         "split": args.split,
         "labels": args.label_id,
@@ -845,6 +858,10 @@ def main():
     ) != setup:
         raise ValueError("Resume configuration differs; use a new shard directory")
     write_json(output / "setup.json", setup)
+    write_json(
+        output / "review_protocol.json",
+        json.loads((ROOT / "protocols/region_tokens_review_v1.json").read_text()),
+    )
     write_json(
         output / "execution_protocol.json",
         json.loads((ROOT / "protocols/region_tokens_execution_v1.json").read_text()),

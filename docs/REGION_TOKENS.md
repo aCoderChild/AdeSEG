@@ -7,6 +7,33 @@ the original `protocols/region_tokens_v1.json` is retained unchanged.
 This study tests region-level memory contributions; it does not reuse the old
 latent-capability conclusions as evidence.
 
+## Review corrections (2026-10-18)
+
+`protocols/region_tokens_review_v1.json` records the post-interim-review
+amendment. Existing results and the running pinned Kaggle job are unchanged.
+This is not a retrospective claim of outcome-blind preregistration.
+
+The registered default remains mixed-coverage boundaries with pooled-distance
+random controls. E2/E3 can additionally run independent sensitivity shards:
+
+- `--boundary-definition contour_union` includes geometric grid-aligned edges.
+- `--spatial-match frame_distance` preserves each memory frame's removed-token
+  count and integer-distance histogram, controlling temporal composition too.
+
+The Kaggle `REGION_JOB` JSON accepts the same `boundary_definition` and
+`spatial_match` keys. Use a separate output folder for each variant. A fresh E0
+is still mandatory. Variants cannot be pooled in analysis or select registered
+E6 weights; optional variants are not automatically submitted by this change.
+
+E5's existing `agreement` is explicitly labeled whole-object boundary-F harm;
+`query_specific_agreement` instead uses signed Dice harm in the same query
+region. Missing local effects remain unavailable. E3/E4 retain the registered
+mixed model and add a separate statsmodels sequence-clustered OLS sensitivity,
+including small-sample correction, cluster-count warnings and its own Holm
+family. A sensitivity p-value never replaces the registered primary result.
+Analysis JSON also reports feasible/skipped rows by cluster, bank, category
+and measured size stratum; size is `unmeasured` without condition data.
+
 Cholec method development uses video01, video09, video12, video17, video18,
 video20, video24, video25, video26, video27, video28 and video35. Held-out method
 testing uses video37, video43, video48, video52 and video55. All clips/classes
@@ -36,8 +63,9 @@ recording, not a replacement SAM2 implementation.
 All three `modeling` files are needed: `medsam2.py` loads the existing upstream
 predictor; `utility_memory.py` is the reused intervention hook; `region_tokens.py`
 adds the study's taxonomy, matched sampling and aggregation. `training/tracking.py`
-is required even for frozen inference. `training/utility_trainer.py` remains only
-because the design explicitly reuses it for the optional learned-method arm.
+is required even for frozen inference. The old optional utility training adapter
+has been removed; the active E0–E6 implementation is training-free. The optional
+learned follow-up mentioned in the frozen execution supplement is not available.
 Frozen protocol ancestors are retained for their split/provenance references;
 the authorized amendment replaces the redundant proposal file.
 

@@ -656,6 +656,7 @@ def run_sequence(
                             gt(t),
                             band=experiment.get("band", 1),
                             thresholds=experiment.get("thresholds", (0.1, 0.9)),
+                            boundary_definition=experiment.get("boundary_definition", "mixed_coverage"),
                         )["categories"]
                         write_json(
                             output / "progress.json",
@@ -761,7 +762,8 @@ def run_sequence(
                             [taxonomy[u["frame_idx"]].ravel() for u in chosen]
                         )
                         k, reference, experiments = matched_experiments(
-                            labels.reshape(-1, 64, 64), protocol["budget"]["seeds"]
+                            labels.reshape(-1, 64, 64), protocol["budget"]["seeds"],
+                            spatial_match=experiment.get("spatial_match", "pooled_distance"),
                         )
                         intervention_kind = experiment.get(
                             "intervention", "attention_mask"
@@ -819,6 +821,8 @@ def run_sequence(
                                 "band": experiment.get("band", 1),
                                 "thresholds": experiment.get("thresholds", [0.1, 0.9]),
                                 "mode": "single_step",
+                                "boundary_definition": experiment.get("boundary_definition", "mixed_coverage"),
+                                "spatial_match": experiment.get("spatial_match", "pooled_distance"),
                                 "baseline": base_metrics,
                                 "attention": attention[bank_name],
                                 "anchor_similarity": anchor_scores.get(bank_name)
@@ -987,6 +991,7 @@ def run_sequence(
                     category_mask,
                     band=experiment.get("band", 1),
                     thresholds=experiment.get("thresholds", (0.1, 0.9)),
+                    boundary_definition=experiment.get("boundary_definition", "mixed_coverage"),
                 )["categories"]
         finally:
             controller.excluded_token_masks = {}
