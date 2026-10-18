@@ -3,12 +3,39 @@ import json
 from scripts.analyze_region_token_pilot import analyze
 from scripts.collect_region_results import validate, validate_e0_delivery
 from scripts.collect_region_live import download_verified
+from scripts.collect_region_live import write_study_summary
 import hashlib
 import base64
 from types import SimpleNamespace
 import pytest
 from training.tracking import latest_results_artifact
 from training.tracking import download_forge_run_file
+
+
+def test_summary_never_equates_finished_components_with_full_experiments(tmp_path):
+    unit = tmp_path / "region_tokens_e2_batch/study/seq2__object1"
+    unit.mkdir(parents=True)
+    (unit / "status.json").write_text(
+        json.dumps(
+            {"stage": "E2", "state": "complete", "rows": 28, "fresh_e0_pass": True}
+        )
+    )
+    conditions = tmp_path / "region_tokens_e4_batch/study"
+    conditions.mkdir(parents=True)
+    (conditions / "conditions.jsonl").write_text(
+        json.dumps({"dataset": "polypgen", "video": "seq2"}) + "\n"
+    )
+    result = write_study_summary(tmp_path)
+    assert result["full_study_complete"] is False
+    assert result["automatic_submission_enabled"] is False
+    assert result["stages"]["E2"]["status"].startswith("Partial")
+    assert result["stages"]["E4"]["status"].startswith("Partial")
+    assert result["stages"]["E3"]["status"] == "Not recorded"
+    assert json.loads((tmp_path / "region_study_summary.json").read_text()) == result
+    assert (
+        "Automatic submission: NOT enabled"
+        in (tmp_path / "region_study_summary.html").read_text()
+    )
 
 
 def test_results_selection_ignores_newer_automatic_history_and_incomplete_gates():
