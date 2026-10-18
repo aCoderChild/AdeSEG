@@ -1,0 +1,57 @@
+{
+  "version": "2.0-local-diagnostics",
+  "written_at": "2026-10-18T20:00:00+07:00",
+  "status": "post-interim amendment, not outcome-blind preregistration",
+  "scope": "Foreground/background/boundary memory-token study; excludes superseded latent-utility claims",
+  "prior_evidence": "docs/REGION_TOKENS_RESULTS_2026-10-18.md",
+  "running_kaggle": "Leave the pinned frame-matched E2 job unchanged",
+  "primary_question": "Do explicit regions add information beyond proximity, and does their effect depend on memory corruption?",
+  "model": {
+    "configuration": "configs/sam2.1_hiera_b+1024.yaml",
+    "checkpoint_sha256": "a2345aede8715ab1d5d31b4a509fb160c5a4af1970f199d9054ccfb746c004c5",
+    "initialization": "first labeled visible-frame GT mask once; no detector corrections",
+    "memory": "native seven-frame memory settings, object pointers on"
+  },
+  "geometry": {
+    "grid": [64, 64],
+    "coverage": "existing INTER_AREA mask coverage",
+    "inside": "coverage >= 0.5",
+    "contour": "inner contour of occupied grid, 3x3 erosion, outside-image background",
+    "distance": "Euclidean token-centre distance to inner contour; negative inside; undefined for empty mask",
+    "absolute_bins": ["0", "(0,1]", "(1,3]", ">3"],
+    "mixed_coverage": "0.1 < coverage < 0.9; not an image-edge detector",
+    "controls": "disjoint, no replacement; preserve frame and absolute-distance-bin counts; no relaxed matching",
+    "infeasible": "record and skip, never silently shrink full boundary budget"
+  },
+  "local_plan": {
+    "A1_feasibility": "All 21 promptable PolypGen sequences; oracle GT geometry only, no prediction or performance claim; report full-budget and support counts",
+    "MPS_validation": "seq2 prefix, 12 frames from prompt, independent native and zero-controller rollouts; require bit-identical logits before diagnosis",
+    "Bplus_diagnosis": "seq13 and seq14, natural propagation and all spatial keys suppressed; same single mask prompt; pointers retained",
+    "diagnosis_interpretation": "Spatial suppression is not complete memory-off and may remove target identity. Differences do not alone prove errors were carried by a particular region.",
+    "deadline": "2026-10-19T00:00:00+07:00",
+    "deadline_policy": "Stop cleanly at a frame boundary; retain partial results with completed=false; never claim whole-sequence coverage from a prefix"
+  },
+  "analysis": {
+    "endpoints": ["per-frame Dice", "IoU", "boundary F", "failure Dice < 0.5 for >=3 frames", "native memory reads", "runtime"],
+    "unit": "sequence; frames and training seeds are not independent units",
+    "inference": "n=2 diagnosis is descriptive only; no population significance claim",
+    "minimum_effect": {"dice": 0.01, "boundary_f": 0.02},
+    "multiple_comparisons": "Holm within prespecified endpoint families; whole-sequence bootstrap",
+    "success_safety": "Future method claims require non-inferiority with a prospectively fixed margin, not failure to reject loss"
+  },
+  "next_gates": [
+    "Audit disjoint-control feasibility before A1 intervention collection",
+    "Finish unchanged E2 and verify terminal delivery",
+    "Multi-sequence A3 c0/c1/c2/natural with matched targets and documented masks; no monotonicity assumption",
+    "Define local helpfulness endpoints, not merely absolute logit changes",
+    "A4 only after B+ natural failures; region recovery is non-additive and not unique error attribution",
+    "Verify dataset sequence provenance, gaps and patient/source groups before cross-domain evaluation",
+    "Keep domains separate for primary inference"
+  ],
+  "method_not_yet_authorized_as_validated": {
+    "arms": ["B0 native", "B1 no explicit geometry", "B2 plus absolute distance", "M1 plus side and mixed coverage", "M1-Q plus query regions", "shuffled support control"],
+    "requirements": ["matched capacity and compute", "same prompt budget", "predicted-mask categories only", "RoPE before query gathering", "zero-init forward equivalence and connected gradients", "define entropy timing", "explicit truncated-gradient policy", "CUDA or MPS backward verification"],
+    "claim": "Region-aware value requires beating geometry-free, distance-only and shuffled controls on fresh evaluation, with success safety and all-frame results",
+    "not_claimed": "No promised gain over 0.77; no claim of implemented v2 rollout trainer"
+  }
+}
