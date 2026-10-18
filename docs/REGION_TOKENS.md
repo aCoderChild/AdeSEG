@@ -60,6 +60,17 @@ Launch the pinned notebook from the authenticated Kaggle editor with its secret
 attached. API-pushed versions have previously failed to receive the secret;
 do not launch a duplicate GPU job to work around an interactive queue.
 
+`kaggle/region-tokens/tracking_preflight.ipynb` is the CPU-only saved-version
+credential diagnostic. Submit it with no datasets and GPU disabled, not with
+the E0 GPU metadata. Version 6 (script version 359528058) started its first cell
+but failed when Kaggle's secret service returned HTTP 400. The editor still
+shows the existing `WANDB_API_KEY` checked; that does not prove the API-submitted
+saved version can retrieve it. Its diagnostic log is in Drive under
+`region_tokens_tracking_preflight_v6`. Validate an editor-submitted preflight
+before allocating another GPU session. Never embed the key in notebook source.
+The default metadata now attaches only PolypGen for E0; add Cholec/DAVIS only
+for a stage that needs that dataset.
+
 ## Scientific status
 
 Implemented: E0/E1 pilot, all four categories, two banks, five uniform and
