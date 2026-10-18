@@ -57,13 +57,25 @@ def validate_e0_delivery(folder):
             "value_identity_exact",
             "memory_identity_exact",
             "independent_restore_exact",
-            "mutation_changed_prediction",
             "full_token_equals_frame",
         )
         for check in checks:
             error = check.get("attention_reconstruction_max_abs")
             if (
                 any(check.get(flag) is not True for flag in flags)
+                or any(
+                    check.get(flag) is not True
+                    for flag in (
+                        (
+                            "noop_memory_reads_exact",
+                            "mutation_changed_memory_read",
+                            "independent_memory_restore_exact",
+                            "full_token_memory_equals_frame",
+                        )
+                        if check.get("restore_control_version") == 2
+                        else ("mutation_changed_prediction",)
+                    )
+                )
                 or not isinstance(error, (int, float))
                 or not 0 <= error < 1e-5
             ):

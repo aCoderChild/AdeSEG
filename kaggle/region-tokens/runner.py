@@ -461,7 +461,17 @@ try:
         protocol,
     ]
     mark("E0")
-    command([*common, "--e0-only", "--output-dir", OUT / "E0"])
+    e0_arguments = []
+    if os.environ.get("REGION_E0_TARGET_FRAME"):
+        if RUN_STAGE != "E0":
+            raise ValueError("Targeted E0 diagnostics cannot override study targets")
+        e0_arguments = [
+            "--sequence",
+            os.environ["REGION_E0_SEQUENCE"],
+            "--e0-target-frame",
+            os.environ["REGION_E0_TARGET_FRAME"],
+        ]
+    command([*common, "--e0-only", *e0_arguments, "--output-dir", OUT / "E0"])
     if not json.loads((OUT / "E0/status.json").read_text())["e0_pass"]:
         raise RuntimeError("E0 gate failed")
     mark("E0", "complete")

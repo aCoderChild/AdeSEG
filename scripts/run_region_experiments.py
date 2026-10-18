@@ -85,13 +85,25 @@ def require_gate(directory):
         "empty_token_mask_exact",
         "zero_bias_exact",
         "independent_restore_exact",
-        "mutation_changed_prediction",
         "full_token_equals_frame",
     )
     if not checks or any(
         not c.get("passed")
         or any(c.get(key) is not True for key in required)
-        or c.get("attention_reconstruction_max_abs", float("inf")) >= 1e-5
+        or any(
+            c.get(key) is not True
+            for key in (
+                (
+                    "noop_memory_reads_exact",
+                    "mutation_changed_memory_read",
+                    "independent_memory_restore_exact",
+                    "full_token_memory_equals_frame",
+                )
+                if c.get("restore_control_version") == 2
+                else ("mutation_changed_prediction",)
+            )
+        )
+        or not 0 <= c.get("attention_reconstruction_max_abs", float("inf")) < 1e-5
         for c in checks
     ):
         raise ValueError("E0 exactness gate failed or is incomplete")

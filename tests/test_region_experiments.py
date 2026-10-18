@@ -28,7 +28,12 @@ from scripts.run_region_experiments import (
     validate_method_split,
     cholec_method_split,
 )
-from scripts.run_region_token_pilot import swap_replacements
+from scripts.run_region_token_pilot import (
+    swap_replacements,
+    capture_memory_read,
+    mutate_spatial_memory,
+    memory_read_checks,
+)
 from external.MedSAM2.sam2.modeling.memory_attention import (
     MemoryAttention,
     MemoryAttentionLayer,
@@ -46,12 +51,73 @@ def test_analysis_creates_new_report_parent_before_recording(tmp_path, monkeypat
     monkeypatch.setattr(runner, "validate_output", lambda path: path)
     monkeypatch.setattr(analyzer, "write_tables_and_figures", lambda *args: None)
     publications = []
-    monkeypatch.setattr(analyzer, "publish_analysis", lambda *args: publications.append(args))
-    monkeypatch.setattr(sys, "argv", ["analyzer", "--input", str(source), "--output", str(output)])
+    monkeypatch.setattr(
+        analyzer, "publish_analysis", lambda *args: publications.append(args)
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["analyzer", "--input", str(source), "--output", str(output)]
+    )
     analyzer.main()
     assert output.is_file()
     assert json.loads(output.read_text())["full_study_complete"] is False
     assert publications[0][0] == output.parent
+
+
+def test_restore_control_observes_changed_memory_when_absence_gate_hides_masks():
+    module = nn.Identity()
+    bank = {"cond_frame_outputs": {0: {"maskmem_features": torch.ones(1, 4, 2, 2)}}}
+    saved = copy.deepcopy(bank)
+
+    def inference():
+        module(bank["cond_frame_outputs"][0]["maskmem_features"])
+        # SAM2's native absent-object branch can return fixed mask logits.
+        return torch.full((1, 1, 4, 4), -1024.0)
+
+    prediction, read = capture_memory_read(module, inference)
+    assert not module._forward_hooks
+    reads = {
+        name: {"read": read.clone()}
+        for name in (
+            "baseline",
+            "bare",
+            "empty",
+            "zero",
+            "value_noop",
+            "memory_noop",
+            "full_tokens",
+            "full_frame",
+        )
+    }
+    mutate_spatial_memory(bank)
+    altered, reads["mutated"] = capture_memory_read(module, inference)
+    reads["mutated"] = {"read": reads["mutated"]}
+    assert torch.equal(prediction, altered)
+    assert torch.equal(
+        saved["cond_frame_outputs"][0]["maskmem_features"], torch.ones(1, 4, 2, 2)
+    )
+    bank = copy.deepcopy(saved)
+    restored, read = capture_memory_read(module, inference)
+    reads["restored"] = {"read": read}
+    assert torch.equal(restored, prediction)
+    assert all(memory_read_checks(reads).values())
+    reads["restored"] = reads["mutated"]
+    assert not memory_read_checks(reads)["independent_memory_restore_exact"]
+    reads["mutated"] = reads["baseline"]
+    assert not memory_read_checks(reads)["mutation_changed_memory_read"]
+
+
+def test_memory_read_capture_removes_hooks_on_failure_and_rejects_unused_memory():
+    module = nn.Identity()
+
+    def broken():
+        raise ValueError("inference failed")
+
+    with pytest.raises(ValueError, match="inference failed"):
+        capture_memory_read(module, broken)
+    assert not module._forward_hooks
+    with pytest.raises(RuntimeError, match="observed 0"):
+        capture_memory_read(module, lambda: torch.ones(1))
+    assert not module._forward_hooks
 
 
 def test_corruption_is_cumulative_at_memory_resolution_and_never_changes_prompt():
@@ -175,6 +241,51 @@ def test_gate_rejects_duplicated_noop_as_restore_and_incomplete_e1(tmp_path):
     )
     with pytest.raises(ValueError, match="exactness"):
         require_gate(tmp_path)
+
+
+def test_gate_v2_requires_readout_mutation_and_restoration_not_final_mask_change(
+    tmp_path,
+):
+    decision = {
+        "stage": "E1",
+        "all_required_sequences": True,
+        "gate_pass": True,
+        "decision": "proceed_to_E2",
+    }
+    (tmp_path / "decision.json").write_text(json.dumps(decision))
+    check = dict.fromkeys(
+        (
+            "passed",
+            "detached_noop_exact",
+            "empty_token_mask_exact",
+            "zero_bias_exact",
+            "independent_restore_exact",
+            "full_token_equals_frame",
+            "noop_memory_reads_exact",
+            "mutation_changed_memory_read",
+            "independent_memory_restore_exact",
+            "full_token_memory_equals_frame",
+        ),
+        True,
+    )
+    check.update(
+        restore_control_version=2,
+        mutation_changed_prediction=False,
+        attention_reconstruction_max_abs=0.0,
+    )
+    sanity = tmp_path / "sanity.jsonl"
+    sanity.write_text(json.dumps(check) + "\n")
+    assert require_gate(tmp_path)["sanity_files"]
+    for key, value in (
+        ("mutation_changed_memory_read", False),
+        ("independent_memory_restore_exact", False),
+        ("noop_memory_reads_exact", False),
+        ("full_token_memory_equals_frame", False),
+        ("attention_reconstruction_max_abs", float("nan")),
+    ):
+        sanity.write_text(json.dumps({**check, key: value}) + "\n")
+        with pytest.raises(ValueError, match="exactness"):
+            require_gate(tmp_path)
 
 
 def test_method_split_and_weight_selection_reject_test_outcomes():

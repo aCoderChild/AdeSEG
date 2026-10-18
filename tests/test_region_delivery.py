@@ -242,6 +242,26 @@ def test_standalone_e0_delivery_requires_independent_evidence_and_online_provena
         sanity.write_text(json.dumps(invalid) + "\n")
         assert not validate_e0_delivery(tmp_path)["delivery_valid"]
     sanity.write_text(json.dumps(check) + "\n")
+    revised = {
+        **check,
+        "restore_control_version": 2,
+        "mutation_changed_prediction": False,
+        "noop_memory_reads_exact": True,
+        "mutation_changed_memory_read": True,
+        "independent_memory_restore_exact": True,
+        "full_token_memory_equals_frame": True,
+    }
+    sanity.write_text(json.dumps(revised) + "\n")
+    assert validate_e0_delivery(tmp_path)["delivery_valid"]
+    for flag in (
+        "noop_memory_reads_exact",
+        "mutation_changed_memory_read",
+        "independent_memory_restore_exact",
+        "full_token_memory_equals_frame",
+    ):
+        sanity.write_text(json.dumps({**revised, flag: False}) + "\n")
+        assert not validate_e0_delivery(tmp_path)["delivery_valid"]
+    sanity.write_text(json.dumps(check) + "\n")
     (tmp_path / "E0/tracking.json").write_text(json.dumps({"mode": "disabled"}))
     assert not validate_e0_delivery(tmp_path)["delivery_valid"]
 

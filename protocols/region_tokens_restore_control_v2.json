@@ -1,0 +1,11 @@
+{
+  "id": "region_tokens_restore_control_v2",
+  "recorded_date": "2026-10-18",
+  "parent": "region_tokens_execution_v1.json",
+  "reason": "E2 stopped at seq5 frame137 because a spatial-memory mutation did not change final logits, although independent restoration and no-op checks passed. Native SAM2 absence gating can hide a changed readout; the exact failure is replayed prospectively for diagnosis.",
+  "scope": "Instrumentation positive control only. No checkpoint, prompt, sample, intervention, scientific endpoint, split, statistical test or evidence bar changes.",
+  "control": "Perturb only an independent bank copy with a fixed nonuniform -10 to +10 offset across memory channels. Capture the native memory-attention output using a temporary forward hook. Require the readout to change, then restore from a separate saved copy and require both readout and final prediction bit-identical to baseline.",
+  "additional_requirements": "Detached, empty-mask, zero-bias, value-identity and memory-identity no-ops must be bit-identical at the readout as well as final masks. Full-token exclusion must equal frame exclusion at both locations. Attention reconstruction remains <1e-5.",
+  "diagnostics": "Keep final-prediction mutation sensitivity as a diagnostic, not a universal requirement. Record object scores and constant-mask logits. The targeted seq5:137 replay additionally repeats the old uniform +10 mutation to test the proposed absence-gating explanation.",
+  "provenance": "Version2 checks require all new flags; historical version1 evidence keeps its original requirements. Do not relabel a failed historical run as passed. Keep completed units and rerun the failed and remaining units in a new folder. CPU tests are not GPU validation."
+}

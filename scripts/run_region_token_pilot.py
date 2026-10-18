@@ -61,6 +61,55 @@ def finite(value):
     return float(value) if np.isfinite(value) else None
 
 
+def capture_memory_read(module, inference):
+    """Observe the native readout before SAM2 can gate final masks as absent."""
+    reads = []
+    handle = module.register_forward_hook(
+        lambda _module, _inputs, output: reads.append(output.detach().clone())
+    )
+    try:
+        result = inference()
+    finally:
+        handle.remove()
+    if len(reads) != 1:
+        raise RuntimeError(f"Expected one memory read, observed {len(reads)}")
+    return result, reads[0]
+
+
+def mutate_spatial_memory(bank):
+    """Nonuniform fixed channel perturbation, on the independent test copy only."""
+    for outputs in bank.values():
+        for item in outputs.values():
+            value = item.get("maskmem_features")
+            if value is not None:
+                if value.ndim != 4 or value.shape[1] < 2:
+                    raise ValueError("Unexpected spatial-memory shape")
+                value.add_(
+                    torch.linspace(
+                        -10, 10, value.shape[1], device=value.device, dtype=value.dtype
+                    )[None, :, None, None]
+                )
+
+
+def memory_read_checks(reads):
+    baseline = reads["baseline"]["read"]
+    return {
+        "noop_memory_reads_exact": all(
+            torch.equal(baseline, reads[name]["read"])
+            for name in ("bare", "empty", "zero", "value_noop", "memory_noop")
+        ),
+        "mutation_changed_memory_read": not torch.equal(
+            baseline, reads["mutated"]["read"]
+        ),
+        "independent_memory_restore_exact": torch.equal(
+            baseline, reads["restored"]["read"]
+        ),
+        "full_token_memory_equals_frame": torch.equal(
+            reads["full_tokens"]["read"], reads["full_frame"]["read"]
+        ),
+    }
+
+
 def selected_target_indices(frames, prompt, targets_per_sequence):
     """Select the frozen pilot grid or every eligible E2 target.
 
@@ -276,6 +325,7 @@ def run_sequence(
     mean_values=None,
     targets_per_sequence=None,
     experiment=None,
+    e0_target_frame=None,
 ):
     """Natural pointers, c0 spatial memory, independent copies per counterfactual."""
     checks, rows = [], 0
@@ -291,6 +341,12 @@ def run_sequence(
     first_mask = gt(prompt)
     donors = experiment.get("donors", [])
     targets = selected_target_indices(frames, prompt, targets_per_sequence)
+    if e0_target_frame is not None:
+        if not e0_only or e0_target_frame not in selected_target_indices(
+            frames, prompt, None
+        ):
+            raise ValueError("An explicit E0 target must be eligible and sanity-only")
+        targets = [e0_target_frame]
     if e2_mean_smoke:
         targets = targets[:1]
     targets = set(targets)
@@ -323,6 +379,7 @@ def run_sequence(
                         token_value_replacements=None,
                         token_memory_replacements=None,
                         pointers=False,
+                        read_trace=None,
                     ):
                         state["cached_features"] = copy.deepcopy(cached)
                         controller.excluded_token_masks = token_masks or {}
@@ -335,8 +392,9 @@ def run_sequence(
                             token_memory_replacements or {}
                         )
                         controller.exclude_pointers = pointers
-                        return (
-                            predictor.run_single_frame_inference(
+
+                        def inference():
+                            return predictor.run_single_frame_inference(
                                 inference_state=state,
                                 output_dict=copy.deepcopy(bank),
                                 frame_idx=t,
@@ -346,14 +404,31 @@ def run_sequence(
                                 mask_inputs=None,
                                 reverse=False,
                                 run_mem_encoder=False,
-                            )[1]
-                            .detach()
-                            .clone()
-                        )
+                            )
+
+                        if read_trace is not None:
+                            result, read = capture_memory_read(
+                                predictor.memory_attention, inference
+                            )
+                            read_trace.update(
+                                read=read,
+                                object_score_logits=result[0]["object_score_logits"]
+                                .detach()
+                                .clone(),
+                            )
+                        else:
+                            result = inference()
+                        return result[1].detach().clone()
+
+                    reads = {}
+
+                    def checked_replay(name, **kwargs):
+                        reads[name] = {}
+                        return replay(read_trace=reads[name], **kwargs)
 
                     predictor.memory_attention.capture_attention = True
                     predictor.memory_attention.capture_memory_values = True
-                    baseline = replay()
+                    baseline = checked_replay("baseline")
                     trace = predictor.memory_attention.last_trace
                     units = trace["units"]
                     if len(units) != 7 or any(
@@ -407,30 +482,65 @@ def run_sequence(
                     for layer in predictor.memory_attention.layers:
                         layer.cross_attn_image.last_attention = None
                     predictor.memory_attention.utility_controller = None
-                    bare = replay()
+                    bare = checked_replay("bare")
                     predictor.memory_attention.utility_controller = controller
-                    empty = replay(
-                        {u["frame_idx"]: np.zeros(4096, bool) for u in units}
+                    empty = checked_replay(
+                        "empty",
+                        token_masks={
+                            u["frame_idx"]: np.zeros(4096, bool) for u in units
+                        },
                     )
-                    zero = replay(
-                        token_biases={u["frame_idx"]: np.zeros(4096) for u in units}
+                    zero = checked_replay(
+                        "zero",
+                        token_biases={u["frame_idx"]: np.zeros(4096) for u in units},
                     )
-                    value_noop = replay(token_value_replacements=value_identity)
-                    memory_noop = replay(token_memory_replacements=value_identity)
+                    value_noop = checked_replay(
+                        "value_noop", token_value_replacements=value_identity
+                    )
+                    memory_noop = checked_replay(
+                        "memory_noop", token_memory_replacements=value_identity
+                    )
                     # Independent restore: mutate the bank, run from the mutation, then
                     # restore a separate saved copy. This is not a duplicated no-op.
                     saved = copy.deepcopy(bank)
-                    for outputs in bank.values():
-                        for item in outputs.values():
-                            if item.get("maskmem_features") is not None:
-                                item["maskmem_features"].add_(10)
-                    mutated = replay()
+                    legacy_diagnostic = {}
+                    if e0_target_frame is not None:
+                        for outputs in bank.values():
+                            for item in outputs.values():
+                                if item.get("maskmem_features") is not None:
+                                    item["maskmem_features"].add_(10)
+                        legacy_prediction = checked_replay("legacy_uniform_mutated")
+                        legacy_diagnostic = {
+                            "legacy_uniform_mutation_changed_prediction": not torch.equal(
+                                baseline, legacy_prediction
+                            ),
+                            "legacy_uniform_mutation_changed_memory_read": not torch.equal(
+                                reads["baseline"]["read"],
+                                reads["legacy_uniform_mutated"]["read"],
+                            ),
+                            "legacy_uniform_object_score_logits": reads[
+                                "legacy_uniform_mutated"
+                            ]["object_score_logits"]
+                            .float()
+                            .cpu()
+                            .flatten()
+                            .tolist(),
+                        }
+                        bank = copy.deepcopy(saved)
+                    mutate_spatial_memory(bank)
+                    mutated = checked_replay("mutated")
                     bank = copy.deepcopy(saved)
-                    restored = replay()
+                    restored = checked_replay("restored")
                     unit = units[0]
-                    full_tokens = replay({unit["frame_idx"]: np.ones(4096, bool)})
-                    full_frame = replay(excluded_frames=[unit["frame_idx"]])
+                    full_tokens = checked_replay(
+                        "full_tokens",
+                        token_masks={unit["frame_idx"]: np.ones(4096, bool)},
+                    )
+                    full_frame = checked_replay(
+                        "full_frame", excluded_frames=[unit["frame_idx"]]
+                    )
                     check = {
+                        "restore_control_version": 2,
                         "video": video,
                         "frame": int(t),
                         "detached_noop_exact": torch.equal(bare, baseline),
@@ -444,6 +554,29 @@ def run_sequence(
                         ),
                         "full_token_equals_frame": torch.equal(full_tokens, full_frame),
                         "attention_reconstruction_max_abs": float(reconstruction),
+                        **memory_read_checks(reads),
+                        "baseline_object_score_logits": reads["baseline"][
+                            "object_score_logits"
+                        ]
+                        .float()
+                        .cpu()
+                        .flatten()
+                        .tolist(),
+                        "mutated_object_score_logits": reads["mutated"][
+                            "object_score_logits"
+                        ]
+                        .float()
+                        .cpu()
+                        .flatten()
+                        .tolist(),
+                        "baseline_logits_constant": bool(
+                            torch.all(baseline == baseline.flatten()[0])
+                        ),
+                        "baseline_constant_value": float(baseline.flatten()[0])
+                        if bool(torch.all(baseline == baseline.flatten()[0]))
+                        else None,
+                        **legacy_diagnostic,
+                        "mutation_prediction_check_role": "diagnostic only; native absence gating can hide a changed memory read",
                     }
                     check["passed"] = (
                         all(
@@ -453,12 +586,14 @@ def run_sequence(
                             or k
                             in {
                                 "full_token_equals_frame",
-                                "mutation_changed_prediction",
+                                "mutation_changed_memory_read",
+                                "full_token_memory_equals_frame",
                             }
                         )
                         and reconstruction < 1e-5
                     )
                     checks.append(check)
+                    del reads
                     with (output / "sanity.jsonl").open("a") as stream:
                         stream.write(json.dumps(check) + "\n")
                     run.log(
@@ -905,7 +1040,14 @@ def main():
         help="Record dev-only c0 category value means after E0; do not run E1 effects.",
     )
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--e0-target-frame",
+        type=int,
+        help="Diagnostic E0 target only; never changes experimental sampling.",
+    )
     args = parser.parse_args()
+    if args.e0_target_frame is not None and not args.e0_only:
+        parser.error("--e0-target-frame requires --e0-only")
     args.output_dir.mkdir(parents=True, exist_ok=False)
     protocol = json.loads(args.protocol.read_text())
     videos = load_manifest(args.manifest, "test")
@@ -956,6 +1098,7 @@ def main():
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
         "sequences": requested,
+        "e0_target_frame": args.e0_target_frame,
         "torch": torch.__version__,
         "stage": (
             "E0"
@@ -1027,6 +1170,7 @@ def main():
                 None
                 if args.all_eligible_targets
                 else protocol["pilot"]["targets_per_sequence"],
+                e0_target_frame=args.e0_target_frame,
             )
             checks.extend(sanity)
             total += rows
