@@ -34,6 +34,16 @@ family. A sensitivity p-value never replaces the registered primary result.
 Analysis JSON also reports feasible/skipped rows by cluster, bank, category
 and measured size stratum; size is `unmeasured` without condition data.
 
+The existing diagnostic launcher supports `REGION_REVIEW_PHASE=corruption_validation`
+for all eight eligible seq3 targets under c0/c1/c2/natural, independently gated
+by E0. These small shards establish execution correctness, not population
+effects. Full `REGION_REVIEW_PHASE=corruption` submissions select exactly one
+`REGION_CORRUPTION` condition and cover all 21 promptable PolypGen sequences in
+two index-defined batches. E3 uses the registered pooled-distance control;
+frame-matched E2 sensitivity rows are never silently pooled into primary E3.
+CSV exports retain E3/E4 model status, E5 global and same-query-region endpoints,
+and feasibility counts. E6 remains deferred pending diagnostic results.
+
 Cholec method development uses video01, video09, video12, video17, video18,
 video20, video24, video25, video26, video27, video28 and video35. Held-out method
 testing uses video37, video43, video48, video52 and video55. All clips/classes

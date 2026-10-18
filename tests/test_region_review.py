@@ -120,6 +120,7 @@ def test_clustered_interaction_matches_statsmodels_and_reports_cluster_count():
 @pytest.mark.parametrize("phase,stage,spatial", [
     ("frame_matched", "E2", "frame_distance"),
     ("corruption", "E3", "pooled_distance"),
+    ("corruption_validation", "E3", "pooled_distance"),
 ])
 def test_diagnostic_launcher_reuses_runner_and_covers_promptable_sequences(monkeypatch, phase, stage, spatial):
     import builtins
@@ -139,6 +140,12 @@ def test_diagnostic_launcher_reuses_runner_and_covers_promptable_sequences(monke
     with pytest.raises(SystemExit) as stopped:
         runpy.run_path(str(script))
     assert stopped.value.code == 0
+    if phase == "corruption_validation":
+        assert len(jobs) == 4
+        assert [j["memory_condition"] for j in jobs] == ["c0", "c1", "c2", "natural"]
+        assert all(j["stage"] == "E3" and j["sequences"] == ["seq3"] for j in jobs)
+        assert all(j["spatial_match"] == "pooled_distance" for j in jobs)
+        return
     assert len(jobs) == 2
     sequences = [s for job in jobs for s in job["sequences"]]
     assert len(sequences) == len(set(sequences)) == 21
