@@ -844,6 +844,7 @@ def main():
     from scripts.run_region_experiments import validate_output
 
     validate_output(args.output)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     if args.freeze_method:
         if (
             not args.trial_dir

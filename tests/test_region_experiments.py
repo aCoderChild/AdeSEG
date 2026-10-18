@@ -35,6 +35,25 @@ from external.MedSAM2.sam2.modeling.memory_attention import (
 )
 
 
+def test_analysis_creates_new_report_parent_before_recording(tmp_path, monkeypatch):
+    import sys
+    from scripts import analyze_region_experiments as analyzer
+    from scripts import run_region_experiments as runner
+
+    source = tmp_path / "frames.jsonl"
+    source.write_text("")
+    output = tmp_path / "new_report" / "analysis.json"
+    monkeypatch.setattr(runner, "validate_output", lambda path: path)
+    monkeypatch.setattr(analyzer, "write_tables_and_figures", lambda *args: None)
+    publications = []
+    monkeypatch.setattr(analyzer, "publish_analysis", lambda *args: publications.append(args))
+    monkeypatch.setattr(sys, "argv", ["analyzer", "--input", str(source), "--output", str(output)])
+    analyzer.main()
+    assert output.is_file()
+    assert json.loads(output.read_text())["full_study_complete"] is False
+    assert publications[0][0] == output.parent
+
+
 def test_corruption_is_cumulative_at_memory_resolution_and_never_changes_prompt():
     mask = np.zeros((128, 128), bool)
     mask[20:108, 20:108] = True
