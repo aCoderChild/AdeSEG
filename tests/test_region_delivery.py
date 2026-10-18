@@ -101,6 +101,63 @@ def test_live_download_replaces_stale_same_length_file_and_verifies(tmp_path):
     assert path.read_bytes() == b"new"
 
 
+def test_known_orchestrator_still_collects_child_inference_artifacts(
+    tmp_path, monkeypatch
+):
+    import sys
+    import wandb
+    from scripts import collect_region_live as collector
+
+    root = SimpleNamespace(
+        id="root",
+        name="E2 | pipeline",
+        state="running",
+        config={},
+        url="https://example.com/root",
+    )
+    child = SimpleNamespace(
+        id="child",
+        name="E2 | measurements",
+        state="running",
+        config={"stage": "E2"},
+        url="https://example.com/child",
+    )
+    api = SimpleNamespace(
+        run=lambda _: root, runs=lambda *args, **kwargs: [root, child]
+    )
+    artifacts = {r.id: SimpleNamespace(digest=r.id, name=r.id) for r in (root, child)}
+    delivered = []
+    monkeypatch.setattr(wandb, "Api", lambda **kwargs: api)
+    monkeypatch.setattr(collector, "latest_results_artifact", lambda r: artifacts[r.id])
+    monkeypatch.setattr(
+        collector,
+        "download_verified",
+        lambda artifact, destination: delivered.append((artifact.name, destination)),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "collector",
+            "--group",
+            "group",
+            "--root-run-id",
+            "root",
+            "--output-root",
+            str(tmp_path),
+            "--folder-name",
+            "delivery",
+        ],
+    )
+    for name in ("WANDB_BASE_URL", "WANDB_CACHE_DIR", "WANDB_DATA_DIR"):
+        monkeypatch.setenv(name, "test")
+    collector.main()
+    folder = tmp_path / "delivery"
+    assert delivered == [("root", folder), ("child", folder / "study")]
+    snapshot = json.loads((folder / "live_tracking.json").read_text())
+    assert [r["id"] for r in snapshot["runs"]] == ["root", "child"]
+
+
 def test_missing_or_failed_results_never_validate(tmp_path):
     (tmp_path / "status.json").write_text(json.dumps({"state": "failed"}))
     receipt = validate(tmp_path)

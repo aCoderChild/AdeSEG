@@ -78,7 +78,16 @@ def main():
         api = wandb.Api(overrides={"base_url": os.environ["WANDB_BASE_URL"]})
         if args.root_run_id:
             root_run = api.run(f"adenoid-hypertrophy/ade-seg/{args.root_run_id}")
-            runs = [root_run]
+            runs = [
+                root_run,
+                *[
+                    child
+                    for child in api.runs(
+                        "adenoid-hypertrophy/ade-seg", filters={"group": args.group}
+                    )
+                    if child.id != root_run.id
+                ],
+            ]
         else:
             runs = list(
                 api.runs("adenoid-hypertrophy/ade-seg", filters={"group": args.group})
