@@ -1,0 +1,13 @@
+{
+  "id": "bunnoob2005/adeseg-e3-corruption-diagnostics",
+  "title": "AdeSEG E3 Corruption Diagnostics",
+  "code_file": "corruption.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["debeshjha1/polypgen-video-sequence"],
+  "competition_sources": [],
+  "kernel_sources": []
+}
