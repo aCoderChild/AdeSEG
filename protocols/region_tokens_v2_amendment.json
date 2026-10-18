@@ -21,6 +21,7 @@
     "absolute_bins": ["0", "(0,1]", "(1,3]", ">3"],
     "mixed_coverage": "0.1 < coverage < 0.9; not an image-edge detector",
     "controls": "disjoint, no replacement; preserve frame and absolute-distance-bin counts; no relaxed matching",
+    "mixed_control": "Mixed-versus-pure intervention also matches inside/outside within frame and absolute-distance bin. Report a separate side-matched feasibility audit; do not replace the earlier distance-only audit.",
     "infeasible": "record and skip, never silently shrink full boundary budget"
   },
   "local_plan": {
