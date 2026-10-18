@@ -838,8 +838,19 @@ def query_matrix(rows):
 def write_tables_and_figures(result, directory, figures=False):
     """Export the same recorded estimates; never fill unrun cells with zero."""
     directory.mkdir(parents=True, exist_ok=True)
-    for name in ("E2", "E6", "query_matrix"):
-        table = result[name]
+    tables = {name: result.get(name, {}) for name in ("E2", "E6", "query_matrix")}
+    tables["E3_E4"] = result.get("E3_E4", {})
+    # An unavailable model is a status object, not a table of estimates.
+    if "state" in tables["E3_E4"]:
+        tables["E3_E4"] = {"availability": tables["E3_E4"]}
+    e5 = result.get("E5", {})
+    tables["E5_global"] = {
+        key: {**value, "effect_scope": e5.get("agreement_effect_scope")}
+        for key, value in e5.get("agreement", {}).items()
+    }
+    tables["E5_query_specific"] = e5.get("query_specific_agreement", {})
+    tables["feasibility"] = result.get("feasibility_by_cluster_bank_category_size", {})
+    for name, table in tables.items():
         if not table:
             continue
         fields = [

@@ -9,6 +9,7 @@ from modeling.region_tokens import token_categories, spatially_matched_indices
 from scripts.analyze_region_experiments import (
     analysis_variant, attention_agreement, clustered_interaction,
     category_weights, feasibility_summary,
+    write_tables_and_figures,
 )
 
 
@@ -54,6 +55,21 @@ def test_feasibility_counts_keep_skips_and_missing_size_explicit():
     assert next(iter(result.values()))["skipped"] == 1
     measured = feasibility_summary([row], {("polypgen", "seq2", 1, 7): {"coverage_tokens": 32}})
     assert '"small"' in next(iter(measured))
+
+
+def test_e3_e5_exports_keep_endpoint_scope_and_unavailable_models(tmp_path):
+    import csv
+    result = {"E3_E4": {"state": "unavailable", "reason": "no E3 records"},
+              "E5": {"agreement_effect_scope": "whole_object_boundary_F_harm_per_token",
+                     "agreement": {"global": {"rho": 0.1}},
+                     "query_specific_agreement": {"local": {"rho": 0.2, "effect_scope": "signed_Dice_harm_in_same_query_region"}}}}
+    write_tables_and_figures(result, tmp_path)
+    def read(name):
+        with (tmp_path / name).open() as stream:
+            return list(csv.DictReader(stream))
+    assert read("E3_E4.csv")[0]["state"] == "unavailable"
+    assert read("E5_global.csv")[0]["effect_scope"] == "whole_object_boundary_F_harm_per_token"
+    assert read("E5_query_specific.csv")[0]["effect_scope"] == "signed_Dice_harm_in_same_query_region"
 
 
 def test_e5_separates_local_query_effect_from_global_effect():
