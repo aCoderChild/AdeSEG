@@ -103,7 +103,7 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
             state = predictor.init_state(video_path=directory, offload_video_to_cpu=True,
                                          offload_state_to_cpu=True)
             bank = {"cond_frame_outputs": {}, "non_cond_frame_outputs": {}}
-            if arm not in {"framewise", "memory"}:
+            if arm not in {"framewise", "memory", "video_no_memory"}:
                 controller.token_bias_policy = lambda units: bias_for_bank(
                     units, predictions, frames, grid, weights,
                     0. if arm == "zero_bias" else scale, arm, 0)
@@ -111,6 +111,7 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
             try:
                 for t, frame in enumerate(frames):
                     detection = detections[t]
+                    object_score, predicted_iou = None, None
                     with Image.open(frame.image_path) as source:
                         image = source.convert("RGB")
                         width, height = image.size
@@ -122,17 +123,20 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
                                 mask = image_predictor.predict(
                                     box=np.asarray(detection["box"], np.float32),
                                     multimask_output=False)[0][0].astype(bool)
-                        elif detection is None and not initialized:
+                        elif detection is None and (not initialized or arm == "video_no_memory"):
                             mask = np.zeros((height, width), dtype=bool)
                         else:
                             points = None if detection is None else box_points(
                                 detection["box"], height, width, predictor.image_size, predictor.device)
                             current, logits = predictor.run_single_frame_inference(
                                 inference_state=state, output_dict=bank, frame_idx=t,
-                                batch_size=1, is_init_cond_frame=not initialized,
+                                batch_size=1, is_init_cond_frame=not initialized or arm == "video_no_memory",
                                 point_inputs=points, mask_inputs=None, reverse=False,
-                                run_mem_encoder=True)
-                            bank["non_cond_frame_outputs" if initialized else "cond_frame_outputs"][t] = current
+                                run_mem_encoder=arm != "video_no_memory")
+                            if arm != "video_no_memory":
+                                bank["non_cond_frame_outputs" if initialized else "cond_frame_outputs"][t] = current
+                            object_score = float(current["object_score_logits"].float().mean().cpu())
+                            predicted_iou = float(current["iou_predictions"].float().mean().cpu())
                             initialized = True
                             mask = (F.interpolate(logits.float(), (height, width),
                                     mode="bilinear", align_corners=False)[0, 0].cpu().numpy() > 0)
@@ -150,6 +154,8 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
                     truth = load_label_mask(frame.mask_path, [1]) > 0
                     row = {"video": frame.video_id, "frame": t, "arm": arm,
                            "detected": detection is not None, "present": bool(truth.any()),
+                           "object_score_logit": object_score, "predicted_iou": predicted_iou,
+                           "prediction_area": int(mask.sum()), "ground_truth_area": int(truth.sum()),
                            **calculate_scores(mask, truth)}
                     if reference is not None and arm == "framewise":
                         row.update(historical_mask_exact=arm_hashes[-1] == expected["mask_sha256"],
@@ -166,10 +172,12 @@ def run_video(predictor, controller, frames, detections, output, arms, weights, 
             hashes[arm], memory_calls[arm] = arm_hashes, calls[0]
     if "zero_bias" in hashes and hashes["zero_bias"] != hashes["memory"]:
         raise RuntimeError("Independent zero-bias rollout differs from ordinary memory")
-    if scale == 0 and "memory" in hashes and any(hashes[arm] != hashes["memory"] for arm in arms if arm != "framewise"):
+    if scale == 0 and "memory" in hashes and any(hashes[arm] != hashes["memory"] for arm in arms if arm not in {"framewise", "video_no_memory"}):
         raise RuntimeError("A zero-scale method arm differs from ordinary memory")
     for arm in arms:
-        if arm != "framewise" and sum(d is not None for d in detections) >= 2 and not memory_calls[arm]:
+        if arm == "video_no_memory" and memory_calls[arm]:
+            raise RuntimeError("Memory-disabled video control unexpectedly read memory")
+        if arm not in {"framewise", "video_no_memory"} and sum(d is not None for d in detections) >= 2 and not memory_calls[arm]:
             raise RuntimeError(f"No memory attention executed for {arm}")
     return rows, memory_calls
 
@@ -187,7 +195,7 @@ def main():
     parser.add_argument("--selection", type=Path,
                         help="Frozen development-only selection; required for held-out evaluation")
     parser.add_argument("--gate-dir", type=Path)
-    parser.add_argument("--arm", action="append", choices=["framewise", "memory", "zero_bias", "reliability_only", "region_only", "full"])
+    parser.add_argument("--arm", action="append", choices=["framewise", "video_no_memory", "memory", "zero_bias", "reliability_only", "region_only", "full"])
     parser.add_argument("--save-masks", action="store_true")
     parser.add_argument("--detections-dir", type=Path,
                         help="Reuse frozen per-frame detections from an earlier matched run")
