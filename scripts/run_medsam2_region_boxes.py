@@ -183,6 +183,9 @@ def main():
     parser.add_argument("--sequence", action="append", required=True)
     parser.add_argument("--validation", action="store_true")
     parser.add_argument("--development", action="store_true")
+    parser.add_argument("--evaluation", action="store_true")
+    parser.add_argument("--selection", type=Path,
+                        help="Frozen development-only selection; required for held-out evaluation")
     parser.add_argument("--gate-dir", type=Path)
     parser.add_argument("--arm", action="append", choices=["framewise", "memory", "zero_bias", "reliability_only", "region_only", "full"])
     parser.add_argument("--save-masks", action="store_true")
@@ -199,14 +202,24 @@ def main():
     if not np.isfinite(args.weights).all() or min(args.weights) <= 0 or not np.isfinite(args.scale) or args.scale < 0:
         parser.error("Weights must be finite positive numbers; scale must be finite and nonnegative")
     # This revision is validation-only. No test-time hyperparameter search.
-    if args.validation == args.development:
-        parser.error("Choose exactly one of --validation or --development; held-out evaluation remains gated")
+    if sum((args.validation, args.development, args.evaluation)) != 1:
+        parser.error("Choose exactly one of --validation, --development or --evaluation")
     if args.validation and (args.max_frames < 2 or args.reference is None):
         parser.error("Validation requires a historical reference and at least two frames")
-    if args.development:
-        if not args.gate_dir or not set(args.sequence) <= {f"seq{i}" for i in range(1, 16)}:
-            parser.error("Development requires --gate-dir and development sequence IDs seq1-15 only")
+    if args.development or args.evaluation:
+        permitted = range(1, 16) if args.development else range(16, 24)
+        if not args.gate_dir or not set(args.sequence) <= {f"seq{i}" for i in permitted}:
+            parser.error("Development/evaluation IDs must follow protocol_a and require --gate-dir")
         check_development_gate(args.gate_dir, args.checkpoint, args.device)
+    if args.evaluation:
+        if args.selection is None or args.max_frames != 0:
+            parser.error("Held-out evaluation requires a frozen --selection and --max-frames 0")
+        selection = json.loads(args.selection.read_text())
+        if selection.get("checkpoint_sha256") != hashlib.sha256(args.checkpoint.read_bytes()).hexdigest():
+            parser.error("Frozen selection checkpoint differs")
+        if selection.get("development_sequences") != [f"seq{i}" for i in range(1, 16)]:
+            parser.error("Frozen selection must include every development sequence")
+        args.weights, args.scale = selection["weights"], selection["scale"]
     args.output_dir.mkdir(parents=True, exist_ok=False)
     reference = json.loads(args.reference.read_text()) if args.reference else None
     config = vars(args).copy()
@@ -218,7 +231,7 @@ def main():
     for name, path in (("checkpoint", args.checkpoint), ("yolo_checkpoint", args.yolo_checkpoint)):
         config[name + "_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     write_json(args.output_dir / "setup.json", config)
-    phase = "validation" if args.validation else "development"
+    phase = "validation" if args.validation else "development" if args.development else "evaluation"
     run = start_wandb("ade-seg", "adenoid-hypertrophy", "MedSAM2 region boxes | " + phase,
                       "online", "https://forge.coreweave.com/api/wandb", config,
                       args.output_dir, ["region-boxes", phase])
@@ -230,7 +243,7 @@ def main():
         controller = UtilityController(UtilityHead(predictor.hidden_dim, predictor.mem_dim))
         controller.enabled = False
         attach_utility_controller(predictor, controller)
-        videos = load_manifest(args.manifest, "test" if args.validation else "dev")
+        videos = load_manifest(args.manifest, "dev" if args.development else "test")
         summary = {}
         for video in args.sequence:
             frames = videos[video][:args.max_frames] if args.max_frames > 0 else videos[video]
