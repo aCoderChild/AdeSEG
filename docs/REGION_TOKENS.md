@@ -22,19 +22,37 @@ Spatial grouping does not imply semantically pure feature vectors.
 Each stored prediction labels its own 64×64 memory grid (4,096 vectors,
 64 channels). The initial conditioning frame uses the GT prompt.
 
-| Region | Token-footprint definition |
-|---|---|
-| Foreground interior | Pure foreground outside the boundary band |
-| Boundary-associated | Intersects the band or contains mixed foreground/background pixels |
-| Background | Remaining pure background |
+Assignment `sam2_efficient_sam2_boundary_iou_v3` chains four pinned author
+functions; project code only passes outputs between them
+([`region_tokens.py`](../modeling/region_tokens.py)).
 
-[Boundary IoU](https://github.com/bowenc0221/boundary-iou-api) supplies unchanged
-boundary extraction. The symmetric band, area-resampled token mapping and
-vector grouping are explicit project adaptations in
-[`region_tokens.py`](../modeling/region_tokens.py), not an author token classifier.
-Band width: 0.02 × image diagonal; sensitivity: 0.01/0.04. Small objects may
-have no interior tokens. GT-reference labels are for offline analysis only.
-Object pointers remain separate. No learned classifier or DINOv2 head is used.
+| Step | Author code (unchanged) | Result |
+|---|---|---|
+| 1 | SAM2 `SAM2VideoPredictor.add_new_mask` resize block | Mask resized to 1024×1024 (bilinear, antialiased), binarized at 0.5 |
+| 2 | SAM2 `SAM2Base._use_mask_as_output` | SAM2's 256×256 low-resolution mask logits, as stored for a mask prompt |
+| 3 | Efficient-SAM2 `select_mask_windows` (window = one token) | Object tokens on the 64×64 memory grid: any mask pixel in the cell |
+| 4 | [Boundary IoU](https://github.com/bowenc0221/boundary-iou-api) `mask_to_boundary` on the object tokens | Object tokens within d = round(ratio × grid diagonal) of the contour |
+
+| Region | Definition |
+|---|---|
+| Boundary | Step 4 band, i.e. Boundary IoU's G_d ∩ G, inside the object |
+| Foreground interior | Object tokens outside the band |
+| Background | Non-object tokens |
+
+At ratio 0.02 the band is 2 tokens (32 px at 1024); sensitivity ratios
+0.01/0.04 give 1/4 tokens. Because step 3 counts any covered cell as object,
+the outer band ring holds the tokens the true contour crosses. Context just
+outside the object is background, as in Boundary IoU. Small objects may have
+no interior tokens. Source revisions and clean checkouts are verified before
+execution, and tests check exact agreement with SAM2's mask-prompt path.
+
+Superseded v1 (project rule) marked a token boundary if it touched any band
+pixel on either side of the contour or mixed classes. **All regional results
+in [REGION_TOKENS_RESULTS.md](REGION_TOKENS_RESULTS.md) dated 2026-10-22 or
+earlier use v1** and must be rerun before comparison with v3.
+
+GT-reference labels are for offline analysis only. Object pointers remain
+separate. No learned classifier or DINOv2 head is used.
 
 ## Experiments
 

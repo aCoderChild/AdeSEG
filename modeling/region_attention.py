@@ -13,9 +13,7 @@ from types import SimpleNamespace
 
 import torch
 
-from modeling.region_tokens import REGION_NAMES
-
-EFFICIENT_SAM2_REVISION = "8e1ad06089b9c958ff5ebfc72b9b7d0b904f5ce5"
+from modeling.region_tokens import EFFICIENT_SAM2_REVISION, REGION_NAMES
 
 
 def author_attention_forward():

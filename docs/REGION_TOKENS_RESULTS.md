@@ -4,6 +4,11 @@ Updated 2026-10-22. Exploratory PolypGen study: 21 promptable sequences,
 2,012 post-prompt targets; seq1/seq7 are N/A. Dice is the equal-sequence
 present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions.
 
+> **Assignment v1.** Every regional number below uses the superseded v1 token
+> rule (any band pixel or mixed footprint → boundary). The code now uses v3,
+> composed of unchanged SAM2, Efficient-SAM2 and Boundary IoU code. Author
+> benchmark Dice in section 1 is unaffected; sections 2–5 need rerunning.
+
 ## 1. Author benchmarks — completed
 
 | Method, CPU FP32 | Dice |
