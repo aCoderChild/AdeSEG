@@ -21,7 +21,10 @@ from datasets.video import load_manifest
 from modeling.medsam2 import build_video_predictor
 from modeling.region_tokens import (
     BOUNDARY_IOU_REVISION,
+    EFFICIENT_SAM2_REVISION,
+    REGION_ASSIGNMENT,
     REGION_NAMES,
+    SAM2_REVISION,
     group_memory_vectors,
     reference_token_regions,
 )
@@ -34,6 +37,12 @@ from scripts.memory_token_io import (
     prompt_index,
 )
 from training.tracking import start_wandb, log_results_artifact
+
+AUTHOR_REVISIONS = {
+    "boundary_iou": BOUNDARY_IOU_REVISION,
+    "sam2": SAM2_REVISION,
+    "efficient_sam2": EFFICIENT_SAM2_REVISION,
+}
 
 
 def audit_full_frame(frame, memory, memory_row, predicted, folder, ratios):
@@ -200,9 +209,14 @@ def run_full_validation(args, videos):
         protocol_path,
         ROOT / "external/boundary-iou-api/boundary_iou/utils/boundary_utils.py",
         ROOT / "external/boundary-iou-api/license.txt",
+        ROOT / "external/sam2/sam2/sam2_video_predictor.py",
+        ROOT / "external/sam2/sam2/modeling/sam2_base.py",
+        ROOT / "external/Efficient-SAM2/sam2/sam2_video_predictor_with_bypass_stg.py",
     ]
     config = {
         "scope": "all-frame spatial assignment validation, not classifier or contribution validation",
+        "assignment": REGION_ASSIGNMENT,
+        "author_revisions": AUTHOR_REVISIONS,
         "cohort": cohort,
         "manifest_sha256": digest(args.manifest),
         "protocol": protocol,
@@ -618,7 +632,8 @@ def main():
         "boundary_revision": BOUNDARY_IOU_REVISION,
         "primary_ratio": 0.02,
         "sensitivity_ratios": [0.01, 0.02, 0.04],
-        "assignment": "Author inner boundary on foreground and complement, symmetrized with padding; any band intersection or mixed coverage makes a boundary token",
+        "assignment": REGION_ASSIGNMENT,
+        "author_revisions": AUTHOR_REVISIONS,
         "regions": REGION_NAMES,
         "gt_used_only_for_prompt_and_external_labels": True,
         "native_modules_changed": False,
