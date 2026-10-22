@@ -52,6 +52,23 @@ band. Current width sensitivity uses only trimap kernels 3/7/15. The current
 v3 comparator is 0.02 only; historical 0.01/0.04 measurements are not new-primary
 sensitivity results.
 
+### Dated trimap amendment — 2026-10-23
+
+For the **amended, exploratory** comparison, use kernels **15/21/29** at
+author640 resolution. Keep k3/k7 as sub-token sampling diagnostics, outside the
+amended claim rule. The original audit and its prespecified analysis remain
+unchanged. One token spans 10 pixels at author640; nearest-neighbor sampling
+can miss narrow bands. Effective width depends on geometry, not just kernel size.
+
+The [amendment](../protocols/region_definition_trimap_amendment_2026_10_23.json)
+records the supplied example as unverified illustration and discloses that
+others' inspection of full-run attention is unknown. Saved logits support
+offline labels/counts/contour/GT/size statistics through
+`scripts/relabel_region_trimaps.py`; no model inference is needed. New-width
+attention cannot be recovered from saved regional totals: it requires a separate
+validated read-only rerun. No such rerun or contiguity-matched exclusion is
+launched by this amendment. Commit the exclusion protocol before that stage.
+
 Size bins use **per-frame GT area / original image area**, over 1,710 positive
 frames: cut-points **2.034683%, 5.384635%, 11.534966%**; ties go to the lower
 quartile and absent frames are separate. The procedure and numeric values were

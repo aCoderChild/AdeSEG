@@ -12,6 +12,14 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 
 ## Current native-grid audit — 2026-10-23
 
+**2026-10-23 width amendment:** the original run retains k3/k7/k15. A separate,
+exploratory comparison uses **k15/k21/k29**, with k3/k7 retained as sub-token
+sampling diagnostics outside the amended robustness rule. Original results and
+claim rule are not overwritten. The supplied 89-cell example is illustrative,
+not independently reproduced. See the [amendment](../protocols/region_definition_trimap_amendment_2026_10_23.json).
+New-width attention has not been measured; saved logits permit geometry-only
+relabeling, not reconstruction of regional attention.
+
 Follow-up audit implementation: contour-miss fractions (self and GT, with/without
 image border), frozen source-frame size quartiles, missing-group counts and
 all-source-frame coverage are now included. Primary attribution is Efficient-SAM2

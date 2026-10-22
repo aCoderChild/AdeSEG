@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-23",
+  "status": "Exploratory dated amendment; does not change the running audit or its original claim rule",
+  "supersedes_for_future_analysis": "The trimap-width component of the original cross-definition claim rule only",
+  "original_widths_at_author640": [3, 7, 15],
+  "amended_widths_at_author640": [15, 21, 29],
+  "diagnostic_only_widths": [3, 7],
+  "reason": "One memory token spans 10 pixels at author640. Narrow trimaps followed by nearest-neighbor token sampling can leave dotted boundary labels. Wider kernels test a broader token-scale band. GenMask samples randint(1,30), so 29 is within the author's supported range. Effective band width depends on contour geometry and interpolation; kernel/10 is not an exact band-width formula.",
+  "supplied_example_not_independently_reproduced": {
+    "source": "User-supplied test-polyp illustration; original mask and measurement procedure not supplied",
+    "contour_cells": 89,
+    "kernel_effective_width_tokens_and_covered_cells": [[3, 0.26, 18], [7, 0.70, 44], [11, 1.02, 63], [15, 1.38, 74], [21, 2.03, 87], [29, 2.78, 89]],
+    "mixed_cell_covered_cells": 89,
+    "interpretation": "Illustrative cell coverage, not the audit's one-pixel contour coverage metric and not a universal guarantee that mixed cells cover every contour pixel"
+  },
+  "timing": {
+    "assistant_full_run_regional_attention_results_inspected_before_amendment": false,
+    "other_observers": "Unknown; cannot attest that no person or process has inspected full-run regional attention",
+    "already_seen": "Pilot contour coverage and historical regional attention/exclusion findings",
+    "classification": "Conservatively exploratory; not falsely asserted to be outcome-blind or prospectively preregistered"
+  },
+  "amended_claim_rule": "For the amended analysis, seek consistent effect direction across primary mixed cells, author incoherence, trimaps 15/21/29 and inner band. Report k3/k7 transparently as sub-token sampling diagnostics but do not use them to veto this amended robustness claim. Preserve and separately report the original prespecified analysis; do not retroactively reclassify it as successful. No inference of causal utility from attention allocation alone.",
+  "offline_recomputation": "Use unchanged author GenMask through an isolated copy of the existing adapter configured with 15/21/29. Saved native logits suffice for labels, contour coverage, GT agreement, counts and size strata; no new model inference.",
+  "attention": "Current audit records regional totals for primary mixed cells only, not per-token mass. Saved logits cannot recover attention for amended trimaps. A separately gated read-only attention rerun is required; broader token logging is optional future work, not implemented by this amendment.",
+  "future_exclusions": "Commit the exact contiguity-matched exclusion protocol, implementation, control specification and validated source identities before launching exclusions. This amendment does not authorize or launch those experiments."
+}
