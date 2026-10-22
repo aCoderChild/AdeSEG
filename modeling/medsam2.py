@@ -19,30 +19,24 @@ def build_video_predictor(
     model_cfg,
     checkpoint,
     device="auto",
-    predictor_target=None,
-    predictor_overrides=None,
     apply_postprocessing=True,
 ):
-    """Build native MedSAM2 or a custom video predictor.
+    """Build the bundled native video predictor; disable machine-dependent hole filling."""
+    from pathlib import Path
+    import sys
 
-    Custom predictors are selected through Hydra configuration overrides so the
-    bundled MedSAM2 builder remains the single construction path.
-    """
+    # Hydra resolves the bundled author's ``sam2`` config package. Do not rely
+    # on a retired experiment runner to install this import path as a side effect.
+    native_root = str(Path(__file__).resolve().parents[1] / "external/MedSAM2")
+    if native_root not in sys.path:
+        sys.path.insert(0, native_root)
     from external.MedSAM2.sam2.build_sam import build_sam2_video_predictor
 
     device = _resolve_device(device)
-    hydra_overrides = []
-    if predictor_target is not None:
-        hydra_overrides.append(f"++model._target_={predictor_target}")
-        for key, value in (predictor_overrides or {}).items():
-            if isinstance(value, bool):
-                value = str(value).lower()
-            hydra_overrides.append(f"++model.{key}={value}")
     model = build_sam2_video_predictor(
         model_cfg,
         str(checkpoint),
         device=device,
-        hydra_overrides_extra=hydra_overrides,
         apply_postprocessing=apply_postprocessing,
     )
     # MedSAM2 fills small mask holes only when its compiled _C extension is installed, so

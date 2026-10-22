@@ -1,0 +1,129 @@
+{
+  "active_experiment": {
+    "amended_date": "2026-10-22",
+    "user_choice": "Retire development-only calibration; use every eligible sequence to estimate fixed ratios",
+    "calibration": "Official SAM2.1 B+ CPU FP32, same checkpoint/configuration/manifest as native CPU benchmark; unchanged native SDPA predictions checked against saved baseline hashes",
+    "cohort": "Account for all 23 PolypGen sequence IDs; seq1/seq7 unpromptable under unchanged first-visible-mask protocol; never fabricate their scores",
+    "labels": "Stored predicted-mask regions, Boundary IoU width 0.02; initial prompt excepted",
+    "ratios": "Per-frame enrichment averaged within sequence/layer, then equally over four layers, then equally over eligible sequences for each region. Undefined groups excluded, with contributing sequence IDs/counts reported",
+    "conditions": ["native reference", "proportional", "inverse", "proportional shuffled region assignment"],
+    "operator": "Frozen log-weight bias in all four native cross-attention layers; pointer logit bias zero; no frame selection or network architecture change",
+    "release_gate": "Exact observer/native predictions, complete seq2/seq3 fresh-model replay, attention reconstruction, frozen parameters, source/runtime/recipe identity and confirmed online W&B delivery",
+    "evaluation": "Same full eligible cohort, equal-sequence present-frame Dice, paired sequence bootstrap and Wilcoxon/Holm; dataset-specific adaptation, not held-out validation",
+    "runtime": "CPU; MPS repeatability failure remains unresolved",
+    "output": "11_all_sequence_enrichment_polypgen_cpu_v1",
+    "older_sections": "Historical records below do not override this active amendment"
+  },
+  "scope": "Native memory-token three-region spatial attribution and full assignment validation; no classifier",
+  "recorded_date": "2026-10-20",
+  "status": "Consolidated from the verified current experiments; not a new preregistration",
+  "model": {
+    "name": "SAM2.1 Hiera B+",
+    "checkpoint_sha256": "a2345aede8715ab1d5d31b4a509fb160c5a4af1970f199d9054ccfb746c004c5"
+  },
+  "initialization": "first_labeled_frame",
+  "assignment_audit": {
+    "boundary_revision": "37d25586a677b043ed585f10e5c42d4e80176ea9",
+    "primary_ratio": 0.02,
+    "sensitivity_ratios": [
+      0.01,
+      0.02,
+      0.04
+    ],
+    "regions": [
+      "background",
+      "foreground_interior",
+      "boundary"
+    ],
+    "classifier_used": false,
+    "primary_label_source": "predicted mask from the same native propagation frame",
+    "ground_truth_role": "Offline assignment audit and segmentation evaluation only; initial prompt excepted"
+  },
+  "full_assignment_validation": {
+    "recorded_before_full_run": "2026-10-20",
+    "sequences": "seq1 through seq23; all 2225 source frames",
+    "native_memory_eligible_frames": 2033,
+    "gt_reference_only_frames": 192,
+    "unpromptable_sequences": [
+      "seq1",
+      "seq7"
+    ],
+    "conditioning_memory_included_and_flagged": true,
+    "pre_prompt_or_unpromptable_native_memory": "Unavailable; never fabricate a prompt or memory tensor",
+    "sampling": "None; all frames, both available label sources, all three boundary ratios",
+    "runtime_checks": "Exact native feature/prediction replay per sequence; exact grouping reconstruction for each native frame/source/ratio; frozen parameter digest",
+    "storage": "Native vectors stored once per sequence; assignments store indices and reference memory row",
+    "metrics": "Per-sequence post-prompt GT/predicted region confusion, class IoU/precision/recall; conditioning frames excluded from agreement aggregation",
+    "limits": "Spatial attribution validation, not feature purity, attention contribution or segmentation improvement"
+  },
+  "attention_sensitivity": {
+    "recorded_date": "2026-10-21",
+    "status": "Exploratory robustness extension after inspecting primary attention results; not a new preregistration",
+    "label_sources": ["predicted", "ground_truth"],
+    "boundary_ratios": [0.01, 0.02, 0.04],
+    "scope": "All 2012 post-prompt targets across 21 promptable sequences; seq1/seq7 unpromptable",
+    "weights": "Same native attention weights aggregated under all six spatial-label definitions",
+    "verification": "Exact prediction hashes; reconstructed SDPA tolerance; previous predicted/0.02 attention reproduced; fresh Boundary IoU labels match saved assignments",
+    "reporting": "Per-sequence/layer/source/width counts, token fraction, native mass, conditional mean and median enrichment, ratio of mean shares, empty-frame count/fraction; equal-sequence bootstrap intervals",
+    "ground_truth_role": "External labels only; never changes memory, native attention, or decoder outputs"
+  },
+  "regional_exclusion": {
+    "recorded_date": "2026-10-21",
+    "status": "Exploratory one-step causal diagnostic, specified before exclusion outcomes; not a blinded confirmatory study",
+    "scope": "All 2012 post-prompt targets across 21 promptable sequences; seq3 first as correctness gate",
+    "label_source": "Predicted memory-frame binary mask; fixed Boundary IoU width 0.02",
+    "regions": ["background", "foreground_interior", "boundary"],
+    "operator": "Additive -infinity mask on selected spatial keys in all four native memory cross-attention layers; unchanged key layout/RoPE/pointers",
+    "random_null": "Three uniform random exclusions, exactly matched within each memory frame; report their mean, never select by GT",
+    "random_seeds": [20261021, 20261022, 20261023],
+    "state_control": "Cached target image features, copied pre-target state containers, no-op before and after, exact active-bank byte digests and baseline propagation hashes",
+    "writeback": "Disabled: counterfactual run_mem_encoder=False; never insert counterfactual outputs into memory",
+    "metrics": ["Dice", "IoU", "official DAVIS boundary F", "absent-target false-positive rate"],
+    "primary_analysis": "Mean present-target Dice per sequence; region loss minus mean matched-random loss; paired Wilcoxon and Holm across three regions; 95% sequence bootstrap CI",
+    "secondary_analysis": "All, absent, baseline-failure (Dice<0.5) and success target subsets; IoU and boundary F descriptive",
+    "empty_region": "Exact native no-op, effect zero; report frames with region separately",
+    "limits": "Deletion effects are conditional on the native bank and pointer pathway. Random controls match token count and temporal allocation, not spatial contiguity; no long-horizon or deployed-method improvement is claimed"
+  },
+  "author_baseline_benchmark": {
+    "recorded_date": "2026-10-21",
+    "status": "Exploratory author-method comparison; prior PolypGen test outcomes have been inspected",
+    "excluded_variants": ["stride_2", "stride_4"],
+    "supported_adapters": ["sam2", "sam2long", "samurai", "lean"],
+    "pending_adapter": "Efficient-SAM2 SMR-only: require real CUDA proof of active pruning with dense encoder; never substitute dense SAM2",
+    "current_batch_device": "cpu",
+    "precision": "Matched FP32, no autocast; an explicit adaptation where author CLI defaults to BF16",
+    "prompt": "One GT mask at first labeled foreground frame; no later corrections",
+    "samurai_initialization_adaptation": "Drop pre-prompt inputs and reindex from zero; preserve original source IDs for matched scoring",
+    "model_state_isolation": "Fresh author model for each sequence and smoke replay; isolated repository process",
+    "postprocessing": false,
+    "full_run_gate": "New serial release checks all seven conditions (including zero, regional and shuffled) on complete seq2/seq3 before six full runs. Exact repeated logits, named parameter integrity, zero/native parity and confirmed uploads mandatory. Full runs check runner/author/checkpoint/manifest/device/integration signatures",
+    "scope": "All 23 sequence IDs; 21 promptable scored post-prompt; seq1/seq7 N/A",
+    "primary_endpoint": "Equal-sequence mean present-frame Dice; same original source-frame coverage across methods",
+    "comparison_statistics": "Paired Wilcoxon/Holm across three author-method comparisons with SAM2; 10000 whole-sequence bootstrap confidence intervals for paired Dice differences",
+    "information_access_limit": "SAM2Long reports final whole-video path, which can use later evidence to revise past selections; not an online-equivalent selection-only ablation",
+    "gpu_status": "MPS native SAM2 failed exact repeatability including changed masks; CUDA validation pending, no CPU receipt unlocks GPU inference",
+    "regional_modulation_status": "Fixed [1,1,1.1] region/shuffled conditions added to new serial release; distinct from unchanged-author baselines"
+  },
+  "regional_readout": {
+    "recorded_date": "2026-10-21",
+    "status": "Exploratory fixed-rule intervention specified before its rollout outcomes; PolypGen is not an unseen test",
+    "weights_background_foreground_boundary": [1.0, 1.0, 1.1],
+    "weight_choice": "Single modest boundary-boost hypothesis; not an optimum inferred from deletion effects, no hyperparameter sweep",
+    "operator": "log(weight) additive bias through original PyTorch SDPA after native Q/K projections and RoPE; every key retained",
+    "layers": "All four memory cross-attention layers only",
+    "frame_policy": "Unchanged native SAM2 stride 1, 7 spatial memories maximum",
+    "pointer_logit_bias": 0,
+    "pointer_limit": "Pointer logits unchanged, but softmax normalization can change pointer attention mass",
+    "labels": "Boundary IoU adapter, fixed width 0.02, stored predicted mask only; conditioning prompt excepted",
+    "key_alignment": "Actual raw spatial memory values matched exactly to captured native encoded frames; reject unknown, ambiguous or current/future memory",
+    "rollout": "Full propagation; native writer encodes each method's own predictions, unlike one-step deletion diagnostics",
+    "controls": ["native SAM2", "zero-bias exact native logits", "shuffled region labels with per-frame counts preserved"],
+    "shuffle": "Fixed seed 20261021 hashed with source sequence and stored frame; stable across repeated reads, no GT selection",
+    "release_gate": "Complete seq2 and seq3, repeated fresh models/states; exact native/zero parity; exact repeated logits; named parameter fingerprints; all uploads confirmed before full inference",
+    "integrity_diagnosis": "Earlier full-run checksum failure did not reproduce in serial complete-seq2 diagnosis 1xonfgv0 (59 targets, no changed parameters). Cause unresolved; strict checks retained and named failure records added",
+    "precision_device": "Serial matched FP32 CPU; MPS repeatability remains blocked; no CUDA equivalence asserted",
+    "limitations": "Spatial token attribution is not exclusive vector semantics; fixed bias is project contribution/integration, not an unchanged published regional algorithm"
+  },
+  "native_memory_attention_source_modified": false,
+  "segmentation_gain_established": false
+}

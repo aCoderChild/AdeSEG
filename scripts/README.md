@@ -1,24 +1,32 @@
 # Scripts
 
-Run from the repository root with `python scripts/<name>.py --help`.
-Public CLI filenames are retained for pinned Kaggle notebooks and saved receipts.
-Shared frame staging lives in `datasets.video`, not the inference CLI.
-
-| Workflow | Entry points |
+| File | Purpose |
 |---|---|
-| Local region diagnostics | `run_region_v2_local.py`, `summarize_region_v2_local.py` |
-| E0/E1 validation and pilot | `run_region_token_pilot.py`, `analyze_region_token_pilot.py` |
-| Registered E2–E6 execution and analysis | `run_region_experiments.py`, `analyze_region_experiments.py` |
-| Upstream baselines | `run_region_baseline.py`; `efficient_sam2_adapter.py` is its Efficient-SAM2 helper |
-| Imaging conditions | `measure_region_conditions.py`, `analyze_illumination.py` |
-| Chronology and initialization audits | `audit_polypgen_alignment.py`, `audit_region_initialization.py` |
-| Manifests | `build_polypgen_manifest.py`, `build_polypgen_kaggle_manifest.py`, `build_cholecseg8k_manifest.py`, `build_davis_manifest.py` |
-| Tracking and delivery | `verify_wandb_connection.py`, `collect_region_live.py`, `collect_region_results.py` |
-| Historical detector-assisted comparators | `run_local_region_boxes.py`, `run_medsam2_region_boxes.py`, `run_cutie_region_baseline.py` |
-| General inference/evaluation utilities | `infer.py`, `evaluate_binary_manifest.py`, `evaluate_davis.py`, `build_mask_manifest.py` |
+| `audit_memory_token_regions.py` | Native memory grouping, reference/predicted overlays, coverage and width sensitivity |
+| `measure_region_attention.py` | Verify all saved overlays; observe native attention mass and spatial enrichment using Efficient-SAM2 author attention |
+| `run_region_exclusions.py` | Native one-frame regional key exclusions with three per-memory-frame count-matched random controls; no memory writeback |
+| `run_author_baseline.py` | Isolated official SAM2/SAM2Long/SAMURAI/Lean predictors; exact-replay preflight and signature-gated full inference |
+| `run_author_baseline_batch.py` | Complete seq2/seq3 validation of authors and fixed regional/zero/shuffled controls, then serial full runs and paired comparison; stops on failed checks/uploads |
+| `calibrate_native_enrichment.py` | Read-only official CPU SAM2 attention calibration; existing author-attention observer, exact baseline predictions and complete replay checks |
+| `measure_author_regions.py` | Read-only SAMURAI/SAM2Long regional attention; author candidate alignment, exact native prediction parity and replay-gated full inference |
+| `queue_author_region_measurements.py` | Serial author measurement validation/full runs, existing-job dependency, per-layer/sequence comparison and confirmed W&B uploads |
+| `run_enrichment_readout.py` | Native SDPA with frozen all-cohort proportional/inverse/random weights; strict source/recipe/runtime checks |
+| `queue_enrichment_readout.py` | Validates calibration, estimates ratios on all eligible sequences, validates three readouts, then full evaluations and paired statistics |
+| `run_efficient_smr.py` | Official SMR-only with dense encoder; device-allocation patch, observed key reduction, dense-encoder parity and signature-gated replay/full inference |
+| `memory_token_io.py` | Shared native rollout capture, hashing, output checks and overlays |
+| `build_polypgen_manifest.py` | Numerically ordered original PolypGen manifest |
+| `build_polypgen_kaggle_manifest.py` | Kaggle mirror manifest with chronology safeguards |
+| `verify_wandb_connection.py` | Credential/project preflight |
 
-The registered runner's available stages are not evidence that every stage has
-passed runtime validation or completed. Check [results](../docs/REGION_TOKENS_RESULTS.md)
-before launching work. Efficient-SAM2 full runs remain blocked by the MPS repeat gate.
-The superseded latent-utility label generator and learned-head trainer are removed.
-No outputs, weights, credentials or runtime caches belong in this folder.
+The entry points support `python scripts/<file>.py --help`;
+`memory_token_io.py` is an internal helper, not a CLI.
+Use `audit_memory_token_regions.py --all-sequences` for complete all-frame
+assignment validation. No frame sampling or classifier training is used.
+Unpromptable/pre-prompt frames receive reference-only labels, with no fake
+memory vectors. See the methods for coverage, storage and exactness checks.
+Only the native-memory workflows are active. Old study runners, detector
+comparators, image-feature training and notebook orchestration were removed.
+
+See [methods](../docs/REGION_TOKENS.md) and
+[retained results](../docs/REGION_TOKENS_RESULTS.md). Outputs, caches and
+credentials do not belong in this folder.

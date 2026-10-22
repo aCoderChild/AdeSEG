@@ -1,8 +1,0 @@
-{
- "id":"bunnoob2005/adeseg-medsam2-region-boxes-validation",
- "title":"AdeSEG MedSAM2 Region Boxes Validation",
- "code_file":"validation.ipynb",
- "language":"python","kernel_type":"notebook","is_private":true,
- "enable_gpu":true,"enable_internet":true,
- "dataset_sources":["debeshjha1/polypgen-video-sequence","bunnoob2005/checkpoints","bunnoob2005/adeseg-region-boxes-validation-assets"]
-}

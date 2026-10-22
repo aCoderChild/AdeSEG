@@ -1,8 +1,9 @@
-# Documentation
+# Regional memory-token study
 
-- [Results](REGION_TOKENS_RESULTS.md): verified statistics, tables and limitations.
-- [Study guide](REGION_TOKENS.md): idea, methods, controls, validation and implementation.
-- [Protocols](../protocols/): frozen definitions and subsequent amendments.
+Study how foreground-interior, boundary-associated and background memory tokens
+relate to SAM2 attention and endoscopic segmentation.
 
-Superseded study documents are recoverable from Git history. Current scientific
-evidence remains in the result report's linked outputs.
+- [Methods and workflow](REGION_TOKENS.md)
+- [Results and limitations](REGION_TOKENS_RESULTS.md)
+- [Protocol](../protocols/memory_token_regions.json)
+- [Scripts](../scripts/README.md)

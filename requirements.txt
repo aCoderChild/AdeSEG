@@ -2,20 +2,16 @@ torch
 torchvision
 numpy
 scipy>=1.10
-statsmodels>=0.14
 Pillow
 opencv-python
+pycocotools>=2.0.11  # official Boundary IoU API import dependency
 pyyaml
 tqdm
 hydra-core>=1.3.2
 iopath>=0.1.10
-transformers>=4.48,<5
-tensordict  # MedSAM2's training batch format
-tensorboard  # imported by MedSAM2's trainer logger
 scikit-image  # official DAVIS boundary-F metric
-monai>=1.3  # registered HD95 surface-distance metric
-matplotlib>=3.7  # scientific figures from recorded sequence-level estimates
 wandb  # default experiment tracking; local run files are under the chosen output directory
-einops>=0.6  # unmodified Cutie author model
-requests  # Cutie author checkpoint utilities
+requests  # W&B connection preflight
+loguru>=0.7.3  # official SAMURAI imports
+einops>=0.8  # official Efficient-SAM2 retrieval factory imports
 pytest

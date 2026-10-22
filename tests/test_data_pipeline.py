@@ -1,6 +1,6 @@
 """Guards for the data path: frame order and mask decoding."""
 
-import importlib.util
+import hashlib
 import sys
 from pathlib import Path
 
@@ -12,17 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from datasets.io import load_semantic_mask  # noqa: E402
-
-
-def load_script(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from scripts.build_polypgen_manifest import numeric_order  # noqa: E402
+from scripts.build_polypgen_kaggle_manifest import verified_frame_order  # noqa: E402
 
 
 def test_polypgen_frames_are_in_numeric_order():
-    order = load_script("build_polypgen_manifest").numeric_order
+    order = numeric_order
     paths = [Path(f"0_endocv2021_positive_{n}.jpg") for n in (104, 69, 7, 1000)]
     assert [int(p.stem.rsplit("_", 1)[1]) for p in order(paths)] == [7, 69, 104, 1000]
 
@@ -33,12 +28,17 @@ def test_staging_preserves_manifest_order_and_source_files(tmp_path):
     sources = [tmp_path / name for name in ("source_104.jpg", "source_7.jpg")]
     for path in sources:
         path.write_bytes(path.name.encode())
-    frames = [ManifestFrame("seq", i, path, tmp_path / "mask.png")
-              for i, path in enumerate(sources)]
+    frames = [
+        ManifestFrame("seq", i, path, tmp_path / "mask.png")
+        for i, path in enumerate(sources)
+    ]
     staged = tmp_path / "staged"
     staged.mkdir()
     stage_frames(frames, staged)
-    assert sorted(path.name for path in staged.iterdir()) == ["000000.jpg", "000001.jpg"]
+    assert sorted(path.name for path in staged.iterdir()) == [
+        "000000.jpg",
+        "000001.jpg",
+    ]
     for index, source in enumerate(sources):
         link = staged / f"{index:06d}.jpg"
         assert link.is_symlink()
@@ -47,9 +47,8 @@ def test_staging_preserves_manifest_order_and_source_files(tmp_path):
 
 
 def test_inference_and_evaluation_use_the_same_frame_order(tmp_path):
-    """infer.py follows the manifest (numeric_order); temporal.py sorts mask files with
-    natural_sort_key. Reappearance metrics depend on row order, so the two must agree."""
-    order = load_script("build_polypgen_manifest").numeric_order
+    """Manifest and temporal-evaluation frame order must agree."""
+    order = numeric_order
     from evaluation.temporal import frame_stem, image_files, sequence_directories
 
     for stem in ("seq1_C6_10", "seq1_C6_9", "seq1_C6_100", "seq1_C6_0"):
@@ -62,7 +61,9 @@ def test_inference_and_evaluation_use_the_same_frame_order(tmp_path):
     root = ROOT / "data/PolypGen2021_MultiCenterData_v3/sequenceData/positive"
     for sequence in sorted(root.glob("seq*")) if root.is_dir() else []:
         image_dir, mask_dir = sequence_directories(root, sequence.name)
-        assert [p.stem for p in order(image_dir.glob("*.jpg"))] == [frame_stem(p) for p in image_files(mask_dir)]
+        assert [p.stem for p in order(image_dir.glob("*.jpg"))] == [
+            frame_stem(p) for p in image_files(mask_dir)
+        ]
 
 
 def test_binary_jpeg_masks_load_as_zero_one(tmp_path):
@@ -81,13 +82,17 @@ def test_wrongly_encoded_masks_raise(tmp_path):
 
     binary = np.zeros((32, 32), np.uint8)
     binary[8:24, 8:24] = 255
-    Image.fromarray(binary).save(tmp_path / "binary_255.png")  # 0/255 PNG read as label 255
+    Image.fromarray(binary).save(
+        tmp_path / "binary_255.png"
+    )  # 0/255 PNG read as label 255
     with pytest.raises(ValueError):
         load_label_mask(tmp_path / "binary_255.png", [1])
     grey = np.full((96, 96), 255, np.uint8)
     grey[:, 32:64] = 128
     grey[:, 64:] = 0
-    Image.fromarray(grey).save(tmp_path / "three_class.jpg", quality=75)  # would merge two regions
+    Image.fromarray(grey).save(
+        tmp_path / "three_class.jpg", quality=75
+    )  # would merge two regions
     with pytest.raises(ValueError):
         load_semantic_mask(tmp_path / "three_class.jpg")
 
@@ -100,40 +105,46 @@ def test_indexed_png_masks_keep_their_labels(tmp_path):
     assert np.array_equal(load_semantic_mask(tmp_path / "mask.png"), mask)
 
 
-def test_three_class_grey_jpeg_maps_to_labels(tmp_path):
-    build = load_script("build_mask_manifest")
-    grey = np.full((96, 96), 255, np.uint8)   # REFUGE coding: 255 background
-    grey[:, 32:64] = 128                       # 128 disc rim
-    grey[:, 64:] = 0                           # 0 cup
-    Image.fromarray(grey).save(tmp_path / "mask.jpg", quality=60)
-    values, labels = build.parse_value_map(["255:0", "128:1", "0:2"])
-    out = build.to_labels(tmp_path / "mask.jpg", values, labels)
-    assert set(np.unique(out)) == {0, 1, 2}
-    centres = out[:, [16, 48, 80]]
-    assert (centres == np.array([0, 1, 2])).all()
+def test_reindexed_files_require_provenance(tmp_path):
+    files = [tmp_path / "0.jpg", tmp_path / "1.jpg"]
+    with pytest.raises(ValueError, match="do not establish chronology"):
+        verified_frame_order(files, "seq13")
+    _, source = verified_frame_order(files, "seq13", allow_reindexed=True)
+    assert source == "unverified_reindexed_diagnostic_only"
 
 
-def test_cholecseg8k_manifest_preserves_clips_and_decodes_watershed(tmp_path):
-    build = load_script("build_cholecseg8k_manifest")
-    clip = tmp_path / "video01" / "video01_00080"
-    clip.mkdir(parents=True)
-    for index in (80, 81):
-        image = np.zeros((8, 10, 3), np.uint8)
-        Image.fromarray(image).save(clip / f"frame_{index}_endo.png")
-        watershed = np.full((8, 10, 3), 50, np.uint8)
-        watershed[:, :5] = 31  # grasper, class 5
-        Image.fromarray(watershed).save(clip / f"frame_{index}_endo_watershed_mask.png")
-    rows = build.build(tmp_path, tmp_path / "out")
-    assert [row["frame_index"] for row in rows] == [80, 81]
-    assert {row["video_id"] for row in rows} == {"video01_00080"}
-    assert {row["source_video"] for row in rows} == {"video01"}
-    indexed = np.asarray(Image.open(tmp_path / "out/masks/video01_00080/frame_80_endo.png"))
-    assert set(np.unique(indexed)) == {0, 5}
+def test_original_numeric_suffix_order_unchanged(tmp_path):
+    files = [tmp_path / f"EndoCV2021_seq13_{n}.jpg" for n in [100, 12, 0]]
+    ordered, source = verified_frame_order(files, "seq13")
+    assert [p.name for p in ordered] == [
+        f"EndoCV2021_seq13_{n}.jpg" for n in [0, 12, 100]
+    ]
+    assert source == "original_numeric_suffix"
 
 
-def test_cholecseg8k_watershed_edges_and_missing_labels_are_ignored(tmp_path):
-    build = load_script("build_cholecseg8k_manifest")
-    watershed = np.array([[[12, 12, 12], [13, 13, 13], [21, 21, 21], [22, 22, 22], [255, 255, 255], [0, 0, 0]]], dtype=np.uint8)
-    path = tmp_path / "watershed.png"
-    Image.fromarray(watershed).save(path)
-    assert np.array_equal(build.indexed_watershed(path), np.array([[4, 3, 2, 10, 13, 13]], dtype=np.uint8))
+def test_mixed_names_cannot_bypass_reindexed_guard(tmp_path):
+    with pytest.raises(ValueError, match="Mixed original and reindexed"):
+        verified_frame_order(
+            [tmp_path / "0.jpg", tmp_path / "original_12.jpg"], "seq13"
+        )
+
+
+def test_verified_mapping_binds_files_and_prevents_duplicate_frames(tmp_path):
+    entries, files = {}, []
+    for name, original in [("0.jpg", 100), ("1.jpg", 12)]:
+        path = tmp_path / name
+        path.write_bytes(name.encode())
+        files.append(path)
+        entries[name] = {
+            "image_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "original_frame_index": original,
+        }
+    mapping = {"sequences": {"seq13": entries}}
+    ordered, _ = verified_frame_order(files, "seq13", mapping)
+    assert [p.name for p in ordered] == ["1.jpg", "0.jpg"]
+    entries["1.jpg"]["original_frame_index"] = 100
+    with pytest.raises(ValueError, match="one-to-one"):
+        verified_frame_order(files, "seq13", mapping)
+    entries["1.jpg"]["image_sha256"] = "incorrect"
+    with pytest.raises(ValueError, match="content mismatch"):
+        verified_frame_order(files, "seq13", mapping)

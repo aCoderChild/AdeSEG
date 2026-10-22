@@ -1,4 +1,4 @@
-"""Dataset-neutral, labelled-video clips for Kalman-memory training.
+"""Manifest loading and ordered frame staging for native video inference.
 
 The manifest is JSON Lines.  Each row describes one annotated frame:
 ``{"split": "train", "video_id": "case_01", "frame_index": 0,
@@ -14,11 +14,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-import cv2
 import numpy as np
-import torch
 
-from datasets.io import load_label_mask
 
 IMAGE_MEAN = np.array((0.485, 0.456, 0.406), dtype=np.float32)
 IMAGE_STD = np.array((0.229, 0.224, 0.225), dtype=np.float32)
@@ -36,20 +33,6 @@ def stage_frames(frames: list[ManifestFrame], directory: Path) -> None:
     """Link manifest-ordered frames to SAM2's contiguous JPEG input names."""
     for index, frame in enumerate(frames):
         (directory / f"{index:06d}.jpg").symlink_to(frame.image_path.resolve())
-
-
-def foreground_labels(frames):
-    """Indexed classes present anywhere in a clip, including ignore labels.
-
-    Callers retain ignore labels for decoding and exclude them when selecting
-    prompted objects. Binary JPEG normalization stays in the shared decoder.
-    """
-    labels = set()
-    for frame in frames:
-        labels.update(
-            np.unique(load_label_mask(frame.mask_path, range(1, 256))).tolist()
-        )
-    return sorted(labels - {0})
 
 
 def _resolve(value: str, manifest: Path) -> Path:
@@ -104,134 +87,3 @@ def assert_disjoint_videos(*splits: dict[str, list[ManifestFrame]]) -> None:
                 f"A video appears in more than one split: {sorted(overlap)[:3]}"
             )
         seen.update(videos)
-
-
-def _semantic_mask(path: Path, label_ids) -> np.ndarray:
-    return load_label_mask(path, label_ids)
-
-
-class ManifestVideoClips:
-    """Natural temporal clips for one requested semantic label at a time.
-
-    A single Kalman update module is shared by every label.  Each sample remains
-    binary because MedSAM2's prompt and the current Kalman state represent one
-    object; multi-label data therefore trains the same update rule on each object
-    without teaching it a dataset- or class-specific shortcut.
-    """
-
-    def __init__(
-        self,
-        videos: dict[str, list[ManifestFrame]],
-        label_ids: list[int],
-        image_size: int,
-        clip_length: int,
-        sample_by_video: bool = False,
-        absence_fraction: float = 0.0,
-    ):
-        if clip_length < 2:
-            raise ValueError("clip_length must be at least 2.")
-        if not label_ids or any(label <= 0 for label in label_ids):
-            raise ValueError("label_ids must be non-zero semantic-mask values.")
-        self.image_size = image_size
-        self.label_ids = label_ids
-        self.clip_length = clip_length
-        self.sample_by_video = sample_by_video
-        self.absence_fraction = (
-            absence_fraction  # share of samples drawn from clips with an absent frame
-        )
-        self.clips: list[tuple[list[ManifestFrame], int]] = []
-        self.has_absence: list[bool] = []
-        seen_labels: set[int] = set()
-        for frames in videos.values():
-            if len(frames) < clip_length:
-                continue
-            labels_by_frame = [
-                _semantic_mask(frame.mask_path, label_ids) for frame in frames
-            ]
-            for label_id in label_ids:
-                present = [bool((mask == label_id).any()) for mask in labels_by_frame]
-                if any(present):
-                    seen_labels.add(label_id)
-                for start in range(len(frames) - clip_length + 1):
-                    if present[start]:
-                        self.clips.append(
-                            (frames[start : start + clip_length], label_id)
-                        )
-                        self.has_absence.append(
-                            not all(present[start : start + clip_length])
-                        )
-        missing = sorted(set(label_ids) - seen_labels)
-        if missing:
-            raise ValueError(
-                f"Requested label_ids are absent from this split: {missing}"
-            )
-        if not self.clips:
-            raise ValueError(
-                "No clip has a prompted object followed by enough annotated frames."
-            )
-
-    def __len__(self) -> int:
-        return len(self.clips)
-
-    def _image(self, path: Path) -> np.ndarray:
-        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
-        if image is None:
-            raise FileNotFoundError(path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        return cv2.resize(
-            image, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA
-        )
-
-    def _mask(self, path: Path, label_id: int) -> np.ndarray:
-        mask = (_semantic_mask(path, self.label_ids) == label_id).astype(np.uint8)
-        return cv2.resize(
-            mask, (self.image_size, self.image_size), interpolation=cv2.INTER_NEAREST
-        )
-
-    def sample(self, rng: np.random.Generator) -> dict[str, torch.Tensor | str | int]:
-        pool = self.clips
-        if (
-            self.absence_fraction > 0
-            and any(self.has_absence)
-            and rng.random() < self.absence_fraction
-        ):
-            pool = [
-                clip for clip, absent in zip(self.clips, self.has_absence) if absent
-            ]
-        if self.sample_by_video:
-            # A video first, then one of its clips, so a long video does not dominate.
-            videos = sorted({frames[0].video_id for frames, _ in pool})
-            video_id = videos[int(rng.integers(len(videos)))]
-            candidates = [clip for clip in pool if clip[0][0].video_id == video_id]
-            frames, label_id = candidates[int(rng.integers(len(candidates)))]
-        else:
-            frames, label_id = pool[int(rng.integers(len(pool)))]
-        images = (
-            np.stack([self._image(frame.image_path) for frame in frames]).astype(
-                np.float32
-            )
-            / 255.0
-        )
-        masks = np.stack([self._mask(frame.mask_path, label_id) for frame in frames])
-        return {
-            "images": torch.from_numpy((images - IMAGE_MEAN) / IMAGE_STD)
-            .permute(0, 3, 1, 2)
-            .float(),
-            "masks": torch.from_numpy(masks.astype(np.float32)),
-            "frame_gaps": torch.tensor(
-                [
-                    0,
-                    *[
-                        right.frame_index - left.frame_index
-                        for left, right in zip(frames, frames[1:])
-                    ],
-                ],
-                dtype=torch.float32,
-            ),
-            "present": torch.from_numpy(masks.reshape(len(masks), -1).any(axis=1)),
-            "source": str(frames[0].image_path),
-            "image_paths": [str(frame.image_path) for frame in frames],
-            "video_id": frames[0].video_id,
-            "label_id": label_id,
-            "absence_mode": "natural",
-        }

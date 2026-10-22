@@ -61,7 +61,7 @@ def paired_wilcoxon(left_by_sequence, right_by_sequence):
     left = np.array([left_by_sequence[name] for name in names], dtype=float)
     right = np.array([right_by_sequence[name] for name in names], dtype=float)
     valid = np.isfinite(left) & np.isfinite(right)
-    if valid.sum() < 2 or np.allclose(left[valid], right[valid]):
+    if valid.sum() < 2 or np.array_equal(left[valid], right[valid]):
         return {"n": int(valid.sum()), "statistic": float("nan"), "p": 1.0}
     result = wilcoxon(left[valid], right[valid], alternative="two-sided")
     return {

@@ -1,23 +1,18 @@
-# Protocols
+# Current protocol
 
-These are scientific records, not interchangeable runtime configurations.
-Keep frozen filenames and contents: pinned notebooks, saved hashes and descendant
-protocols depend on them. Later amendments do not retroactively preregister results.
+[memory_token_regions.json](memory_token_regions.json) consolidates the
+verified checkpoint, initialization and three-region spatial assignment.
+Predicted masks supply primary labels; GT assignments are separate audits. It is not a fresh preregistration and does not authorize
+claims of full-study completion or segmentation improvement.
 
-| Record | Purpose |
-|---|---|
-| `region_tokens_v1.json` → `region_tokens_v1_1.json` | Region-study definitions and revised primary protocol |
-| `region_tokens_v1_2_cholec_amendment.json` → `region_tokens_v1_3_cholec_split.json` | Cholec data and source-video split amendments |
-| `region_tokens_execution_v1.json` | Execution settings and validation requirements |
-| `region_tokens_restore_control_v2.json` | Memory-read restoration diagnostic amendment |
-| `region_tokens_review_v1.json` | Review/sensitivity controls |
-| `region_tokens_v2_amendment.json` | Post-interim local chronological diagnostics, geometry controls and headroom gate |
-| `cutie_development_comparator.json` | External comparator and correction-budget accounting |
-| `latent_utility_v2.json`, `utility_retrieval_v1.json` | Inactive ancestors retained solely for provenance and the referenced DAVIS split; not the active hypothesis |
+Retired experiment protocols were removed with the superseded code/results,
+as requested. The original PolypGen data partition remains under
+`datasets/splits/polypgen/`; no source dataset or checkpoint was deleted.
 
-The DAVIS manifest builder, analysis and Kaggle runner still read the explicit
-partition in `utility_retrieval_v1.json`. Deleting it would break the region
-workflow; its old model/method claims are not adopted by the current study.
-
-See [methods](../docs/REGION_TOKENS.md) for the active idea and
-[results](../docs/REGION_TOKENS_RESULTS.md) for completion and validity limits.
+The planned author-default SAM2/SAM2Long benchmark and controlled
+author-method versus regional-reading comparison are specified in
+[REGION_TOKENS.md](../docs/REGION_TOKENS.md#next-study-frame-selection-versus-regional-reading).
+They are not launched or validated by the existing attention/exclusion runs.
+Stride 2/4 were subsequently excluded. The separate matched-FP32 CPU batch
+validates all four supported author adapters before full inference; SMR-only
+remains blocked pending CUDA verification. This is not a completed GPU study.
