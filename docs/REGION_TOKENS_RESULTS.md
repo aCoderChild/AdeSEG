@@ -20,6 +20,20 @@ not independently reproduced. See the [amendment](../protocols/region_definition
 New-width attention has not been measured; saved logits permit geometry-only
 relabeling, not reconstruction of regional attention.
 
+Offline amendment check: 75 saved seq2/seq3 memory frames; the table pools
+one-pixel self-contour pixels over 73 post-prompt targets. No inference or
+attention rerun; no empty interior/boundary groups in this subset.
+
+| Amended kernel | Self-contour pixels missed |
+|---|---:|
+| 15 | 23.23% |
+| 21 | 2.92% |
+| 29 | 0.00% |
+
+This supports broader geometric coverage on this subset, not attention
+robustness or segmentation gains. Output: `trimap_amendment_gate_v1` under
+source 15; amendment commit `e62b59b` preceded these offline measurements.
+
 Follow-up audit implementation: contour-miss fractions (self and GT, with/without
 image border), frozen source-frame size quartiles, missing-group counts and
 all-source-frame coverage are now included. Primary attribution is Efficient-SAM2
@@ -198,7 +212,7 @@ GT supplies offline labels only; spatial grouping does not imply semantic purity
 
 ## Status and sources
 
-Last verified regression suite: **108 passed**. Efficient-SAM2 SMR-only executed
+Last verified regression suite: **110 passed**. Efficient-SAM2 SMR-only executed
 on MPS with dense-encoder parity and active pruning, but repeated logits/masks
 differed. Full SMR accuracy remains blocked. Author-specific exclusions and
 stored-mask-quality analyses remain pending; no region-aware improvement is established.
