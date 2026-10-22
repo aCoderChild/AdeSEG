@@ -1,0 +1,43 @@
+{
+  "recorded_date": "2026-10-23",
+  "status": "Post-launch clarification and provenance record; not a pre-run Git registration. Does not change running labels, comparators, bins or attention.",
+  "executed_protocol": "protocols/region_definition_verification.json",
+  "executed_protocol_sha256": "2e409f2f8ac5fad446e778323eba805174380d62c3218fbfefc362ab41e89aa5",
+  "primary": {
+    "assignment": "efficient_sam2_exact_mixed_cells_native256_v1",
+    "definition": "Boundary-associated tokens are cells occupied by both object and background, following the mixed-region idea examined in BPR and Mask Transfiner, computed with Efficient-SAM2's occupancy code. Pure object cells are foreground interior; pure background cells are background.",
+    "citation_qualification": "BPR Appendix B describes the mixed-FG/BG pre-defined-grid ablation, not its preferred dense-sampling/NMS method. Mask Transfiner section 3.1 motivates incoherent cells through resolution loss; its actual repository helper is retained as a separate comparator, not equated to our exact occupancy composition.",
+    "references": [
+      {"title": "Look Closer to Segment Better: Boundary Patch Refinement for Instance Segmentation", "venue": "CVPR 2021", "section": "Appendix B", "url": "https://arxiv.org/html/2104.05239"},
+      {"title": "Mask Transfiner for High-Quality Instance Segmentation", "venue": "CVPR 2022", "section": "3.1", "url": "https://arxiv.org/html/2111.13673"}
+    ],
+    "scale": "64x64 memory grid; each cell covers 4x4 native256 mask pixels / 16x16 square1024 input pixels. No morphology-width parameter. This is a grid-defined mixed footprint, not a continuous one-token-wide band.",
+    "sensitivity_scope": "Primary has no 0.01/0.02/0.04 ratio. Current width sensitivity is only MatteFormer kernels 3/7/15 at author640 resolution. Current v3 comparator uses ratio 0.02 only; historical v3 ratios 0.01/0.04 have NOT been rerun here. Mask Transfiner sfact4 is a separate definition comparator."
+  },
+  "size_bins": {
+    "measurement": "Per-frame GT foreground pixel count divided by original frame pixel count; not per-sequence size or mean sequence area",
+    "population": "All 1710 positive GT frames across seq1–23; absent frames are separate",
+    "quantiles": [0.25, 0.5, 0.75],
+    "quantile_method": "numpy.quantile default linear",
+    "area_fraction_cutpoints": [0.020346832275390626, 0.053846345464355336, 0.11534966362847222],
+    "ties": "Lower bin: Q1=(0,q25], Q2=(q25,q50], Q3=(q50,q75], Q4=(q75,1]; zero=absent",
+    "timing": "Computed and saved before inference in the new validation and full audit. Historical attention/exclusion results already existed; this is not a claim of registration before any prior result.",
+    "validation_size_file_written_utc": "2026-10-22T19:29:35.818460+00:00",
+    "validation_first_native_capture_written_utc": "2026-10-22T19:29:44.486065+00:00",
+    "full_size_file_written_utc": "2026-10-22T19:37:13.998798+00:00",
+    "full_first_native_capture_written_utc": "2026-10-22T19:37:22.660613+00:00",
+    "numeric_protocol_timing": "The executed protocol froze the quartile procedure; numeric values were saved in size_policy.json before inference. Numeric values are incorporated into this companion protocol record AFTER launch. File modification times support chronology, together with startup code order; they are not an independent timestamp authority."
+  },
+  "verification_scope": {
+    "sequences": ["seq2", "seq3"],
+    "replay": "59 seq2 postprompt frames 4–62 plus 14 seq3 postprompt frames 1–14 = 73; not full-cohort validation",
+    "native_frames": "60 seq2 frames 3–62 plus 15 seq3 frames 0–14 = 75, including two conditioning frames",
+    "prompt_bitwise_checks": [{"sequence": "seq2", "frame": 3, "exact": true}, {"sequence": "seq3", "frame": 0, "exact": true}],
+    "PNG_check": "Labels are close but not identical. All six definitions were rechecked on the 73 predicted frames using saved native logits and PNG re-encoding. Running audit already uses native stored logits, never PNG-derived labels.",
+    "primary_PNG_mean_max_disagreement_seq2": [0.0008358712923728814, 0.003173828125],
+    "primary_PNG_mean_max_disagreement_seq3": [0.0014997209821428572, 0.003662109375],
+    "artifact": "15_region_definition_contour_audit_cpu_v1/receipt_verification/verification.json"
+  },
+  "claim_rule": "Positions, not exclusive vector contents. A definition-robust regional effect requires consistent direction across mixed cells, author incoherence, every prespecified trimap width and inner band. Otherwise report definition dependence. Attention allocation is not causal utility. Segmentation contribution remains gated on CPU FP32 exclusions with contiguity-matched controls.",
+  "git_timing": "Pre-run Git commit requirement was NOT met. The matching protocol/source hashes and copies were saved before inference. This record and those executed source bytes are committed only after launch; do not backdate or call the current audit prospectively Git-preregistered."
+}

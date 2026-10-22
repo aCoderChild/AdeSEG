@@ -5,6 +5,8 @@ Run `python -m pytest -q`. Discovery is restricted to this folder.
 | File | Coverage |
 |---|---|
 | `test_memory_token_regions.py` | Boundary IoU integration, three-region geometry, exact vector grouping |
+| `test_region_definitions.py` | Native-grid mixed-cell coverage, unchanged author incoherence, thin-cell sampling counterexample and deterministic two-sided trimaps |
+| `test_region_definition_statistics.py` | Aligned/mixed contour coverage, image-border convention, undefined denominators and quartile ties |
 | `test_region_attention.py` | Efficient-SAM2 author provenance, native output preservation, chunking, pointers and overlay-pixel verification |
 | `test_author_region_measurement.py` | Author candidate-axis selection, native attention-output preservation, hook restoration and exact baseline prediction checks |
 | `test_region_exclusion.py` | Native SDPA masks, matched random keys, cached-state isolation, exact buffer digests and excess-loss calculation |

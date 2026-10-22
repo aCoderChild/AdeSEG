@@ -9,6 +9,80 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 > composed of unchanged SAM2, Efficient-SAM2 and Boundary IoU code. Author
 > benchmark Dice in section 1 is unaffected; sections 2–5 need rerunning.
 
+## Native-grid definition pilot — 2026-10-23
+
+Follow-up audit implementation: contour-miss fractions (self and GT, with/without
+image border), frozen source-frame size quartiles, missing-group counts and
+all-source-frame coverage are now included. Primary attribution is Efficient-SAM2
+occupancy composition, not Mask Transfiner. **108 tests pass.** The fresh gate
+passed: 73/73 replay logits bit-identical, 75/75 stored-mask checks, 292 attention
+reads normalized (maximum mass error 0.00000718), and confirmed W&B delivery.
+The full 23-sequence CPU audit has been launched; it is not complete.
+Old pilot statistics below remain unchanged.
+
+New gate only: pooled one-pixel native256 contour misses, 73 post-prompt frames.
+These measure geometry, not semantic vector contents or causal usefulness.
+
+| Definition | Own-prediction contour missed | GT contour missed |
+|---|---:|---:|
+| Exact mixed cells (primary) | 17.64% | 36.82% |
+| Author incoherence adapter | 1.14% | 16.51% |
+| MatteFormer kernel 3 | 82.65% | 86.76% |
+| MatteFormer kernel 7 | 60.22% | 68.56% |
+| MatteFormer kernel 15 | 23.23% | 38.80% |
+| Inner band 0.02 | 6.17% | 26.21% |
+
+Thin-trimap nearest-neighbor sampling misses many contour pixels. Mixed cells
+also leave contour gaps; do not call them a complete contour detector. GT misses
+add prediction error. Full-cohort size/empty-group statistics remain pending;
+no cross-definition robustness or segmentation improvement is established.
+
+New outputs: `15_region_definition_contour_audit_cpu_v1/{validation,full}`.
+[Passed gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kmqukgz0).
+[Running full audit](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/oq7ekeyo).
+
+### Verification scope and protocol timing
+
+| Check | Verified scope / result |
+|---|---|
+| 73/73 exact replays | Seq2: 59 targets (frames 4–62); seq3: 14 targets (frames 1–14), not the full cohort |
+| 75 stored frames | Seq2: 60 (frames 3–62); seq3: 15 (frames 0–14), including two conditioning frames |
+| Prompt low-res logits | Rechecked bit-identical on seq2 frame 3 and seq3 frame 0 |
+| Primary native-versus-PNG labels, mean / maximum token disagreement | Seq2: 0.0836% / 0.3174%; seq3: 0.1500% / 0.3662%; predicted frames only |
+| PNG decision | Close, not identical; the running audit already uses native logits, not PNG-derived labels |
+| Size bins | Per-frame GT area fraction; positive-frame quartiles 2.034683%, 5.384635%, 11.534966%; saved before new-run inference |
+| Freeze timing | Protocol/source SHA snapshots preceded inference; Git commit did not. Numeric bins were in `size_policy.json`, added to a companion protocol record after launch |
+
+These are gate checks, not full-cohort efficacy results. Historical results had
+already been seen; do not describe this audit as prospectively preregistered.
+The running protocol remains byte-identical to its pre-inference snapshot.
+See [protocol clarification](../protocols/region_definition_audit_v1_record.json)
+and `receipt_verification/verification.json` under the new output root.
+
+New candidate: exact mixed-cell occupancy from native stored 256×256 logits,
+using the unchanged Efficient-SAM2 window selector on foreground and background.
+Comparators: author Mask Transfiner incoherence, MatteFormer kernels 3/7/15,
+and direct-native v3 inner bands. No model component or parameter was replaced.
+
+| CPU seq2/seq3 verification | Result |
+|---|---|
+| Tests | 104 passed; new files lint passed |
+| Complete fresh-model no-observer replay | 73/73 post-prompt logits bit-identical |
+| Prompt masks / stored-frame masks / actual writer association | Passed on both sequences |
+| Attention mass | Sums to one in all 292 layer reads |
+| GT image-edge contact, including prompt | Seq2: 2/60 frames; seq3: 1/15 |
+| Native-v3 versus PNG-route disagreement, mean / maximum | Seq2: 0.045% / 0.244%; seq3: 0.083% / 0.293% |
+| Empty primary interior / boundary, post-prompt | 0/0 on both sequences; not a full-cohort estimate |
+
+Square-input overlays were inspected: labels align with the stored prediction;
+GT disagreements remain where segmentation is inaccurate. The absent pre-prompt
+example is explicitly reference-only. Mixed cells do not cover contours lying
+exactly between pure cells; they are not semantically pure vectors. No full
+attention/exclusion rerun or improvement is claimed by this pilot.
+
+Output: `14_region_definition_comparison_cpu_v1` in the Drive output root below.
+[Pilot tracking](https://forge.coreweave.com/wandb/adenoid-hypertrophy/ade-seg/runs/waa5c6i9).
+
 ## 1. Author benchmarks — completed
 
 | Method, CPU FP32 | Dice |

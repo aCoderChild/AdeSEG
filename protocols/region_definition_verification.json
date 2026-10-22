@@ -1,0 +1,48 @@
+{
+  "recorded_date": "2026-10-23",
+  "status": "Frozen descriptive full-audit protocol; historical results are not relabeled",
+  "primary_candidate": "efficient_sam2_exact_mixed_cells_native256_v1",
+  "input": "Each frame's own native stored 256x256 pred_masks logits, thresholded at the native zero logit",
+  "grid": [64, 64],
+  "primary_operator": "Call unchanged Efficient-SAM2 select_mask_windows on foreground and its complement, one memory token per window. Both occupied means mixed/boundary-associated; foreground only means interior; background only means background.",
+  "attribution": "Primary is a project three-class composition of unchanged Efficient-SAM2 occupancy, conceptually a mixed-window rule. It is NOT Mask Transfiner's incoherence rule and is not claimed as an unchanged BPR implementation. Mask Transfiner is a separate author-function comparator.",
+  "primary_limits": "Mixed footprints, not semantically pure vectors or all geometric contours. Perfectly grid-aligned contours may produce no mixed cells. Image borders are not automatically boundaries.",
+  "comparators": {
+    "transfiner": {
+      "revision": "5b61fb53d8df5484f44c8b7d8415f398fd283ddc",
+      "function": "get_incoherent_mask",
+      "sfact": 4,
+      "author_training_caller_sfact": 2,
+      "categorical_adapter": "Author-saturated scores equal to one become boundary-associated. Retain raw scores. Bilinear sampling and the author's 0.01 cutoff are unchanged; thin structures can be missed."
+    },
+    "matteformer": {
+      "revision": "f09f090a7e8069f213ea2671c49c52516f755bb5",
+      "class": "GenMask",
+      "fixed_equal_kernel_sizes": [3, 7, 15],
+      "author_generation_resolution": [640, 640],
+      "adaptations": "Fix author RNG width responses, disable random interpolation, provide local np.int compatibility; discard segmentation augmentation. Nearest-neighbor map from native256 to memory64. Not an unchanged end-to-end matting pipeline."
+    },
+    "v3": "Retain Boundary IoU inner-band geometry at ratio 0.02 on direct native object tokens. Measure disagreement with the older full-resolution-PNG re-encoding route."
+  },
+  "pilot": "Complete seq2 and seq3, CPU FP32, fresh-model no-observer replay, same checkpoint and one initial GT mask",
+  "checks": [
+    "Prediction returned by propagation equals the same frame's stored output",
+    "Saved PNG binary equals the same stored frame's upsampled mask",
+    "Prompt native low-resolution logits equal SAM2's unchanged mask-prompt path",
+    "Actual memory-encoder write identified by stored feature hash; writer mask signs agree with native logits upsampled by author interpolation",
+    "Square 1024x1024 overlays with 16-pixel memory grid and GT contour",
+    "Native logits unchanged relative to fresh-model no-observer replay",
+    "Attention mass sums to one per read, all four memory cross-attention layers"
+  ],
+  "contour_measurement": {
+    "source": "Unchanged Boundary IoU mask_to_boundary at native256, ratio 1/hypot(256,256), giving one-pixel inner contour including image border",
+    "coverage": "Count contour pixels outside nearest-neighbor enlarged 64x64 boundary-token footprints; record numerator and denominator on every audited frame for every definition",
+    "references": "Self contour from own native prediction isolates assignment geometry. GT contour from SAM2 prompt-path resized GT is separate: misses include prediction errors. GT is never substituted for predicted memory.",
+    "image_border": "Accept the author border convention for the inner-band comparator, explicitly not anatomical; also report contour coverage excluding the outermost native raster row/column and image-edge-contact frequency",
+    "undefined": "Zero contour denominator gives null, not zero. Empty regional groups give undefined enrichment, not zero. Frame/region counts are reported."
+  },
+  "size_strata": "Freeze positive GT area-fraction quartiles from all seq1–23 source frames before model inference. Ties enter the lower quartile; absent separate. Report cutpoints and all bin counts; no outcome-driven bin choice.",
+  "claim_rule": "Claims concern positions associated with regions, never exclusive semantic contents of vectors. Attention allocation alone is not causal contribution. A definition-robust regional effect requires consistent direction across primary mixed cells, author incoherence, all prespecified trimaps and inner band; otherwise report definition dependence without selecting a winning width. Segmentation contribution requires CPU FP32 exclusion with contiguity-matched controls; no gain is presumed.",
+  "full_rerun": "Run all 23 sequences after a matching-source CPU seq2/seq3 exact-replay and delivery gate. Audit every source frame: promptable frames have native memory measurements; preprompt and unpromptable frames have explicitly GT-reference-only assignment statistics, never fabricated memory/attention. Full-cohort prediction replay is not implied by the two-sequence gate.",
+  "causal_exclusion": "CPU FP32 contiguity-matched exclusions remain subsequent work; count-only controls do not establish the requested stronger control."
+}

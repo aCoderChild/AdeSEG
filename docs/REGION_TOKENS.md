@@ -19,8 +19,79 @@ Spatial grouping does not imply semantically pure feature vectors.
 
 ## Three-region assignment
 
+**2026-10-23 frozen audit definition:** historical results must not be
+silently relabeled. The primary rule for the new audit is exact mixed-cell occupancy,
+using Efficient-SAM2's unchanged window selector on foreground and background
+of each frame's **native stored 256×256 logits**. Mixed cells are boundary-associated;
+pure cells are interior or background. Grid-aligned contours may have no mixed
+cells; this is a spatial partition, not a complete anatomical contour detector.
+Boundary-associated tokens are cells occupied by both object and background,
+following the mixed-region idea examined in [BPR, Appendix B](https://arxiv.org/html/2104.05239)
+and [Mask Transfiner, section 3.1](https://arxiv.org/html/2111.13673), computed with
+Efficient-SAM2's occupancy code. BPR's mixed-grid rule is an ablation, not its
+preferred dense-sampling/NMS method. This is conceptual attribution, not a claim
+to reproduce either complete method or Efficient-SAM2 defining a boundary class.
+Source functions: Efficient-SAM2 `select_mask_windows`, Mask Transfiner
+`get_incoherent_mask`, MatteFormer `GenMask`, and Boundary IoU `mask_to_boundary`.
+Author repositories: [Efficient-SAM2](../external/Efficient-SAM2),
+[Mask Transfiner](https://github.com/SysCV/transfiner),
+[MatteFormer](https://github.com/webtoon/matteformer), and
+[Boundary IoU](../external/boundary-iou-api). Commit pins and adaptations are
+recorded in the protocol; only the named source functions execute unchanged.
+
+`modeling/region_definitions.py` also loads unchanged Mask Transfiner incoherence
+and MatteFormer trimap code from pinned submodules. The former has bilinear
+sampling and an author 0.01 cutoff (not an exact mixed-cell rule). Trimap widths
+are fixed at kernels 3/7/15 in the author's 640×640 generation space. These
+adapters and scale choices are documented, not claimed as unchanged full models.
+The older v3 inner band remains a comparator.
+
+The primary has no band-width ratio: its 4×4 native-mask footprint is fixed by
+the memory grid (16×16 square-input pixels), not a continuous one-token-wide
+band. Current width sensitivity uses only trimap kernels 3/7/15. The current
+v3 comparator is 0.02 only; historical 0.01/0.04 measurements are not new-primary
+sensitivity results.
+
+Size bins use **per-frame GT area / original image area**, over 1,710 positive
+frames: cut-points **2.034683%, 5.384635%, 11.534966%**; ties go to the lower
+quartile and absent frames are separate. The procedure and numeric values were
+saved before this run's inference, not before historical studies. Numeric bins
+are now also in the [companion protocol record](../protocols/region_definition_audit_v1_record.json).
+The executed protocol was hash-frozen but **not Git-committed before launch**.
+This post-launch clarification does not change it or confer prospective
+preregistration; the original protocol bytes remain unchanged.
+
+`scripts/audit_region_definitions.py --method sam2 --device cpu --smoke` plus
+the usual checkpoint/manifest/new Drive output arguments runs complete seq2/seq3
+verification with online W&B, native-mask provenance, prompt parity, square-grid
+overlays, attention checks and fresh-model no-observer replay. A full audit uses
+the same command without `--smoke`, adding `--validation-dir` for the matching
+successful gate. Source/checkpoint/device identities and artifact delivery must
+match. Exact settings: [verification protocol](../protocols/region_definition_verification.json).
+
+Every audited frame records missed one-pixel native256 contours, both including
+and excluding the image border. Self-prediction contours measure geometric
+coverage; GT contours additionally reflect segmentation error. Counts, empty
+groups, GT-region agreement and GT-area quartiles are reported; quartiles are
+frozen before inference. Preprompt/unpromptable frames are GT-reference-only,
+never fabricated native memory. Claims concern token positions, not pure vector
+contents. A cross-definition claim requires consistent effects across all
+prespecified definitions; otherwise report definition dependence. Causal claims
+still require contiguity-matched CPU FP32 exclusions after the audit.
+
 Each stored prediction labels its own 64×64 memory grid (4,096 vectors,
 64 channels). The initial conditioning frame uses the GT prompt.
+
+| Primary candidate region | Exact occupancy of the native 4×4 mask footprint |
+|---|---|
+| Foreground interior | Foreground only |
+| Boundary-associated | Both foreground and background |
+| Background | Background only |
+
+Existing experiment runners retain v3 until verification and explicit rerun;
+the new candidate is currently used by the separate definition audit only.
+
+### Retained v3 comparator
 
 Assignment `sam2_efficient_sam2_boundary_iou_v3` chains four pinned author
 functions; project code only passes outputs between them

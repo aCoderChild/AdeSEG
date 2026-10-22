@@ -16,3 +16,9 @@
 [submodule "samurai-baseline"]
 	path = external/SAMURAI
 	url = https://github.com/yangchris11/samurai.git
+[submodule "external/MatteFormer"]
+	path = external/MatteFormer
+	url = https://github.com/webtoon/matteformer.git
+[submodule "external/Mask-Transfiner"]
+	path = external/Mask-Transfiner
+	url = https://github.com/SysCV/transfiner.git

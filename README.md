@@ -26,10 +26,16 @@ read-only vector grouping and attention observation/exclusion adapters. `dataset
 
 ```sh
 git submodule update --init --recursive
+git -C external/Efficient-SAM2 apply --check ../../patches/efficient-sam2-device.patch
+git -C external/Efficient-SAM2 apply ../../patches/efficient-sam2-device.patch
 python -m pip install -r requirements.txt
 python -m pytest -q
 python scripts/audit_memory_token_regions.py --help
 ```
+
+Apply the device patch once on a fresh checkout; skip it if already applied.
+See [patch details](patches/efficient-sam2-device.md). This enables device
+allocation only; it does not establish MPS repeatability or SMR accuracy.
 
 Native predictor code is bundled under `external/MedSAM2`; `external/sam2` is retained as the
 official reference. Boundary IoU is a pinned author repository; no DINOv2 dependency remains.
