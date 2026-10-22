@@ -1,24 +1,27 @@
 # Regional memory tokens: results
 
-Updated 2026-10-22. Exploratory PolypGen study: 21 promptable sequences,
+Updated 2026-10-23. Exploratory PolypGen study: 21 promptable sequences,
 2,012 post-prompt targets; seq1/seq7 are N/A. Dice is the equal-sequence
 present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions.
 
-> **Assignment v1.** Every regional number below uses the superseded v1 token
-> rule (any band pixel or mixed footprint → boundary). The code now uses v3,
-> composed of unchanged SAM2, Efficient-SAM2 and Boundary IoU code. Author
-> benchmark Dice in section 1 is unaffected; sections 2–5 need rerunning.
+> **Do not combine definitions.** Historical regional results in sections 2–5
+> use superseded v1 (any band pixel or mixed footprint → boundary). The new audit
+> uses native-mask mixed cells and separate comparators. Author benchmark Dice
+> in section 1 is unaffected; historical regional results have not been rerun
+> with the new primary definition.
 
-## Native-grid definition pilot — 2026-10-23
+## Current native-grid audit — 2026-10-23
 
 Follow-up audit implementation: contour-miss fractions (self and GT, with/without
 image border), frozen source-frame size quartiles, missing-group counts and
 all-source-frame coverage are now included. Primary attribution is Efficient-SAM2
-occupancy composition, not Mask Transfiner. **108 tests pass.** The fresh gate
+occupancy code with the mixed-region motivation described in the
+[methods](REGION_TOKENS.md), not an exact Mask Transfiner reproduction.
+**108 tests pass.** The fresh gate
 passed: 73/73 replay logits bit-identical, 75/75 stored-mask checks, 292 attention
 reads normalized (maximum mass error 0.00000718), and confirmed W&B delivery.
 The full 23-sequence CPU audit has been launched; it is not complete.
-Old pilot statistics below remain unchanged.
+The earlier pilot is recorded separately below.
 
 New gate only: pooled one-pixel native256 contour misses, 73 post-prompt frames.
 These measure geometry, not semantic vector contents or causal usefulness.
@@ -59,7 +62,13 @@ The running protocol remains byte-identical to its pre-inference snapshot.
 See [protocol clarification](../protocols/region_definition_audit_v1_record.json)
 and `receipt_verification/verification.json` under the new output root.
 
-New candidate: exact mixed-cell occupancy from native stored 256×256 logits,
+### Earlier definition pilot — output 14
+
+These earlier seq2/seq3 statistics are retained as recorded, not results from
+the ongoing full audit. The older v3 PNG comparison includes conditioning frames;
+the primary PNG comparison above uses predicted frames only.
+
+Primary candidate: exact mixed-cell occupancy from native stored 256×256 logits,
 using the unchanged Efficient-SAM2 window selector on foreground and background.
 Comparators: author Mask Transfiner incoherence, MatteFormer kernels 3/7/15,
 and direct-native v3 inner bands. No model component or parameter was replaced.
@@ -181,7 +190,7 @@ GT supplies offline labels only; spatial grouping does not imply semantic purity
 
 ## Status and sources
 
-Last verified regression suite: **92 passed**. Efficient-SAM2 SMR-only executed
+Last verified regression suite: **108 passed**. Efficient-SAM2 SMR-only executed
 on MPS with dense-encoder parity and active pruning, but repeated logits/masks
 differed. Full SMR accuracy remains blocked. Author-specific exclusions and
 stored-mask-quality analyses remain pending; no region-aware improvement is established.
@@ -201,6 +210,8 @@ Mounted storage is verified; independent cloud synchronization is not.
 | 10 | `10_efficient_smr_polypgen_mps_v1` | Failed MPS replay diagnostics |
 | 11 | `11_all_sequence_enrichment_polypgen_cpu_v1` | Full-cohort weighting comparison |
 | 12 | `12_author_region_attention_polypgen_cpu_v1` | Cross-method attention comparison |
+| 14 | `14_region_definition_comparison_cpu_v1` | Earlier native-grid definition pilot; seq2/seq3 only |
+| 15 | `15_region_definition_contour_audit_cpu_v1` | Passed gate, post-launch verification and ongoing full native-grid audit |
 
 [W&B attention summary](https://forge.coreweave.com/wandb/adenoid-hypertrophy/ade-seg/runs/e6dxrwgm)
 · [W&B weighting summary](https://forge.coreweave.com/wandb/adenoid-hypertrophy/ade-seg/runs/sxurya29).

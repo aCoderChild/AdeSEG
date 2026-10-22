@@ -110,10 +110,11 @@ functions; project code only passes outputs between them
 | Foreground interior | Object tokens outside the band |
 | Background | Non-object tokens |
 
-At ratio 0.02 the band is 2 tokens (32 px at 1024); sensitivity ratios
-0.01/0.04 give 1/4 tokens. Because step 3 counts any covered cell as object,
-the outer band ring holds the tokens the true contour crosses. Context just
-outside the object is background, as in Boundary IoU. Small objects may have
+At ratio 0.02 the band is 2 tokens (32 px at 1024); ratios 0.01/0.04 would
+give 1/4 tokens, but are not rerun in the current audit. The outer ring
+approximates the predicted contour; it is neither guaranteed complete nor a GT
+contour detector. Context just outside the object is background, as in Boundary
+IoU. Small objects may have
 no interior tokens. Source revisions and clean checkouts are verified before
 execution, and tests check exact agreement with SAM2's mask-prompt path.
 
@@ -131,8 +132,9 @@ separate. No learned classifier or DINOv2 head is used.
 |---|---|
 | Assignment audit | Exact vector reconstruction, overlays and GT/predicted agreement |
 | Native attention | Reuse Efficient-SAM2's author attention calculation on native post-RoPE Q/K/V; return original SDPA outputs |
-| Sensitivity | Same attention weights grouped by predicted/GT masks at three widths |
-| Regional exclusion | Mask one region's keys in all four cross-attention layers; three per-frame count-matched random controls; no memory writeback |
+| Current definition audit | Native mixed cells, author incoherence, trimap kernels 3/7/15 and v3 ratio 0.02; contour misses, size bins and missing groups |
+| Historical sensitivity (v1) | Same attention weights grouped by predicted/GT masks at three widths; not new-primary sensitivity |
+| Historical regional exclusion (v1) | Mask regional keys in all four cross-attention layers; three count-matched random controls; no memory writeback. Not contiguity-matched; new controlled rerun pending |
 | Author benchmark | Official SAM2, SAMURAI, SAM2Long and Lean-SAM2 predictors in separate processes |
 | Enrichment weighting | Fixed proportional, reciprocal and proportional shuffled-label logit biases; native full propagation |
 
