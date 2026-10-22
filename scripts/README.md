@@ -5,6 +5,9 @@
 | `audit_memory_token_regions.py` | Native memory grouping, reference/predicted overlays, coverage and width sensitivity |
 | `audit_region_definitions.py` | CPU native-mask audit: seq2/seq3 replay gate, then all-sequence assignment/contour statistics with matching `--validation-dir`; author-code comparators and read-only primary attention |
 | `region_definition_statistics.py` | Contour coverage, fixed size-bin assignment and descriptive aggregation; not a region selector |
+| `run_token_attention.py` | Native read-only FP32 per-key/query-region capture; committed source gate and fresh-model replay |
+| `token_attention_statistics.py` | Footprint precision and fixed sequence-pooled/log-median summaries, size and outcome strata |
+| `queue_token_attention.py` | Gate then full attention; fails closed and stops before unregistered exclusions |
 | `relabel_region_trimaps.py` | Offline amended kernels 15/21/29 from completed saved-logit sequences; isolated author adapter, counts/coverage/GT/size statistics, no inference or attention |
 | `measure_region_attention.py` | Verify all saved overlays; observe native attention mass and spatial enrichment using Efficient-SAM2 author attention |
 | `run_region_exclusions.py` | Native one-frame regional key exclusions with three per-memory-frame count-matched random controls; no memory writeback |

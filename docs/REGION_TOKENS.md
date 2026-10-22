@@ -145,6 +145,23 @@ separate. No learned classifier or DINOv2 head is used.
 
 ## Experiments
 
+### Per-token attention rerun
+
+[Committed protocol](../protocols/token_attention_rerun_v1.json): save FP32
+attention per memory key, split by fixed GT-reference primary query regions.
+GT labels are analysis-only; predicted memory and native outputs are untouched.
+Joint mass plus query counts supports conditional summaries and later memory
+regrouping/distance curves, not arbitrary individual-query maps. Keep pointers
+separate. Pool ratios within each sequence before dividing; report median log
+enrichment across sequences, fixed size strata and complete-miss/overlap-present
+frames (not a tuned Dice cutoff). Report footprint precision beside contour
+coverage. No post-result tuning: change code only after a failed check.
+
+`queue_token_attention.py` runs the complete seq2/seq3 replay gate, checks
+delivery and projected storage, then the full cohort. It stops after the fixed
+attention summary. Contiguity-matched exclusions require a separate tested,
+committed protocol before launch; historical count-only controls do not qualify.
+
 | Experiment | Implementation and control |
 |---|---|
 | Assignment audit | Exact vector reconstruction, overlays and GT/predicted agreement |

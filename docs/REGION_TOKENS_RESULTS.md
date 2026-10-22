@@ -10,7 +10,19 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 > in section 1 is unaffected; historical regional results have not been rerun
 > with the new primary definition.
 
-## Current native-grid audit — 2026-10-23
+## Per-token attention rerun — 2026-10-23
+
+Current regression suite: **115 passed**. The new [protocol](../protocols/token_attention_rerun_v1.json)
+is committed with the tested sources before launch. It fixes sequence-pooled
+ratios, log-enrichment medians, query grouping, size/outcome strata and stopping
+rules. The seq2/seq3 replay gate precedes the full cohort; no new results yet.
+Per-key FP32 joint mass is saved for three fixed GT-reference query groups;
+memory labels remain native predictions. Pointers and empty groups stay explicit.
+Coverage is accompanied by footprint precision, not a claim of semantic purity.
+Contiguity-matched exclusions remain unlaunched pending a separate protocol
+commit after this attention analysis.
+
+## Native-grid geometry audit — original settings, 2026-10-23
 
 **2026-10-23 width amendment:** the original run retains k3/k7/k15. A separate,
 exploratory comparison uses **k15/k21/k29**, with k3/k7 retained as sub-token
@@ -39,7 +51,7 @@ image border), frozen source-frame size quartiles, missing-group counts and
 all-source-frame coverage are now included. Primary attribution is Efficient-SAM2
 occupancy code with the mixed-region motivation described in the
 [methods](REGION_TOKENS.md), not an exact Mask Transfiner reproduction.
-**108 tests pass.** The fresh gate
+**Original gate regression suite: 108 passed at that freeze.** The gate
 passed: 73/73 replay logits bit-identical, 75/75 stored-mask checks, 292 attention
 reads normalized (maximum mass error 0.00000718), and confirmed W&B delivery.
 The full 23-sequence CPU audit has been launched; it is not complete.
@@ -114,7 +126,7 @@ attention/exclusion rerun or improvement is claimed by this pilot.
 Output: `14_region_definition_comparison_cpu_v1` in the Drive output root below.
 [Pilot tracking](https://forge.coreweave.com/wandb/adenoid-hypertrophy/ade-seg/runs/waa5c6i9).
 
-## 1. Author benchmarks — completed
+## 1. Historical author benchmarks — completed
 
 | Method, CPU FP32 | Dice |
 |---|---:|
@@ -126,7 +138,7 @@ Output: `14_region_definition_comparison_cpu_v1` in the Drive output root below.
 None of the recorded author-versus-SAM2 comparisons passes Holm correction.
 SAM2Long uses offline final-path selection, not equivalent online information.
 
-## 2. Regional attention — completed
+## 2. Historical v1 regional attention — completed
 
 Read-only SAM2/SAMURAI/SAM2Long measurements preserve native predictions.
 All full runs and the final comparison have confirmed W&B artifact uploads.
@@ -154,7 +166,7 @@ Interpretation: late layers favor boundary-associated positions, while layer 1
 is background-dominated. Higher mean boundary enrichment does not track higher
 Dice across these methods; this is descriptive, not a causal comparison.
 
-## 3. Fixed enrichment weighting — completed
+## 3. Historical v1 enrichment weighting — completed
 
 Background/interior/boundary weights: **0.61878693 / 3.42351487 / 10.34936733**.
 Inverse uses reciprocals; random uses the same weights with shuffled labels.
@@ -176,7 +188,7 @@ Superseded development-only ratios gave Dice 0.66677 / 0.63401 / 0.71524
 for proportional / inverse / random. These are separate experiments (source 09).
 The earlier fixed ×1.1 boundary rule is retired.
 
-## 4. Regional exclusion — completed, earlier MPS diagnostic
+## 4. Historical v1 exclusions — earlier MPS, count-matched only
 
 Fixed-bank, single-target interventions; no memory writeback. Baseline Dice
 **0.72032** belongs to the earlier bundled predictor, not the CPU benchmark above.
@@ -192,7 +204,7 @@ Background removal produces the strongest count-matched harm. Boundary harm
 does not pass the corrected signed-rank test. Deletion effects do not establish
 that boosting a region improves full-rollout Dice; controls do not match contiguity.
 
-## 5. Assignment and sensitivity — completed
+## 5. Historical v1 assignment and width sensitivity — completed
 
 Full audit: 23 sequences / 2,225 source frames; 2,033 native memory frames
 including prompts; 192 reference-only frames; 12,774 overlays pixel-verified.
@@ -212,7 +224,7 @@ GT supplies offline labels only; spatial grouping does not imply semantic purity
 
 ## Status and sources
 
-Last verified regression suite: **110 passed**. Efficient-SAM2 SMR-only executed
+Last verified regression suite: **115 passed**. Efficient-SAM2 SMR-only executed
 on MPS with dense-encoder parity and active pruning, but repeated logits/masks
 differed. Full SMR accuracy remains blocked. Author-specific exclusions and
 stored-mask-quality analyses remain pending; no region-aware improvement is established.

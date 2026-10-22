@@ -8,6 +8,7 @@ relate to SAM2 attention and endoscopic segmentation.
 - [Current audit protocol](../protocols/region_definition_verification.json)
 - [Citation, size bins and post-launch verification record](../protocols/region_definition_audit_v1_record.json)
 - [Exploratory trimap-width amendment](../protocols/region_definition_trimap_amendment_2026_10_23.json)
+- [Per-token attention rerun and fixed summary protocol](../protocols/token_attention_rerun_v1.json)
 - [Historical experiment protocol](../protocols/memory_token_regions.json)
 - [Scripts](../scripts/README.md)
 

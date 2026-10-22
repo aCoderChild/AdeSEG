@@ -9,6 +9,7 @@ Run `python -m pytest -q`. Discovery is restricted to this folder.
 | `test_region_definition_statistics.py` | Aligned/mixed contour coverage, image-border convention, undefined denominators and quartile ties |
 | `test_trimap_amendment.py` | Amended widths, unchanged original configuration and shared k15 labels; rectangle contour-coverage sanity check |
 | `test_region_attention.py` | Efficient-SAM2 author provenance, native output preservation, chunking, pointers and overlay-pixel verification |
+| `test_token_attention.py` | Per-key/query mass against dense weights, exact output preservation, empty groups, pooling, precision and stored-sequence aggregation |
 | `test_author_region_measurement.py` | Author candidate-axis selection, native attention-output preservation, hook restoration and exact baseline prediction checks |
 | `test_region_exclusion.py` | Native SDPA masks, matched random keys, cached-state isolation, exact buffer digests and excess-loss calculation |
 | `test_memory_token_io.py` | Native capture, prompt handling, CLI imports, protocol and output locations |
