@@ -15,12 +15,32 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 Current regression suite: **115 passed**. The new [protocol](../protocols/token_attention_rerun_v1.json)
 is committed with the tested sources before launch. It fixes sequence-pooled
 ratios, log-enrichment medians, query grouping, size/outcome strata and stopping
-rules. The seq2/seq3 replay gate precedes the full cohort; no new results yet.
+rules. Pre-launch implementation/protocol commit: `3e23aa9`.
+The seq2/seq3 gate passed; the full cohort is running, not complete.
 Per-key FP32 joint mass is saved for three fixed GT-reference query groups;
 memory labels remain native predictions. Pointers and empty groups stay explicit.
 Coverage is accompanied by footprint precision, not a claim of semantic purity.
 Contiguity-matched exclusions remain unlaunched pending a separate protocol
 commit after this attention analysis.
+
+| Per-token gate (seq2/seq3 only) | Result |
+|---|---|
+| Fresh no-observer replay | 73/73 post-prompt logits bit-identical |
+| Per-token files | 292; all four layers for all 73 targets |
+| Maximum saved total / query-group mass error | 0.00000718 / 0.00000688 |
+| Stored-mask / writer / prompt checks | Passed; 75 memory frames including two prompts |
+| Storage | 85.1 MB compressed gate tokens; projected 2.35 GB full tokens, before archives and other outputs |
+| Delivery | Online W&B artifacts confirmed for the gate |
+
+Under the committed summary, all-query/four-layer pooled enrichment geometric
+medians across these **two sequences only** are BG **0.7225**, foreground
+**3.8434**, boundary **9.2025**. This is gate-scale allocation, not full-cohort
+evidence or causal utility; no result-driven code change was made.
+
+Source: `16_per_token_attention_polypgen_cpu_v1/{validation,full}`;
+`token_results.md/json` contain the fixed summary, strata and paired coverage /
+footprint-precision table. [Gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/aou29e56)
+· [Full run](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/gqscihxk).
 
 ## Native-grid geometry audit — original settings, 2026-10-23
 
@@ -246,6 +266,7 @@ Mounted storage is verified; independent cloud synchronization is not.
 | 12 | `12_author_region_attention_polypgen_cpu_v1` | Cross-method attention comparison |
 | 14 | `14_region_definition_comparison_cpu_v1` | Earlier native-grid definition pilot; seq2/seq3 only |
 | 15 | `15_region_definition_contour_audit_cpu_v1` | Passed gate, post-launch verification and ongoing full native-grid audit |
+| 16 | `16_per_token_attention_polypgen_cpu_v1` | Passed per-token replay gate; full cohort running under committed summary |
 
 [W&B attention summary](https://forge.coreweave.com/wandb/adenoid-hypertrophy/ade-seg/runs/e6dxrwgm)
 · [W&B weighting summary](https://forge.coreweave.com/wandb/adenoid-hypertrophy/ade-seg/runs/sxurya29).
