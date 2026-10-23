@@ -1,7 +1,7 @@
 # Regional memory tokens: results
 
-Updated **2026-10-24: byte-level integrity repair**. Scientific interim tables
-below retain the **13:00 ICT (UTC+7)** snapshot. Exploratory PolypGen study: 21 promptable sequences,
+Updated **2026-10-24, 03:20 ICT (UTC+7)**. Current progress and completed-sequence
+interim results are below; older snapshots are explicitly historical. Exploratory PolypGen study: 21 promptable sequences,
 2,012 post-prompt targets; seq1/seq7 are N/A. Dice is the equal-sequence
 present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions.
 
@@ -9,10 +9,36 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 |---|---|
 | Geometry / full attention | Complete |
 | Exclusion gate | Passed; W&B delivery confirmed |
-| Latest full exclusions | Byte-guard v2 continuation active from seq13; not complete |
+| Latest full exclusions | Running; latest logged target seq13 frame128; 1,156/2,012 integrity receipts (57.5%) |
 | Preserved complete evidence | Ten sequences / 1,035 targets; incomplete seq13 excluded from finished-sequence inference |
 | Current repair | Alias-sensitive legacy checksum defect reproduced; per-buffer diagnosis and v2 gate passed; historical trigger unproven |
-| Scientific tables below | Earlier three-sequence snapshot, not the latest nine-sequence aggregate |
+| Current interim table | Ten complete sequences; incomplete seq13 excluded |
+
+Live process verified at 03:20 ICT; latest progress at 03:19:56 ICT.
+No recorded `error.json`; final `summary.json` is absent. Receipt count includes
+1,035 revalidated retained targets and 121 fresh seq13 targets. This is target
+coverage, not a runtime estimate. Attention is complete; exclusions are not.
+
+### Current exclusion interim — ten complete sequences
+
+Source: `17_bank_integrity_repair_v2/continuation/full/sequences.json`.
+Sequences: seq2–6 and seq8–12; 1,035 post-prompt targets. Primary mixed-cell
+definition, present-GT targets with informative controls, equal sequence weight.
+Control Dice averages the three fixed rigid-placement seeds. Excess loss =
+control Dice − regional-exclusion Dice. These are descriptive interim means;
+no final significance or cross-definition claim is made.
+
+| Excluded region | N sequences | Native Dice | Excluded Dice | Control Dice | Excess loss |
+|---|---:|---:|---:|---:|---:|
+| Background | 10 | 0.7535 | 0.2458 | 0.5530 | +0.3072 |
+| Foreground interior | 10 | 0.7535 | 0.7168 | 0.7581 | +0.0413 |
+| Boundary | 10 | 0.7535 | 0.7576 | 0.7545 | −0.0031 |
+
+On this incomplete cohort, boundary exclusion is not more damaging than its
+matched controls on average, despite high native boundary enrichment. Attention
+allocation therefore must not be equated with causal usefulness. Background
+exclusion also determines which small foreground complement remains; this does
+not isolate semantic background content. No segmentation-improvement claim follows.
 
 Integrity receipts verify replay/layout/buffer checks, not absence of every
 possible implementation error. The exclusion table below is **interim**, not
