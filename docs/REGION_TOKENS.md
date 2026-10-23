@@ -181,7 +181,7 @@ committed protocol before launch; historical count-only controls do not qualify.
 | Native attention | Reuse Efficient-SAM2's author attention calculation on native post-RoPE Q/K/V; return original SDPA outputs |
 | Current definition audit | Native mixed cells, author incoherence, trimap kernels 3/7/15 and v3 ratio 0.02; contour misses, size bins and missing groups |
 | Historical sensitivity (v1) | Same attention weights grouped by predicted/GT masks at three widths; not new-primary sensitivity |
-| Current contiguity-matched exclusion | Six settled definitions × three regions; three rigid-placement controls; CPU FP32, exact replay, unchanged native trajectory; byte-guard v2 validation pending |
+| Current contiguity-matched exclusion | Six settled definitions × three regions; three rigid-placement controls; CPU FP32, exact replay, unchanged native trajectory; v2 byte-guard validated, continuation from seq13 running |
 | Historical regional exclusion (v1) | Mask regional keys in all four cross-attention layers; three count-matched random controls; no memory writeback. Not contiguity-matched; not pooled with the current rerun |
 | Author benchmark | Official SAM2, SAMURAI, SAM2Long and Lean-SAM2 predictors in separate processes |
 | Enrichment weighting | Fixed proportional, reciprocal and proportional shuffled-label logit biases; native full propagation |

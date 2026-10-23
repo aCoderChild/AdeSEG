@@ -9,9 +9,9 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 |---|---|
 | Geometry / full attention | Complete |
 | Exclusion gate | Passed; W&B delivery confirmed |
-| Latest full exclusions | Second stop at seq13 frame62 after 1,089 accepted target receipts; not complete |
+| Latest full exclusions | Byte-guard v2 continuation active from seq13; not complete |
 | Preserved complete evidence | Ten sequences / 1,035 targets; incomplete seq13 excluded from finished-sequence inference |
-| Current repair | Per-buffer diagnosis passed; alias-sensitive legacy checksum defect reproduced in tests; byte-guard v2 validation pending |
+| Current repair | Alias-sensitive legacy checksum defect reproduced; per-buffer diagnosis and v2 gate passed; historical trigger unproven |
 | Scientific tables below | Earlier three-sequence snapshot, not the latest nine-sequence aggregate |
 
 Integrity receipts verify replay/layout/buffer checks, not absence of every
@@ -149,6 +149,16 @@ passed evidence/archive revalidation. Rerun incomplete seq13 in full, then
 seq14–23. Model, masks, controls, seeds and statistical rule are unchanged.
 No tolerance replaces a real content/layout/structure or replay check.
 Outputs: `17_bank_integrity_repair_v2`. Original failed runs remain preserved.
+
+Pre-gate code/protocol commit **`23fa8d9`**. Gate **passed**: 144 native targets,
+ten intervention targets / 180 definition-region cases. All path-level buffer,
+raw replay, layout and parameter checks passed; W&B delivery includes the rich
+diagnostic trace. No legacy/new fingerprint disagreement occurred in this gate.
+The complete continuation is active; ten revalidated sequences / 1,035 targets
+are reused, and seq13 is rerun from its start before seq14–23.
+[Byte-guard gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/xa4dcol8)
+· [Current full continuation](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/p42rakqp).
+Current result root: `17_bank_integrity_repair_v2/continuation/full`.
 
 ### Previous repair — 2026-10-23, subsequently stopped again
 

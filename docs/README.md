@@ -19,7 +19,7 @@ Updated 2026-10-24:
 |---|---|
 | Geometry audit | Complete |
 | Per-token attention | Complete: 21 promptable sequences, 2,012 targets |
-| Contiguity-matched exclusions | Second stop at seq13 frame62; ten completed sequences preserved; per-buffer diagnosis passed; byte-guard v2 validation pending |
+| Contiguity-matched exclusions | Byte-guard v2 gate passed; full continuation resumed from seq13; ten complete sequences preserved; historical trigger unproven |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use
