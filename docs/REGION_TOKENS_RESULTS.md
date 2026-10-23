@@ -1,8 +1,19 @@
 # Regional memory tokens: results
 
-Updated 2026-10-23. Exploratory PolypGen study: 21 promptable sequences,
+Snapshot: **2026-10-23, 13:00 ICT (UTC+7)**. Exploratory PolypGen study: 21 promptable sequences,
 2,012 post-prompt targets; seq1/seq7 are N/A. Dice is the equal-sequence
 present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions.
+
+| Current stage | Verified status at snapshot |
+|---|---|
+| Geometry / full attention | Complete |
+| Exclusion gate | Passed; W&B delivery confirmed |
+| Full exclusions | Running: 298/2,012 target integrity receipts (14.8%); no recorded error |
+| Available exclusion statistics | Three complete sequences: seq2, seq3, seq4; partial seq5 excluded from summary |
+
+Integrity receipts verify replay/layout/buffer checks, not absence of every
+possible implementation error. The exclusion table below is **interim**, not
+a full-cohort hypothesis test or a segmentation-improvement result.
 
 > **Do not combine definitions.** Historical regional results in sections 2–5
 > use superseded v1 (any band pixel or mixed footprint → boundary). The new audit
@@ -140,6 +151,53 @@ Tables and integrity receipts are saved incrementally in Drive; per-sequence
 archives are uploaded to W&B. The gate-derived compute projection is roughly
 38 hours, not a completion guarantee; mask reuse and upload time vary.
 
+#### Interim exclusions — seq2/seq3/seq4 only
+
+Present-GT targets with valid informative controls; equal weight per sequence.
+Native baseline Dice on these three sequences: **0.8576**, not comparable as a
+cohort mean to the full 21-sequence baseline **0.7190**. Controls average all
+three fixed seeds. Excess loss = control Dice − regional-exclusion Dice.
+Positive values mean greater damage from the regional exclusion than its null.
+
+| Primary mixed-cell region | N sequences | Excluded Dice | Control Dice | Excess loss | Bootstrap 95% CI |
+|---|---:|---:|---:|---:|---|
+| Background | 3 | 0.1801 | 0.4801 | +0.3001 | [0.1674, 0.3794] |
+| Foreground interior | 3 | 0.8243 | 0.8580 | +0.0337 | [−0.0090, 0.1027] |
+| Boundary | 3 | 0.8580 | 0.8576 | −0.0004 | [−0.0055, 0.0033] |
+
+All 18 Holm-adjusted p-values are **1.0000**. Intervals from only three
+sequences are unstable; even a positive interval does not pass the committed
+combined CI/test/cross-definition rule. No confirmatory decision is made mid-run.
+
+| Definition | N | Background excess loss | Foreground excess loss | Boundary excess loss |
+|---|---:|---:|---:|---:|
+| Mixed cells | 3 | +0.3001 | +0.0337 | −0.0004 |
+| Transfiner incoherence | 3 | +0.3026 | +0.0081 | +0.0034 |
+| Trimap k15 | 3 | +0.3099 | +0.0105 | −0.0004 |
+| Trimap k21 | 3 | +0.3246 | +0.0079 | +0.0056 |
+| Trimap k29 | 3 | +0.2882 | +0.0082 | +0.0066 |
+| Inner band 0.02 | 3 | +0.3001 | −0.0008 | +0.0427 |
+
+Source: `17_contiguity_matched_exclusions_polypgen_cpu_v1/full/exclusion_results.json`,
+scope `full_in_progress`; sequence summaries update only after a sequence finishes.
+All 298 completed target receipts at this snapshot pass cached-native/zero-mask
+exactness, QKV layout, memory/image-cache integrity and no-memory-writeback checks.
+These counts will become stale as execution continues; they are not live counters.
+
+**Interpretation and limits**
+
+- High boundary enrichment does not imply that boundary exclusion causes more
+  damage: its primary interim excess loss is near zero and varies by definition.
+- Background exclusion removes a large spatial set and determines which small
+  complementary set remains. Its large effect does not isolate semantically pure
+  background information or establish a ranking of intrinsic regional usefulness.
+- Rigid nulls match shape/count/connectivity, not anatomical location or border
+  proximity. Pointer keys remain available; their normalized attention can change.
+- These are one-target interventions on native memory, not modified full-video
+  propagation. No region-aware deployment improvement follows from these tables.
+- Continue the frozen experiment unchanged; retain unexpected results. Final
+  inference waits for full coverage under the committed 18-test rule.
+
 ### Verification scope and protocol timing
 
 | Check | Verified scope / result |
@@ -148,20 +206,20 @@ archives are uploaded to W&B. The gate-derived compute projection is roughly
 | 75 stored frames | Seq2: 60 (frames 3–62); seq3: 15 (frames 0–14), including two conditioning frames |
 | Prompt low-res logits | Rechecked bit-identical on seq2 frame 3 and seq3 frame 0 |
 | Primary native-versus-PNG labels, mean / maximum token disagreement | Seq2: 0.0836% / 0.3174%; seq3: 0.1500% / 0.3662%; predicted frames only |
-| PNG decision | Close, not identical; the running audit already uses native logits, not PNG-derived labels |
+| PNG decision | Close, not identical; the completed audit uses native logits, not PNG-derived labels |
 | Size bins | Per-frame GT area fraction; positive-frame quartiles 2.034683%, 5.384635%, 11.534966%; saved before new-run inference |
 | Freeze timing | Protocol/source SHA snapshots preceded inference; Git commit did not. Numeric bins were in `size_policy.json`, added to a companion protocol record after launch |
 
 These are gate checks, not full-cohort efficacy results. Historical results had
 already been seen; do not describe this audit as prospectively preregistered.
-The running protocol remains byte-identical to its pre-inference snapshot.
+The completed audit protocol remains byte-identical to its pre-inference snapshot.
 See [protocol clarification](../protocols/region_definition_audit_v1_record.json)
 and `receipt_verification/verification.json` under the new output root.
 
 ### Earlier definition pilot — output 14
 
 These earlier seq2/seq3 statistics are retained as recorded, not results from
-the ongoing full audit. The older v3 PNG comparison includes conditioning frames;
+the completed full audit. The older v3 PNG comparison includes conditioning frames;
 the primary PNG comparison above uses predicted frames only.
 
 Primary candidate: exact mixed-cell occupancy from native stored 256×256 logits,

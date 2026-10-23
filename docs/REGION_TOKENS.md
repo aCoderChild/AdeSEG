@@ -181,7 +181,8 @@ committed protocol before launch; historical count-only controls do not qualify.
 | Native attention | Reuse Efficient-SAM2's author attention calculation on native post-RoPE Q/K/V; return original SDPA outputs |
 | Current definition audit | Native mixed cells, author incoherence, trimap kernels 3/7/15 and v3 ratio 0.02; contour misses, size bins and missing groups |
 | Historical sensitivity (v1) | Same attention weights grouped by predicted/GT masks at three widths; not new-primary sensitivity |
-| Historical regional exclusion (v1) | Mask regional keys in all four cross-attention layers; three count-matched random controls; no memory writeback. Not contiguity-matched; new controlled rerun pending |
+| Current contiguity-matched exclusion | Six settled definitions × three regions; three rigid-placement controls; CPU FP32, exact cached/zero-mask replay, unchanged native trajectory; full run in progress |
+| Historical regional exclusion (v1) | Mask regional keys in all four cross-attention layers; three count-matched random controls; no memory writeback. Not contiguity-matched; not pooled with the current rerun |
 | Author benchmark | Official SAM2, SAMURAI, SAM2Long and Lean-SAM2 predictors in separate processes |
 | Enrichment weighting | Fixed proportional, reciprocal and proportional shuffled-label logit biases; native full propagation |
 
@@ -189,6 +190,20 @@ Attention mass averages summed regional weights over all spatial queries/heads.
 Enrichment = regional spatial-attention share / regional spatial-token share.
 Empty-group enrichment is undefined, not zero. Pointer mass is reported separately.
 Enrichment measures allocation, not causal utility.
+
+For current exclusions, average controls within target, targets within sequence,
+then sequences equally. Primary excess Dice loss is control Dice minus regional
+exclusion Dice on present, informative targets. Use whole-sequence bootstrap
+intervals and the frozen 18-test Holm family; interim tables are descriptive.
+The definition-robust claim requires all six definitions to pass the committed
+direction, interval and adjusted-test criteria. Do not select definitions or
+change code because an effect is unexpected.
+
+Rigid controls preserve excluded geometry, not anatomy or border proximity.
+Excluding the large background also selects the complementary spatial keys that
+remain; it does not isolate pure background semantics. One-step exclusion effects
+do not demonstrate full-propagation gains, and attention enrichment alone does
+not justify increasing a region's attention weight.
 
 Weights use four-layer, equal-sequence mean enrichment from all eligible
 sequences. Calibration and evaluation share the cohort: dataset-specific,
