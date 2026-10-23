@@ -69,6 +69,19 @@ attention cannot be recovered from saved regional totals: it requires a separate
 validated read-only rerun. No such rerun or contiguity-matched exclusion is
 launched by this amendment. Commit the exclusion protocol before that stage.
 
+The subsequent per-token rerun (source16) is complete. The separately committed
+[exclusion protocol](../protocols/contiguous_exclusions_v1.json) fixes all six
+definitions, three regions and three rigid-control seeds before exclusions.
+It reuses official SAM2 one-frame inference and PyTorch SDPA additive masks,
+without modifying the encoder, decoder, memory writer or native trajectory.
+Rigid spatial randomization is explicitly project control logic, not an
+author-provided SAM2 method. Rotations/reflections and non-wrapping translations
+preserve each frame's excluded shape/count/connectivity, not anatomical location.
+All-key exclusions are undefined; invariant controls are reported as uninformative.
+The seq2/seq3 integrity gate precedes the complete CPU FP32 cohort. Sequence-level
+excess Dice loss over averaged controls, bootstrap intervals and Holm18 tests
+follow the frozen rule; no outcome-dependent stopping or definition changes.
+
 Size bins use **per-frame GT area / original image area**, over 1,710 positive
 frames: cut-points **2.034683%, 5.384635%, 11.534966%**; ties go to the lower
 quartile and absent frames are separate. The procedure and numeric values were

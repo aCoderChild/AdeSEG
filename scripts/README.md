@@ -8,6 +8,9 @@
 | `run_token_attention.py` | Native read-only FP32 per-key/query-region capture; committed source gate and fresh-model replay |
 | `token_attention_statistics.py` | Footprint precision and fixed sequence-pooled/log-median summaries, size and outcome strata |
 | `queue_token_attention.py` | Gate then full attention; fails closed and stops before unregistered exclusions |
+| `run_contiguous_exclusions.py` | Committed CPU FP32 one-target exclusions, six definitions, exact replay/bank/layout checks and rigid shape-matched controls |
+| `contiguous_exclusion_statistics.py` | Sequence-level excess loss, fixed strata, bootstrap intervals and Holm18 inference |
+| `queue_contiguous_exclusions.py` | Integrity/delivery gate then complete cohort, without effect-dependent stopping |
 | `relabel_region_trimaps.py` | Offline amended kernels 15/21/29 from completed saved-logit sequences; isolated author adapter, counts/coverage/GT/size statistics, no inference or attention |
 | `measure_region_attention.py` | Verify all saved overlays; observe native attention mass and spatial enrichment using Efficient-SAM2 author attention |
 | `run_region_exclusions.py` | Native one-frame regional key exclusions with three per-memory-frame count-matched random controls; no memory writeback |

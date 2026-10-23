@@ -12,16 +12,17 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 
 ## Per-token attention rerun — 2026-10-23
 
-Current regression suite: **115 passed**. The new [protocol](../protocols/token_attention_rerun_v1.json)
+Attention-freeze regression suite: **115 passed**. The [protocol](../protocols/token_attention_rerun_v1.json)
 is committed with the tested sources before launch. It fixes sequence-pooled
 ratios, log-enrichment medians, query grouping, size/outcome strata and stopping
 rules. Pre-launch implementation/protocol commit: `3e23aa9`.
-The seq2/seq3 gate passed; the full cohort is running, not complete.
+The seq2/seq3 gate and full cohort are complete: 21 promptable sequences and
+2,012 post-prompt targets; W&B artifact delivery confirmed.
 Per-key FP32 joint mass is saved for three fixed GT-reference query groups;
 memory labels remain native predictions. Pointers and empty groups stay explicit.
 Coverage is accompanied by footprint precision, not a claim of semantic purity.
-Contiguity-matched exclusions remain unlaunched pending a separate protocol
-commit after this attention analysis.
+Contiguity-matched exclusions have a separate prospective
+[protocol](../protocols/contiguous_exclusions_v1.json), committed before their gate.
 
 | Per-token gate (seq2/seq3 only) | Result |
 |---|---|
@@ -32,10 +33,22 @@ commit after this attention analysis.
 | Storage | 85.1 MB compressed gate tokens; projected 2.35 GB full tokens, before archives and other outputs |
 | Delivery | Online W&B artifacts confirmed for the gate |
 
-Under the committed summary, all-query/four-layer pooled enrichment geometric
-medians across these **two sequences only** are BG **0.7225**, foreground
-**3.8434**, boundary **9.2025**. This is gate-scale allocation, not full-cohort
-evidence or causal utility; no result-driven code change was made.
+All-query/four-layer enrichment: exponential of the median sequence log pooled
+enrichment, **21 sequences** per row. Above 1 means more attention per token than
+the spatial-key average; it does not establish causal usefulness.
+
+| Definition | Background | Foreground interior | Boundary |
+|---|---:|---:|---:|
+| Mixed cells (primary) | 0.7020 | 3.5594 | 9.3387 |
+| Transfiner incoherence | 0.6614 | 2.5654 | 7.2809 |
+| Trimap k15 | 0.6899 | 2.9481 | 7.6301 |
+| Trimap k21 | 0.6663 | 2.5813 | 6.9082 |
+| Trimap k29 | 0.6521 | 2.3544 | 6.0568 |
+| Inner band 0.02 | 0.7020 | 2.0493 | 7.0742 |
+
+Boundary enrichment exceeds foreground enrichment in these cohort summaries
+across all six definitions. This does not show that increasing boundary attention
+improves segmentation. Native equal-sequence present-frame Dice: **0.7190**.
 
 Source: `16_per_token_attention_polypgen_cpu_v1/{validation,full}`;
 `token_results.md/json` contain the fixed summary, strata and paired coverage /
@@ -49,8 +62,8 @@ exploratory comparison uses **k15/k21/k29**, with k3/k7 retained as sub-token
 sampling diagnostics outside the amended robustness rule. Original results and
 claim rule are not overwritten. The supplied 89-cell example is illustrative,
 not independently reproduced. See the [amendment](../protocols/region_definition_trimap_amendment_2026_10_23.json).
-New-width attention has not been measured; saved logits permit geometry-only
-relabeling, not reconstruction of regional attention.
+New-width attention is now measured in the completed source16 rerun above.
+The original geometry-only relabeling did not reconstruct attention.
 
 Offline amendment check: 75 saved seq2/seq3 memory frames; the table pools
 one-pixel self-contour pixels over 73 post-prompt targets. No inference or
@@ -74,7 +87,7 @@ occupancy code with the mixed-region motivation described in the
 **Original gate regression suite: 108 passed at that freeze.** The gate
 passed: 73/73 replay logits bit-identical, 75/75 stored-mask checks, 292 attention
 reads normalized (maximum mass error 0.00000718), and confirmed W&B delivery.
-The full 23-sequence CPU audit has been launched; it is not complete.
+The full 23-sequence CPU audit is complete; seq1/seq7 remain reference-only.
 The earlier pilot is recorded separately below.
 
 New gate only: pooled one-pixel native256 contour misses, 73 post-prompt frames.
@@ -91,12 +104,31 @@ These measure geometry, not semantic vector contents or causal usefulness.
 
 Thin-trimap nearest-neighbor sampling misses many contour pixels. Mixed cells
 also leave contour gaps; do not call them a complete contour detector. GT misses
-add prediction error. Full-cohort size/empty-group statistics remain pending;
-no cross-definition robustness or segmentation improvement is established.
+add prediction error. Full-cohort size/empty-group statistics are saved in
+source15. No causal robustness or segmentation improvement is established.
 
 New outputs: `15_region_definition_contour_audit_cpu_v1/{validation,full}`.
 [Passed gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kmqukgz0).
-[Running full audit](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/oq7ekeyo).
+[Completed full audit](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/oq7ekeyo).
+
+### Next: contiguity-matched exclusions
+
+Pre-launch regression suite: **127 passed**; rigid-control and state-isolation
+checks included. Scientific exclusion results are not yet available.
+
+CPU FP32, unchanged native trajectory; exclude each of three regions under all
+six definitions. Three fixed rigid-placement controls preserve excluded counts,
+component shapes and connectivity within each stored frame; pointers stay intact.
+Controls do not match anatomical position or border proximity. Invariant masks
+cannot provide informative primary evidence.
+
+Gate: all 73 native seq2/seq3 hashes plus interventions on six fixed targets.
+Full: all 2,012 targets, only after exact native/zero-mask replay, QKV-layout,
+bank/cache, parameter and W&B-delivery checks pass. Sequence means are the unit;
+18 fixed paired tests use Holm correction. The cross-definition claim requires
+positive excess loss, positive 95% CI lower bound and adjusted p<0.05 in all six
+definitions. Unexpected effects are retained, not used to change the protocol.
+New outputs: `17_contiguity_matched_exclusions_polypgen_cpu_v1`.
 
 ### Verification scope and protocol timing
 
