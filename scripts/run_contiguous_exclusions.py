@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,7 @@ from scripts.contiguous_exclusion_statistics import summarize_sequence, report  
 from training.tracking import start_wandb, log_results_artifact, finalize_tracking  # noqa: E402
 
 PROTOCOL = "protocols/contiguous_exclusions_v1.json"
+REPAIR_PROTOCOL = "protocols/contiguous_exclusions_repair_v1.json"
 SOURCES = [
     PROTOCOL,
     "modeling/contiguous_exclusion.py",
@@ -51,7 +53,143 @@ SOURCES = [
     "evaluation/davis2017/metrics.py",
     "datasets/io.py",
     "datasets/video.py",
+    REPAIR_PROTOCOL,
+    "scripts/diagnose_contiguous_exclusions.py",
 ]
+
+
+def assert_resume_identity(old, current):
+    """Only orchestration/diagnostic additions may differ from the failed run."""
+    mutable = {
+        "source_hashes",
+        "protocol_commit",
+        "repair_validation",
+        "diagnostic_receipts",
+    }
+    for key, value in current.items():
+        if key not in mutable and old.get(key) != value:
+            raise RuntimeError(f"Resume engine identity changed: {key}")
+    allowed = {
+        "scripts/run_contiguous_exclusions.py",
+        "scripts/queue_contiguous_exclusions.py",
+    }
+    for name, value in old["source_hashes"].items():
+        if name not in allowed and current["source_hashes"].get(name) != value:
+            raise RuntimeError(f"Resume scientific source changed: {name}")
+
+
+def reuse_completed(previous, output, identity, reference, protocol):
+    old = json.loads((previous / "setup.json").read_text())
+    assert_resume_identity(old, identity)
+    if old["protocol"] != json.loads((ROOT / PROTOCOL).read_text()):
+        raise RuntimeError("Resume scientific protocol changed")
+    results = {}
+    evidence = {
+        "previous_run": str(previous),
+        "previous_setup_sha256": digest(previous / "setup.json"),
+        "sequences": {},
+    }
+    keys = (
+        "cached_native_exact",
+        "zero_mask_exact",
+        "bank_image_cache_exact",
+        "qkv_layout_exact",
+        "no_memory_encoding_or_writeback",
+    )
+    for row in json.loads((previous / "sequences.json").read_text()):
+        if row["status"] != "completed":
+            continue
+        name = row["sequence"]
+        folder = previous / name
+        expected = {
+            r["frame"]: r
+            for r in map(
+                json.loads, (reference / name / "frames.jsonl").read_text().splitlines()
+            )
+        }
+        receipts = [
+            json.loads(line)
+            for line in (folder / "integrity.jsonl").read_text().splitlines()
+        ]
+        parity = [
+            json.loads(line)
+            for line in (folder / "native_parity.jsonl").read_text().splitlines()
+        ]
+        cases = [
+            json.loads(line)
+            for line in (folder / "cases.jsonl").read_text().splitlines()
+        ]
+        conditions = {
+            (d, r) for d in protocol["definitions"] for r in protocol["regions"]
+        }
+        observed = {}
+        for case in cases:
+            observed.setdefault(case["frame"], []).append(
+                (case["definition"], case["region"])
+            )
+        if (
+            len(receipts) != len(expected)
+            or {r["frame"] for r in receipts} != set(expected)
+            or not all(all(r[k] for k in keys) for r in receipts)
+            or len(parity) != len(expected)
+            or {r["frame"] for r in parity} != set(expected)
+            or not all(
+                r["exact"]
+                and r["prediction_sha256"] == expected[r["frame"]]["prediction_sha256"]
+                for r in parity
+            )
+            or set(observed) != set(expected)
+            or not all(len(v) == 18 and set(v) == conditions for v in observed.values())
+            or not json.loads(
+                (folder / "parameter_integrity_full_sequence.json").read_text()
+            )["unchanged"]
+            or summarize_sequence(cases) != row["statistics"]
+        ):
+            raise RuntimeError(f"Incomplete or inconsistent resume evidence: {name}")
+        archive = previous / f"{name}.zip"
+        with zipfile.ZipFile(archive) as packed:
+            if packed.testzip() is not None or any(
+                packed.read(f"{name}/{filename}") != (folder / filename).read_bytes()
+                for filename in (
+                    "cases.jsonl",
+                    "integrity.jsonl",
+                    "native_parity.jsonl",
+                    "summary.json",
+                    "parameter_integrity_full_sequence.json",
+                )
+            ):
+                raise RuntimeError(f"Resume archive mismatch: {name}")
+        shutil.copytree(folder, output / name)
+        shutil.copy2(archive, output / archive.name)
+        evidence["sequences"][name] = {
+            "archive_sha256": digest(archive),
+            "cases_sha256": digest(folder / "cases.jsonl"),
+        }
+        results[name] = {**row, "reused_from": str(previous)}
+    (output / "resume_provenance.json").write_text(
+        json.dumps(evidence, indent=2) + "\n"
+    )
+    return results
+
+
+def assert_restoration(restored, baseline, before, after, path, frame):
+    replay_exact = torch.equal(restored, baseline)
+    if replay_exact and before == after:
+        return
+    record = {
+        "frame": frame,
+        "replay_exact": replay_exact,
+        "bank_exact": before == after,
+        "bank_before": before,
+        "bank_after": after,
+        "baseline_sha256": author.tensor_hash(baseline),
+        "replay_sha256": author.tensor_hash(restored),
+        "max_abs_logit_difference": float((restored - baseline).abs().max()),
+    }
+    Path(path).write_text(json.dumps(record, indent=2) + "\n")
+    raise RuntimeError(
+        f"Post-intervention integrity failure: replay_exact={replay_exact}, bank_exact={before == after}"
+    )
 
 
 def snapshot(state, frame):
@@ -116,7 +254,7 @@ def assert_trace(controller, expected_layout, frames):
 
 
 @torch.inference_mode()
-def sequence(model, name, frames, source, output, protocol, gate, run):
+def sequence(model, name, frames, source, output, protocol, gate, run, stop_after=None):
     reference_folder = source / name
     target = output / name
     target.mkdir()
@@ -146,6 +284,7 @@ def sequence(model, name, frames, source, output, protocol, gate, run):
             raise RuntimeError("Source images/GT/chronology changed")
     before_parameters = author.parameter_fingerprints(model)
     cases, integrity, schemes = [], [], {}
+    native_targets = 0
     controller = NativeExclusion(model, name, prompt)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="ordered_", dir=target) as staged:
@@ -212,6 +351,7 @@ def sequence(model, name, frames, source, output, protocol, gate, run):
                     torch.from_numpy(schemes[index]["mixed_cells"]["labels"]),
                 )
                 if index != prompt:
+                    native_targets += 1
                     if (
                         author.tensor_hash(baseline)
                         != reference_rows[index]["prediction_sha256"]
@@ -353,16 +493,17 @@ def sequence(model, name, frames, source, output, protocol, gate, run):
                                             )
                                 pending.append(row)
                         restored = call(zero)
-                        if (
-                            not torch.equal(restored, baseline)
-                            or bank_digest(
-                                state, index, units, model.max_obj_ptrs_in_encoder
-                            )
-                            != old_digest
-                        ):
-                            raise RuntimeError(
-                                "Native bank/image-cache/target changed after interventions"
-                            )
+                        new_digest = bank_digest(
+                            state, index, units, model.max_obj_ptrs_in_encoder
+                        )
+                        assert_restoration(
+                            restored,
+                            baseline,
+                            old_digest,
+                            new_digest,
+                            target / "integrity_failure.json",
+                            index,
+                        )
                         receipt = {
                             "frame": index,
                             "cached_native_exact": True,
@@ -405,6 +546,8 @@ def sequence(model, name, frames, source, output, protocol, gate, run):
                 controller.trace.clear()
                 controller.layout.clear()
                 controller.frame = index + 1
+                if index == stop_after:
+                    break
         model.reset_state(state)
     if (
         len(cases)
@@ -420,7 +563,7 @@ def sequence(model, name, frames, source, output, protocol, gate, run):
     result = {
         "sequence": name,
         "status": "completed",
-        "frames": len(reference_rows),
+        "frames": native_targets,
         "intervention_targets": len(integrity),
         "cases": len(cases),
         "seconds": time.monotonic() - started,
@@ -444,6 +587,9 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--validation-dir", type=Path)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--repair-validation", action="store_true")
+    parser.add_argument("--resume-dir", type=Path)
+    parser.add_argument("--diagnosis-dir", type=Path)
     args = parser.parse_args()
     subprocess.run(
         ["git", "ls-files", "--error-unmatch", *SOURCES],
@@ -458,6 +604,15 @@ def main():
         capture_output=True,
     )
     protocol = json.loads((ROOT / PROTOCOL).read_text())
+    repair = json.loads((ROOT / REPAIR_PROTOCOL).read_text())
+    if args.repair_validation:
+        protocol["gate"]["sequences"] = repair["gate"]["sequences"]
+        protocol["gate"]["selected_targets"] = repair["gate"]["selected_targets"]
+        protocol["gate"]["coverage"] = repair["gate"]["coverage"]
+    if args.resume_dir is not None and (args.smoke or not args.repair_validation):
+        raise RuntimeError(
+            "Resume requires the expanded repair gate, not a smoke resume"
+        )
     reference = json.loads((args.reference_dir / "setup.json").read_text())
     delivery = json.loads((args.reference_dir / "delivery.json").read_text())
     if (
@@ -475,6 +630,7 @@ def main():
     commit = subprocess.check_output(
         ["git", "log", "-1", "--format=%H", "--", *SOURCES], cwd=ROOT, text=True
     ).strip()
+    base_identity = dict(identity)
     identity.update(
         source_hashes={name: digest(ROOT / name) for name in SOURCES},
         protocol_commit=commit,
@@ -484,7 +640,32 @@ def main():
             "scipy": scipy.__version__,
         },
         reference_setup_sha256=digest(args.reference_dir / "setup.json"),
+        repair_validation=args.repair_validation,
     )
+    if args.repair_validation:
+        if args.diagnosis_dir is None:
+            raise RuntimeError("Repair gate requires both completed failure diagnoses")
+        identity["diagnostic_receipts"] = {}
+        for name, expected_interventions in (
+            ("diagnosis", 1),
+            ("history_diagnosis", 15),
+        ):
+            folder = args.diagnosis_dir / name
+            receipt = json.loads((folder / "diagnosis.json").read_text())
+            uploaded = json.loads((folder / "delivery.json").read_text())
+            diagnostic_identity = json.loads((folder / "setup.json").read_text())
+            if (
+                not receipt["diagnostic_passed"]
+                or receipt["sequence"]["sequence"] != "seq12"
+                or diagnostic_identity["diagnostic_target"] != 15
+                or any(
+                    diagnostic_identity.get(k) != v for k, v in base_identity.items()
+                )
+                or receipt["sequence"]["intervention_targets"] != expected_interventions
+                or not uploaded["wandb_artifact_upload_complete"]
+            ):
+                raise RuntimeError("Diagnosis failed/incomplete; do not resume")
+            identity["diagnostic_receipts"][name] = digest(folder / "diagnosis.json")
     if not args.smoke:
         if args.validation_dir is None:
             raise RuntimeError("Full exclusions require a completed matching gate")
@@ -538,26 +719,45 @@ def main():
             else [f"seq{i}" for i in range(1, 24)]
         )
         results = []
+        reused = (
+            reuse_completed(
+                args.resume_dir, output, identity, args.reference_dir, protocol
+            )
+            if args.resume_dir is not None
+            else {}
+        )
+        if reused:
+            log_results_artifact(
+                run,
+                output,
+                ["resume_provenance.json", *[f"{name}.zip" for name in reused]],
+            )
         for name in names:
             if statuses[name] != "completed":
                 results.append(
                     {"sequence": name, "status": "unpromptable", "frames": 0}
                 )
                 continue
-            model = author.build_author_predictor(args, repo)
-            results.append(
-                sequence(
-                    model,
-                    name,
-                    videos[name],
-                    args.reference_dir,
-                    output,
-                    protocol,
-                    args.smoke,
-                    run,
+            if name in reused:
+                results.append(reused[name])
+            else:
+                model = author.build_author_predictor(args, repo)
+                results.append(
+                    sequence(
+                        model,
+                        name,
+                        videos[name],
+                        args.reference_dir,
+                        output,
+                        protocol,
+                        args.smoke,
+                        run,
+                        stop_after=repair["gate"]["stop_after"].get(name)
+                        if args.smoke and args.repair_validation
+                        else None,
+                    )
                 )
-            )
-            del model
+                del model
             (output / "sequences.json").write_text(json.dumps(results, indent=2) + "\n")
             report_scope = (
                 scope
@@ -569,7 +769,11 @@ def main():
                 json.dumps({"state": "running", "last_sequence": name}) + "\n"
             )
         valid = [r for r in results if r["status"] == "completed"]
-        expected_targets, expected_sequences = (73, 2) if args.smoke else (2012, 21)
+        expected_targets, expected_sequences = (
+            ((89, 3) if args.repair_validation else (73, 2))
+            if args.smoke
+            else (2012, 21)
+        )
         if (
             len(valid) != expected_sequences
             or sum(r["frames"] for r in valid) != expected_targets
@@ -598,13 +802,17 @@ def main():
                     {
                         "passed": True,
                         "identity": identity,
-                        "checks": "All73 native hashes, six fixed target counterfactuals, no-op/zero-mask/layout/bank/encoder/parameters/shape-controls",
+                        "checks": "Exact native hashes, fixed target counterfactuals, no-op/zero-mask/layout/bank/encoder/parameters/shape-controls; expanded repair gate includes seq12 frames14/15/16"
+                        if args.repair_validation
+                        else "All73 native hashes, six fixed target counterfactuals, no-op/zero-mask/layout/bank/encoder/parameters/shape-controls",
                     },
                     indent=2,
                 )
                 + "\n"
             )
             names_to_upload.append("validation.json")
+        if reused:
+            names_to_upload.append("resume_provenance.json")
         finalize_tracking(run, output, summary, names_to_upload)
         run.finish()
     except BaseException as error:

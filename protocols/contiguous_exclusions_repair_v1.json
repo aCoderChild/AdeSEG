@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-23",
+  "reason": "Original full run stopped at seq12 frame15 after800 accepted target receipts. Its combined error did not distinguish replay mismatch from bank mutation. A targeted frame15 replay passed; preceding-history diagnosis is required. Do not assert an identified numerical cause without evidence.",
+  "unchanged": "Original scientific protocol, six definitions, three regions, seeds, mask transformations, metrics, statistical family and claim rule remain unchanged. No tolerance replaces exact replay checks. No encoder, decoder, attention or memory-writing algorithm changes.",
+  "diagnosis": "Replay frame15 alone and seq12 exclusions1..15, preserving original output/logs. Record replay equality separately from buffer equality, with hashes and maximum logit difference on failure. Diagnostic failure stops resumption.",
+  "gate": {
+    "sequences": ["seq2", "seq3", "seq12"],
+    "selected_targets": {"seq2": [4,20,62], "seq3": [1,7,14], "seq12": [14,15,16]},
+    "stop_after": {"seq12": 16},
+    "coverage": "89 native postprompt hashes:73 seq2/seq3 plus seq12 frames1..16. Nine selected intervention targets, all unchanged conditions. Commit repaired sources and this record before gate launch. Matching source identity and W&B delivery required before resume."
+  },
+  "resume": "Reuse only nine completely finished original sequences after source/runtime/checkpoint/manifest identity checks, exact native hashes, all integrity flags, complete18-case target coverage, unchanged-parameter receipt, reaggregated statistics and archive byte/CRC checks. Copy evidence and record source hashes and origin. Discard original incomplete seq12 from aggregation and rerun seq12 in full; then seq13..23. Preserve original partial files, do not overwrite/delete them.",
+  "stopping": "Any replay, buffer, layout, parameter, cohort, source or delivery failure still stops execution. Do not retry until a passing sample is obtained or use scientific effect direction to select evidence. If diagnosis does not reproduce the original failure, disclose the cause as unresolved; a passing expanded gate is additional evidence, not proof the original problem was solved."
+}

@@ -181,7 +181,7 @@ committed protocol before launch; historical count-only controls do not qualify.
 | Native attention | Reuse Efficient-SAM2's author attention calculation on native post-RoPE Q/K/V; return original SDPA outputs |
 | Current definition audit | Native mixed cells, author incoherence, trimap kernels 3/7/15 and v3 ratio 0.02; contour misses, size bins and missing groups |
 | Historical sensitivity (v1) | Same attention weights grouped by predicted/GT masks at three widths; not new-primary sensitivity |
-| Current contiguity-matched exclusion | Six settled definitions × three regions; three rigid-placement controls; CPU FP32, exact cached/zero-mask replay, unchanged native trajectory; full run in progress |
+| Current contiguity-matched exclusion | Six settled definitions × three regions; three rigid-placement controls; CPU FP32, exact cached/zero-mask replay, unchanged native trajectory; paused for integrity repair |
 | Historical regional exclusion (v1) | Mask regional keys in all four cross-attention layers; three count-matched random controls; no memory writeback. Not contiguity-matched; not pooled with the current rerun |
 | Author benchmark | Official SAM2, SAMURAI, SAM2Long and Lean-SAM2 predictors in separate processes |
 | Enrichment weighting | Fixed proportional, reciprocal and proportional shuffled-label logit biases; native full propagation |
@@ -204,6 +204,14 @@ Excluding the large background also selects the complementary spatial keys that
 remain; it does not isolate pure background semantics. One-step exclusion effects
 do not demonstrate full-propagation gains, and attention enrichment alone does
 not justify increasing a region's attention weight.
+
+The [2026-10-23 repair record](../protocols/contiguous_exclusions_repair_v1.json)
+adds failure diagnostics, evidence-validated resume and a gate around the failed
+seq12 target. It changes no definitions, transformations, endpoints or inference
+rule. A passing reproduction is not proof that an unreproduced fault is solved.
+Failed checks still stop the run; no exactness tolerance or outcome-based retry
+is introduced. Completed original sequences retain their original provenance;
+the incomplete seq12 is rerun, not silently treated as complete.
 
 Weights use four-layer, equal-sequence mean enrichment from all eligible
 sequences. Calibration and evaluation share the cohort: dataset-specific,

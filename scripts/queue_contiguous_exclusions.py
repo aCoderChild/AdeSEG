@@ -19,6 +19,8 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--reference-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--resume-dir", type=Path)
+    parser.add_argument("--diagnosis-dir", type=Path)
     args = parser.parse_args()
     output = validate_output(args.output_dir)
     output.mkdir(parents=True, exist_ok=False)
@@ -40,6 +42,10 @@ def main():
         "--reference-dir",
         str(args.reference_dir),
     ]
+    if args.resume_dir is not None:
+        if args.diagnosis_dir is None:
+            raise RuntimeError("Resume requires completed diagnoses")
+        common += ["--repair-validation", "--diagnosis-dir", str(args.diagnosis_dir)]
     try:
         for stage in ("validation", "full"):
             status["state"] = "running_" + stage
@@ -50,6 +56,8 @@ def main():
                 if stage == "validation"
                 else ["--validation-dir", str(output / "validation")]
             )
+            if stage == "full" and args.resume_dir is not None:
+                command += ["--resume-dir", str(args.resume_dir)]
             with (output / f"{stage}_console.log").open("wb") as log:
                 subprocess.run(
                     command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True

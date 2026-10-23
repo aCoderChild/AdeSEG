@@ -1,6 +1,7 @@
 # Regional memory tokens: results
 
-Snapshot: **2026-10-23, 13:00 ICT (UTC+7)**. Exploratory PolypGen study: 21 promptable sequences,
+Updated **2026-10-23: integrity repair in progress**. Scientific interim tables
+below retain the **13:00 ICT (UTC+7)** snapshot. Exploratory PolypGen study: 21 promptable sequences,
 2,012 post-prompt targets; seq1/seq7 are N/A. Dice is the equal-sequence
 present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions.
 
@@ -8,8 +9,10 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 |---|---|
 | Geometry / full attention | Complete |
 | Exclusion gate | Passed; W&B delivery confirmed |
-| Full exclusions | Running: 298/2,012 target integrity receipts (14.8%); no recorded error |
-| Available exclusion statistics | Three complete sequences: seq2, seq3, seq4; partial seq5 excluded from summary |
+| Original full exclusions | Stopped after 800 accepted targets at seq12 frame15; not complete |
+| Preserved complete evidence | Nine sequences / 786 targets; incomplete seq12 is not a finished-sequence result |
+| Repair | Isolated replay passed; history diagnosis and expanded pre-resume gate required |
+| Scientific tables below | Earlier three-sequence snapshot, not the latest nine-sequence aggregate |
 
 Integrity receipts verify replay/layout/buffer checks, not absence of every
 possible implementation error. The exclusion table below is **interim**, not
@@ -122,15 +125,32 @@ New outputs: `15_region_definition_contour_audit_cpu_v1/{validation,full}`.
 [Passed gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kmqukgz0).
 [Completed full audit](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/oq7ekeyo).
 
-### Contiguity-matched exclusions — running
+### Contiguity-matched exclusions — integrity repair
 
 Pre-launch regression suite: **127 passed**; rigid-control and state-isolation
 checks included. Protocol/source freeze: `856cc64`, before gate launch.
 Gate **passed**: 73/73 native predictions exact; six fixed intervention targets,
 108 definition/region cases, exact native/zero-mask replay, preserved QKV layout,
 unchanged bank/cache and parameters, no counterfactual memory encoding/writeback.
-W&B gate artifact upload confirmed. Full-cohort inference is now running;
+W&B gate artifact upload confirmed. The original full run subsequently stopped;
 no full-cohort causal conclusion is available.
+
+**Failure record:** seq12 frame15 raised a combined replay/buffer check after
+800 accepted targets. This message alone does not establish memory mutation.
+The standalone frame15 replay passed, as did all 249 native seq12 prediction
+hashes. The cause is not yet established; do not describe it as fixed.
+
+**Corrective workflow:** [repair record](../protocols/contiguous_exclusions_repair_v1.json).
+Separate exact replay and buffer diagnostics; save hashes and maximum logit
+difference on failure. **134 tests passed**, including guards that reject a
+1e-10 replay difference, changed buffers, altered scientific sources and
+inconsistent resume archives. No tolerance or scientific rule was relaxed.
+The nine complete sequences passed evidence/archive revalidation. Preserve
+their 786 targets; rerun seq12 from its start and then seq13–23 only after both
+diagnoses and the new expanded gate pass. The expanded gate checks 89 native
+targets and exclusions on nine fixed targets, including seq12 frames14/15/16.
+Original failed-run files remain intact; repaired outputs use
+`17_contiguity_exclusion_repair_v1`.
 
 CPU FP32, unchanged native trajectory; exclude each of three regions under all
 six definitions. Three fixed rigid-placement controls preserve excluded counts,
@@ -151,7 +171,7 @@ Tables and integrity receipts are saved incrementally in Drive; per-sequence
 archives are uploaded to W&B. The gate-derived compute projection is roughly
 38 hours, not a completion guarantee; mask reuse and upload time vary.
 
-#### Interim exclusions — seq2/seq3/seq4 only
+#### Historical interim snapshot, 13:00 ICT — seq2/seq3/seq4 only
 
 Present-GT targets with valid informative controls; equal weight per sequence.
 Native baseline Dice on these three sequences: **0.8576**, not comparable as a

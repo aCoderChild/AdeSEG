@@ -1,4 +1,5 @@
 import json
+import zipfile
 
 import numpy as np
 import pytest
@@ -12,7 +13,155 @@ from modeling.contiguous_exclusion import (
     topology,
 )
 from scripts.contiguous_exclusion_statistics import summarize_sequence, report
-from scripts.run_contiguous_exclusions import snapshot, bank_digest, infer
+from scripts.run_contiguous_exclusions import (
+    snapshot,
+    bank_digest,
+    infer,
+    assert_restoration,
+    assert_resume_identity,
+    reuse_completed,
+    ROOT,
+    PROTOCOL,
+)
+
+
+@pytest.mark.parametrize("fault", [None, "receipt", "archive"])
+def test_resume_requires_complete_matching_evidence_and_archive(tmp_path, fault):
+    protocol = json.loads((ROOT / PROTOCOL).read_text())
+    previous, output, reference = (
+        tmp_path / name for name in ("previous", "output", "reference")
+    )
+    folder = previous / "seq2"
+    folder.mkdir(parents=True)
+    output.mkdir()
+    (reference / "seq2").mkdir(parents=True)
+    identity = {"device": "cpu", "source_hashes": {}}
+    (previous / "setup.json").write_text(json.dumps({**identity, "protocol": protocol}))
+    metric = dict.fromkeys(("dice", "iou", "boundary_f"), 0.5)
+    cases = [
+        {
+            "frame": 1,
+            "definition": d,
+            "region": region,
+            "present": True,
+            "informative": True,
+            "size_bin": "Q1",
+            "outcome": "overlap_present",
+            "baseline": metric,
+            "excluded": metric,
+            "controls": [{"scores": metric}] * 3,
+        }
+        for d in protocol["definitions"]
+        for region in protocol["regions"]
+    ]
+    receipt = {
+        "frame": 1,
+        **dict.fromkeys(
+            (
+                "cached_native_exact",
+                "zero_mask_exact",
+                "bank_image_cache_exact",
+                "qkv_layout_exact",
+                "no_memory_encoding_or_writeback",
+            ),
+            True,
+        ),
+    }
+    if fault == "receipt":
+        receipt["bank_image_cache_exact"] = False
+    row = {
+        "sequence": "seq2",
+        "status": "completed",
+        "frames": 1,
+        "statistics": summarize_sequence(cases),
+    }
+    files = {
+        "cases.jsonl": "".join(json.dumps(case) + "\n" for case in cases),
+        "integrity.jsonl": json.dumps(receipt) + "\n",
+        "native_parity.jsonl": json.dumps(
+            {"frame": 1, "prediction_sha256": "expected", "exact": True}
+        )
+        + "\n",
+        "summary.json": json.dumps(row),
+        "parameter_integrity_full_sequence.json": json.dumps({"unchanged": True}),
+    }
+    for name, text in files.items():
+        (folder / name).write_text(text)
+    (previous / "sequences.json").write_text(json.dumps([row]))
+    (reference / "seq2/frames.jsonl").write_text(
+        json.dumps({"frame": 1, "prediction_sha256": "expected"}) + "\n"
+    )
+    with zipfile.ZipFile(previous / "seq2.zip", "w") as packed:
+        for name, text in files.items():
+            packed.writestr(
+                "seq2/" + name,
+                "wrong" if fault == "archive" and name == "summary.json" else text,
+            )
+    if fault:
+        with pytest.raises(RuntimeError, match="evidence|archive"):
+            reuse_completed(previous, output, identity, reference, protocol)
+        assert not (output / "seq2").exists()
+    else:
+        reused = reuse_completed(previous, output, identity, reference, protocol)
+        assert list(reused) == ["seq2"]
+        assert (output / "seq2/cases.jsonl").read_bytes() == (
+            folder / "cases.jsonl"
+        ).read_bytes()
+        assert json.loads((output / "resume_provenance.json").read_text())["sequences"][
+            "seq2"
+        ]["archive_sha256"]
+
+
+@pytest.mark.parametrize("change", ["replay", "bank", "both"])
+def test_post_guard_distinguishes_replay_and_buffer_failures_without_tolerance(
+    tmp_path, change
+):
+    native = torch.zeros(1, 1, 2, 2)
+    restored = native.clone()
+    if change in ("replay", "both"):
+        restored[0, 0, 0, 0] = 1e-10
+    after = "changed" if change in ("bank", "both") else "same"
+    path = tmp_path / "failure.json"
+    with pytest.raises(RuntimeError, match="integrity failure"):
+        assert_restoration(restored, native, "same", after, path, 15)
+    evidence = json.loads(path.read_text())
+    assert evidence["replay_exact"] == (change == "bank")
+    assert evidence["bank_exact"] == (change == "replay")
+    assert evidence["frame"] == 15
+
+
+def test_resume_rejects_engine_or_scientific_source_changes():
+    old = {
+        "device": "cpu",
+        "source_hashes": {
+            "modeling/contiguous_exclusion.py": "same",
+            "scripts/run_contiguous_exclusions.py": "old",
+        },
+        "protocol_commit": "old",
+    }
+    current = {
+        **old,
+        "source_hashes": {
+            **old["source_hashes"],
+            "scripts/run_contiguous_exclusions.py": "new",
+        },
+        "protocol_commit": "new",
+        "repair_validation": True,
+    }
+    assert_resume_identity(old, current)
+    with pytest.raises(RuntimeError, match="engine identity"):
+        assert_resume_identity(old, {**current, "device": "mps"})
+    with pytest.raises(RuntimeError, match="scientific source"):
+        assert_resume_identity(
+            old,
+            {
+                **current,
+                "source_hashes": {
+                    **current["source_hashes"],
+                    "modeling/contiguous_exclusion.py": "changed",
+                },
+            },
+        )
 
 
 @pytest.mark.parametrize("kind", ["single", "disconnected", "ring", "background"])
