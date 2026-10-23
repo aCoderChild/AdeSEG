@@ -111,10 +111,15 @@ New outputs: `15_region_definition_contour_audit_cpu_v1/{validation,full}`.
 [Passed gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kmqukgz0).
 [Completed full audit](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/oq7ekeyo).
 
-### Next: contiguity-matched exclusions
+### Contiguity-matched exclusions — running
 
 Pre-launch regression suite: **127 passed**; rigid-control and state-isolation
-checks included. Scientific exclusion results are not yet available.
+checks included. Protocol/source freeze: `856cc64`, before gate launch.
+Gate **passed**: 73/73 native predictions exact; six fixed intervention targets,
+108 definition/region cases, exact native/zero-mask replay, preserved QKV layout,
+unchanged bank/cache and parameters, no counterfactual memory encoding/writeback.
+W&B gate artifact upload confirmed. Full-cohort inference is now running;
+no full-cohort causal conclusion is available.
 
 CPU FP32, unchanged native trajectory; exclude each of three regions under all
 six definitions. Three fixed rigid-placement controls preserve excluded counts,
@@ -129,6 +134,11 @@ bank/cache, parameter and W&B-delivery checks pass. Sequence means are the unit;
 positive excess loss, positive 95% CI lower bound and adjusted p<0.05 in all six
 definitions. Unexpected effects are retained, not used to change the protocol.
 New outputs: `17_contiguity_matched_exclusions_polypgen_cpu_v1`.
+[Passed gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kmvdhoor)
+· [Full run](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/fp914eod).
+Tables and integrity receipts are saved incrementally in Drive; per-sequence
+archives are uploaded to W&B. The gate-derived compute projection is roughly
+38 hours, not a completion guarantee; mask reuse and upload time vary.
 
 ### Verification scope and protocol timing
 
