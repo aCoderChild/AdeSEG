@@ -1,6 +1,6 @@
 # Regional memory tokens: results
 
-Updated **2026-10-23: exclusions resumed after integrity validation**. Scientific interim tables
+Updated **2026-10-24: byte-level integrity repair**. Scientific interim tables
 below retain the **13:00 ICT (UTC+7)** snapshot. Exploratory PolypGen study: 21 promptable sequences,
 2,012 post-prompt targets; seq1/seq7 are N/A. Dice is the equal-sequence
 present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions.
@@ -9,9 +9,9 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 |---|---|
 | Geometry / full attention | Complete |
 | Exclusion gate | Passed; W&B delivery confirmed |
-| Original full exclusions | Stopped after 800 accepted targets at seq12 frame15; not complete |
-| Preserved complete evidence | Nine sequences / 786 targets; incomplete seq12 is not a finished-sequence result |
-| Repair | Both diagnoses and expanded gate passed; full run resumed from seq12 |
+| Latest full exclusions | Second stop at seq13 frame62 after 1,089 accepted target receipts; not complete |
+| Preserved complete evidence | Ten sequences / 1,035 targets; incomplete seq13 excluded from finished-sequence inference |
+| Current repair | Per-buffer diagnosis passed; alias-sensitive legacy checksum defect reproduced in tests; byte-guard v2 validation pending |
 | Scientific tables below | Earlier three-sequence snapshot, not the latest nine-sequence aggregate |
 
 Integrity receipts verify replay/layout/buffer checks, not absence of every
@@ -125,7 +125,32 @@ New outputs: `15_region_definition_contour_audit_cpu_v1/{validation,full}`.
 [Passed gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kmqukgz0).
 [Completed full audit](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/oq7ekeyo).
 
-### Contiguity-matched exclusions — resumed; original cause unresolved
+### Current byte-guard repair — 2026-10-24
+
+Second failure: seq13 frame62 had **identical prediction hashes and zero logit
+difference**, but the legacy bank digest disagreed. A detailed replay checked
+55 native targets and 71 calls at frame62: no tensor/structure/address changes
+were observed. [Per-buffer diagnosis](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/yhidahdk).
+
+| Guard check | Result |
+|---|---|
+| Reproducible legacy-checker defect | An alias replaced by an identical clone changes the deduplicated digest |
+| New guard | Hash every tensor path's raw bytes, shape, dtype and stride plus container structure |
+| Addresses / aliasing | Diagnostic metadata, not a surrogate for changed values |
+| True mutation tests | One-bit BF16, `1e-10` value, stride and structural changes rejected |
+| Regression suite | 144 passed; alias-only restoration accepted, real changes still stop |
+| Replay predicate | Raw FP32 hashes plus shape/dtype; signed-zero differences rejected |
+| Historical episodes | Alias sensitivity is a proven defect, not a proven explanation for either stop |
+
+[Frozen repair plan](../protocols/contiguous_exclusions_bank_repair_v2.json):
+144 native targets / ten intervention targets, including seq12 frame15 and
+seq13 frames61–63, before resuming. Ten completed sequences / 1,035 targets
+passed evidence/archive revalidation. Rerun incomplete seq13 in full, then
+seq14–23. Model, masks, controls, seeds and statistical rule are unchanged.
+No tolerance replaces a real content/layout/structure or replay check.
+Outputs: `17_bank_integrity_repair_v2`. Original failed runs remain preserved.
+
+### Previous repair — 2026-10-23, subsequently stopped again
 
 Pre-launch regression suite: **127 passed**; rigid-control and state-isolation
 checks included. Protocol/source freeze: `856cc64`, before gate launch.
@@ -168,7 +193,7 @@ resumed from seq12, preserving the nine revalidated complete sequences / 786
 targets. The incomplete original seq12 is not reused. Passing replays do not
 identify the cause of the original fault; the strict stop remains active.
 [Resumed full run](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/pas8fe7m).
-Current outputs: `17_contiguity_exclusion_repair_v1/continuation/full`;
+Previous outputs: `17_contiguity_exclusion_repair_v1/continuation/full`;
 `resume_provenance.json` records the original evidence and archive hashes.
 
 CPU FP32, unchanged native trajectory; exclude each of three regions under all

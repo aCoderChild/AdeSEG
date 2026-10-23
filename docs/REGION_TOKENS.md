@@ -181,7 +181,7 @@ committed protocol before launch; historical count-only controls do not qualify.
 | Native attention | Reuse Efficient-SAM2's author attention calculation on native post-RoPE Q/K/V; return original SDPA outputs |
 | Current definition audit | Native mixed cells, author incoherence, trimap kernels 3/7/15 and v3 ratio 0.02; contour misses, size bins and missing groups |
 | Historical sensitivity (v1) | Same attention weights grouped by predicted/GT masks at three widths; not new-primary sensitivity |
-| Current contiguity-matched exclusion | Six settled definitions × three regions; three rigid-placement controls; CPU FP32, exact cached/zero-mask replay, unchanged native trajectory; resumed after expanded repair gate |
+| Current contiguity-matched exclusion | Six settled definitions × three regions; three rigid-placement controls; CPU FP32, exact replay, unchanged native trajectory; byte-guard v2 validation pending |
 | Historical regional exclusion (v1) | Mask regional keys in all four cross-attention layers; three count-matched random controls; no memory writeback. Not contiguity-matched; not pooled with the current rerun |
 | Author benchmark | Official SAM2, SAMURAI, SAM2Long and Lean-SAM2 predictors in separate processes |
 | Enrichment weighting | Fixed proportional, reciprocal and proportional shuffled-label logit biases; native full propagation |
@@ -212,6 +212,18 @@ rule. A passing reproduction is not proof that an unreproduced fault is solved.
 Failed checks still stop the run; no exactness tolerance or outcome-based retry
 is introduced. Completed original sequences retain their original provenance;
 the incomplete seq12 is rerun, not silently treated as complete.
+
+The [2026-10-24 guard repair](../protocols/contiguous_exclusions_bank_repair_v2.json)
+replaces storage-address deduplication with exact per-path raw-byte/layout and
+container-structure fingerprints. An alias-only clone is not a changed value;
+all paths are checked independently, and addresses remain diagnostic metadata.
+The legacy checker's alias sensitivity is reproduced, but its role in either
+historical failure is unproven. Earlier cached/zero-mask checks used
+`torch.equal`, which treats signed zeros as equal; new replay checks also require
+raw FP32 hash equality. Native propagation hashes were already byte-checked.
+Scientific interventions and endpoints are unchanged. The expanded gate covers
+both historical failure points before reuse of ten complete sequences and a
+fresh seq13 rerun.
 
 Weights use four-layer, equal-sequence mean enrichment from all eligible
 sequences. Calibration and evaluation share the cohort: dataset-specific,

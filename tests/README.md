@@ -13,6 +13,7 @@ Run `python -m pytest -q`. Discovery is restricted to this folder.
 | `test_author_region_measurement.py` | Author candidate-axis selection, native attention-output preservation, hook restoration and exact baseline prediction checks |
 | `test_region_exclusion.py` | Native SDPA masks, matched random keys, cached-state isolation, exact buffer digests and excess-loss calculation |
 | `test_contiguous_exclusion.py` | Rigid null geometry/counts, invariant masks, pointers, exact zero masks, state isolation, separate replay/buffer failures and evidence-validated resume |
+| `test_bank_integrity.py` | Alias-only legacy false alarm, exact byte/layout/structure changes, signed-zero replay and strict restoration checks |
 | `test_memory_token_io.py` | Native capture, prompt handling, CLI imports, protocol and output locations |
 | `test_full_memory_region_audit.py` | Full coverage, conditioning frames, storage and artifact delivery |
 | `test_data_pipeline.py` | Mask decoding, frame staging and local/Kaggle chronology |

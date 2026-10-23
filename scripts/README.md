@@ -12,6 +12,8 @@
 | `contiguous_exclusion_statistics.py` | Sequence-level excess loss, fixed strata, bootstrap intervals and Holm18 inference |
 | `queue_contiguous_exclusions.py` | Integrity/delivery gate then complete cohort, without effect-dependent stopping |
 | `diagnose_contiguous_exclusions.py` | Isolated/history replay of failed seq12 target; separates replay equality from buffer equality; diagnostic evidence, not a full-cohort result |
+| `diagnose_bank_integrity.py` | Per-call tensor/structure/address trace at a failed target; distinguishes changed bytes from alias-sensitive digest disagreement |
+| `bank_integrity.py` | Exact per-path raw-byte/layout/structure fingerprints; aliases recorded separately |
 | `relabel_region_trimaps.py` | Offline amended kernels 15/21/29 from completed saved-logit sequences; isolated author adapter, counts/coverage/GT/size statistics, no inference or attention |
 | `measure_region_attention.py` | Verify all saved overlays; observe native attention mass and spatial enrichment using Efficient-SAM2 author attention |
 | `run_region_exclusions.py` | Native one-frame regional key exclusions with three per-memory-frame count-matched random controls; no memory writeback |

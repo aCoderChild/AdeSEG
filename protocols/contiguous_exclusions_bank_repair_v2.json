@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-24",
+  "failure": "Second run stopped at seq13 frame62: replay bytes identical, legacy aggregate bank digest differed. Ten complete sequences/1035 targets retained; incomplete seq13 is not complete evidence.",
+  "identified_guard_defect": "The legacy hasher deduplicates by data_ptr/shape/stride/dtype. Replacing one alias with a byte-identical clone changes its aggregate digest despite unchanged content/layout. This is reproduced in regression tests. It is a demonstrated checker defect, not a proven explanation for either original episode.",
+  "correction": "Fingerprint each relevant tensor PATH independently, recording raw bytes SHA256, shape, dtype and stride plus exact container structure. Addresses/alias changes are diagnostic metadata, not content hashes. Compare ALL path entries exactly, with no tolerance. Save full before/after path manifests on any content/replay/legacy discrepancy; real content/layout/structure changes and replay mismatches stop. Legacy aggregate disagreement alone is not treated as proof of value mutation when every path is byte/layout identical. This replaces an alias-sensitive measurement, not the scientific intervention or a true-mutation check.",
+  "unchanged": "Official SAM2 model, masks, six definitions, three regions, rigid transforms, seeds, one-target interventions, CPU FP32, reference predictions, metrics, 18-test family and claim rule. Original scientific protocol unchanged except expanded validation scheduling. No threshold or output tolerance introduced. Replay checks now use raw FP32 hashes with shape/dtype checks, also rejecting signed-zero changes that torch.equal treats as equal; this enforces the intended bit-exact rule.",
+  "diagnoses": [{"folder":"seq13_frame62_diagnosis", "sequence":"seq13", "target":62, "intervention_targets":1, "per_call_buffers":true, "inference_calls":71}],
+  "diagnosis_scope": "Detailed targeted replay checked native seq13 frames8..62,71 inference calls at62, per-call tensor/structure/address manifests and final full-bank manifests; no changes observed. The historical trigger remains unproven, not silently declared resolved. Rich trace archived with new gate delivery.",
+  "gate": {
+    "sequences": ["seq2","seq3","seq12","seq13"],
+    "selected_targets": {"seq2":[4,20,62],"seq3":[1,7,14],"seq12":[15],"seq13":[61,62,63]},
+    "stop_after": {"seq12":15,"seq13":63},
+    "expected_native_targets":144,
+    "coverage":"144 native targets:73 original seq2/seq3,15 seq12,56 seq13; ten intervention targets under all18 conditions and unchanged three controls. New path-level guard must pass, including both historical failure points and adjacent seq13 targets. Matching committed sources, diagnostic receipts and W&B delivery required."
+  },
+  "resume": "After successful gate, revalidate source/runtime/protocol, native hashes, integrity/parameter receipts, cases, reaggregation and archive bytes for all ten completed sequences from previous continuation. Gate scheduling may differ; all other scientific protocol fields must match. Reuse1035 complete targets with lineage; rerun seq13 from its start, then seq14..23. Preserve old partial54 targets and all failures; do not merge incomplete seq13 or silently retry failing conditions.",
+  "stopping": "No effect-dependent selection or retries until passing. Every real path-content/layout/structure change, replay mismatch, parameter/source/cohort or delivery failure still stops. Do not claim the historical trigger is known unless a manifest captures it. Commit before new gate launch."
+}

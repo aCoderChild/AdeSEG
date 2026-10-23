@@ -29,10 +29,11 @@ from scripts import run_author_baseline as author  # noqa: E402
 from scripts.memory_token_io import digest, validate_output  # noqa: E402
 from scripts.run_region_exclusions import copy_containers, active_bank_digest, evaluate  # noqa: E402
 from scripts.contiguous_exclusion_statistics import summarize_sequence, report  # noqa: E402
+from scripts.bank_integrity import bank_contents, fingerprint, changed_paths  # noqa: E402
 from training.tracking import start_wandb, log_results_artifact, finalize_tracking  # noqa: E402
 
 PROTOCOL = "protocols/contiguous_exclusions_v1.json"
-REPAIR_PROTOCOL = "protocols/contiguous_exclusions_repair_v1.json"
+REPAIR_PROTOCOL = "protocols/contiguous_exclusions_bank_repair_v2.json"
 SOURCES = [
     PROTOCOL,
     "modeling/contiguous_exclusion.py",
@@ -54,6 +55,9 @@ SOURCES = [
     "datasets/io.py",
     "datasets/video.py",
     REPAIR_PROTOCOL,
+    "protocols/contiguous_exclusions_repair_v1.json",
+    "scripts/bank_integrity.py",
+    "scripts/diagnose_bank_integrity.py",
     "scripts/diagnose_contiguous_exclusions.py",
 ]
 
@@ -81,7 +85,11 @@ def assert_resume_identity(old, current):
 def reuse_completed(previous, output, identity, reference, protocol):
     old = json.loads((previous / "setup.json").read_text())
     assert_resume_identity(old, identity)
-    if old["protocol"] != json.loads((ROOT / PROTOCOL).read_text()):
+    if {k: v for k, v in old["protocol"].items() if k != "gate"} != {
+        k: v
+        for k, v in json.loads((ROOT / PROTOCOL).read_text()).items()
+        if k != "gate"
+    }:
         raise RuntimeError("Resume scientific protocol changed")
     results = {}
     evidence = {
@@ -172,8 +180,16 @@ def reuse_completed(previous, output, identity, reference, protocol):
     return results
 
 
+def logits_exact(left, right):
+    return (
+        left.shape == right.shape
+        and left.dtype == right.dtype
+        and author.tensor_hash(left) == author.tensor_hash(right)
+    )
+
+
 def assert_restoration(restored, baseline, before, after, path, frame):
-    replay_exact = torch.equal(restored, baseline)
+    replay_exact = logits_exact(restored, baseline)
     if replay_exact and before == after:
         return
     record = {
@@ -369,6 +385,11 @@ def sequence(model, name, frames, source, output, protocol, gate, run, stop_afte
                         old_digest = bank_digest(
                             state, index, units, model.max_obj_ptrs_in_encoder
                         )
+                        before_bank = fingerprint(
+                            bank_contents(
+                                state, index, units, model.max_obj_ptrs_in_encoder
+                            )
+                        )
                         cached = snapshot(state, index)
                         truth = load_label_mask(frames[index].mask_path, [1]) == 1
                         base_scores = evaluate(baseline, truth)
@@ -396,7 +417,7 @@ def sequence(model, name, frames, source, output, protocol, gate, run, stop_afte
                             return prediction
 
                         restored = call(None)
-                        if not torch.equal(restored, baseline):
+                        if not logits_exact(restored, baseline):
                             raise RuntimeError("Cached native no-op replay mismatch")
                         zero = {
                             "selected": torch.zeros(
@@ -407,7 +428,7 @@ def sequence(model, name, frames, source, output, protocol, gate, run, stop_afte
                             "undefined": False,
                         }
                         restored = call(zero)
-                        if not torch.equal(restored, baseline):
+                        if not logits_exact(restored, baseline):
                             raise RuntimeError("Explicit zero-mask replay mismatch")
                         zero_hash = hashlib.sha256(
                             zero["selected"].numpy().tobytes()
@@ -496,11 +517,42 @@ def sequence(model, name, frames, source, output, protocol, gate, run, stop_afte
                         new_digest = bank_digest(
                             state, index, units, model.max_obj_ptrs_in_encoder
                         )
+                        after_bank = fingerprint(
+                            bank_contents(
+                                state, index, units, model.max_obj_ptrs_in_encoder
+                            )
+                        )
+                        changes = changed_paths(before_bank, after_bank)
+                        alias_changes = [
+                            k
+                            for k in before_bank["addresses"]
+                            if before_bank["addresses"][k]
+                            != after_bank["addresses"].get(k)
+                        ]
+                        if (
+                            changes
+                            or old_digest != new_digest
+                            or not logits_exact(restored, baseline)
+                        ):
+                            (target / f"bank_detail_{index:06d}.json").write_text(
+                                json.dumps(
+                                    {
+                                        "before": before_bank,
+                                        "after": after_bank,
+                                        "changed_paths": changes,
+                                        "address_changes": alias_changes,
+                                        "legacy_before": old_digest,
+                                        "legacy_after": new_digest,
+                                    },
+                                    indent=2,
+                                )
+                                + "\n"
+                            )
                         assert_restoration(
                             restored,
                             baseline,
-                            old_digest,
-                            new_digest,
+                            before_bank["sha256"],
+                            after_bank["sha256"],
                             target / "integrity_failure.json",
                             index,
                         )
@@ -513,6 +565,11 @@ def sequence(model, name, frames, source, output, protocol, gate, run, stop_afte
                             "no_memory_encoding_or_writeback": True,
                             "unique_counterfactual_masks": len(cache),
                             "cases": len(pending),
+                            "bank_fingerprint_version": 2,
+                            "bank_manifest_sha256": before_bank["sha256"],
+                            "checked_tensor_paths": len(before_bank["addresses"]),
+                            "legacy_digest_agrees": old_digest == new_digest,
+                            "address_changes": alias_changes,
                         }
                         integrity.append(receipt)
                         cases.extend(pending)
@@ -646,26 +703,49 @@ def main():
         if args.diagnosis_dir is None:
             raise RuntimeError("Repair gate requires both completed failure diagnoses")
         identity["diagnostic_receipts"] = {}
-        for name, expected_interventions in (
-            ("diagnosis", 1),
-            ("history_diagnosis", 15),
-        ):
+        for spec in repair["diagnoses"]:
+            name = spec["folder"]
             folder = args.diagnosis_dir / name
             receipt = json.loads((folder / "diagnosis.json").read_text())
             uploaded = json.loads((folder / "delivery.json").read_text())
             diagnostic_identity = json.loads((folder / "setup.json").read_text())
             if (
                 not receipt["diagnostic_passed"]
-                or receipt["sequence"]["sequence"] != "seq12"
-                or diagnostic_identity["diagnostic_target"] != 15
+                or receipt["sequence"]["sequence"] != spec["sequence"]
+                or diagnostic_identity["diagnostic_target"] != spec["target"]
                 or any(
                     diagnostic_identity.get(k) != v for k, v in base_identity.items()
                 )
-                or receipt["sequence"]["intervention_targets"] != expected_interventions
+                or receipt["sequence"]["intervention_targets"]
+                != spec["intervention_targets"]
                 or not uploaded["wandb_artifact_upload_complete"]
             ):
                 raise RuntimeError("Diagnosis failed/incomplete; do not resume")
             identity["diagnostic_receipts"][name] = digest(folder / "diagnosis.json")
+            if spec.get("per_call_buffers"):
+                calls = [
+                    json.loads(line)
+                    for line in (folder / "buffer_calls.jsonl").read_text().splitlines()
+                ]
+                if (
+                    len(calls) != spec["inference_calls"]
+                    or any(row["changes"] for row in calls)
+                    or json.loads((folder / "buffer_changes.json").read_text())
+                ):
+                    raise RuntimeError(
+                        "Per-buffer diagnosis reports changes; do not resume"
+                    )
+                identity["diagnostic_receipts"][name + "/buffer_calls"] = digest(
+                    folder / "buffer_calls.jsonl"
+                )
+                for filename in (
+                    "bank_before.json",
+                    "bank_after.json",
+                    "buffer_changes.json",
+                ):
+                    identity["diagnostic_receipts"][name + "/" + filename] = digest(
+                        folder / filename
+                    )
     if not args.smoke:
         if args.validation_dir is None:
             raise RuntimeError("Full exclusions require a completed matching gate")
@@ -689,10 +769,27 @@ def main():
     with zipfile.ZipFile(output / "sources.zip", "w", zipfile.ZIP_DEFLATED) as packed:
         for name in SOURCES:
             packed.write(ROOT / name, name)
+    if args.repair_validation:
+        with zipfile.ZipFile(
+            output / "diagnostic_evidence.zip", "w", zipfile.ZIP_DEFLATED
+        ) as packed:
+            for spec in repair["diagnoses"]:
+                folder = args.diagnosis_dir / spec["folder"]
+                for filename in (
+                    "setup.json",
+                    "diagnosis.json",
+                    "delivery.json",
+                    "calls.jsonl",
+                    "buffer_calls.jsonl",
+                    "bank_before.json",
+                    "bank_after.json",
+                    "buffer_changes.json",
+                ):
+                    packed.write(folder / filename, f"{spec['folder']}/{filename}")
     run = start_wandb(
         "ade-seg",
         "adenoid-hypertrophy",
-        f"17 | Rigid contiguity-matched exclusions | {scope}",
+        f"17 | Rigid exclusions | byte-guard v2 | {scope}",
         "online",
         "https://forge.coreweave.com/api/wandb",
         {**identity, "scope": scope, "protocol": protocol},
@@ -770,7 +867,14 @@ def main():
             )
         valid = [r for r in results if r["status"] == "completed"]
         expected_targets, expected_sequences = (
-            ((89, 3) if args.repair_validation else (73, 2))
+            (
+                (
+                    repair["gate"]["expected_native_targets"],
+                    len(repair["gate"]["sequences"]),
+                )
+                if args.repair_validation
+                else (73, 2)
+            )
             if args.smoke
             else (2012, 21)
         )
@@ -802,7 +906,7 @@ def main():
                     {
                         "passed": True,
                         "identity": identity,
-                        "checks": "Exact native hashes, fixed target counterfactuals, no-op/zero-mask/layout/bank/encoder/parameters/shape-controls; expanded repair gate includes seq12 frames14/15/16"
+                        "checks": "Exact native hashes, fixed target counterfactuals, no-op/zero-mask/layout/per-path-byte-bank/encoder/parameters/shape-controls; expanded gate in committed repair record"
                         if args.repair_validation
                         else "All73 native hashes, six fixed target counterfactuals, no-op/zero-mask/layout/bank/encoder/parameters/shape-controls",
                     },
@@ -813,6 +917,8 @@ def main():
             names_to_upload.append("validation.json")
         if reused:
             names_to_upload.append("resume_provenance.json")
+        if args.repair_validation:
+            names_to_upload.append("diagnostic_evidence.zip")
         finalize_tracking(run, output, summary, names_to_upload)
         run.finish()
     except BaseException as error:

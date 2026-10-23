@@ -13,13 +13,13 @@ relate to SAM2 attention and endoscopic segmentation.
 - [Historical experiment protocol](../protocols/memory_token_regions.json)
 - [Scripts](../scripts/README.md)
 
-Updated 2026-10-23:
+Updated 2026-10-24:
 
 | Stage | Status |
 |---|---|
 | Geometry audit | Complete |
 | Per-token attention | Complete: 21 promptable sequences, 2,012 targets |
-| Contiguity-matched exclusions | Both diagnoses and expanded repair gate passed; full run resumed from seq12; nine completed sequences preserved; original cause unresolved |
+| Contiguity-matched exclusions | Second stop at seq13 frame62; ten completed sequences preserved; per-buffer diagnosis passed; byte-guard v2 validation pending |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use
