@@ -19,7 +19,7 @@ Updated 2026-10-23:
 |---|---|
 | Geometry audit | Complete |
 | Per-token attention | Complete: 21 promptable sequences, 2,012 targets |
-| Contiguity-matched exclusions | Original run stopped at seq12 frame15; nine completed sequences preserved; diagnostic/expanded-gate repair in progress |
+| Contiguity-matched exclusions | Both diagnoses and expanded repair gate passed; full run resumed from seq12; nine completed sequences preserved; original cause unresolved |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use

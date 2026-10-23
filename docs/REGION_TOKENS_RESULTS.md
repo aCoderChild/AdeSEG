@@ -1,6 +1,6 @@
 # Regional memory tokens: results
 
-Updated **2026-10-23: integrity repair in progress**. Scientific interim tables
+Updated **2026-10-23: exclusions resumed after integrity validation**. Scientific interim tables
 below retain the **13:00 ICT (UTC+7)** snapshot. Exploratory PolypGen study: 21 promptable sequences,
 2,012 post-prompt targets; seq1/seq7 are N/A. Dice is the equal-sequence
 present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions.
@@ -11,7 +11,7 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 | Exclusion gate | Passed; W&B delivery confirmed |
 | Original full exclusions | Stopped after 800 accepted targets at seq12 frame15; not complete |
 | Preserved complete evidence | Nine sequences / 786 targets; incomplete seq12 is not a finished-sequence result |
-| Repair | Isolated replay passed; history diagnosis and expanded pre-resume gate required |
+| Repair | Both diagnoses and expanded gate passed; full run resumed from seq12 |
 | Scientific tables below | Earlier three-sequence snapshot, not the latest nine-sequence aggregate |
 
 Integrity receipts verify replay/layout/buffer checks, not absence of every
@@ -125,7 +125,7 @@ New outputs: `15_region_definition_contour_audit_cpu_v1/{validation,full}`.
 [Passed gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kmqukgz0).
 [Completed full audit](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/oq7ekeyo).
 
-### Contiguity-matched exclusions — integrity repair
+### Contiguity-matched exclusions — resumed; original cause unresolved
 
 Pre-launch regression suite: **127 passed**; rigid-control and state-isolation
 checks included. Protocol/source freeze: `856cc64`, before gate launch.
@@ -151,6 +151,25 @@ diagnoses and the new expanded gate pass. The expanded gate checks 89 native
 targets and exclusions on nine fixed targets, including seq12 frames14/15/16.
 Original failed-run files remain intact; repaired outputs use
 `17_contiguity_exclusion_repair_v1`.
+
+Pre-gate repair commit: **`7e17b40`**. Both diagnosis artifacts are delivered:
+
+| Diagnosis | Native targets checked | Exclusion targets | Outcome |
+|---|---:|---:|---|
+| Seq12, frame15 alone | 249 | 1 | Passed; original failure not reproduced |
+| Seq12, preceding history through frame15 | 15 | 15 | Passed; original failure not reproduced |
+
+[Isolated diagnosis](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/5ajbr0te)
+· [History diagnosis](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/0qfss40c)
+· [Expanded repair gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/1k7jcjlh).
+The expanded gate **passed**: 89 native targets, nine intervention targets and
+162 definition/region cases, with W&B delivery confirmed. Full inference has
+resumed from seq12, preserving the nine revalidated complete sequences / 786
+targets. The incomplete original seq12 is not reused. Passing replays do not
+identify the cause of the original fault; the strict stop remains active.
+[Resumed full run](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/pas8fe7m).
+Current outputs: `17_contiguity_exclusion_repair_v1/continuation/full`;
+`resume_provenance.json` records the original evidence and archive hashes.
 
 CPU FP32, unchanged native trajectory; exclude each of three regions under all
 six definitions. Three fixed rigid-placement controls preserve excluded counts,
