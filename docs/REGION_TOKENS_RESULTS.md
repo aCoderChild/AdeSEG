@@ -25,6 +25,84 @@ None of the recorded author-versus-SAM2 comparisons passes Holm correction.
 SAM2Long uses offline final-path selection, not equivalent online information.
 These benchmarks do not measure a new region-aware method.
 
+## Longer-history groundwork: E0/E1 (exploratory)
+
+Protocol and implementation committed as `8d22f5a` before computation; no new
+inference. Original archived predictions reproduce Dice exactly on 2,012
+targets per method (1,689 present, 323 GT-empty). These E0/E1 identifiers belong
+to the new longer-history proposal, not historical experiment numbering.
+
+### E0 — where present-frame Dice is lost
+
+Equal-sequence means. Each deficit column is in Dice units; the four columns
+sum to 1−Dice. Empty prediction takes priority; other errors are partitioned by
+the frozen operational contour-tolerance band and error direction.
+
+| Method | Dice | Empty-miss deficit | Contour-band deficit | Non-band FN deficit | Non-band FP deficit | Empty-miss share of deficit |
+|---|---:|---:|---:|---:|---:|---:|
+| SAM2 | 0.71904 | 0.09968 | 0.09860 | 0.01883 | 0.06386 | 35.5% |
+| SAMURAI | 0.76652 | 0.03589 | 0.10979 | 0.01652 | 0.07128 | 15.4% |
+
+| Method | Empty misses / present targets | Nonempty zero-overlap predictions | Empty misses >6 sampled steps after prompt | False alarms / GT-empty targets |
+|---|---:|---:|---:|---:|
+| SAM2 | 126 / 1,689 | 20 | 122 / 126 | 163 / 323 |
+| SAMURAI | 28 / 1,689 | 22 | 26 / 28 | 217 / 323 |
+
+The frozen pragmatic screen passes for SAM2: miss-deficit share 35.5% ≥20%,
+and 20 sequences have ≥14 post-prompt targets (required ≥11). Across the
+manifest: 51 observed disappearance/return episodes; source-sequence lengths
+15–250 sampled frames. This supports investigating history, **not** claiming
+longer memory works. Most exposure is late; late-miss counts alone do not show
+increasing risk, and prompt conditioning persists. Geometry proxies are not
+semantic appearance measurements; binary masks do not identify mucosa leakage.
+
+The contour band is explicitly asymmetric: published inside-only Boundary IoU
+band dilated outward/inward by the same radius; tolerance extends approximately
+two radii inward and one outward. A wording-only clarification removed
+“symmetric”; the frozen formula and results did not change.
+
+### E1 — spatial-key budget
+
+Complete: **2,033 stored frames**, including 21 prompts. Native-logit capture
+hashes and unchanged author occupancy match for every frame. Recovered geometry
+archive masks match all **2,012 native SAM2 target masks** exactly.
+
+| Equal-sequence per-frame mean | Tokens |
+|---|---:|
+| Foreground interior | 312.7 |
+| Boundary | 72.2 |
+| Near background: fixed one-token ring | 87.9 |
+| Far background | 3,623.3 |
+| Retained: interior + boundary + near background | 472.7 |
+
+| Finite-history budget check | Result |
+|---|---:|
+| Full prompt/latest spatial keys reserved | 8,192 |
+| Older sparse-frame spatial-key budget | 20,480 |
+| Mean older frames fitting actual history, equal-sequence mean | 30.8 |
+| Evaluated contexts with distinct prompt/latest frames | 1,991 |
+| Contexts fitting >5 older frames | 1,861 / 1,991 |
+| Stored frames retaining zero tokens | 286 / 2,033 |
+| Maximum verified spatial read keys | 28,672 |
+
+The first post-prompt target has a shared prompt/latest frame and is excluded
+from the distinct-frame packing summary. Empty frames can cost zero selected
+spatial tokens, so 30.8 is not a count of informative memories. A fixed global
+K is not justified: retained occupancy varies from 0 to 3,685 tokens/frame.
+Pointer keys, temporal encoding, stored-memory bytes and actual sparse compute
+remain outside this audit. Earlier exclusions make discarding background a
+scientific risk, not an established safe compression rule. **E2+ is not launched.**
+
+Evidence under `21_region_sparse_E0_E1_v1`: `E0/E0_results.json` and
+`verified_artifact_audit/E1/E1_results.json`, with all sequence/frame counts and
+an independent budget/source verification receipt. The initial cloud-only E1
+read stalled; preserved W&B geometry artifacts were recovered into Drive,
+checksum-verified and matched to native predictions instead. No inference.
+[E0 W&B run](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/6q892hmk).
+[E1 W&B run](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/94w1uj1r).
+Both result artifacts finished uploading. This does not independently verify
+Drive cloud synchronization.
+
 ## Memory-attention allocation
 
 Four-layer/all-query summary: exponential of the median sequence log pooled

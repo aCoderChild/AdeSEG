@@ -193,6 +193,7 @@ def e1(args, videos, output):
     results = {"complete": True, "inference": False, "native_logits_and_occupancy_verified": True,
                "sequences": sequences, "equal_sequence": {k: mean(list(sequences.values()), k) for k in ("interior", "boundary", "near_background", "far_background", "retained", "mean_actual_older_frames")}}
     write_json(output / "E1_results.json", results)
+    write_json(output / "E1_progress.json", results)
     lines = ["# E1: native predicted-region spatial-key budget", "", "21 sequences; 2,033 stored frames including prompts. Native capture hashes and author occupancy verified. Budget 28,672; dense prompt/latest reserve 8,192; older budget 20,480. Boundary retained; near-background ring fixed at one token.", "", "| Sequence | Stored frames | Interior | Boundary | Near BG | Far BG | Retained | Mean older frames fitting actual history |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
     for seq, r in sequences.items():
         lines.append(f"| {seq} | {r['frames']} | {r['interior']:.1f} | {r['boundary']:.1f} | {r['near_background']:.1f} | {r['far_background']:.1f} | {r['retained']:.1f} | {r['mean_actual_older_frames']:.1f} |")

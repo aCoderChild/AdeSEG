@@ -21,7 +21,7 @@ Updated 2026-10-24:
 | Geometry audit | Complete |
 | Per-token attention | Complete: 21 promptable sequences, 2,012 targets |
 | Contiguity-matched exclusions | Complete: 21 sequences, 2,012 targets; see final results |
-| Longer-history groundwork | E0/E1 offline audit only; E2+ not launched |
+| Longer-history groundwork | E0/E1 complete and verified; E2+ not launched |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use
