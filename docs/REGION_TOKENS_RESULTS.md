@@ -1,7 +1,7 @@
 # Regional memory tokens: results
 
-Updated **2026-10-24, 03:20 ICT (UTC+7)**. Current progress and completed-sequence
-interim results are below; older snapshots are explicitly historical. Exploratory PolypGen study: 21 promptable sequences,
+Updated **2026-10-24: completed attention and exclusions**. Final results are
+below; older snapshots are explicitly historical. Exploratory PolypGen study: 21 promptable sequences,
 2,012 post-prompt targets; seq1/seq7 are N/A. Dice is the equal-sequence
 present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions.
 
@@ -9,40 +9,85 @@ present-frame mean. See [methods](REGION_TOKENS.md) for controls and definitions
 |---|---|
 | Geometry / full attention | Complete |
 | Exclusion gate | Passed; W&B delivery confirmed |
-| Latest full exclusions | Running; latest logged target seq13 frame128; 1,156/2,012 integrity receipts (57.5%) |
-| Preserved complete evidence | Ten sequences / 1,035 targets; incomplete seq13 excluded from finished-sequence inference |
+| Latest full exclusions | Complete: 21 sequences, 2,012 targets, 36,216 definition–region cases |
+| Evidence lineage | Ten revalidated sequences / 1,035 targets reused; seq13–23 rerun to completion |
 | Current repair | Alias-sensitive legacy checksum defect reproduced; per-buffer diagnosis and v2 gate passed; historical trigger unproven |
-| Current interim table | Ten complete sequences; incomplete seq13 excluded |
+| Delivery | Final summary saved in the mounted Drive folder; W&B artifact upload confirmed |
+| Cross-definition claim | Not met for background, foreground interior or boundary |
 
-Live process verified at 03:20 ICT; latest progress at 03:19:56 ICT.
-No recorded `error.json`; final `summary.json` is absent. Receipt count includes
-1,035 revalidated retained targets and 121 fresh seq13 targets. This is target
-coverage, not a runtime estimate. Attention is complete; exclusions are not.
+Completion verified at **14:32 ICT** from `queue_status.json`, `summary.json`
+and `delivery.json`; no `error.json`. Mounted-folder persistence is verified;
+independent Google Drive cloud synchronization is not.
 
-### Current exclusion interim — ten complete sequences
+## Final contiguity-matched exclusions
 
-Source: `17_bank_integrity_repair_v2/continuation/full/sequences.json`.
-Sequences: seq2–6 and seq8–12; 1,035 post-prompt targets. Primary mixed-cell
-definition, present-GT targets with informative controls, equal sequence weight.
-Control Dice averages the three fixed rigid-placement seeds. Excess loss =
-control Dice − regional-exclusion Dice. These are descriptive interim means;
-no final significance or cross-definition claim is made.
+Source: `17_bank_integrity_repair_v2/continuation/full/exclusion_results.{md,json}`.
+CPU FP32, native memory trajectory, one-target interventions. Primary analysis:
+present-GT targets with informative controls, averaged within each sequence;
+**21 sequences**, equally weighted. Three rigid-control seeds are averaged per
+target. Excess loss = control Dice − regional-exclusion Dice; positive means
+regional exclusion is more damaging. Intervals are 95% whole-sequence bootstrap
+intervals (10,000 replicates); paired Wilcoxon p-values use Holm correction across
+18 fixed tests. Intervals are not simultaneous multiplicity-adjusted intervals.
 
-| Excluded region | N sequences | Native Dice | Excluded Dice | Control Dice | Excess loss |
-|---|---:|---:|---:|---:|---:|
-| Background | 10 | 0.7535 | 0.2458 | 0.5530 | +0.3072 |
-| Foreground interior | 10 | 0.7535 | 0.7168 | 0.7581 | +0.0413 |
-| Boundary | 10 | 0.7535 | 0.7576 | 0.7545 | −0.0031 |
+| Primary mixed-cell region | Native Dice | Excluded Dice | Control Dice | Excess loss [95% CI] | Holm18 p |
+|---|---:|---:|---:|---|---:|
+| Background | 0.7190 | 0.2696 | 0.5675 | +0.2979 [0.2134, 0.3771] | 0.000172 |
+| Foreground interior | 0.7190 | 0.6763 | 0.7209 | +0.0445 [0.0261, 0.0643] | 0.007189 |
+| Boundary | 0.7190 | 0.7199 | 0.7194 | −0.0005 [−0.0051, 0.0046] | 1.000000 |
 
-On this incomplete cohort, boundary exclusion is not more damaging than its
-matched controls on average, despite high native boundary enrichment. Attention
-allocation therefore must not be equated with causal usefulness. Background
-exclusion also determines which small foreground complement remains; this does
-not isolate semantic background content. No segmentation-improvement claim follows.
+### Robustness across fixed definitions
+
+Each cell: mean excess Dice loss [95% CI]; Holm18-adjusted p. N=21 sequences
+for every comparison, but eligible frames can differ when groups or controls are
+uninformative. Consequently some comparator foreground baselines are about
+0.7277, not 0.7190; compare each intervention with its own matched baseline/control.
+
+| Definition | Background | Foreground interior | Boundary |
+|---|---|---|---|
+| Mixed cells (primary) | +0.2979 [0.2134, 0.3771]; p=0.000172 | +0.0445 [0.0261, 0.0643]; p=0.007189 | −0.0005 [−0.0051, 0.0046]; p=1.0000 |
+| Transfiner incoherence | +0.1647 [0.0798, 0.2441]; p=0.012774 | +0.0157 [0.0033, 0.0300]; p=0.394234 | −0.0009 [−0.0114, 0.0107]; p=1.0000 |
+| Trimap k15 | +0.1840 [0.0872, 0.2749]; p=0.016462 | +0.0229 [0.0100, 0.0370]; p=0.036671 | +0.0016 [−0.0059, 0.0096]; p=1.0000 |
+| Trimap k21 | +0.1584 [0.0637, 0.2498]; p=0.039345 | +0.0137 [0.0031, 0.0257]; p=0.365613 | +0.0023 [−0.0065, 0.0134]; p=1.0000 |
+| Trimap k29 | +0.1115 [0.0293, 0.1874]; p=0.173585 | +0.0086 [−0.0001, 0.0181]; p=0.417776 | +0.0016 [−0.0103, 0.0156]; p=1.0000 |
+| Inner band 0.02 | +0.2979 [0.2134, 0.3771]; p=0.000172 | +0.0057 [−0.0015, 0.0135]; p=0.818213 | +0.0130 [−0.0037, 0.0321]; p=0.818213 |
+
+**Frozen decision:** no region passes positive excess loss, positive CI lower
+bound and Holm p<0.05 under **all six definitions**. The rule is not relaxed
+after seeing these outcomes.
+
+### Analysis and interpretation
+
+- **Allocation is not usefulness.** Boundary tokens have the highest pooled
+  per-token attention enrichment under every definition, but boundary exclusions
+  do not show significant excess Dice loss under any definition. This is not an
+  equivalence test or proof that boundary information is unnecessary.
+- **Primary regional effects exist.** Mixed-cell background and foreground
+  exclusions are more damaging than their rigid controls. Foreground evidence
+  depends on the definition; background effects are positive throughout but fail
+  the adjusted test for k29. Neither supports the stronger all-definition claim.
+- **Positions, not pure contents.** These labels group memory-token positions.
+  Background exclusion removes a large set and determines the small complement
+  retained. It does not isolate purely background semantics or rank intrinsic
+  regional importance. Rigid controls match count, shape and connectivity, not
+  anatomical position or border proximity.
+- **Scope matters.** Pointer keys remain available and attention renormalizes;
+  these are conditional one-step exclusions, not full counterfactual video
+  propagation. Redundancy and compensation are possible explanations, not tested
+  mechanisms. No regional weighting benefit or segmentation-score improvement
+  follows from these experiments.
+- **Hypothesis assessment.** Region-dependent attention allocation is supported;
+  universal boundary indispensability and a definition-robust regional exclusion
+  effect are not established. This same-cohort exploratory study motivates
+  further tests, not a claim of unseen-data generalization.
+
+[Completed exclusion run](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/p42rakqp).
+Full eligibility and secondary size/outcome/absent-frame/metric strata remain in
+the source JSON; they are not substituted for the fixed primary analysis.
 
 Integrity receipts verify replay/layout/buffer checks, not absence of every
-possible implementation error. The exclusion table below is **interim**, not
-a full-cohort hypothesis test or a segmentation-improvement result.
+possible implementation error. Completion and exact replay do not prove every
+implementation assumption; historical failure triggers remain unproven.
 
 > **Do not combine definitions.** Historical regional results in sections 2–5
 > use superseded v1 (any band pixel or mixed footprint → boundary). The new audit
@@ -180,8 +225,10 @@ Pre-gate code/protocol commit **`23fa8d9`**. Gate **passed**: 144 native targets
 ten intervention targets / 180 definition-region cases. All path-level buffer,
 raw replay, layout and parameter checks passed; W&B delivery includes the rich
 diagnostic trace. No legacy/new fingerprint disagreement occurred in this gate.
-The complete continuation is active; ten revalidated sequences / 1,035 targets
-are reused, and seq13 is rerun from its start before seq14–23.
+The continuation **completed**: ten revalidated sequences / 1,035 targets
+were reused, and seq13–23 were rerun to completion. Final coverage is
+21 promptable sequences / 2,012 targets / 36,216 definition–region cases;
+W&B artifact delivery is confirmed. See the final tables above.
 [Byte-guard gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/xa4dcol8)
 · [Current full continuation](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/p42rakqp).
 Current result root: `17_bank_integrity_repair_v2/continuation/full`.
@@ -224,9 +271,10 @@ Pre-gate repair commit: **`7e17b40`**. Both diagnosis artifacts are delivered:
 · [History diagnosis](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/0qfss40c)
 · [Expanded repair gate](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/1k7jcjlh).
 The expanded gate **passed**: 89 native targets, nine intervention targets and
-162 definition/region cases, with W&B delivery confirmed. Full inference has
-resumed from seq12, preserving the nine revalidated complete sequences / 786
-targets. The incomplete original seq12 is not reused. Passing replays do not
+162 definition/region cases, with W&B delivery confirmed. This earlier full run
+resumed from seq12, preserving nine revalidated complete sequences / 786
+targets, then stopped at seq13 frame62 as documented above. The incomplete
+original seq12 was not reused. Passing replays do not
 identify the cause of the original fault; the strict stop remains active.
 [Resumed full run](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/pas8fe7m).
 Previous outputs: `17_contiguity_exclusion_repair_v1/continuation/full`;
@@ -295,8 +343,8 @@ These counts will become stale as execution continues; they are not live counter
   proximity. Pointer keys remain available; their normalized attention can change.
 - These are one-target interventions on native memory, not modified full-video
   propagation. No region-aware deployment improvement follows from these tables.
-- Continue the frozen experiment unchanged; retain unexpected results. Final
-  inference waits for full coverage under the committed 18-test rule.
+- At this historical snapshot, inference awaited full coverage under the
+  committed 18-test rule. The completed analysis is now reported at the top.
 
 ### Verification scope and protocol timing
 
