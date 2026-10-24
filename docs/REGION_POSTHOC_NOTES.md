@@ -52,6 +52,15 @@ sink; projected keys/queries, position and softmax also matter.
 
 ## Causal full propagation
 
+**Pre-inference amendment, option A (2026-10-24):** the original justification
+overreached. The score gate cannot directly clear an ongoing positive-score
+false alarm. Keep the rule but test relapse prevention after declared absence,
+not persistent-FP clearance or the viability of the regional idea generally.
+A positive native object score is necessary for a nonempty mask, not sufficient;
+mask emptiness only bounds the unsaved score-trigger opportunities. No scalar
+confidence threshold or learned alternative is added. Execution is explicitly
+on user HOLD, enforced by `execution_authorized=false` in protocol version2.
+
 The user approved a **previous-frame native object-score** gate: score≤0 excludes
 only foreground-interior memory keys; positive score restores the next native
 read. Background, boundary and pointers remain. Current-frame scores cannot
@@ -66,6 +75,8 @@ policy is explicitly project experimental glue, not attributed to an author.
 Verification at this implementation freeze: **171 tests passed**. These are
 unit/regression checks, not completed real-video propagation gates. Native and
 gated correctness/efficacy are not claimed before those separate runs complete.
+The later option-A amendment adds explicit opportunity, fixed-risk-set and
+user-hold tests; its current test count is recorded with the amendment.
 
 The no-inference [post-hoc report](REGION_POSTHOC_RESULTS.md) is now reproduced,
 including exact conditional false-alarm denominators. A second same-account

@@ -1,7 +1,27 @@
 {
-  "version": 1,
+  "version": 2,
   "date": "2026-10-24",
-  "status": "Frozen design; no new inference before verified backup and Drive-web upload",
+  "status": "ON USER HOLD; pre-inference option-A amendment; not authorized to run",
+  "execution_authorized": false,
+  "amendment": {
+    "date": "2026-10-24",
+    "supersedes_commit": "bfed221",
+    "choice": "A: relapse prevention, not clearing ongoing persistent false alarms",
+    "reason": "A nonempty native prediction requires score>0, so the previous-score<=0 gate cannot directly interrupt a continuing native positive-score false alarm before trajectory divergence",
+    "question": "Once the model declares absence, does suppressing stale foreground-interior memory prevent false-alarm relapse, and what are the re-detection and present-Dice costs?",
+    "not_claimed": "No direct test of the42percent one-step persistent-FP clearance motivation; no threshold-calibrated or learned persistent-FP detector is introduced",
+    "feasibility": "Count native GT-empty targets following empty predictions for SAM2 and SAMURAI before inference. These are mask-proxy baseline opportunities; exact score eligibility is unsaved and cannot be reconstructed from emptiness. Full feedback can change subsequent opportunities, so baseline counts are not a strict bound on every counterfactual effect.",
+    "risk": "After a missed present frame, suppressing foreground memory may delay recovery; harm is a hypothesis, not a guaranteed monotonic effect in a nonlinear model"
+  },
+  "baseline_feasibility": {
+    "inference": false,
+    "report": "outputs/experiment/20_relapse_opportunity_audit_v2/opportunities.json",
+    "report_sha256": "9fcba6d5d85d478df84ce56075a06b20c44243bad027a9e1a9236a96687c1b3b",
+    "sam2": {"gt_empty_after_empty_prediction": 139, "false_alarms_after_empty_prediction": 5, "false_alarms_after_nonempty_prediction": 158, "present_after_empty_prediction": 143},
+    "samurai": {"gt_empty_after_empty_prediction": 95, "false_alarms_after_empty_prediction": 9, "false_alarms_after_nonempty_prediction": 208, "present_after_empty_prediction": 37},
+    "verification": "Archived PNG occupancy matches saved binary-metric occupancy on2012 targets per method. Exact object-score triggers are unavailable from legacy outputs.",
+    "interpretation": "Sparse direct relapse headroom; do not describe this as a direct persistent-FP-clearance test. No new data-tuned support cutoff is introduced."
+  },
   "analysis_role": "Post hoc and exploratory on an already inspected PolypGen cohort; not a guarantee of a method paper",
   "implementation": {
     "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
@@ -41,13 +61,14 @@
     "absence_meaning": "Provided all-zero mask, not missing mask; annotation-defined absence, not independently established clinical disappearance"
   },
   "metrics": {
+    "primary_relapse_false_alarm_rate": "Fixed risk set: GT-empty sampled targets whose previous score<=0 in the fresh unmodified native SAMURAI baseline. Evaluate all methods on these same source indices; zero-denominator sequences are N/A. Never redefine the paired risk set from the gated trajectory.",
     "false_alarm_rate": "Any nonempty prediction on GT-empty targets; report frame-pooled fraction and equal-sequence mean over eligible sequences with denominator",
     "redetection": "Return after a GT-empty run; first positive GT/prediction overlap, no Dice threshold; delay0 means same sampled return frame",
     "censoring": "If no overlap before next GT-empty run or sequence end, record undetected/censored event and available follow-up; never assign delay0 or discard silently",
     "present_dice": "Equal-sequence mean Dice on postprompt positive-GT targets",
-    "statistics": "Sequence is the unit;10,000 sequence-bootstrap mean-difference intervals and paired two-sided Wilcoxon. Holm across2method contrasts times3endpoints: false-alarm rate,presentDice,returnfailurefraction. Observed return delays are descriptive with censor counts, not survival-model estimates.",
+    "statistics": "Sequence is the unit;10,000 sequence-bootstrap mean-difference intervals and paired two-sided Wilcoxon. Holm across2method contrasts times3endpoints: fixed-native-SAMURAI-risk relapse false-alarm rate,presentDice,returnfailurefraction. Overall GT-empty false-alarm rates and observed return delays are descriptive with censor counts, not survival-model estimates.",
     "contrasts": ["samurai minus sam2", "samurai_fg_gate minus samurai"],
-    "interpretation": "A lower false-alarm rate alone is insufficient: report presentDice losses and re-detection failures/delays alongside it. No unregistered noninferiority margin or claim rule added after outcomes."
+    "interpretation": "This asks relapse prevention only. A lower relapse false-alarm rate alone is insufficient: report all-GT-empty FP, presentDice losses and re-detection failures/delays. If baseline opportunities are few, a null result is not evidence against region-aware methods generally. No outcome-driven minimum-support cutoff, threshold tuning or new noninferiority margin."
   },
   "gate": {
     "sequences": ["seq4", "seq9"],

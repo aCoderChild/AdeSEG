@@ -47,6 +47,10 @@ GT-empty targets. This motivates a causal propagation test, not a conclusion
 that permanently deleting foreground improves segmentation. The background
 control also removes object positions; see [control note](REGION_POSTHOC_NOTES.md).
 
+The subsequent previous-score gate **does not directly test persistent-FP
+clearance**. Its pre-inference option-A amendment tests relapse prevention only;
+see [feasibility and scope](FULL_PROPAGATION_FALSE_ALARM.md).
+
 ## Attention by query region and layer
 
 Primary mixed cells. Entries are boundary-memory enrichment; parentheses give

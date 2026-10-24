@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 from scripts.backup_experiment_outputs import backup, digest
-from scripts.run_stale_foreground import CONDITIONS, gate_suite_check, protection_check
+from scripts.run_stale_foreground import (
+    CONDITIONS, gate_suite_check, protection_check, require_execution_authorization,
+)
 from scripts.false_alarm_statistics import paired_method_summary
 
 
@@ -74,6 +76,7 @@ def test_all_four_gates_required_and_scientific_identity_must_match(tmp_path):
 def test_paired_summary_uses_sequence_not_frames_and_fixed_six_tests():
     def sequence(fp, dice, missed):
         return dict(gt_empty_false_alarm_rate=fp, present_dice=dice,
+                    relapse_false_alarm_rate=fp,
                     return_count=2, undetected_returns=missed)
     methods = {
         "sam2": {"a": sequence(.8, .7, 1), "b": sequence(.2, .8, 0)},
@@ -83,7 +86,13 @@ def test_paired_summary_uses_sequence_not_frames_and_fixed_six_tests():
     result = paired_method_summary(methods)
     assert len(result["comparisons"]) == 6
     row = result["comparisons"][3]
-    assert row["endpoint"] == "gt_empty_false_alarm_rate"
+    assert row["endpoint"] == "relapse_false_alarm_rate"
     assert row["mean_difference"] == pytest.approx(-.2)
     assert row["n_sequences"] == 2
     assert all(0 <= row["holm6_p"] <= 1 for row in result["comparisons"])
+
+
+def test_protocol_user_hold_precedes_any_inference():
+    with pytest.raises(ValueError, match="user HOLD"):
+        require_execution_authorization({"execution_authorized": False})
+    require_execution_authorization({"execution_authorized": True})

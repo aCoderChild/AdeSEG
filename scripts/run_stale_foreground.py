@@ -1,4 +1,4 @@
-"""Full propagation through pinned author predictors, with a causal read mask.
+"""Relapse-prevention propagation through pinned author predictors.
 
 The author runner owns frames, prompt, native writes, scoring, replay and W&B.
 Only the iterator is wrapped; no author model/encoder/decoder is replaced.
@@ -14,9 +14,11 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from modeling.stale_foreground import StaleForegroundGate  # noqa: E402
+from modeling.stale_foreground import StaleForegroundGate, absent_from_score  # noqa: E402
 from scripts import run_author_baseline as author  # noqa: E402
-from scripts.false_alarm_statistics import paired_method_summary, propagation_summary  # noqa: E402
+from scripts.false_alarm_statistics import (  # noqa: E402
+    paired_method_summary, propagation_summary, relapse_risk_summary,
+)
 
 PROTOCOL = "protocols/full_propagation_false_alarm_v1.json"
 SOURCES = [
@@ -50,6 +52,11 @@ def protection_check(path):
     return record
 
 
+def require_execution_authorization(protocol):
+    if not protocol.get("execution_authorized", False):
+        raise ValueError("Inference is on user HOLD; do not run validation or full propagation")
+
+
 def gate_suite_check(root, sources, protection_sha):
     identities = []
     for condition in CONDITIONS:
@@ -80,6 +87,7 @@ def main():
     parser.add_argument("--native-reference-dir", type=Path)
     parser.add_argument("--gate-suite-dir", type=Path)
     options, remaining = parser.parse_known_args()
+    require_execution_authorization(json.loads((ROOT / PROTOCOL).read_text()))
     protection_check(options.protection_receipt)
     if "--method" in remaining or "--validation-sequence" in remaining:
         parser.error("Condition fixes author method and gate sequences")
@@ -137,15 +145,43 @@ def main():
                     if not context["repeat"]:
                         with (context["folder"] / "foreground_gate.jsonl").open("a") as stream:
                             stream.write(json.dumps(trace) + "\n")
+                    score = trace["current_object_score"]
+                else:
+                    outputs = state["output_dict_per_obj"][0]
+                    stored = outputs["cond_frame_outputs"].get(
+                        index, outputs["non_cond_frame_outputs"].get(index)
+                    )
+                    score_tensor = stored["object_score_logits"]
+                    absent_from_score(score_tensor)
+                    score = float(score_tensor.detach().cpu().item())
+                nonempty = bool((logits > 0).any())
+                if index > prompt and score <= 0 and nonempty:
+                    raise RuntimeError("Native nonpositive score produced a nonempty mask")
+                score_record = {
+                    "frame": index, "current_object_score": score,
+                    "previous_object_score": context["previous_score"],
+                    "prediction_nonempty": nonempty,
+                }
+                context["scores"][index] = score_record
+                context["previous_score"] = score
+                if not context["repeat"]:
+                    with (context["folder"] / "object_scores.jsonl").open("a") as stream:
+                        stream.write(json.dumps(score_record) + "\n")
                 yield index, ids, logits
 
     def rollout(model, name, frames, prompt, folder, device, run,
                 repeat=False, capture_logits=False):
-        context.update(sequence=frames[0].video_id, folder=folder, repeat=repeat)
+        context.update(sequence=frames[0].video_id, folder=folder, repeat=repeat,
+                       scores={}, previous_score=None)
         rows, seconds = original_rollout(
             model, name, frames, prompt, folder, device, run, repeat, capture_logits
         )
+        for row in rows:
+            row.update(context["scores"][row["frame"]])
         if not repeat:
+            (folder / "frames.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in rows)
+            )
             (folder / "false_alarm_summary.json").write_text(
                 json.dumps(propagation_summary(rows), indent=2) + "\n"
             )
@@ -165,7 +201,7 @@ def main():
         config["false_alarm_protocol"] = json.loads((ROOT / PROTOCOL).read_text())
         (output / "setup.json").write_text(json.dumps(config, indent=2) + "\n")
         return original_start(
-            project, entity, f"19 | Full propagation | {options.condition} | {config['scope']}",
+            project, entity, f"19 | Relapse prevention | {options.condition} | {config['scope']}",
             mode, url, config, output, tags + ["full-propagation", "post-hoc"],
         )
 
@@ -191,7 +227,7 @@ def main():
             record["gate_sequences"] = ["seq4", "seq9"]
             path.write_text(json.dumps(record, indent=2) + "\n")
         elif options.condition == "samurai_fg_gate":
-            methods = {}
+            methods, frame_rows = {}, {}
             source_indices = {}
             for condition in ("sam2", "samurai", "samurai_fg_gate"):
                 folder = output.parent / condition
@@ -199,6 +235,7 @@ def main():
                 if completed["completed_sequences"] != 21 or not completed["completed"]:
                     raise RuntimeError("Three complete cohort conditions required for comparison")
                 methods[condition] = {}
+                frame_rows[condition] = {}
                 for frame_path in folder.glob("seq*/frames.jsonl"):
                     rows = [json.loads(line) for line in frame_path.read_text().splitlines()]
                     sequence = frame_path.parent.name
@@ -206,7 +243,18 @@ def main():
                     if sequence in source_indices and identities != source_indices[sequence]:
                         raise RuntimeError("Methods evaluated different source-frame/GT intervals")
                     source_indices[sequence] = identities
-                    methods[condition][sequence] = propagation_summary(rows)
+                    frame_rows[condition][sequence] = rows
+                if len(frame_rows[condition]) != 21:
+                    raise RuntimeError("Missing completed per-sequence frame records")
+            for sequence, baseline in frame_rows["samurai"].items():
+                risk = {r["source_frame_index"] for r in baseline
+                        if not r["present"] and r["previous_object_score"] <= 0}
+                for condition in frame_rows:
+                    rows = frame_rows[condition][sequence]
+                    methods[condition][sequence] = {
+                        **propagation_summary(rows), **relapse_risk_summary(rows, risk),
+                        "relapse_risk_set": "fixed native SAMURAI previous-score<=0, GT-empty targets",
+                    }
             comparison = paired_method_summary(methods)
             (output / "propagation_comparison.json").write_text(
                 json.dumps(comparison, indent=2) + "\n"
