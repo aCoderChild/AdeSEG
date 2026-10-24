@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "status": "frozen before E0/E1 computation; exploratory PolypGen audit",
+  "scope": "Offline E0 and E1 only. No new predictions, training, E2 or propagation execution authorized.",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "E0": {
+    "sources": "Checksum-verified archived SAM2 and SAMURAI predictions; original manifest GT",
+    "unit": "Sequence; report arithmetic means of per-sequence means, not pooled frames",
+    "deficit": "On GT-present targets, exactly 1-Dice=(FN+FP)/(2TP+FN+FP)",
+    "partition_priority": ["empty prediction: all deficit is complete_miss", "otherwise errors inside symmetric GT boundary band: edge", "remaining FN: undersegmentation", "remaining FP: excess_prediction"],
+    "band": "Boundary IoU unchanged mask_to_boundary(GT,0.02), then OpenCV rectangular dilation with radius round(0.02*image_diagonal). Operational contour tolerance band, not an anatomical classification. At clipped image borders it is truncated.",
+    "disjoint_nonempty_predictions": "Report separately as zero-overlap; do not label them empty predictions",
+    "timing": "Ordered sampled-frame offsets and source-index gaps. >6 after prompt is descriptive, NOT beyond native memory. Prompt remains conditioning memory.",
+    "appearance": "Report adjacent GT area log-ratio and normalized centroid displacement as geometry proxies only; not semantic appearance or physical elapsed time.",
+    "screening": {"complete_miss_deficit_share_min": 0.2, "minimum_targets_for_history": 14, "minimum_eligible_sequences": 11, "interpretation": "Pragmatic prospective exploratory screen for longer-history investigation, not evidence that longer memory works. Both conditions must hold in native SAM2. No E2+ is automatically launched."}
+  },
+  "E1": {
+    "source": "Saved native 256x256 logits and mixed_cells labels; verify against recomputed pinned author occupancy. Never use PNG round-trip or GT to select tokens.",
+    "partition": "Existing BG/FG-interior/mixed-boundary labels unchanged. Split BG into near/far using Efficient-SAM2 dilate_mask(kernel_size=3) on object-occupied 64x64 cells. Near ring is one Chebyshev token outward, clipped at image border.",
+    "retention": "Older frames retain interior + boundary + near background. This clarifies interior plus ring: boundary is retained, not silently dropped. Far background omitted for this budget audit only.",
+    "spatial_budget": 28672,
+    "tokens_per_full_frame": 4096,
+    "reserved_prompt_and_latest": 8192,
+    "older_budget": 20480,
+    "capacity": "Report counts and floor(20480/m) for m>0 as hypothetical repeated-frame capacity. Also simulate actual prior-frame counts: from each next target retain most recent older frames until budget exhausted, excluding prompt and latest; zero-cost empty frames allowed only within finite observed history.",
+    "limits": "Attention spatial-key budget only, not total stored memory or compute. Pointer keys additional and untouched. No fixed global K is justified by mean occupancy alone. Archived native trajectories are not sparse-propagation trajectories."
+  },
+  "sources": {
+    "boundary_iou": "https://github.com/bowenc0221/boundary-iou-api/tree/37d25586a677b043ed585f10e5c42d4e80176ea9",
+    "efficient_sam2": "https://github.com/jingjing0419/Efficient-SAM2/tree/8e1ad06089b9c958ff5ebfc72b9b7d0b904f5ce5",
+    "boundary_paper": "https://openaccess.thecvf.com/content/CVPR2021/html/Cheng_Boundary_IoU_Improving_Object-Centric_Image_Segmentation_Evaluation_CVPR_2021_paper.html",
+    "efficient_paper": "https://arxiv.org/abs/2602.08224",
+    "attribution": "Author morphology and occupancy reused unchanged. Error taxonomy, budget arithmetic, screening criteria and archive integration are project-specific experiment glue, not published author algorithms. Mixed-region interpretation follows BPR/Mask Transfiner; Efficient-SAM2 itself does not define a boundary class."
+  }
+}
