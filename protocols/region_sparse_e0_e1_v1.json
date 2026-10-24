@@ -7,8 +7,8 @@
     "sources": "Checksum-verified archived SAM2 and SAMURAI predictions; original manifest GT",
     "unit": "Sequence; report arithmetic means of per-sequence means, not pooled frames",
     "deficit": "On GT-present targets, exactly 1-Dice=(FN+FP)/(2TP+FN+FP)",
-    "partition_priority": ["empty prediction: all deficit is complete_miss", "otherwise errors inside symmetric GT boundary band: edge", "remaining FN: undersegmentation", "remaining FP: excess_prediction"],
-    "band": "Boundary IoU unchanged mask_to_boundary(GT,0.02), then OpenCV rectangular dilation with radius round(0.02*image_diagonal). Operational contour tolerance band, not an anatomical classification. At clipped image borders it is truncated.",
+    "partition_priority": ["empty prediction: all deficit is complete_miss", "otherwise errors inside operational GT contour tolerance band: edge", "remaining FN: undersegmentation", "remaining FP: excess_prediction"],
+    "band": "Boundary IoU unchanged mask_to_boundary(GT,0.02), then OpenCV rectangular dilation with radius round(0.02*image_diagonal). Operational contour tolerance band, not an anatomical classification. At clipped image borders it is truncated. Because the initial band is inside-only, the expanded tolerance extends approximately 2 radii inward and 1 outward; it is not a symmetric signed-distance band.",
     "disjoint_nonempty_predictions": "Report separately as zero-overlap; do not label them empty predictions",
     "timing": "Ordered sampled-frame offsets and source-index gaps. >6 after prompt is descriptive, NOT beyond native memory. Prompt remains conditioning memory.",
     "appearance": "Report adjacent GT area log-ratio and normalized centroid displacement as geometry proxies only; not semantic appearance or physical elapsed time.",
@@ -25,6 +25,7 @@
     "capacity": "Report counts and floor(20480/m) for m>0 as hypothetical repeated-frame capacity. Also simulate actual prior-frame counts: from each next target retain most recent older frames until budget exhausted, excluding prompt and latest; zero-cost empty frames allowed only within finite observed history.",
     "limits": "Attention spatial-key budget only, not total stored memory or compute. Pointer keys additional and untouched. No fixed global K is justified by mean occupancy alone. Archived native trajectories are not sparse-propagation trajectories."
   },
+  "wording_clarification": "During E0 execution, before reading aggregate results, removed the inaccurate word symmetric. The frozen operative formula and all computed labels/statistics are unchanged. Original launch protocol bytes/hash remain in E0/provenance.json.",
   "sources": {
     "boundary_iou": "https://github.com/bowenc0221/boundary-iou-api/tree/37d25586a677b043ed585f10e5c42d4e80176ea9",
     "efficient_sam2": "https://github.com/jingjing0419/Efficient-SAM2/tree/8e1ad06089b9c958ff5ebfc72b9b7d0b904f5ce5",

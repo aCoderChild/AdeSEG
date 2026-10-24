@@ -12,6 +12,7 @@ relate to SAM2 attention and endoscopic segmentation.
 - [Contiguity-matched exclusion protocol](../protocols/contiguous_exclusions_v1.json)
 - [Historical experiment protocol](../protocols/memory_token_regions.json)
 - [Scripts](../scripts/README.md)
+- [Frozen offline E0/E1 failure and spatial-budget audit](../protocols/region_sparse_e0_e1_v1.json)
 
 Updated 2026-10-24:
 
@@ -19,7 +20,8 @@ Updated 2026-10-24:
 |---|---|
 | Geometry audit | Complete |
 | Per-token attention | Complete: 21 promptable sequences, 2,012 targets |
-| Contiguity-matched exclusions | Byte-guard v2 gate passed; full continuation resumed from seq13; ten complete sequences preserved; historical trigger unproven |
+| Contiguity-matched exclusions | Complete: 21 sequences, 2,012 targets; see final results |
+| Longer-history groundwork | E0/E1 offline audit only; E2+ not launched |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use

@@ -158,6 +158,35 @@ separate. No learned classifier or DINOv2 head is used.
 
 ## Experiments
 
+### Offline longer-history groundwork (E0/E1, 2026-10-24)
+
+[Frozen E0/E1 protocol](../protocols/region_sparse_e0_e1_v1.json), committed
+as `8d22f5a` before computation. This is a new exploratory screen, not a
+replacement for the completed regional attention/exclusion study.
+
+- **E0:** recheck archived SAM2/SAMURAI masks against GT; partition present-frame
+  Dice deficit into complete misses, contour-band errors, under-segmentation and
+  excess prediction. Record sampled-frame timing, disappearance/return intervals
+  and mask-geometry changes. Binary masks do not establish mucosa anatomy or
+  semantic appearance. Being >6 frames after the prompt is not being beyond
+  SAM2's memory.
+- **E1:** verify saved native-logit hashes and exact mixed-cell labels; count
+  interior, boundary, one-token outer background ring and far background.
+  Reserve 8,192 spatial keys for full prompt/latest frames, leaving 20,480 for
+  older sparse frames. Retain interior + boundary + near background for budget
+  accounting; no attention behavior changes. Pointer keys are additional.
+
+Author Boundary IoU contour extraction, Efficient-SAM2 occupancy/dilation and
+OpenCV morphology are reused; taxonomy, screening and packing arithmetic are
+explicit experiment glue. The E0 screening cutoffs are pragmatic exploratory
+criteria, not established clinical/statistical thresholds. Passing them does
+not prove longer memory helps or authorize E2+.
+
+Runner: `scripts/audit_region_sparse_e0_e1.py --stage E0` then `--stage E1`,
+with `--archive-dir`, `--assignment-dir` and a new Drive `--output-dir`.
+No training or new prediction is performed. All previous propagation holds
+remain in force.
+
 ### Per-token attention rerun
 
 [Committed protocol](../protocols/token_attention_rerun_v1.json): save FP32
