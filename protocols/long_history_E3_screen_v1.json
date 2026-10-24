@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "scope": "First stage of exploratory E3 only: C0 native SAM2 versus C1 full-frame long memory. C2/C3/C4, ablations and SAMURAI+C2 are not implemented or launched by this protocol. E4 remains blocked on untouched data and a frozen validated method.",
+  "authorization": "User requested accurate gated experiment execution on 2026-10-25. Launch only after complete matching E2 and a fresh C1 engineering smoke pass; commit before inference.",
+  "conditions": {"C0": "Native seven-slot SAM2; all native pointer behavior", "C1": "Prompt plus at most 31 recent nonconditioning frames, full 4096-token frames; 131072 maximum spatial keys; same checkpoint, prompts, CPU FP32, SDPA and temporal saturation as E2. This is a higher-compute history control, not the region-sparse method."},
+  "C1_choice": "32 total frames fixed from E1's roughly 30 older-frame mean headroom plus prompt/latest, capped explicitly. Not selected using C1 Dice. This is an exploratory design choice, not a universally justified K.",
+  "engineering_smoke": "Full seq2 and seq3; fresh C0 and fresh C1, repeat C1 with a fresh model. All C1 output/bank/cache fingerprints identical on replay. C1 must match C0 exactly through target age 7, when selected memories remain native. All four layers, exact stored-frame matching, unchanged pointers/parameters and <=131072 spatial keys. Repeat mismatch stops before full-cohort run.",
+  "cohort": "All 23 manifest sequences; seq1/seq7 unpromptable N/A. One mask prompt at first GT-present frame; postprompt target metrics only. No held-out/generalization claim.",
+  "primary": "Equal-sequence present-frame Dice; C1-C0 paired difference",
+  "secondary": ["IoU", "Boundary F (existing DAVIS implementation)", "GT-empty false-alarm fraction", "per-frame object score and masks", "first overlapping prediction after GT return (censored if none)", "actual read key counts and wall time; not isolated attention cost"],
+  "screening": "Follow user's initial history-alone gate: report C1>C0 on equal-sequence present Dice as positive. Nonpositive result pauses this proposed branch. It does NOT refute selective regional history, since dense history can introduce distractions. No automatic C2/C3/C4 launch either way; a separate complete matched-control protocol and verified implementation are required.",
+  "statistics": "Sequence as unit. Paired differences, existing 10000-replicate whole-sequence bootstrap and Wilcoxon. One exploratory primary contrast here; no confirmatory claim. Report false alarms regardless of Dice direction.",
+  "stopping": "Engineering integrity failures stop the queue; unexpected efficacy results are preserved, not repaired or tuned. No clinical use. No change to the earlier held relapse-prevention protocol."
+}

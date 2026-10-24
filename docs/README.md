@@ -21,8 +21,9 @@ Updated 2026-10-24:
 | Geometry audit | Complete |
 | Per-token attention | Complete: 21 promptable sequences, 2,012 targets |
 | Contiguity-matched exclusions | Complete: 21 sequences, 2,012 targets; see final results |
-| Longer-history groundwork | E0/E1 complete and verified; E2+ not launched |
-| Sparse-read engineering gate | E2 prepared; native parity, sparse replay and long-history checks required before E3 |
+| Longer-history groundwork | E0/E1 complete and verified |
+| Sparse-read engineering gate | E2 running; full native parity, sparse replay and long-history checks required before E3 |
+| Exploratory history screen | First E3 stage C0/C1 queued behind E2 and its own fresh-model smoke; C2/C3/C4 and E4 not launched |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use

@@ -91,7 +91,8 @@ spatial tokens, so 30.8 is not a count of informative memories. A fixed global
 K is not justified: retained occupancy varies from 0 to 3,685 tokens/frame.
 Pointer keys, temporal encoding, stored-memory bytes and actual sparse compute
 remain outside this audit. Earlier exclusions make discarding background a
-scientific risk, not an established safe compression rule. **E2+ is not launched.**
+scientific risk, not an established safe compression rule. E0/E1 did not launch
+downstream inference; E2 is now a separate engineering gate below.
 
 Evidence under `21_region_sparse_E0_E1_v1`: `E0/E0_results.json` and
 `verified_artifact_audit/E1/E1_results.json`, with all sequence/frame counts and
@@ -105,9 +106,10 @@ Drive cloud synchronization.
 
 ### E2 — sparse-read correctness gate
 
-Implementation and [protocol](../protocols/sparse_memory_E2_v1.json) are prepared
-for complete seq2/seq3 CPU FP32 checks. **198 tests pass**, including all-token
-bit parity and retained original RoPE positions. Real-data E2 has not yet passed;
+Implementation and [protocol](../protocols/sparse_memory_E2_v1.json) were committed
+as `9e9ff87` before the complete seq2/seq3 CPU FP32 gate launched. **198 tests
+passed at E2 launch**, including all-token bit parity and retained original
+RoPE positions. The gate is running; real-data E2 has not yet fully passed;
 no E3 efficacy run or E4 held-out confirmation is authorized by a test count alone.
 
 The integration executes Efficient-SAM2's gather statements and pruned RoPE
@@ -118,6 +120,24 @@ remain native. Gate conditions: native, all-token native assembly, all-token
 rebuilt assembly, native-horizon regional retrieval, and regional long retrieval
 (at most 32 frames, 28,672 spatial keys). Any integrity failure stops progression.
 E4 still requires untouched external data and an E3-frozen configuration.
+
+[E2 tracking](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/8v90x8we).
+Evidence: `22_sparse_memory_E2_v1/gate`; native, all-native and all-rebuilt seq2
+trajectories have completed exact parity. These partial engineering checks are
+not a final gate pass or segmentation improvement.
+
+### E3 — first-stage C0/C1 screen
+
+The separate [protocol](../protocols/long_history_E3_screen_v1.json) fixes a
+32-frame full-memory C1 control versus fresh native C0. It is queued behind
+complete E2 delivery and an additional C1 full-seq2/seq3 fresh-model replay
+gate. **202 tests pass** including dense-control budgets, pointer preservation
+and failed-E2 queue blocking. E2's running source is unchanged.
+
+Only this first history-alone screen is implemented here. C2/C3/C4, regional
+ablations and SAMURAI+C2 need their own fully specified matched-control
+implementation and gates; none is launched. Full C0/C1 results will be saved
+under `23_long_history_E3_screen_v1` and tracked separately. No gain is claimed.
 
 ## Memory-attention allocation
 
