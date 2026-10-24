@@ -103,6 +103,22 @@ checksum-verified and matched to native predictions instead. No inference.
 Both result artifacts finished uploading. This does not independently verify
 Drive cloud synchronization.
 
+### E2 — sparse-read correctness gate
+
+Implementation and [protocol](../protocols/sparse_memory_E2_v1.json) are prepared
+for complete seq2/seq3 CPU FP32 checks. **198 tests pass**, including all-token
+bit parity and retained original RoPE positions. Real-data E2 has not yet passed;
+no E3 efficacy run or E4 held-out confirmation is authorized by a test count alone.
+
+The integration executes Efficient-SAM2's gather statements and pruned RoPE
+helper unchanged, retaining native SAM2 SDPA. This is an adaptation, not an
+unchanged full Efficient-SAM2 model. Old-frame temporal embeddings saturate at
+the oldest native nonconditioning slot; prompt/latest and pointer handling
+remain native. Gate conditions: native, all-token native assembly, all-token
+rebuilt assembly, native-horizon regional retrieval, and regional long retrieval
+(at most 32 frames, 28,672 spatial keys). Any integrity failure stops progression.
+E4 still requires untouched external data and an E3-frozen configuration.
+
 ## Memory-attention allocation
 
 Four-layer/all-query summary: exponential of the median sequence log pooled

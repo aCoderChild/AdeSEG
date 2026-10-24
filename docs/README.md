@@ -22,6 +22,7 @@ Updated 2026-10-24:
 | Per-token attention | Complete: 21 promptable sequences, 2,012 targets |
 | Contiguity-matched exclusions | Complete: 21 sequences, 2,012 targets; see final results |
 | Longer-history groundwork | E0/E1 complete and verified; E2+ not launched |
+| Sparse-read engineering gate | E2 prepared; native parity, sparse replay and long-history checks required before E3 |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use

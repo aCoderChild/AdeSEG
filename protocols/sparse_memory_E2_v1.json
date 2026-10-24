@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "scope": "Engineering E2 only. Newly authorized by user on 2026-10-25. Separate from the held relapse-prevention study. E3 must have a separate committed protocol and successful E2 gate; E4 additionally needs untouched data.",
+  "device": "cpu",
+  "precision": "FP32, no autocast; author-native BF16 memory storage unchanged",
+  "sequences": ["seq2", "seq3"],
+  "checkpoint_sha256": "a2345aede8715ab1d5d31b4a509fb160c5a4af1970f199d9054ccfb746c004c5",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "conditions": ["native", "all_native", "all_rebuilt", "region_native", "region_long"],
+  "native_parity": "Fresh-model all_native and all_rebuilt must match native output logits, low-resolution masks, complete per-object output banks and image-cache fingerprints bit for bit at every frame, including prompts. all_native executes gather and sparse RoPE even with every token retained; no identity-path bypass.",
+  "sparse_replay": "region_native and region_long each repeat with a fresh model; their logits, masks, bank and cache fingerprints must be identical. Predictions need not equal native when tokens/history change; this is not an efficacy endpoint.",
+  "spatial_rule": "Existing exact mixed-cell native256 labels; retain object interior, mixed boundary and one-token outer background ring in older frames. Prompt/latest frames remain full. Native object-pointer selection and values remain untouched.",
+  "long_history": "At most 32 total spatial frames, including prompt/latest; maximal finite recent suffix fitting 20,480 older selected keys. Stop at first overflowing older frame. Total read spatial keys <=28,672. Zero-selected frames are finite and contribute no spatial evidence.",
+  "temporal_rule": "Conditioning prompt uses learned slot 6. Nonconditioning age a>=1 uses slot min(a-1,5); all ages >=6 saturate at oldest native nonconditioning slot 5. Do not expand or train temporal embeddings. This project adaptation loses distinctions among old ages and must be an E3 limitation.",
+  "required_checks": ["all four memory cross-attention layers on every nonprompt frame", "raw selected frame values match that frame's actual stored native memory", "author pruned RoPE preserves original spatial frequencies", "gathered pointer tails unchanged", "attention read does not mutate captured native memory buffers", "actual gathered key lengths match receipts and budget", "at least one region_long read contains a memory older than six sampled frames", "checkpoint/model parameters unchanged"],
+  "reuse": {
+    "Efficient-SAM2": "8e1ad06089b9c958ff5ebfc72b9b7d0b904f5ce5: build_model/window_bypass.py WB_RoPEAttention_ca four gather statements and apply_rotary_enc_prune, executed unchanged",
+    "SAM2": "2b90b9f5ceec907a1c18123530e92e794ad901a4: RoPEAttention.forward native projection/SDPA/output source, AST-adapted at gather and rotary call sites only",
+    "adaptation": "This is not an unchanged Efficient-SAM2 full-model reproduction. Its explicit attention-matrix computation is not adopted; native SDPA retained for matched baseline arithmetic. New controller, temporal saturation and budget policy are project integration/experimental logic, not claimed author code.",
+    "paper": "https://arxiv.org/abs/2602.08224",
+    "repository": "https://github.com/jingjing0419/Efficient-SAM2"
+  },
+  "stopping_rule": "Stop on any parity, provenance, budget, chronology or read-only failure. Never weaken a failed integrity criterion to continue. Efficacy is not assessed from this gate."
+}
