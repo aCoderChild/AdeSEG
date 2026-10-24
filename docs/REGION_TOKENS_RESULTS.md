@@ -119,7 +119,8 @@ the oldest native nonconditioning slot; prompt/latest and pointer handling
 remain native. Gate conditions: native, all-token native assembly, all-token
 rebuilt assembly, native-horizon regional retrieval, and regional long retrieval
 (at most 32 frames, 28,672 spatial keys). Any integrity failure stops progression.
-E4 still requires untouched external data and an E3-frozen configuration.
+E4 is explicitly deferred by the user (2026-10-25); no suitable untouched
+external dataset has been selected. No E4 search or experiment is running.
 
 [E2 tracking](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/8v90x8we).
 Evidence: `22_sparse_memory_E2_v1/gate`; native, all-native and all-rebuilt seq2

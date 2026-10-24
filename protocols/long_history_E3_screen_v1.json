@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "scope": "First stage of exploratory E3 only: C0 native SAM2 versus C1 full-frame long memory. C2/C3/C4, ablations and SAMURAI+C2 are not implemented or launched by this protocol. E4 remains blocked on untouched data and a frozen validated method.",
+  "scope": "First stage of exploratory E3 only: C0 native SAM2 versus C1 full-frame long memory. C2/C3/C4, ablations and SAMURAI+C2 are not implemented or launched by this protocol. E4 explicitly deferred by user on 2026-10-25; no external dataset search or testing authorized now.",
   "authorization": "User requested accurate gated experiment execution on 2026-10-25. Launch only after complete matching E2 and a fresh C1 engineering smoke pass; commit before inference.",
   "conditions": {"C0": "Native seven-slot SAM2; all native pointer behavior", "C1": "Prompt plus at most 31 recent nonconditioning frames, full 4096-token frames; 131072 maximum spatial keys; same checkpoint, prompts, CPU FP32, SDPA and temporal saturation as E2. This is a higher-compute history control, not the region-sparse method."},
   "C1_choice": "32 total frames fixed from E1's roughly 30 older-frame mean headroom plus prompt/latest, capped explicitly. Not selected using C1 Dice. This is an exploratory design choice, not a universally justified K.",
