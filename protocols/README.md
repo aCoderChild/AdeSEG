@@ -1,5 +1,10 @@
 # Current protocol
 
+[full_propagation_false_alarm_v1.json](full_propagation_false_alarm_v1.json)
+fixes the post-hoc native SAM2/SAMURAI/foreground-gated SAMURAI propagation
+comparison, causal previous-score rule and protection/replay requirements.
+Implementation does not mean the gate or full experiment has run.
+
 [memory_token_regions.json](memory_token_regions.json) consolidates the
 verified checkpoint, initialization and three-region spatial assignment.
 Predicted masks supply primary labels; GT assignments are separate audits. It is not a fresh preregistration and does not authorize

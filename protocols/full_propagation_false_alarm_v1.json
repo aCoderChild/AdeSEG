@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "date": "2026-10-24",
+  "status": "Frozen design; no new inference before verified backup and Drive-web upload",
+  "analysis_role": "Post hoc and exploratory on an already inspected PolypGen cohort; not a guarantee of a method paper",
+  "implementation": {
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "samurai_revision": "76ba195984892b0d1e3db5d9c9f90bb62175680a",
+    "reuse": "Existing cloned author repositories, pinned commits fetched again; unchanged author builders, native video predictor, object-score head, memory writing and SDPA; small project integration controller only",
+    "condition_names": ["sam2", "samurai", "samurai_fg_gate"],
+    "validation_only": "samurai_noop",
+    "device": "cpu",
+    "precision": "FP32 projected Q/K/V, native stored memory precision",
+    "config": "Same B+ checkpoint and native method configurations as final author benchmarks; no postprocessing"
+  },
+  "rule": {
+    "signal": "Previous processed frame's own stored object_score_logits; current-frame score is unavailable before its memory attention",
+    "absent": "score <= 0, exact complement of author's existing score > 0 presence rule; no new tuned threshold",
+    "intervention": "If previous score <= 0, mask only stored foreground-interior keys with additive negative infinity at all four memory cross-attention layers",
+    "region": "Primary native256 exact mixed-cell partition; foreground interior label1 only",
+    "preserve": "Background label0, boundary label2 and every pointer key; author frame selection and spatial positions unchanged",
+    "restore": "The first read after a positive processed-frame score uses native unmasked attention",
+    "propagation": "Intervention outputs are normally written by the unchanged author memory encoder and affect future predictions; not fixed-bank replay",
+    "all_keys": "Stop as undefined, never silently retain an arbitrary key",
+    "limits": "One-sampled-frame lag; self-confirming absence can delay recovery; no oracle GT used by the gate"
+  },
+  "cohort": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "source_sequences": 23,
+    "promptable_sequences": 21,
+    "postprompt_targets": 2012,
+    "gt_empty_targets": 323,
+    "gt_empty_stretches": 57,
+    "observed_returns": 51,
+    "terminal_empty_stretches": 6,
+    "initialization": "Single first-labeled-foreground mask; seq1/seq7 unpromptable and N/A; no detector or corrections",
+    "samurai_indexing": "Retain author runner's first-prompt rebase while retaining original source-frame indices",
+    "sampling": "Irregularly sampled images; no interpolation and no seconds/original-frame latency claims",
+    "negative_only": "Separate4275 image-only negative samples excluded; do not concatenate unrelated clips or invent prompts",
+    "absence_meaning": "Provided all-zero mask, not missing mask; annotation-defined absence, not independently established clinical disappearance"
+  },
+  "metrics": {
+    "false_alarm_rate": "Any nonempty prediction on GT-empty targets; report frame-pooled fraction and equal-sequence mean over eligible sequences with denominator",
+    "redetection": "Return after a GT-empty run; first positive GT/prediction overlap, no Dice threshold; delay0 means same sampled return frame",
+    "censoring": "If no overlap before next GT-empty run or sequence end, record undetected/censored event and available follow-up; never assign delay0 or discard silently",
+    "present_dice": "Equal-sequence mean Dice on postprompt positive-GT targets",
+    "statistics": "Sequence is the unit;10,000 sequence-bootstrap mean-difference intervals and paired two-sided Wilcoxon. Holm across2method contrasts times3endpoints: false-alarm rate,presentDice,returnfailurefraction. Observed return delays are descriptive with censor counts, not survival-model estimates.",
+    "contrasts": ["samurai minus sam2", "samurai_fg_gate minus samurai"],
+    "interpretation": "A lower false-alarm rate alone is insufficient: report presentDice losses and re-detection failures/delays alongside it. No unregistered noninferiority margin or claim rule added after outcomes."
+  },
+  "gate": {
+    "sequences": ["seq4", "seq9"],
+    "conditions": ["sam2", "samurai", "samurai_noop", "samurai_fg_gate"],
+    "checks": ["fresh-model exact repeated prediction hashes", "no-op matches native SAMURAI hashes", "native stored-mask labels", "all four layers", "background boundary pointer keys untouched", "causal score lag", "observed token exclusion and native-score recovery", "finite logits", "unchanged parameters", "complete sampled target coverage", "W&B artifacts delivered"],
+    "full": "Only after all four gates pass under identical source/checkpoint/manifest/precision/protection identities; then run three full conditions in fixed listed order",
+    "stopping": "Stop for integrity, mismatch, nonfinite, unavailable evidence or delivery failure. Unexpected scientific results are retained; no tuning or selective restart."
+  }
+}

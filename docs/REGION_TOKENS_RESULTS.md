@@ -6,6 +6,10 @@ as N/A, not assigned fabricated Dice scores. CPU FP32; first-visible-frame mask
 prompt, then native propagation. Results are exploratory, not held-out validation.
 See [methods](REGION_TOKENS.md).
 
+Separate [post-hoc analyses](REGION_POSTHOC_RESULTS.md) report equivalence,
+GT-empty targets, query/layer attention and size; they do not replace the frozen
+final analyses below.
+
 ## Segmentation benchmarks
 
 Equal-sequence present-frame mean Dice on the promptable cohort.
@@ -104,7 +108,7 @@ Holm p<0.05 under all six definitions. **No region passes this rule.**
 | Per-token attention and secondary strata | `16_per_token_attention_polypgen_cpu_v1/full` |
 | Exclusions, eligibility and size/outcome strata | `17_bank_integrity_repair_v2/continuation/full` |
 
-[Drive output root](</Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/16:10:2026>).
+[Drive output root](</Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment>).
 Final summaries and W&B artifact delivery are confirmed; independent Drive
 cloud synchronization is not verified. Detailed provenance remains with the
 saved evidence, outside this final-results summary.

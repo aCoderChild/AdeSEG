@@ -405,6 +405,10 @@ def main():
         type=Path,
         help="Required successful matching smoke before a full run",
     )
+    parser.add_argument(
+        "--validation-sequence", action="append",
+        help="Explicit smoke sequences; defaults to seq2/seq3; full cohort unchanged",
+    )
     args = parser.parse_args()
     repo, revision = source_identity(args.method)
     identity = signature(args, repo, revision)
@@ -483,7 +487,9 @@ def main():
             **load_manifest(args.manifest, "dev"),
             **load_manifest(args.manifest, "test"),
         }
-        names = ["seq2", "seq3"] if args.smoke else [f"seq{i}" for i in range(1, 24)]
+        names = (
+            args.validation_sequence or ["seq2", "seq3"]
+        ) if args.smoke else [f"seq{i}" for i in range(1, 24)]
         results = []
         for name in names:
             frames = videos[name]
@@ -642,7 +648,7 @@ def main():
                             "exact_repeated_logits",
                             "frozen_parameters",
                         ],
-                        "coverage": "Complete seq2 and seq3, each repeated with a fresh model and state",
+                        "coverage": f"Complete {names}, each repeated with a fresh model and state",
                         "limits": "Two-sequence correctness only; not full-cohort efficacy or CUDA parity",
                     },
                     indent=2,

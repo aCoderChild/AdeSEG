@@ -2,6 +2,10 @@
 
 | File | Purpose |
 |---|---|
+| `analyze_posthoc_regions.py` | No-inference equivalence, exact false-alarm transitions, query/layer attention and size report; explicit remote artifact provenance supported |
+| `backup_experiment_outputs.py` | Second Drive snapshot with per-file SHA256 verification; does not claim cloud upload or independent account/device backup |
+| `run_stale_foreground.py` | Protected, committed-source CPU full propagation using author predictors and a causal foreground-only read mask; four-condition correctness gate before three full conditions |
+| `false_alarm_statistics.py` | Sampled-frame absence/return metrics and six fixed paired sequence comparisons; explicit censoring |
 | `audit_memory_token_regions.py` | Native memory grouping, reference/predicted overlays, coverage and width sensitivity |
 | `audit_region_definitions.py` | CPU native-mask audit: seq2/seq3 replay gate, then all-sequence assignment/contour statistics with matching `--validation-dir`; author-code comparators and read-only primary attention |
 | `region_definition_statistics.py` | Contour coverage, fixed size-bin assignment and descriptive aggregation; not a region selector |
