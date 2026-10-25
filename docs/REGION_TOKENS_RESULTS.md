@@ -175,6 +175,11 @@ censored re-detection, actual read-key work and timing. No weights, widths or
 memory limits are tuned. **No C2/C3 efficacy result is available yet.** C4 and
 SAMURAI+C2 are not launched; E4 stays deferred.
 
+Amendment/source freeze: `15e6c0a`, before the new gate. The C2/C3 replay gate
+is running with online tracking; full-cohort execution is conditional on every
+gate passing. Evidence: `24_region_sparse_C2_C3_polypgen_v1/run`;
+[C2/C3 tracking](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kftnf0qs).
+
 ## Memory-attention allocation
 
 Four-layer/all-query summary: exponential of the median sequence log pooled
