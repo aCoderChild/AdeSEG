@@ -203,9 +203,14 @@ eligibility, pointers, motion logic and branch search; extend only spatial
 history to at most 32 eligible frames under 28,672 spatial keys **per branch**.
 SAM2Long retains native score modulation. No training or threshold tuning.
 
-**Prepared, not yet validated on real frames:** 228 tests pass. Full seq2/seq3
+**Running correctness gates, not yet validated:** 228 tests pass. Full seq2/seq3
 identity/replay gates must pass before that author's cohort starts. This is not
 the unchanged SAM2 C2 chronological selector. E4 remains deferred.
+
+Source/protocol freeze: `8f40c2a` before inference. Queue order: SAMURAI gate
+and paired cohort, then SAM2Long gate and paired cohort. Outputs:
+`25_author_region_sparse_polypgen_cpu_v1`;
+[SAMURAI tracking](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/hrit2nsu).
 
 ## Memory-attention allocation
 
