@@ -2,6 +2,7 @@
 
 | File | Purpose |
 |---|---|
+| `run_author_sparse_experiment.py` | Isolated SAMURAI then SAM2Long: complete identity/regional replay gates, then paired native/regional full cohorts; preserve native eligibility/pointers/branches; stops on any mismatch |
 | `analyze_posthoc_regions.py` | No-inference equivalence, exact false-alarm transitions, query/layer attention and size report; explicit remote artifact provenance supported |
 | `backup_experiment_outputs.py` | Second Drive snapshot with per-file SHA256 verification; does not claim cloud upload or independent account/device backup |
 | `run_stale_foreground.py` | Protected, committed-source CPU full propagation using author predictors and a causal foreground-only read mask; four-condition correctness gate before three full conditions |

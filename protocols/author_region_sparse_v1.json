@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-25",
+  "status": "Exploratory author-combination protocol; freeze before inference",
+  "scope": "SAMURAI and SAM2Long regional-sparse longer history on all 23 PolypGen manifest sequences; 21 promptable, seq1/seq7 N/A. E4 remains deferred.",
+  "known_results": "SAM2+C2 present Dice 0.7383843481; no significant primary contrast. Earlier author baselines SAMURAI 0.76652 and SAM2Long 0.74253. This protocol is post hoc, not held-out confirmation.",
+  "reuse": "Pinned official SAMURAI/SAM2Long implementations and their exact eligibility loop, native branch search, score modulation, decoder, memory encoder and pointer code. Efficient-SAM2 unchanged gather and pruned RoPE from validated E2. Spatial-loop AST adaptation is disclosed project glue.",
+  "fixed": {
+    "device": "CPU FP32 without autocast; author BF16 stored memory retained",
+    "prompt": "One first-visible GT mask; no detector or subsequent correction; no postprompt GT in selection",
+    "max_frames_per_read": 32,
+    "max_spatial_keys_per_read_per_branch": 28672,
+    "older_key_budget": 20480,
+    "dense": "Prompt and most recent author-eligible frame, counted once if identical",
+    "sparse": "Native stored branch-specific 256 logits >0; unchanged mixed-cell 64-grid assignment; keep interior+mixed boundary+one-token outer background ring",
+    "spatial_candidates": "Re-execute unchanged author eligibility loop with its scan break cap increased to 31, use last 31 candidates including author's forced latest. Choose maximal recent eligible suffix fitting older budget; stop first overflow. Unlike SAM2 C2, these are eligible-frame ranks, not a chronological 31-frame window.",
+    "time_encoding": "Preserve native last-six eligible-rank slots. Extra older frames saturate oldest native nonconditioning slot5. Prompt slot6. No learned new positions.",
+    "pointers": "Native eligibility list and pointer construction remain unchanged; extended list used only for spatial memory",
+    "samurai": "Keep official default motion/quality thresholds and motion-guided mask selection unchanged. Rebase staged frames to first-visible prompt0 exactly as existing author runner; original source frame indices retained.",
+    "sam2long": "Three native pathways, iou_thre=0.3, uncertainty=1; branch-selected masks/features; retain original frame/pointer score ranking and modulation over expanded spatial frame list. Record every branch read; never substitute final path for branch attribution. Budget is per branch, not across three pathways."
+  },
+  "gate": "Full seq2/seq3 per author: fresh native versus all-native-token identity adaptation must match output hashes and complete final bank/cache fingerprints bit for bit. Regional-long twice fresh must replay outputs, final bank/cache, per-read branch/frame/count receipts bit for bit. Every read covers all4layers; raw feature/branch identity exact; native pointer tails untouched; <=28672 actual spatial keys; no memory mutation during read; model parameters unchanged. Native pointer-selection code is unmodified and identity parity covers it. No full cohort for an author before its gate upload completes.",
+  "full": "Sequential native and regional rollouts with fresh author models for each sequence. Re-run native controls here for directly paired same-runtime evidence, independent of archived cloud hydration. No efficacy stopping, seed search, threshold changes, C4 or E4.",
+  "primary": "Equal-sequence present Dice. Two fixed primary contrasts: SAMURAI+regional minus native SAMURAI; SAM2Long+regional minus native SAM2Long. Paired two-sided Wilcoxon, Holm2 across authors after both complete. Separate 95% 10000-replicate sequence bootstrap intervals, seed20261025. Never pool frames as independent observations.",
+  "secondary": "Present IoU, DAVIS boundary F, polyp-free false alarms/denominators, overlap re-detection with censoring. Regional actual key/query-pair counts include all executed pathways. Runtime includes verification; no isolated kernel or storage-speedup claim.",
+  "stop": "Any integrity/replay/pointer/budget/source mismatch stops that author and the queue. Fix only verified engineering errors, document before restart; do not weaken gate or change policy because efficacy is unexpected."
+}

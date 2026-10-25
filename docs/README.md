@@ -24,7 +24,8 @@ Updated 2026-10-24:
 | Longer-history groundwork | E0/E1 complete and verified |
 | Sparse-read engineering gate | E2 passed: full native parity, sparse replay and 118 older-history reads |
 | Exploratory history screen | C0/C1 complete; longer dense memory did not pass the positive screen |
-| Regional history amendment | C2/C3 implemented; full-cohort inference requires complete replay gates. C4 not launched; E4 deferred |
+| Regional history amendment | C2/C3 complete; mean Dice 0.73838 / 0.70908; neither primary contrast significant |
+| Author + regional history | SAMURAI/SAM2Long integrations prepared; author-specific gates required before full runs; E4 deferred |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use

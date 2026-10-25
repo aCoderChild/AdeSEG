@@ -172,13 +172,40 @@ checks, allocation mismatch failures, reference integrity and seed-mean statisti
 Primary contrasts: **C2−C0** and **C2−mean(C3 seeds)**, sequence-level bootstrap
 intervals and Wilcoxon with Holm2 correction. Save all seeds, false alarms,
 censored re-detection, actual read-key work and timing. No weights, widths or
-memory limits are tuned. **No C2/C3 efficacy result is available yet.** C4 and
-SAMURAI+C2 are not launched; E4 stays deferred.
+memory limits are tuned. The gate and all **84 full condition runs completed**;
+artifact delivery is confirmed.
+
+| Condition | Present-frame Dice | Polyp-free false alarms |
+|---|---:|---:|
+| C0 native | 0.71904 | 163 / 323 |
+| C2 regional sparse | 0.73838 | 177 / 323 |
+| C3 random, three-seed mean | 0.70908 | 149 / 323 |
+
+| Contrast | Mean difference | 95% sequence-bootstrap CI | Holm2 p |
+|---|---:|---|---:|
+| C2−C0 | +0.01935 | [−0.02309, +0.07282] | 1.0 |
+| C2−C3 | +0.02930 | [−0.01270, +0.08372] | 1.0 |
+
+C2 beats native on 8 sequences, loses on 12 and ties on one. Numerical gains
+are not statistically established, and false alarms rise. C3 false alarms
+are the mean count over three seeds, not an additional independent cohort.
+C4 has not run; E4 stays deferred.
 
 Amendment/source freeze: `15e6c0a`, before the new gate. The C2/C3 replay gate
-is running with online tracking; full-cohort execution is conditional on every
-gate passing. Evidence: `24_region_sparse_C2_C3_polypgen_v1/run`;
+passed and the full cohort is complete. Evidence: `24_region_sparse_C2_C3_polypgen_v1/run`;
 [C2/C3 tracking](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/kftnf0qs).
+
+### Regional sparse history with author strategies
+
+[Frozen exploratory protocol](../protocols/author_region_sparse_v1.json):
+SAMURAI and SAM2Long, each paired with a fresh native control. Preserve author
+eligibility, pointers, motion logic and branch search; extend only spatial
+history to at most 32 eligible frames under 28,672 spatial keys **per branch**.
+SAM2Long retains native score modulation. No training or threshold tuning.
+
+**Prepared, not yet validated on real frames:** 228 tests pass. Full seq2/seq3
+identity/replay gates must pass before that author's cohort starts. This is not
+the unchanged SAM2 C2 chronological selector. E4 remains deferred.
 
 ## Memory-attention allocation
 
