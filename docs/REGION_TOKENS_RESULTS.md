@@ -109,8 +109,9 @@ Drive cloud synchronization.
 Implementation and [protocol](../protocols/sparse_memory_E2_v1.json) were committed
 as `9e9ff87` before the complete seq2/seq3 CPU FP32 gate launched. **198 tests
 passed at E2 launch**, including all-token bit parity and retained original
-RoPE positions. The gate is running; real-data E2 has not yet fully passed;
-no E3 efficacy run or E4 held-out confirmation is authorized by a test count alone.
+RoPE positions. **The complete real-data E2 gate passed**, including fresh
+sparse replay, unchanged banks/caches, all four layers and 118 reads containing
+older nonconditioning history. Result artifacts finished uploading.
 
 The integration executes Efficient-SAM2's gather statements and pruned RoPE
 helper unchanged, retaining native SAM2 SDPA. This is an adaptation, not an
@@ -123,22 +124,56 @@ E4 is explicitly deferred by the user (2026-10-25); no suitable untouched
 external dataset has been selected. No E4 search or experiment is running.
 
 [E2 tracking](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/8v90x8we).
-Evidence: `22_sparse_memory_E2_v1/gate`; native, all-native and all-rebuilt seq2
-trajectories have completed exact parity. These partial engineering checks are
-not a final gate pass or segmentation improvement.
+Evidence: `22_sparse_memory_E2_v1/gate`. This is an engineering pass, not a
+segmentation improvement or held-out validation.
 
 ### E3 — first-stage C0/C1 screen
 
 The separate [protocol](../protocols/long_history_E3_screen_v1.json) fixes a
-32-frame full-memory C1 control versus fresh native C0. It is queued behind
-complete E2 delivery and an additional C1 full-seq2/seq3 fresh-model replay
-gate. **202 tests pass** including dense-control budgets, pointer preservation
-and failed-E2 queue blocking. E2's running source is unchanged.
+32-frame full-memory C1 control versus fresh native C0. The C1 engineering
+gate and **full 21-sequence C0/C1 screen completed**; artifacts finished
+uploading. Seq1/seq7 remain N/A. E2's validated source is unchanged.
 
-Only this first history-alone screen is implemented here. C2/C3/C4, regional
-ablations and SAMURAI+C2 need their own fully specified matched-control
-implementation and gates; none is launched. Full C0/C1 results will be saved
-under `23_long_history_E3_screen_v1` and tracked separately. No gain is claimed.
+| Condition | Equal-sequence present-frame Dice |
+|---|---:|
+| C0 native SAM2 | 0.71904 |
+| C1 full-frame longer memory | 0.69114 |
+| C1−C0 | −0.02789 |
+
+Paired mean difference 95% sequence-bootstrap CI **[−0.11006, +0.05235]**;
+Wilcoxon **p=0.51966**. The numerical decrease is not statistically significant.
+The original positive history-alone screen **did not pass**. This does not
+establish that longer history is intrinsically harmful or refute selective
+regional history.
+
+Evidence: `23_long_history_E3_screen_v1/results.json`;
+[C0/C1 tracking](https://forge.coreweave.com/api/wandb/adenoid-hypertrophy/ade-seg/runs/khwf1wjm).
+
+### E3 — C2/C3 exploratory amendment
+
+The user approved continuing **after the negative C1 screen**. A separate
+[dated amendment](../protocols/region_sparse_C2_C3_amendment_v1.json) overrides
+that stopping rule without rewriting the original design. PolypGen remains
+development/exploratory data; this is not held-out confirmation.
+
+| Condition | Fixed strategy |
+|---|---|
+| C2 | Validated E2 region-long reader; full prompt/latest, older interior + boundary + one-token near-background ring |
+| C3 | C2's exact frame IDs and per-frame counts; random token positions, three fixed seeds, reported as a within-sequence seed average |
+
+Both use the existing 32-frame cap, 28,672 spatial-key budget and saturated
+native temporal slots. Pointer values remain each arm's own native outputs.
+C3 is a reference-trajectory-conditioned ablation, not a standalone deployable
+baseline. Only past C2 counts determine selection; postprompt GT never does.
+
+Complete seq2/seq3 fresh-model replay gates precede full-cohort inference.
+**218 tests passed** before the new gate launch, including exact count/RNG
+checks, allocation mismatch failures, reference integrity and seed-mean statistics.
+Primary contrasts: **C2−C0** and **C2−mean(C3 seeds)**, sequence-level bootstrap
+intervals and Wilcoxon with Holm2 correction. Save all seeds, false alarms,
+censored re-detection, actual read-key work and timing. No weights, widths or
+memory limits are tuned. **No C2/C3 efficacy result is available yet.** C4 and
+SAMURAI+C2 are not launched; E4 stays deferred.
 
 ## Memory-attention allocation
 

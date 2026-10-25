@@ -22,8 +22,9 @@ Updated 2026-10-24:
 | Per-token attention | Complete: 21 promptable sequences, 2,012 targets |
 | Contiguity-matched exclusions | Complete: 21 sequences, 2,012 targets; see final results |
 | Longer-history groundwork | E0/E1 complete and verified |
-| Sparse-read engineering gate | E2 running; full native parity, sparse replay and long-history checks required before E3 |
-| Exploratory history screen | First E3 stage C0/C1 queued behind E2 and its own fresh-model smoke; C2/C3/C4 and E4 not launched |
+| Sparse-read engineering gate | E2 passed: full native parity, sparse replay and 118 older-history reads |
+| Exploratory history screen | C0/C1 complete; longer dense memory did not pass the positive screen |
+| Regional history amendment | C2/C3 implemented; full-cohort inference requires complete replay gates. C4 not launched; E4 deferred |
 
 Boundary positions receive high attention per token; causal usefulness and
 segmentation improvement are not established. Historical regional results use
