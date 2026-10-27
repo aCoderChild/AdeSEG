@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "date": "2026-10-27",
+  "status": "Implemented, not run. Commit code and protocol before gate; no efficacy claim.",
+  "authorization": "User requested replacing the active C2 heuristic with a regional-contribution-motivated rule. Preserve v1 results and protocol; this is a new exploratory policy.",
+  "known_prior_results": {
+    "E2_passed": true,
+    "E2_long_history_reads": 118,
+    "C0_present_dice": 0.7190363461708973,
+    "C1_present_dice": 0.6911421386563739,
+    "C1_minus_C0": -0.02789420751452329,
+    "C1_ci95": [
+      -0.11006163271879713,
+      0.052345618539769025
+    ],
+    "C1_Wilcoxon_p": 0.5196565532398361
+  },
+  "rationale": "Mixed-cell one-step excess loss: background +0.2979, interior +0.0445, boundary -0.0005. Background control is geometrically confounded, no region passed all-six-definition claim rule, and interior exclusion cleared some false alarms. These findings motivate testing retention of background/interior rather than prove boundary dispensability during propagation.",
+  "fixed_settings": {
+    "device": "cpu",
+    "precision": "FP32, no autocast; native BF16 memory writes unchanged",
+    "max_total_spatial_frames": 7,
+    "memory_window": "Current frame is query only; use unchanged native assembly of prompt plus at most six previous nonprompt frames. Prompt stays separately available. No expanded history or frame skipping. This interpretation was stated before launch.",
+    "max_selected_spatial_keys": 28672,
+    "older_sparse_key_budget": 20480,
+    "dense_frames": "Prompt and latest; shared prompt/latest counted once during warmup",
+    "region_rule": "Native256 mixed-cell prediction labels: older-frame keep=(label!=2). Keep all predicted background and foreground interior; exclude older boundary cells. No dilation, region weights, quotas, confidence thresholds or fitted ratios. Dense prompt/latest retain every region.",
+    "temporal_slots": "Unchanged native SAM2 temporal encoding; no extra old-history frames",
+    "random_seeds": [
+      20261025,
+      20261026,
+      20261027
+    ],
+    "parameters": "No weights, widths, memory limit or confidence thresholds tuned"
+  },
+  "C2": "C2-v2 contribution_v2: native seven-slot recent window, prompt plus previous six frames, not long history. Prompt/latest remain dense. Older frames within that window keep background/interior and drop boundary cells. No suffix packing or expanded-history assembly. Empty predicted masks retain all4096 background tokens. Keep all frames in native window even when one frame selects zero cells.",
+  "C3": "C3-v2: exact v2 C2 frame/count schedule and unchanged Efficient-SAM2 random selector; three fixed seeds. Never reuse v1 random controls. Pointer values and predictions remain own-arm.",
+  "causality_and_claim": "C2 counts from frame i are used only on subsequent reads. At read t the C3 selector depends only on the past C2 allocation prefix, not C2's current/future prediction or any postprompt GT. Current C2 allocation is checked for matching only. This is a reference-trajectory-conditioned random ablation, not a standalone deployable baseline. Diverging model trajectories are expected.",
+  "gate": "Complete seq2/seq3 fresh v2 C2 replay and three C3 seed replays; preserve all original integrity, count, four-layer, pointer, budget and causality checks. Reuse validated E2 native/all-token parity with unchanged core source hashes. V2 predictions MUST NOT be compared for identity to v1 region_long, whose selection differs. Record C2_matches_E2=null, not true. No full-cohort inference until gate/delivery pass.",
+  "cohort": "All 23 manifest sequences; seq1/seq7 are unpromptable N/A. One first-visible-frame GT mask prompt only. Full C2 then all three C3 seeds for each promptable sequence. No efficacy-based early stopping or retries.",
+  "references": "Preserve and reuse completed C0/C1 from source23 only after validating source/checkpoint/manifest and successful delivery. No unnecessary baseline rerun. Verify matched target/present/absent counts per sequence.",
+  "primary": "Equal-sequence present-frame Dice: C2-v2 minus completed C0 and C2-v2 minus mean C3-v2. Same two-contrast Holm/Wilcoxon/bootstrap procedure. Historical C2-v1=.7383843481 is contextual only, not relabeled or treated as v2.",
+  "secondary": [
+    "Present-frame IoU",
+    "DAVIS boundary F",
+    "GT-empty false-alarm count/rate with per-sequence denominators",
+    "GT return episodes: first overlapping prediction delay and explicit censoring",
+    "actual selected spatial and pointer keys and query-key pairs over all four layers",
+    "attention-module wall time includes layer verification but excludes assembly and outer bank hashing; end-to-end rollout wall time also saved; not claimed isolated kernel speedup"
+  ],
+  "source_reuse": "Reuse pinned mixed_cell_regions occupancy, Efficient-SAM2 gather/RoPE and create_mask_randperm through existing E2/matched reader. contribution_cells is a project Boolean policy, not an author implementation. No new author model, encoder, decoder or memory-writing algorithm.",
+  "stopping": "Stop on integrity failure; no tuning from scores. Do not launch author combinations or E4. Record present Dice, false alarms, redetection and actual frame/key/work counts even if worse. Protocol/code freeze required before inference."
+}

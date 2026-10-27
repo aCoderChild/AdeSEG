@@ -30,10 +30,12 @@ SOURCES = [PROTOCOL, "modeling/matched_region_memory.py", "scripts/run_matched_r
 CORE_KEYS = ("frame", "prediction_sha256", "low_res_sha256", "bank_sha256", "cache_sha256")
 
 
-def load_reference(path):
+def load_reference(path, policy=None):
     records = {}
     for row in map(json.loads, Path(path).read_text().splitlines()):
         trace = row["trace"]
+        if policy is not None and trace.get("policy", "legacy_v1") != policy:
+            raise ValueError("Reference selection policy differs from this experiment")
         index = row["frame"]
         if trace["condition"] != "C2" or trace["frame"] != index or index in records:
             raise ValueError("Invalid/duplicate C2 reference frame")
@@ -79,7 +81,18 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=ROOT/"data/polypgen_sequence.jsonl")
     parser.add_argument("--gate-only", action="store_true")
+    parser.add_argument("--policy", choices=("legacy_v1", "contribution_v2"), default="contribution_v2",
+                        help="Versioned selection rule; historical results use legacy_v1")
     args = parser.parse_args()
+    controller_class = MatchedRegionMemory
+    protocol_path = PROTOCOL
+    sources = list(SOURCES)
+    if args.policy == "contribution_v2":
+        from modeling.contribution_region_memory import ContributionRegionMemory
+        controller_class = ContributionRegionMemory
+        protocol_path = "protocols/region_contribution_C2_v2.json"
+        sources += [protocol_path, "modeling/contribution_region_memory.py",
+                    "tests/test_contribution_region_memory.py"]
     gate = require_e2(args.e2_dir)
     baseline = json.loads((args.baseline_dir/"results.json").read_text())
     delivered = json.loads((args.baseline_dir/"delivery.json").read_text())
@@ -95,21 +108,21 @@ def main():
             or prior_setup["E2_setup"]["checkpoint_sha256"] != gate["setup"]["checkpoint_sha256"]
             or prior_setup["E2_setup"]["manifest_sha256"] != gate["setup"]["manifest_sha256"]):
         raise ValueError("Checkpoint/manifest mismatch")
-    protocol = json.loads((ROOT/PROTOCOL).read_text())
+    protocol = json.loads((ROOT/protocol_path).read_text())
     known = protocol["known_prior_results"]
     if not all(np.isclose(baseline[key], known[key], atol=1e-12, rtol=0)
                for key in ("C0_present_dice", "C1_present_dice")):
         raise ValueError("Amendment does not match the known C1 result")
-    subprocess.run(["git", "ls-files", "--error-unmatch", *SOURCES], cwd=ROOT, check=True, capture_output=True)
-    subprocess.run(["git", "diff", "--exit-code", "HEAD", "--", *SOURCES], cwd=ROOT, check=True, capture_output=True)
+    subprocess.run(["git", "ls-files", "--error-unmatch", *sources], cwd=ROOT, check=True, capture_output=True)
+    subprocess.run(["git", "diff", "--exit-code", "HEAD", "--", *sources], cwd=ROOT, check=True, capture_output=True)
     output = validate_output(args.output_dir)
     output.mkdir(parents=True, exist_ok=False)
     for key in ("WANDB_CACHE_DIR", "WANDB_DATA_DIR"):
         os.environ[key] = str(output/key.lower())
     args.method, args.device = "sam2", "cpu"
     repo, revision = author.source_identity("sam2")
-    source_hashes = {s: author.digest(ROOT/s) for s in SOURCES}
-    setup = {"protocol": protocol, "sources": source_hashes, "E2_setup": gate["setup"],
+    source_hashes = {s: author.digest(ROOT/s) for s in sources}
+    setup = {"policy": args.policy, "protocol": protocol, "sources": source_hashes, "E2_setup": gate["setup"],
              "E2_validation_sha256": author.digest(args.e2_dir/"validation.json"),
              "baseline_results_sha256": author.digest(args.baseline_dir/"results.json"),
              "baseline_setup_sha256": author.digest(args.baseline_dir/"setup.json"),
@@ -118,12 +131,12 @@ def main():
     (output/"setup.json").write_text(json.dumps(setup, indent=2)+"\n")
     (output/"baseline_results.json").write_text(json.dumps(baseline, indent=2)+"\n")
     with zipfile.ZipFile(output/"sources.zip", "w", zipfile.ZIP_DEFLATED) as packed:
-        for name in {*SOURCES, *gate["setup"]["sources"], *prior_setup["sources"],
+        for name in {*sources, *gate["setup"]["sources"], *prior_setup["sources"],
                      "external/Efficient-SAM2/build_model/window_bypass.py",
                      "external/sam2/sam2/modeling/sam/transformer.py",
                      "external/sam2/sam2/modeling/position_encoding.py"}:
             packed.write(ROOT/name, arcname=name)
-    run = start_wandb("ade-seg", "adenoid-hypertrophy", "24-E3 C2 region sparse vs C3 matched random - PolypGen", "online",
+    run = start_wandb("ade-seg", "adenoid-hypertrophy", f"C2/C3 {args.policy} - PolypGen", "online",
                      "https://forge.coreweave.com/api/wandb", setup, output, ["E3", "C2-C3", "exploratory-amendment"])
     original = author.iter_predictions
     seeds = protocol["fixed_settings"]["random_seeds"]
@@ -139,7 +152,7 @@ def main():
         def rollout(sequence, condition, seed, folder, reference_path=None, replay=None, old_e2=None):
             frames = videos[sequence]
             prompt = prompt_index(frames, prompt_protocol)
-            reference = load_reference(reference_path) if reference_path else None
+            reference = load_reference(reference_path, args.policy) if reference_path else None
             if reference is not None and sorted(reference) != list(range(prompt, len(frames))):
                 raise ValueError("Reference frame range differs from manifest")
             reference_sha = author.digest(reference_path) if reference_path else None
@@ -151,7 +164,7 @@ def main():
             integrity, metadata = {}, {}
 
             def predictions(predictor, state, method, initial):
-                with MatchedRegionMemory(predictor, initial, sequence, reference=reference, seed=seed) as controller:
+                with controller_class(predictor, initial, sequence, reference=reference, seed=seed) as controller:
                     for index, ids, logits in original(predictor, state, method, initial):
                         trace = controller.capture(state, index)
                         outputs = state["output_dict_per_obj"][0]
@@ -217,8 +230,12 @@ def main():
 
         completed_gate = []
         for sequence in ("seq2", "seq3"):
-            old_e2 = {r["frame"]: {k: r[k] for k in CORE_KEYS}
-                      for r in map(json.loads, (args.e2_dir/sequence/"region_long_0/integrity.jsonl").read_text().splitlines())}
+            # Different selection must not reproduce v1's regional predictions.
+            # Native/all-token E2 and fresh own-policy replay remain mandatory.
+            old_e2 = None
+            if args.policy == "legacy_v1":
+                old_e2 = {r["frame"]: {k: r[k] for k in CORE_KEYS}
+                          for r in map(json.loads, (args.e2_dir/sequence/"region_long_0/integrity.jsonl").read_text().splitlines())}
             folder = output/"gate"/sequence/"C2_first"
             _, first = rollout(sequence, "C2", None, folder, old_e2=old_e2)
             rollout(sequence, "C2", None, output/"gate"/sequence/"C2_repeat", replay=first)
@@ -228,7 +245,8 @@ def main():
             completed_gate.append(sequence)
             (output/"progress.json").write_text(json.dumps({"state": "gate", "completed_sequences": completed_gate})+"\n")
         validation = {"passed": True, "sequences": completed_gate, "seeds": seeds,
-                      "sources": source_hashes, "C2_matches_E2": True,
+                      "sources": source_hashes, "policy": args.policy,
+                      "C2_matches_E2": True if args.policy == "legacy_v1" else None,
                       "C2_C3_counts_and_frames_match": True, "all_replays_bit_exact": True}
         (output/"validation.json").write_text(json.dumps(validation, indent=2)+"\n")
         log_results_artifact(run, output, ["validation.json"])
@@ -255,10 +273,10 @@ def main():
             (output/"progress.json").write_text(json.dumps({"state": "full", "results": results}, indent=2)+"\n")
         if len(results["C2"]) != 21 or sorted(results["unpromptable"]) != ["seq1", "seq7"]:
             raise RuntimeError("Full PolypGen cohort incomplete")
-        summary = {"completed": True, "scope": "exploratory C2/C3", "results": results,
+        summary = {"completed": True, "policy": args.policy, "scope": f"exploratory C2/C3 {args.policy}", "results": results,
                    **primary_statistics(results, baseline, seeds), "C4_launched": False, "E4_launched": False}
         (output/"results.json").write_text(json.dumps(summary, indent=2)+"\n")
-        lines = ["# C2 regional sparse memory versus matched random C3", "", "Exploratory amendment after negative C1; sequence is the unit. C3 is the average of three fixed random seeds, conditional on C2 allocation. No training or tuning.", "", "| Sequence | C0 | C1 | C2 | C3 seed mean | C2−C0 | C2−C3 |", "|---|---:|---:|---:|---:|---:|---:|"]
+        lines = [f"# C2 regional memory versus matched random C3 ({args.policy})", "", "Exploratory amendment after negative C1; sequence is the unit. C3 is the average of three fixed random seeds, conditional on C2 allocation. No training or tuning.", "", "| Sequence | C0 | C1 | C2 | C3 seed mean | C2−C0 | C2−C3 |", "|---|---:|---:|---:|---:|---:|---:|"]
         for seq, r in results["C2"].items():
             c3 = float(np.mean([results["C3"][str(seed)][seq]["present_dice"] for seed in seeds]))
             c0, c1, c2 = baseline["results"]["C0"][seq]["present_dice"], baseline["results"]["C1"][seq]["present_dice"], r["present_dice"]
