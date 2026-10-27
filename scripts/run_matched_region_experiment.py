@@ -2,6 +2,7 @@
 
 import argparse
 import gc
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,53 @@ PROTOCOL = "protocols/region_sparse_C2_C3_amendment_v1.json"
 SOURCES = [PROTOCOL, "modeling/matched_region_memory.py", "scripts/run_matched_region_experiment.py",
            "tests/test_matched_region_memory.py"]
 CORE_KEYS = ("frame", "prediction_sha256", "low_res_sha256", "bank_sha256", "cache_sha256")
+
+
+def verified_completed(folder, archive, sequence, condition, seed, frames, prompt, baseline, reference=None):
+    """Resume only complete archived outputs, never a partial trajectory."""
+    with zipfile.ZipFile(archive) as packed:
+        if packed.testzip() is not None:
+            raise ValueError("Completed archive CRC failed")
+        names = {p.name for p in folder.iterdir() if p.is_file()}
+        if names != set(packed.namelist()):
+            raise ValueError("Completed archive file set differs")
+        for name in names:
+            if author.digest(folder/name) != hashlib.sha256(packed.read(name)).hexdigest():
+                raise ValueError(f"Archived completed output differs: {folder/name}")
+    result = json.loads((folder/"summary.json").read_text())
+    parameters = json.loads((folder/"parameter_integrity_C2_C3.json").read_text())
+    if not parameters["unchanged"] or parameters["changed_names"]:
+        raise ValueError("Completed parameter integrity failed")
+    receipts = list(map(json.loads, (folder/"integrity.jsonl").read_text().splitlines()))
+    rows = list(map(json.loads, (folder/"frames.jsonl").read_text().splitlines()))
+    if ([r["frame"] for r in receipts] != list(range(prompt, len(frames)))
+            or [r["frame"] for r in rows] != list(range(prompt+1, len(frames)))):
+        raise ValueError("Completed trajectory coverage differs")
+    if (result["sequence"], result["condition"], result["seed"]) != (sequence, condition, seed):
+        raise ValueError("Completed condition identity differs")
+    recomputed = propagation_summary(rows)
+    for key in ("targets", "present_targets", "gt_empty_targets", "present_dice", "gt_empty_false_alarm_count"):
+        if result[key] != recomputed[key]:
+            raise ValueError(f"Completed summary differs from frame records: {key}")
+    if any(result[k] != baseline[k] for k in ("targets", "present_targets", "gt_empty_targets")):
+        raise ValueError("Completed cohort differs from baseline")
+    by_frame = {r["frame"]: r for r in receipts}
+    for row in rows:
+        receipt = by_frame[row["frame"]]
+        if row["prediction_sha256"] != receipt["prediction_sha256"]:
+            raise ValueError("Completed prediction hash differs")
+        trace = receipt["trace"]
+        layers = trace["layers"]
+        if [l["layer"] for l in layers] != list(range(4)):
+            raise ValueError("Completed four-layer receipt missing")
+        for layer in layers:
+            actual = {k: layer[k] for k in trace["allocation"]}
+            if (actual != trace["allocation"] or layer["selected_spatial_keys"] > 28672
+                    or sum(layer["per_frame_spatial_keys"]) != layer["selected_spatial_keys"]):
+                raise ValueError("Completed memory allocation differs")
+        if reference is not None and trace["allocation"] != reference[row["frame"]]["allocation"]:
+            raise ValueError("Completed C3 reference allocation differs")
+    return result, {r["frame"]: {k: r[k] for k in (*CORE_KEYS, "allocation", "retained_tokens", "keep_bits_hex")} for r in receipts}
 
 
 def load_reference(path, policy=None):
@@ -81,6 +129,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=ROOT/"data/polypgen_sequence.jsonl")
     parser.add_argument("--gate-only", action="store_true")
+    parser.add_argument("--resume", action="store_true", help="Verify and reuse archived completed work after an upload failure")
     parser.add_argument("--policy", choices=("legacy_v1", "contribution_v2"), default="contribution_v2",
                         help="Versioned selection rule; historical results use legacy_v1")
     args = parser.parse_args()
@@ -116,7 +165,7 @@ def main():
     subprocess.run(["git", "ls-files", "--error-unmatch", *sources], cwd=ROOT, check=True, capture_output=True)
     subprocess.run(["git", "diff", "--exit-code", "HEAD", "--", *sources], cwd=ROOT, check=True, capture_output=True)
     output = validate_output(args.output_dir)
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=args.resume)
     for key in ("WANDB_CACHE_DIR", "WANDB_DATA_DIR"):
         os.environ[key] = str(output/key.lower())
     args.method, args.device = "sam2", "cpu"
@@ -128,26 +177,63 @@ def main():
              "baseline_setup_sha256": author.digest(args.baseline_dir/"setup.json"),
              "author_revision": revision, "torch": torch.__version__,
              "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()}
-    (output/"setup.json").write_text(json.dumps(setup, indent=2)+"\n")
-    (output/"baseline_results.json").write_text(json.dumps(baseline, indent=2)+"\n")
-    with zipfile.ZipFile(output/"sources.zip", "w", zipfile.ZIP_DEFLATED) as packed:
-        for name in {*sources, *gate["setup"]["sources"], *prior_setup["sources"],
-                     "external/Efficient-SAM2/build_model/window_bypass.py",
-                     "external/sam2/sam2/modeling/sam/transformer.py",
-                     "external/sam2/sam2/modeling/position_encoding.py"}:
-            packed.write(ROOT/name, arcname=name)
+    acknowledged = []
+    resume_id = None
+    if args.resume:
+        if (output/"delivery.json").exists():
+            raise ValueError("Run already delivered; no resume needed")
+        previous = json.loads((output/"setup.json").read_text())
+        validation = json.loads((output/"validation.json").read_text())
+        failure = json.loads((output/"failure.json").read_text())
+        if ("ArtifactSaver.createArtifact" not in failure["error"]
+                or not all(validation[k] for k in ("passed", "all_replays_bit_exact", "C2_C3_counts_and_frames_match"))):
+            raise ValueError("Resume requires an upload-only failure and a passed gate")
+        for key in ("policy", "protocol", "E2_setup", "E2_validation_sha256", "baseline_results_sha256",
+                    "baseline_setup_sha256", "author_revision", "torch"):
+            if previous[key] != setup[key]:
+                raise ValueError(f"Resume provenance differs: {key}")
+        # The repair changes orchestration only. Every scientific dependency stays frozen.
+        allowed = {"scripts/run_matched_region_experiment.py", "tests/test_contribution_region_memory.py"}
+        for name, sha in previous["sources"].items():
+            if name not in allowed and author.digest(ROOT/name) != sha:
+                raise ValueError(f"Frozen resume source differs: {name}")
+        if validation["sources"] != previous["sources"]:
+            raise ValueError("Original gate source receipts differ")
+        with zipfile.ZipFile(output/"sources.zip") as packed:
+            for name, sha in previous["sources"].items():
+                if hashlib.sha256(packed.read(name)).hexdigest() != sha:
+                    raise ValueError("Original frozen source archive differs")
+        acknowledged = json.loads((output/"progress.json").read_text()).get("completed_runs", [])
+        resume_id = json.loads((output/"tracking.json").read_text())["run_id"]
+        (output/"resume_repair.json").write_text(json.dumps({"reason": failure, "original_commit": previous["commit"],
+            "resume_commit": setup["commit"], "resume_sources": source_hashes, "allowed_changes": sorted(allowed),
+            "acknowledged_uploads": acknowledged, "original_setup_sha256": author.digest(output/"setup.json")}, indent=2)+"\n")
+        setup = previous
+    else:
+        (output/"setup.json").write_text(json.dumps(setup, indent=2)+"\n")
+        (output/"baseline_results.json").write_text(json.dumps(baseline, indent=2)+"\n")
+        with zipfile.ZipFile(output/"sources.zip", "w", zipfile.ZIP_DEFLATED) as packed:
+            for name in {*sources, *gate["setup"]["sources"], *prior_setup["sources"],
+                         "external/Efficient-SAM2/build_model/window_bypass.py",
+                         "external/sam2/sam2/modeling/sam/transformer.py",
+                         "external/sam2/sam2/modeling/position_encoding.py"}:
+                packed.write(ROOT/name, arcname=name)
     run = start_wandb("ade-seg", "adenoid-hypertrophy", f"C2/C3 {args.policy} - PolypGen", "online",
-                     "https://forge.coreweave.com/api/wandb", setup, output, ["E3", "C2-C3", "exploratory-amendment"])
+                     "https://forge.coreweave.com/api/wandb", setup, output, ["E3", "C2-C3", "exploratory-amendment"],
+                     resume_run_id=resume_id)
     original = author.iter_predictions
     seeds = protocol["fixed_settings"]["random_seeds"]
     try:
-        log_results_artifact(run, output, ["setup.json", "baseline_results.json", "sources.zip"])
+        log_results_artifact(run, output, ["resume_repair.json"] if args.resume else ["setup.json", "baseline_results.json", "sources.zip"])
         sys.path.insert(0, str(repo))
         torch.set_num_threads(2)
         torch.use_deterministic_algorithms(True)
         videos = {**load_manifest(args.manifest, "dev"), **load_manifest(args.manifest, "test")}
         prompt_protocol = json.loads((ROOT/"protocols/memory_token_regions.json").read_text())
-        completed_runs = []
+        completed_runs = list(acknowledged)
+        if args.resume:
+            (output/"failure.json").rename(output/"failure_before_resume.json")
+            run.summary.update({"resumed_after_upload_failure": True, "completed": False})
 
         def rollout(sequence, condition, seed, folder, reference_path=None, replay=None, old_e2=None):
             frames = videos[sequence]
@@ -157,6 +243,19 @@ def main():
                 raise ValueError("Reference frame range differs from manifest")
             reference_sha = author.digest(reference_path) if reference_path else None
             phase = folder.relative_to(output).parts[0]
+            if args.resume and folder.exists():
+                archive = output/("_".join(folder.relative_to(output).parts)+".zip")
+                result, integrity = verified_completed(folder, archive, sequence, condition, seed, frames, prompt,
+                                                       baseline["results"]["C0"][sequence], reference)
+                if reference_path and result["C2_reference_sha256"] != reference_sha:
+                    raise ValueError("Completed reference file hash differs")
+                receipt = {"phase": phase, "sequence": sequence, "condition": condition,
+                           "seed": seed, "targets": result["targets"]}
+                if receipt not in completed_runs:
+                    log_results_artifact(run, output, [archive.name])
+                    completed_runs.append(receipt)
+                print(f"[resume] verified/reused {sequence} {condition} seed={seed}", flush=True)
+                return result, integrity
             print(f"[matched] start phase={phase} sequence={sequence} condition={condition} seed={seed}", flush=True)
             model = author.build_author_predictor(args, repo)
             parameters = author.parameter_fingerprints(model)
@@ -228,28 +327,29 @@ def main():
             gc.collect()
             return result, integrity
 
-        completed_gate = []
-        for sequence in ("seq2", "seq3"):
-            # Different selection must not reproduce v1's regional predictions.
-            # Native/all-token E2 and fresh own-policy replay remain mandatory.
-            old_e2 = None
-            if args.policy == "legacy_v1":
-                old_e2 = {r["frame"]: {k: r[k] for k in CORE_KEYS}
-                          for r in map(json.loads, (args.e2_dir/sequence/"region_long_0/integrity.jsonl").read_text().splitlines())}
-            folder = output/"gate"/sequence/"C2_first"
-            _, first = rollout(sequence, "C2", None, folder, old_e2=old_e2)
-            rollout(sequence, "C2", None, output/"gate"/sequence/"C2_repeat", replay=first)
-            for seed in seeds:
-                _, first_random = rollout(sequence, "C3", seed, output/"gate"/sequence/f"C3_{seed}_first", reference_path=folder/"integrity.jsonl")
-                rollout(sequence, "C3", seed, output/"gate"/sequence/f"C3_{seed}_repeat", reference_path=folder/"integrity.jsonl", replay=first_random)
-            completed_gate.append(sequence)
-            (output/"progress.json").write_text(json.dumps({"state": "gate", "completed_sequences": completed_gate})+"\n")
-        validation = {"passed": True, "sequences": completed_gate, "seeds": seeds,
-                      "sources": source_hashes, "policy": args.policy,
-                      "C2_matches_E2": True if args.policy == "legacy_v1" else None,
-                      "C2_C3_counts_and_frames_match": True, "all_replays_bit_exact": True}
-        (output/"validation.json").write_text(json.dumps(validation, indent=2)+"\n")
-        log_results_artifact(run, output, ["validation.json"])
+        if not args.resume:
+            completed_gate = []
+            for sequence in ("seq2", "seq3"):
+                # Different selection must not reproduce v1's regional predictions.
+                # Native/all-token E2 and fresh own-policy replay remain mandatory.
+                old_e2 = None
+                if args.policy == "legacy_v1":
+                    old_e2 = {r["frame"]: {k: r[k] for k in CORE_KEYS}
+                              for r in map(json.loads, (args.e2_dir/sequence/"region_long_0/integrity.jsonl").read_text().splitlines())}
+                folder = output/"gate"/sequence/"C2_first"
+                _, first = rollout(sequence, "C2", None, folder, old_e2=old_e2)
+                rollout(sequence, "C2", None, output/"gate"/sequence/"C2_repeat", replay=first)
+                for seed in seeds:
+                    _, first_random = rollout(sequence, "C3", seed, output/"gate"/sequence/f"C3_{seed}_first", reference_path=folder/"integrity.jsonl")
+                    rollout(sequence, "C3", seed, output/"gate"/sequence/f"C3_{seed}_repeat", reference_path=folder/"integrity.jsonl", replay=first_random)
+                completed_gate.append(sequence)
+                (output/"progress.json").write_text(json.dumps({"state": "gate", "completed_sequences": completed_gate})+"\n")
+            validation = {"passed": True, "sequences": completed_gate, "seeds": seeds,
+                          "sources": source_hashes, "policy": args.policy,
+                          "C2_matches_E2": True if args.policy == "legacy_v1" else None,
+                          "C2_C3_counts_and_frames_match": True, "all_replays_bit_exact": True}
+            (output/"validation.json").write_text(json.dumps(validation, indent=2)+"\n")
+            log_results_artifact(run, output, ["validation.json"])
         if args.gate_only:
             finalize_tracking(run, output, {"completed": True, "scope": "gate only", "gate_passed": True}, ["validation.json", "setup.json"])
             return

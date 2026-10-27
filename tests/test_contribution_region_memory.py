@@ -6,7 +6,7 @@ import torch
 
 from modeling.contribution_region_memory import ContributionRegionMemory, contribution_cells
 from modeling.matched_region_memory import MatchedRegionMemory, random_cells
-from scripts.run_matched_region_experiment import load_reference
+from scripts.run_matched_region_experiment import load_reference, verified_completed
 
 
 @pytest.mark.parametrize("label,count", [(0, 4096), (1, 4096), (2, 0)])
@@ -125,3 +125,63 @@ def test_actual_layer_masks_preserve_dense_prompt_latest_and_pointers(boundary_c
         assert trace["pointer_keys"] == 4
         assert trace["selected_spatial_keys"] == 12288-boundary_count
         assert torch.equal(attention._sparse_mask, contribution_cells(labels))
+
+
+@pytest.fixture
+def completed_resume_output(tmp_path):
+    import json
+    import zipfile
+    from scripts.false_alarm_statistics import propagation_summary
+    folder = tmp_path / "C2"
+    folder.mkdir()
+    row = {"frame": 1, "present": True, "prediction_sha256": "prediction",
+           "scores": {"dice": .8, "iou": .7}}
+    summary = {"sequence": "seq2", "condition": "C2", "seed": None,
+               **propagation_summary([row])}
+    allocation = {"frames": [0], "per_frame_spatial_keys": [4096], "selected_spatial_keys": 4096, "pointer_keys": 4}
+    receipts = [{"frame": i, "prediction_sha256": "prediction", "low_res_sha256": "low",
+                 "bank_sha256": "bank", "cache_sha256": "cache", "allocation": allocation,
+                 "retained_tokens": 4096, "keep_bits_hex": "ff"*512,
+                 "trace": {"allocation": allocation,
+                           "layers": [{"layer": k, **allocation} for k in range(4)]}} for i in range(2)]
+    (folder/"summary.json").write_text(json.dumps(summary))
+    (folder/"frames.jsonl").write_text(json.dumps(row))
+    (folder/"integrity.jsonl").write_text("\n".join(map(json.dumps, receipts)))
+    (folder/"parameter_integrity_C2_C3.json").write_text(json.dumps({"unchanged": True, "changed_names": []}))
+    archive = tmp_path/"completed.zip"
+
+    def pack():
+        with zipfile.ZipFile(archive, "w") as packed:
+            for path in folder.iterdir():
+                packed.write(path, path.name)
+    pack()
+    return folder, archive, summary, pack
+
+
+def test_resume_accepts_only_verified_complete_archive(completed_resume_output):
+    folder, archive, summary, _ = completed_resume_output
+    result, integrity = verified_completed(folder, archive, "seq2", "C2", None, [0, 1], 0, summary)
+    assert result == summary and sorted(integrity) == [0, 1]
+
+
+def test_resume_rejects_changed_file_even_if_summary_exists(completed_resume_output):
+    folder, archive, summary, _ = completed_resume_output
+    (folder/"frames.jsonl").write_text("corruption")
+    with pytest.raises(ValueError, match="output differs"):
+        verified_completed(folder, archive, "seq2", "C2", None, [0, 1], 0, summary)
+
+
+def test_resume_rejects_missing_frame_and_layer_receipts(completed_resume_output):
+    import json
+    folder, archive, summary, pack = completed_resume_output
+    path = folder/"integrity.jsonl"
+    rows = list(map(json.loads, path.read_text().splitlines()))
+    rows[1]["trace"]["layers"].pop()
+    path.write_text("\n".join(map(json.dumps, rows)))
+    pack()
+    with pytest.raises(ValueError, match="four-layer"):
+        verified_completed(folder, archive, "seq2", "C2", None, [0, 1], 0, summary)
+    path.write_text(json.dumps(rows[0]))
+    pack()
+    with pytest.raises(ValueError, match="coverage"):
+        verified_completed(folder, archive, "seq2", "C2", None, [0, 1], 0, summary)
