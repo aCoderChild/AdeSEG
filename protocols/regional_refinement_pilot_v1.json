@@ -1,14 +1,61 @@
 {
   "date": "2026-10-31",
   "scope": "Exploratory learned refinement pilot on previously inspected PolypGen; not held-out confirmation or an exact UACANet reproduction.",
-  "sources": {"paper": "https://arxiv.org/abs/2107.02368", "repository": "https://github.com/plemeri/UACANet", "revision": "6b9e54eb8e94a29cf179a9a2ec2e98f02dfcb056", "context": "Cutie https://arxiv.org/abs/2310.12982 also motivates regional memory reading; its object transformer is not copied in this pilot."},
+  "sources": {
+    "paper": "https://arxiv.org/abs/2107.02368",
+    "repository": "https://github.com/plemeri/UACANet",
+    "revision": "6b9e54eb8e94a29cf179a9a2ec2e98f02dfcb056",
+    "context": "Cutie https://arxiv.org/abs/2310.12982 also motivates regional memory reading; its object transformer is not copied in this pilot."
+  },
   "reuse": "Pinned UACANet conv and UACA query/key/value, softmax attention, convolution fusion and residual forward. AST adapter replaces current-image uncertainty pooling with external stored-memory means and masks empty groups. Author source remains unchanged. Adds author 1x1 conv for 256-to64 channels, disables final-logit BN and zero-initializes final conv. Reuses SAM2 author Dice loss plus PyTorch BCE. Pooling, capture, cache, split and orchestration are disclosed project adapters, not a claim of no custom code.",
   "regions": "Unchanged primary exact mixed4x4 cells from native stored256 predicted masks: background0, interior1, mixed2. Actual selected native spatial memory tokens only; pointers untouched/excluded from pooling. No GT input to refinement. Same native frame selection/window; no token exclusion.",
   "branches": "Generic: global mean memory vector repeated3times; regional: three count-normalized regional means; shuffled: labels permuted within each memory frame with deterministic seed20261031 while preserving counts. Features/positions not shuffled. Identical head architecture/parameters, initialization seed, batches, loss and training steps in all3conditions. Query is native memory-conditioned256x64x64 decoder image embedding. Refinement head64-to32 predicts64x64 residual upsampled to256 and added to native256 logits.",
   "protected_native": "SAM2 frozen CPU FP32. No refined output enters memory, pointer, prompt or native decoder. Native object-score decision retained: residual zero when object_score<=0. This prototype cannot recover native absent-object predictions. Training batches use only samples with positive native object score; all post-prompt validation frames still scored, including misses and GT-empty.",
-  "split": {"train_sequences": ["seq2","seq3","seq4","seq5","seq6","seq8","seq9","seq10","seq11","seq12","seq13","seq14","seq15"], "validation_sequences": ["seq16","seq17","seq18","seq19","seq20","seq21","seq22","seq23"], "train_sampling": "At most16 equally spaced post-prompt manifest indices per sequence before seeing labels/outcomes; retain full native propagation. Seq1/7 excluded. Validation uses every post-prompt target. Hash-check no exact image duplication across train/validation; abort on overlap. Patient-level independence is unverified."},
+  "split": {
+    "train_sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15"
+    ],
+    "validation_sequences": [
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "train_sampling": "At most16 equally spaced post-prompt manifest indices per sequence before seeing labels/outcomes; retain full native propagation. Seq1/7 excluded. Validation uses every post-prompt target. Hash-check no exact image duplication across train/validation; abort on overlap. Patient-level independence is unverified."
+  },
   "engineering": "Require completed source31; native checkpoint/manifest author identity matches archived source23. Full seq2/seq3 capture gate compares prediction, lowres, bank/cache hashes every frame to archived native; all4 layers seen. Zero residual reproduces native256 and original-resolution logits bit-for-bit. Nonzero branch computations leave native bank/cache/pointers unchanged. Region pooling checked against actual selected-memory frame IDs. Empty groups masked, no NaNs. Synthetic gradient flow and padding tests. Tiny2-training-frame overfit500steps Adam1e-3: training loss reduction>=50percent and positive parameter gradients; debugging only. Do not tune if failure; diagnose.",
-  "training": {"seeds": [20261031,20261101,20261102], "steps": 500, "batch_size": 4, "optimizer": "torch.optim.Adam", "learning_rate": 0.001, "weight_decay": 0, "loss": "BCEWithLogits + unchanged SAM2 dice_loss", "augmentation": "None in this bounded cached-feature pilot; not a paper recipe reproduction.", "checkpoint": "Final step only; no early stopping, search or validation selection. Cache detached FP32 query/contexts and native logits on Drive; native outputs remain fixed."},
+  "training": {
+    "seeds": [
+      20261031,
+      20261101,
+      20261102
+    ],
+    "steps": 500,
+    "batch_size": 4,
+    "optimizer": "torch.optim.Adam",
+    "learning_rate": 0.001,
+    "weight_decay": 0,
+    "loss": "BCEWithLogits + unchanged SAM2 dice_loss",
+    "augmentation": "None in this bounded cached-feature pilot; not a paper recipe reproduction.",
+    "checkpoint": "Final step only; no early stopping, search or validation selection. Cache detached FP32 query/contexts and native logits on Drive; native outputs remain fixed."
+  },
   "evaluation": "Present Dice primary, IoU, DAVIS Boundary F, GT-empty false alarms and positive-overlap return events. Equal sequence means; per-sequence and per-seed tables, paired regional-minus-native/generic/shuffled. Report added head CPU time and parameters. All findings exploratory, no significance claim from8development validation sequences. Regional organization supported only if regional improves over native and both controls consistently, without false-alarm/recovery deterioration.",
-  "execution": "Freeze before inference/training. Gate then tiny overfit then full cache then9training runs sequentially. Abort on mismatch/nonfinite/overlap or less than4GiB free. Save outputs only under Drive outputs/experiment/32_regional_refinement_pilot_v1; no local dataset copies. No E4/new dataset or SAMURAI extension."
+  "execution": "Freeze before inference/training. Gate then tiny overfit then full cache then9training runs sequentially. Abort on mismatch/nonfinite/overlap or less than4GiB free. Save outputs only under Drive outputs/experiment/32_regional_refinement_pilot_v1; no local dataset copies. No E4/new dataset or SAMURAI extension.",
+  "tracking_amendment_2026_10_31": "W&B returned403 before inference. Preserve original run, allow explicit offline tracking on Drive. No scientific settings changed; completion must report upload false in offline mode."
 }

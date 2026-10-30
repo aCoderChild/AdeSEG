@@ -177,6 +177,7 @@ def main():
     for name in ('checkpoint','reference-dir','output-dir'):
         parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--manifest',type=Path,default=ROOT/'data/polypgen_sequence.jsonl')
+    parser.add_argument('--wandb-mode',choices=('online','offline'),default='online')
     args=parser.parse_args();args.output_dir=validate_output(args.output_dir)
     args.output_dir.mkdir(parents=True,exist_ok=False)
     for k in ('TMPDIR','WANDB_CACHE_DIR','WANDB_DATA_DIR'):
@@ -211,7 +212,7 @@ def main():
            'checkpoint_sha256':author.digest(args.checkpoint),'manifest_sha256':author.digest(args.manifest),
            'commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'exact_image_overlap':0}
     write(args.output_dir/'setup.json',setup)
-    run=start_wandb('ade-seg','adenoid-hypertrophy','32-protected regional refinement','online','https://forge.coreweave.com/api/wandb',setup,args.output_dir,['exploratory','refinement','uacanet'])
+    run=start_wandb('ade-seg','adenoid-hypertrophy','32-protected regional refinement',args.wandb_mode,'https://forge.coreweave.com/api/wandb',setup,args.output_dir,['exploratory','refinement','uacanet'])
     try:
         indexes=[];native={}
         for name in train+validation:
@@ -264,7 +265,12 @@ def main():
             values=[np.mean([r['sequences'][n]['present_dice'] for r in results if r['arm']==a]) for a in ARMS]
             lines.append(f"| {n} | {baseline[n]['present_dice']:.6f} | "+' | '.join(f'{v:.6f}' for v in values)+' |')
         (args.output_dir/'results.md').write_text('\n'.join(lines)+'\n')
-        finalize_tracking(run,args.output_dir,{'completed':True},['results.json','results.md','setup.json','engineering_gate.json','overfit.json'])
+        if args.wandb_mode=='online':
+            finalize_tracking(run,args.output_dir,{'completed':True},['results.json','results.md','setup.json','engineering_gate.json','overfit.json'])
+        else:
+            run.summary.update({'completed':True,'wandb_artifact_upload_complete':False})
+            write(args.output_dir/'delivery.json',{'completed':True,'wandb_artifact_upload_complete':False,'mode':'offline','run_id':run.id})
+            write(args.output_dir/'progress.json',{'state':'completed'})
         run.finish()
     except BaseException as error:
         write(args.output_dir/'failure.json',{'error':repr(error)});run.finish(exit_code=1);raise
