@@ -6,6 +6,41 @@ import torch
 from scripts.analyze_v2_trajectories import longest_lower_run, first_pruning
 
 
+def test_archive_rejects_empty_members(tmp_path):
+    from scripts.run_v2_pulse import write_verified_archive
+    folder = tmp_path/"data"
+    folder.mkdir()
+    (folder/"inputs.json").write_bytes(b"")
+    with pytest.raises(ValueError, match="empty archive member"):
+        write_verified_archive(folder, tmp_path/"bad.zip")
+
+
+def test_input_preflight_requires_independent_receipts_and_actual_hashes(tmp_path):
+    import json
+    import zipfile
+    from scripts.run_v2_pulse import verified_inputs, author
+    replay, earlier = tmp_path/"replay", tmp_path/"earlier"
+    (replay/"full/seq13").mkdir(parents=True)
+    (earlier/"seq13").mkdir(parents=True)
+    image, mask = tmp_path/"image", tmp_path/"mask"
+    image.write_bytes(b"image")
+    mask.write_bytes(b"mask")
+    frames = [SimpleNamespace(frame_index=0, image_path=image, mask_path=mask)]
+    data = [{"frame": 0, "image_sha256": author.digest(image), "mask_sha256": author.digest(mask)}]
+    for path in [replay/"full/seq13/inputs.json", earlier/"seq13/inputs.json"]:
+        path.write_text(json.dumps(data))
+    with zipfile.ZipFile(replay/"seq13.zip", "w") as z:
+        z.writestr("inputs.json", b"")
+    found, receipt = verified_inputs(replay, earlier, "seq13", frames)
+    assert found == data and receipt["archive_input_bytes"] == 0
+    mask.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="Image/GT/chronology"):
+        verified_inputs(replay, earlier, "seq13", frames)
+    (earlier/"seq13/inputs.json").write_text("[]")
+    with pytest.raises(ValueError, match="receipts disagree"):
+        verified_inputs(replay, earlier, "seq13", frames)
+
+
 def test_lower_runs_respect_absence_ties_and_manifest_indices():
     frames = [7, 8, 9, 10, 11, 12, 13]
     present = [True, True, False, True, True, True, True]

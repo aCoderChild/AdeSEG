@@ -48,6 +48,38 @@ SOURCES = [PROTOCOL, TARGETS, "scripts/analyze_v2_trajectories.py", "scripts/run
            "evaluation/davis2017/metrics.py", "training/tracking.py"]
 
 
+def verified_inputs(replay_dir, assignment_dir, name, frames):
+    """Verify independent original receipts before inference; never regenerate them."""
+    original = replay_dir/"full"/name/"inputs.json"
+    earlier = assignment_dir/name/"inputs.json"
+    inputs = json.loads(original.read_bytes())
+    if inputs != json.loads(earlier.read_bytes()) or len(inputs) != len(frames):
+        raise ValueError("Original input receipts disagree or coverage changed")
+    for frame, old in zip(frames, inputs):
+        if (frame.frame_index != old["frame"] or author.digest(frame.image_path) != old["image_sha256"]
+                or author.digest(frame.mask_path) != old["mask_sha256"]):
+            raise ValueError("Image/GT/chronology differs from original receipts")
+    with zipfile.ZipFile(replay_dir/f"{name}.zip") as packed:
+        archived = packed.read("inputs.json")
+        if archived and json.loads(archived) != inputs:
+            raise ValueError("Nonempty archived input receipt disagrees")
+    return inputs, {"original": str(original), "original_sha256": author.digest(original),
+                    "earlier": str(earlier), "earlier_sha256": author.digest(earlier),
+                    "archive_input_bytes": len(archived), "frames_verified": len(frames)}
+
+
+def write_verified_archive(folder, destination):
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as packed:
+        for path in folder.iterdir():
+            data = path.read_bytes()
+            if not data:
+                raise ValueError(f"Refusing empty archive member: {path}")
+            packed.writestr(path.name, data)
+    with zipfile.ZipFile(destination) as packed:
+        if packed.testzip() is not None:
+            raise ValueError("New archive CRC failure")
+
+
 def pulse_bank(state, prompt, target, sequence, condition, seed=None):
     """Same selector and random context as frozen source26, actual stored logits."""
     if condition not in ("sham", "regional", "random"):
@@ -116,9 +148,7 @@ def rollout(args, repo, name, frames, condition, seed, folder, references, repea
     native_rows, native_integrity, _ = references["native"]
     arm = "native" if condition == "sham" else ("v2" if condition == "regional" else f"random_{seed}")
     continuous_rows, continuous_integrity, _ = references[arm]
-    inputs_path = args.target_replay_dir/f"{name}.zip"
-    with zipfile.ZipFile(inputs_path) as packed:
-        inputs = json.loads(packed.read("inputs.json"))
+    inputs = args.verified_inputs[name]
     if len(inputs) != len(frames):
         raise ValueError("Input count changed")
     for frame, old in zip(frames, inputs):
@@ -237,7 +267,7 @@ def pulse_bank_for_check(receipt):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("checkpoint", "e2-dir", "offline-dir", "target-replay-dir", "output-dir"):
+    for name in ("checkpoint", "e2-dir", "offline-dir", "target-replay-dir", "assignment-dir", "output-dir"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=ROOT/"data/polypgen_sequence.jsonl")
     args = parser.parse_args()
@@ -250,6 +280,11 @@ def main():
         raise ValueError("Committed target receipt differs from offline analysis")
     if author.digest(args.checkpoint) != e2["setup"]["checkpoint_sha256"] or author.digest(args.manifest) != e2["setup"]["manifest_sha256"]:
         raise ValueError("Checkpoint/manifest identity differs")
+    videos = {**load_manifest(args.manifest, "dev"), **load_manifest(args.manifest, "test")}
+    args.verified_inputs, input_validation = {}, {}
+    for name in args.targets["targets"]:
+        args.verified_inputs[name], input_validation[name] = verified_inputs(
+            args.target_replay_dir, args.assignment_dir, name, videos[name])
     subprocess.run(["git", "ls-files", "--error-unmatch", *SOURCES], cwd=ROOT, check=True, capture_output=True)
     subprocess.run(["git", "diff", "--exit-code", "HEAD", "--", *SOURCES], cwd=ROOT, check=True, capture_output=True)
     output = validate_output(args.output_dir)
@@ -265,6 +300,7 @@ def main():
     torch.use_deterministic_algorithms(True)
     sources = {n: author.digest(ROOT/n) for n in set(SOURCES) | set(e2["setup"]["sources"])}
     setup = {"protocol": json.loads((ROOT/PROTOCOL).read_text()), "targets": args.targets, "sources": sources,
+             "input_validation": input_validation,
              "author_revision": revision, "checkpoint_sha256": author.digest(args.checkpoint),
              "manifest_sha256": author.digest(args.manifest), "torch": torch.__version__,
              "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()}
@@ -291,9 +327,7 @@ def main():
                 raise RuntimeError("Frozen source changed during pilot")
             summary, receipts = rollout(args, repo, name, videos[name], condition, seed, folder, references[name], repeat)
             filename = "_".join(folder.relative_to(output).parts)+".zip"
-            with zipfile.ZipFile(output/filename, "w", zipfile.ZIP_DEFLATED) as z:
-                for path in folder.iterdir():
-                    z.write(path, arcname=path.name)
+            write_verified_archive(folder, output/filename)
             log_results_artifact(run, output, [filename])
             return summary, receipts
         execute("seq2", "sham", None, output/"gate/seq2/sham")
