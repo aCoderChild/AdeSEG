@@ -40,6 +40,7 @@ from training.tracking import start_wandb, log_results_artifact, finalize_tracki
 PROTOCOL = "protocols/v2_trajectory_pulse_v1.json"
 TARGETS = "protocols/v2_pulse_targets_v1.json"
 SOURCES = [PROTOCOL, "protocols/v2_transition_v1.json", TARGETS, "scripts/analyze_v2_trajectories.py", "scripts/run_v2_pulse.py",
+           "protocols/v2_writeback_control_v1.json", "scripts/v2_writeback_control.py",
            "tests/test_v2_trajectory_pulse.py", "modeling/contribution_region_memory.py",
            "modeling/matched_region_memory.py", "modeling/sparse_memory.py",
            "modeling/region_definitions.py", "modeling/region_tokens.py",
@@ -228,6 +229,11 @@ def rollout(args, repo, name, frames, condition, seed, folder, references, repea
                             if pulse["keep_bits"][str(frame)] != continuous_integrity[frame]["trace"]["keep_bits_hex"]:
                                 raise RuntimeError("Pulse token positions differ from continuous reference")
                     record = {"frame": index, **core, "pulse": pulse, "native_reads": native_reads.copy()}
+                    callback = getattr(args, "frame_callback", None)
+                    if callback is not None:
+                        replacement = callback(state, index, core, pulse)
+                        if replacement is not None:
+                            record["writeback_control"] = replacement
                     if repeat is not None and record != repeat[index]:
                         raise RuntimeError("Fresh pulse rollout not bit-identical")
                     receipts[index] = record
@@ -309,7 +315,10 @@ def main():
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=ROOT/"data/polypgen_sequence.jsonl")
     parser.add_argument("--transition", action="store_true")
+    parser.add_argument("--writeback-control", type=Path)
     args = parser.parse_args()
+    if args.writeback_control:
+        args.transition = True
     e2 = require_e2(args.e2_dir)
     prior = json.loads((args.target_replay_dir/"delivery.json").read_text())
     if not prior["completed"] or not prior["wandb_artifact_upload_complete"]:
@@ -345,16 +354,24 @@ def main():
     torch.set_num_threads(2)
     torch.use_deterministic_algorithms(True)
     sources = {n: author.digest(ROOT/n) for n in set(SOURCES) | set(e2["setup"]["sources"])}
-    setup = {"protocol": json.loads((ROOT/("protocols/v2_transition_v1.json" if args.transition else PROTOCOL)).read_text()), "targets": args.targets, "sources": sources,
+    protocol = "protocols/v2_writeback_control_v1.json" if args.writeback_control else ("protocols/v2_transition_v1.json" if args.transition else PROTOCOL)
+    setup = {"protocol": json.loads((ROOT/protocol).read_text()), "targets": args.targets, "sources": sources,
              "input_validation": input_validation,
              "author_revision": revision, "checkpoint_sha256": author.digest(args.checkpoint),
              "manifest_sha256": author.digest(args.manifest), "torch": torch.__version__,
              "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()}
+    if args.writeback_control:
+        previous_setup = json.loads((args.writeback_control/"setup.json").read_text())
+        for key in ("checkpoint_sha256", "manifest_sha256", "author_revision"):
+            if previous_setup[key] != setup[key]:
+                raise ValueError("Writeback control reference identity changed")
+        setup["transition_reference"] = {name: author.digest(args.writeback_control/name) for name in
+            ("setup.json", "validation.json", "transition_pulse_regional_first.zip")}
     (output/"setup.json").write_text(json.dumps(setup, indent=2)+"\n")
     with zipfile.ZipFile(output/"sources.zip", "w", zipfile.ZIP_DEFLATED) as z:
         for name in sources:
             z.write(ROOT/name, arcname=name)
-    run = start_wandb("ade-seg", "adenoid-hypertrophy", "30-transition pruning diagnostic" if args.transition else "29-single pruning pulse propagation", "online",
+    run = start_wandb("ade-seg", "adenoid-hypertrophy", "31-writeback replacement diagnostic" if args.writeback_control else ("30-transition pruning diagnostic" if args.transition else "29-single pruning pulse propagation"), "online",
                      "https://forge.coreweave.com/api/wandb", setup, output, ["pulse", "v2", "exploratory"])
     try:
         videos = {**load_manifest(args.manifest, "dev"), **load_manifest(args.manifest, "test")}
@@ -378,6 +395,13 @@ def main():
             write_verified_archive(folder, output/filename)
             log_results_artifact(run, output, [filename])
             return summary, receipts
+        if args.writeback_control:
+            from scripts.v2_writeback_control import run_control
+            run_control(args, output, execute)
+            finalize_tracking(run, output, {"completed": True, "gate_passed": True, "sequences": 1},
+                              ["results.json", "results.md", "validation.json", "setup.json", "native_frame50.pt"])
+            run.finish()
+            return
         if args.transition:
             args.schedule = "transition_pulse"
             execute("seq13", "sham", None, output/"gate/seq13/sham")

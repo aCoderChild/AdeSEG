@@ -1,0 +1,10 @@
+{
+  "date": "2026-10-30",
+  "scope": "Post-hoc seq13 oracle mechanism diagnostic. Selected after source30 collapse; no efficacy or semantic-purity claim.",
+  "question": "Does restoring the whole native frame50 stored output after the regional pulse restore later native propagation?",
+  "implementation": "Reuse upstream SAM2 per-object non_cond_frame_outputs storage, verified source30 rollout and Efficient-SAM2-derived sparse reader. New project glue only copies the entire frame50 dictionary with deepcopy, including all present fields: features, positional encodings, masks, object score and pointer. No training, thresholds, model edits or frame selection changes.",
+  "order": "Full fresh native-sham rollout captures native frame50 output to Drive; then two fresh frame50 regional-pulse rollouts each substitute an independent copy before resuming at51. Freeze source and this protocol before launch.",
+  "checks": "Native full sham exact to archived reference; regional prefix exact through49; pre-replacement frame50 prediction, low-res, full-bank/cache hashes and selected tokens exact to completed source30 pulse. After replacement whole bank/cache must equal native at50. Yielded pulse prediction and metrics remain unchanged. Every later read native; all4 layers/pointers/native memory writes checked using existing runner. Full fresh repeats exact. Stop on integrity failure.",
+  "outcomes": "Save pre-replacement hashes and separate replacement receipt, PNG masks, object scores, Dice, Boundary F, false alarms and return events. Compare all later native hashes as an outcome, not a pass criterion. If recovery restores, the full stored frame state mediates persistence; this does not isolate memory features versus pointers/other fields. If not, investigate other state; do not tune.",
+  "storage": "CPU FP32, original checkpoint/manifest/input hashes. All artifacts and snapshot on mounted Drive outputs/experiment/31_v2_writeback_control_cpu_v1. Existing experiment artifacts preserved. No other inference queued."
+}

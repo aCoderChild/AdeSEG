@@ -153,3 +153,61 @@ def test_terminal_empty_distinguishes_absent_success_and_present_miss():
                for i,(present,nonempty,removed) in enumerate([(True,True,2),(False,True,3),(False,False,1),(True,False,0)])]
     assert prediction_states(records)["v2"] == {"empty_predictions_on_present": 1, "false_alarms": 1,
                                                  "terminal_empty_start": 12, "last_pruning_frame": 12}
+
+
+import copy
+import torch
+import pytest
+from scripts.bank_integrity import fingerprint
+from scripts.v2_writeback_control import FrameWritebackControl, CORE
+
+
+def example():
+    output = {k:torch.tensor([1.]) for k in ('pred_masks','maskmem_features','obj_ptr','object_score_logits')}
+    output['maskmem_pos_enc']=[torch.tensor([2.])]
+    output['additional_author_field']={'nested':torch.tensor([3.])}
+    state={'output_dict_per_obj':{0:{'cond_frame_outputs':{7:{'prompt':torch.tensor([4.])}},
+            'non_cond_frame_outputs':{50:output}}},'cached_features':{50:torch.tensor([5.])}}
+    return state
+
+
+def core(state):
+    return {'prediction_sha256':'prediction','low_res_sha256':'low',
+            'bank_sha256':fingerprint(state['output_dict_per_obj'])['sha256'],
+            'cache_sha256':fingerprint(state['cached_features'])['sha256']}
+
+
+def test_whole_output_replacement_preserves_emitted_mask_and_all_fields(tmp_path):
+    native=example(); capture=FrameWritebackControl(tmp_path/'native.pt')
+    capture(native,50,core(native),{'layers':[1]})
+    changed=copy.deepcopy(native)
+    changed['output_dict_per_obj'][0]['non_cond_frame_outputs'][50]['pred_masks'].fill_(-1)
+    emitted=changed['output_dict_per_obj'][0]['non_cond_frame_outputs'][50]['pred_masks']
+    before=core(changed); pulse={'layers':[1]}
+    control=FrameWritebackControl(tmp_path/'native.pt',{**before,'pulse':pulse});control.snapshot=capture.snapshot
+    receipt=control(changed,50,before,pulse)
+    assert core(changed)==core(native)
+    assert emitted.item()==-1
+    assert 'additional_author_field' in receipt['stored_keys']
+    changed['output_dict_per_obj'][0]['non_cond_frame_outputs'][50]['additional_author_field']['nested'].fill_(99)
+    assert capture.snapshot['output']['additional_author_field']['nested'].item()==3
+    assert native['output_dict_per_obj'][0]['non_cond_frame_outputs'][50]['additional_author_field']['nested'].item()==3
+    assert control(changed,51,{},None) is None
+
+
+def test_rejects_nonmatching_pulse_before_mutation(tmp_path):
+    state=example(); before=core(state)
+    control=FrameWritebackControl(tmp_path/'native.pt',{**before,'prediction_sha256':'wrong','pulse':{}})
+    control.snapshot={'output':copy.deepcopy(state['output_dict_per_obj'][0]['non_cond_frame_outputs'][50]),'core':before}
+    with pytest.raises(RuntimeError,match='pre-replacement pulse'):
+        control(state,50,before,{})
+    assert core(state)==before
+
+
+def test_replacement_cannot_hide_other_frame_or_cache_change(tmp_path):
+    native=example(); capture=FrameWritebackControl(tmp_path/'native.pt'); capture(native,50,core(native),{})
+    changed=copy.deepcopy(native);changed['cached_features'][50].fill_(8)
+    before=core(changed)
+    control=FrameWritebackControl(tmp_path/'native.pt',{**before,'pulse':{}});control.snapshot=capture.snapshot
+    with pytest.raises(RuntimeError,match='bank/cache'):
+        control(changed,50,before,{})
