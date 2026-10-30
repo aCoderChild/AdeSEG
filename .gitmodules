@@ -22,3 +22,6 @@
 [submodule "external/Mask-Transfiner"]
 	path = external/Mask-Transfiner
 	url = https://github.com/SysCV/transfiner.git
+[submodule "external/UACANet"]
+	path = external/UACANet
+	url = https://github.com/plemeri/UACANet.git
