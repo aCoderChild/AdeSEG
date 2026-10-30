@@ -6,6 +6,16 @@ import torch
 from scripts.analyze_v2_trajectories import longest_lower_run, first_pruning
 
 
+def test_transition_schedules_freeze_cutoff_and_pulse():
+    from scripts.run_v2_pulse import intervention_frames
+    assert intervention_frames("transition_pulse", 10) == [50]
+    assert intervention_frames("stop_before_transition", 10) == list(range(10,50))
+    assert 50 not in intervention_frames("stop_before_transition", 10)
+    assert intervention_frames("early_pulse", 6) == [6]
+    with pytest.raises(ValueError):
+        intervention_frames("unknown", 10)
+
+
 def test_archive_rejects_empty_members(tmp_path):
     from scripts.run_v2_pulse import write_verified_archive
     folder = tmp_path/"data"
@@ -86,7 +96,8 @@ def test_pulse_bank_exact_random_context_dense_endpoints_and_causality():
         pulse_bank(state, 3, 6, "seq2", "random")
 
 
-def test_one_pulse_writes_normally_and_restores_native_forward(monkeypatch):
+@pytest.mark.parametrize("condition,seed,matched", [("regional",None,None), ("random",20261025,[4096,123,4096])])
+def test_one_pulse_writes_normally_and_restores_native_forward(monkeypatch, condition, seed, matched):
     from scripts import run_v2_pulse as runner
     blocks = [SimpleNamespace(cross_attn_image=SimpleNamespace()) for _ in range(4)]
     writes, active = [], []
@@ -116,12 +127,14 @@ def test_one_pulse_writes_normally_and_restores_native_forward(monkeypatch):
     iterator = predictions()
     receipts = []
     for index in (5,6,7):
-        _, pulse = runner.next_at_target(iterator, model, native_state(), index, 3, 6, "seq2", "regional")
+        _, pulse = runner.next_at_target(iterator, model, native_state(), index, 3, 6, "seq2", condition, seed, matched)
         receipts.append(pulse)
     assert active == [False, True, False]
     assert len(writes) == 3
     assert [r is not None for r in receipts] == [False,True,False]
     assert receipts[1]["native_memory_writes"] == 1
+    if matched is not None:
+        assert receipts[1]["per_frame_counts"] == matched
     runner.assert_native_forward(model)
 
 

@@ -140,6 +140,8 @@ def test_full_runner_visits_every_sequence_and_frame(tmp_path, monkeypatch):
     import sys
     from pathlib import Path
     from scripts import audit_memory_token_regions as audit
+    # This test mocks inference/output; host disk capacity is not its subject.
+    monkeypatch.setattr(audit.shutil, "disk_usage", lambda path: SimpleNamespace(free=20 * 1024**3))
 
     expected = json.loads(
         (audit.ROOT / "protocols/memory_token_regions.json").read_text()

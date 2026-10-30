@@ -5,6 +5,7 @@ import gc
 from io import BytesIO
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -38,7 +39,7 @@ from training.tracking import start_wandb, log_results_artifact, finalize_tracki
 
 PROTOCOL = "protocols/v2_trajectory_pulse_v1.json"
 TARGETS = "protocols/v2_pulse_targets_v1.json"
-SOURCES = [PROTOCOL, TARGETS, "scripts/analyze_v2_trajectories.py", "scripts/run_v2_pulse.py",
+SOURCES = [PROTOCOL, "protocols/v2_transition_v1.json", TARGETS, "scripts/analyze_v2_trajectories.py", "scripts/run_v2_pulse.py",
            "tests/test_v2_trajectory_pulse.py", "modeling/contribution_region_memory.py",
            "modeling/matched_region_memory.py", "modeling/sparse_memory.py",
            "modeling/region_definitions.py", "modeling/region_tokens.py",
@@ -110,11 +111,16 @@ def assert_native_forward(model):
             raise RuntimeError("Sparse attention override remained outside the pulse")
 
 
-def next_at_target(iterator, model, state, index, prompt, target, sequence, condition, seed=None):
+def next_at_target(iterator, model, state, index, prompt, target, sequence, condition, seed=None, matched_counts=None):
     assert_native_forward(model)
     if index != target:
         return next(iterator), None
     bank = pulse_bank(state, prompt, target, sequence, condition, seed)
+    if matched_counts is not None:
+        if condition != "random" or len(matched_counts) != len(bank):
+            raise ValueError("Invalid matched random allocation")
+        for (frame, entry), count in zip(bank.items(), matched_counts):
+            entry["keep"] = random_cells(count, sequence, frame, seed)
     controller = SparseMemoryRead(model, prompt, "all_native" if condition == "sham" else "region_native")
     controller.frame, controller.bank = index, bank
     # Normal writeback is intentional here, unlike the source28 read-only probe.
@@ -125,7 +131,7 @@ def next_at_target(iterator, model, state, index, prompt, target, sequence, cond
             raise RuntimeError("Pulse did not use exactly one native memory write")
     assert_native_forward(model)
     counts = verify_layers(controller.layers, list(bank), bank)
-    if condition != "sham" and sum(counts) == len(bank)*4096:
+    if condition != "sham" and sum(counts) == len(bank)*4096 and matched_counts is None:
         raise RuntimeError("Frozen pulse removed no actual tokens")
     receipt = {"frame": target, "condition": condition, "seed": seed, "layers": controller.layers,
                "per_frame_counts": counts, "native_memory_writes": 1,
@@ -140,11 +146,24 @@ def metrics(rows):
             "present_boundary_f": float(np.mean([r["scores"]["boundary_f"] for r in present])) if present else None}
 
 
+def intervention_frames(mode, target):
+    if mode == "transition_pulse":
+        return [50]
+    if mode == "stop_before_transition":
+        return list(range(10, 50))
+    if mode == "early_pulse":
+        return [target]
+    raise ValueError("Unknown intervention schedule")
+
+
 @torch.inference_mode()
 def rollout(args, repo, name, frames, condition, seed, folder, references, repeat=None):
     folder.mkdir(parents=True)
     chosen = args.targets["targets"][name]
     prompt, target = chosen["prompt"], chosen["frame"]
+    mode = getattr(args, "schedule", "early_pulse")
+    active = intervention_frames(mode, target)
+    target = active[-1]
     native_rows, native_integrity, _ = references["native"]
     arm = "native" if condition == "sham" else ("v2" if condition == "regional" else f"random_{seed}")
     continuous_rows, continuous_integrity, _ = references[arm]
@@ -177,7 +196,10 @@ def rollout(args, repo, name, frames, condition, seed, folder, references, repea
             try:
                 for index in range(prompt, len(frames)):
                     native_reads.clear()
-                    (actual, ids, logits), pulse = next_at_target(iterator, model, state, index, prompt, target, name, condition, seed)
+                    matched = (continuous_integrity[index]["trace"]["allocation"]["per_frame_spatial_keys"]
+                               if mode == "stop_before_transition" and condition == "random" and index in active else None)
+                    (actual, ids, logits), pulse = next_at_target(iterator, model, state, index, prompt,
+                        index if index in active else -1, name, condition, seed, matched)
                     if actual != index or ids != [1]:
                         raise RuntimeError("Chronology/object identity changed")
                     if native_reads != native_integrity[index]["trace"]["native_reads"]:
@@ -190,11 +212,13 @@ def rollout(args, repo, name, frames, condition, seed, folder, references, repea
                             "low_res_sha256": author.tensor_hash(stored["pred_masks"]),
                             "bank_sha256": fingerprint(state["output_dict_per_obj"])["sha256"],
                             "cache_sha256": fingerprint(state["cached_features"])["sha256"]}
-                    expected = (native_integrity[index] if condition == "sham" or index < target
-                                else continuous_integrity[index] if index == target else None)
+                    reference_match = ((mode == "early_pulse" and index == target)
+                                       or (mode == "stop_before_transition" and index in active))
+                    expected = (native_integrity[index] if condition == "sham" or index < active[0]
+                                else continuous_integrity[index] if reference_match else None)
                     if expected is not None and any(core[k] != expected[k] for k in CORE):
                         raise RuntimeError(f"Archived exact prefix/pulse/sham mismatch: {name}/{condition}/{seed}/{index}")
-                    if pulse is not None and condition != "sham":
+                    if pulse is not None and condition != "sham" and reference_match:
                         verify_layers(pulse["layers"], pulse["layers"][0]["frames"],
                                       pulse_bank_for_check(pulse), continuous_integrity[index]["trace"]["layers"])
                         expected_counts = continuous_integrity[index]["trace"]["allocation"]["per_frame_spatial_keys"]
@@ -217,6 +241,7 @@ def rollout(args, repo, name, frames, condition, seed, folder, references, repea
                                "prediction_sha256": core["prediction_sha256"], "present": bool(truth.any()),
                                "scores": {**calculate_scores(predicted, truth), "boundary_f": float(db_eval_boundary(predicted, truth))},
                                "absent_fp": bool(predicted.any()) if not truth.any() else None,
+                               "prediction_nonempty": bool(predicted.any()),
                                "different_pixels_from_native": int(np.count_nonzero(predicted != native_mask)),
                                "object_score": float(stored["object_score_logits"].item())}
                         rows.append(row)
@@ -242,9 +267,10 @@ def rollout(args, repo, name, frames, condition, seed, folder, references, repea
         native_masks.close()
     assert_native_forward(model)
     author.assert_parameter_integrity(model, parameters, folder, "pulse")
-    if len(rows) != len(frames)-prompt-1 or sum(r["pulse"] is not None for r in receipts.values()) != 1:
+    if len(rows) != len(frames)-prompt-1 or sum(r["pulse"] is not None for r in receipts.values()) != len(active):
         raise RuntimeError("Pulse or target coverage differs")
     summary = {"sequence": name, "condition": condition, "seed": seed, "pulse_frame": target,
+               "schedule": mode, "intervention_frames": active,
                "whole": metrics(rows), "after_pulse": metrics([r for r in rows if r["frame"] > target]),
                "native": metrics(native_rows), "continuous": metrics(continuous_rows),
                "native_after_pulse": metrics([r for r in native_rows if r["frame"] > target]),
@@ -254,6 +280,18 @@ def rollout(args, repo, name, frames, condition, seed, folder, references, repea
                "longest_lower_dice_run": longest_lower_run([r["frame"] for r in rows], [r["present"] for r in rows],
                     np.array([r["scores"]["dice"]-n["scores"]["dice"] for r,n in zip(rows,native_rows)])),
                "wall_seconds": time.monotonic()-started}
+    if mode != "early_pulse":
+        returning = [r for r in rows if r["frame"] >= 66]
+        first_episode = []
+        for row in returning:
+            if not row["present"]:
+                break
+            first_episode.append(row)
+        summary["return_frame_66"] = {
+            "present_metrics": metrics(returning),
+            "first_nonempty_prediction": next((r["frame"] for r in first_episode if r["prediction_nonempty"]), None),
+            "first_positive_overlap": next((r["frame"] for r in first_episode if r["scores"]["dice"] > 0), None),
+            "note": "Nonempty/positive overlap are descriptive events, not adequate segmentation or sustained recovery."}
     (folder/"summary.json").write_text(json.dumps(summary, indent=2)+"\n")
     del model
     gc.collect()
@@ -270,6 +308,7 @@ def main():
     for name in ("checkpoint", "e2-dir", "offline-dir", "target-replay-dir", "assignment-dir", "output-dir"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, default=ROOT/"data/polypgen_sequence.jsonl")
+    parser.add_argument("--transition", action="store_true")
     args = parser.parse_args()
     e2 = require_e2(args.e2_dir)
     prior = json.loads((args.target_replay_dir/"delivery.json").read_text())
@@ -278,6 +317,13 @@ def main():
     args.targets = json.loads((ROOT/TARGETS).read_text())
     if args.targets["offline_targets_sha256"] != author.digest(args.offline_dir/"pulse_targets.json"):
         raise ValueError("Committed target receipt differs from offline analysis")
+    if args.transition:
+        previous = args.offline_dir.parent/"repair_run"
+        completed = json.loads((previous/"delivery.json").read_text())
+        validation = json.loads((previous/"validation.json").read_text())
+        if not (completed["completed"] and completed["wandb_artifact_upload_complete"] and validation["passed"]):
+            raise ValueError("Completed verified early-pulse experiment required")
+        args.targets["targets"] = {"seq13": args.targets["targets"]["seq13"]}
     if author.digest(args.checkpoint) != e2["setup"]["checkpoint_sha256"] or author.digest(args.manifest) != e2["setup"]["manifest_sha256"]:
         raise ValueError("Checkpoint/manifest identity differs")
     videos = {**load_manifest(args.manifest, "dev"), **load_manifest(args.manifest, "test")}
@@ -299,7 +345,7 @@ def main():
     torch.set_num_threads(2)
     torch.use_deterministic_algorithms(True)
     sources = {n: author.digest(ROOT/n) for n in set(SOURCES) | set(e2["setup"]["sources"])}
-    setup = {"protocol": json.loads((ROOT/PROTOCOL).read_text()), "targets": args.targets, "sources": sources,
+    setup = {"protocol": json.loads((ROOT/("protocols/v2_transition_v1.json" if args.transition else PROTOCOL)).read_text()), "targets": args.targets, "sources": sources,
              "input_validation": input_validation,
              "author_revision": revision, "checkpoint_sha256": author.digest(args.checkpoint),
              "manifest_sha256": author.digest(args.manifest), "torch": torch.__version__,
@@ -308,7 +354,7 @@ def main():
     with zipfile.ZipFile(output/"sources.zip", "w", zipfile.ZIP_DEFLATED) as z:
         for name in sources:
             z.write(ROOT/name, arcname=name)
-    run = start_wandb("ade-seg", "adenoid-hypertrophy", "29-single pruning pulse propagation", "online",
+    run = start_wandb("ade-seg", "adenoid-hypertrophy", "30-transition pruning diagnostic" if args.transition else "29-single pruning pulse propagation", "online",
                      "https://forge.coreweave.com/api/wandb", setup, output, ["pulse", "v2", "exploratory"])
     try:
         videos = {**load_manifest(args.manifest, "dev"), **load_manifest(args.manifest, "test")}
@@ -323,6 +369,8 @@ def main():
         results = {}
         conditions = [("regional",None)]+[("random",seed) for seed in SEEDS]
         def execute(name, condition, seed, folder, repeat=None):
+            if args.transition and shutil.disk_usage(output).free < 4 * 1024**3:
+                raise RuntimeError("Transition diagnostic requires 4 GiB free before each rollout")
             if any(author.digest(ROOT/n) != sha for n,sha in sources.items()):
                 raise RuntimeError("Frozen source changed during pilot")
             summary, receipts = rollout(args, repo, name, videos[name], condition, seed, folder, references[name], repeat)
@@ -330,6 +378,40 @@ def main():
             write_verified_archive(folder, output/filename)
             log_results_artifact(run, output, [filename])
             return summary, receipts
+        if args.transition:
+            args.schedule = "transition_pulse"
+            execute("seq13", "sham", None, output/"gate/seq13/sham")
+            results = {}
+            for schedule in ("transition_pulse", "stop_before_transition"):
+                args.schedule = schedule
+                results[schedule] = []
+                regional_counts = None
+                for condition, seed in conditions:
+                    label = condition if seed is None else f"random_{seed}"
+                    summary, first = execute("seq13", condition, seed, output/schedule/f"{label}_first")
+                    counts = {f: r["pulse"]["per_frame_counts"] for f,r in first.items() if r["pulse"]}
+                    if condition == "regional":
+                        regional_counts = counts
+                    elif counts != regional_counts:
+                        raise RuntimeError("Random counts do not match regional counts at every intervention")
+                    execute("seq13", condition, seed, output/schedule/f"{label}_repeat", repeat=first)
+                    results[schedule].append(summary)
+                    (output/"partial_results.json").write_text(json.dumps(results, indent=2)+"\n")
+            (output/"validation.json").write_text(json.dumps({"passed": True, "sham_native_exact": True,
+                "all_eight_conditions_fresh_repeat_exact": True, "counts_matched": True,
+                "continuous_prefix_exact_for_stop": True, "sources": sources}, indent=2)+"\n")
+            (output/"results.json").write_text(json.dumps({"completed": True, "exploratory": True, "conditions": results}, indent=2)+"\n")
+            lines = ["# Seq13 transition diagnostic", "", "Post hoc; no population or efficacy claim. Full fresh repeats and native sham passed.", "",
+                     "| Schedule | Condition | Present Dice | Boundary F | False alarms | First positive overlap at/after 66 |",
+                     "|---|---|---:|---:|---:|---:|"]
+            for schedule, summaries in results.items():
+                for s in summaries:
+                    lines.append(f"| {schedule} | {s['condition']} {s['seed'] or ''} | {s['whole']['present_dice']:.6f} | {s['whole']['present_boundary_f']:.6f} | {s['whole']['gt_empty_false_alarm_count']} | {s['return_frame_66']['first_positive_overlap']} |")
+            (output/"results.md").write_text("\n".join(lines)+"\n")
+            finalize_tracking(run, output, {"completed": True, "gate_passed": True, "sequences": 1},
+                              ["results.json", "results.md", "validation.json", "setup.json"])
+            run.finish()
+            return
         execute("seq2", "sham", None, output/"gate/seq2/sham")
         results["seq2"] = []
         for condition, seed in conditions:
