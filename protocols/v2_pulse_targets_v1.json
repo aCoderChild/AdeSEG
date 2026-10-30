@@ -1,0 +1,60 @@
+{
+  "rule": "first actual pruning; no outcome threshold",
+  "targets": {
+    "seq2": {
+      "frame": 6,
+      "prompt": 3,
+      "archives": {
+        "native": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/23_long_history_E3_screen_v1/full_seq2_C0.zip",
+          "sha256": "43fc411232d62ad788c3f27baa5ea62c289a5acc704dfbce74635272b00c352f"
+        },
+        "v2": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/26_recent_region_contribution_polypgen_cpu_v2/run/full_seq2_C2.zip",
+          "sha256": "76fad5ab04ab29668afb3e22f30ba1cc2901ce5f248f91f153d681970e16648e"
+        },
+        "random_20261025": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/26_recent_region_contribution_polypgen_cpu_v2/run/full_seq2_C3_20261025.zip",
+          "sha256": "9c72cdfd3b84667562885e7e3707e89f2ec34bfa589097266aedc6fac6dc90c5"
+        },
+        "random_20261026": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/26_recent_region_contribution_polypgen_cpu_v2/run/full_seq2_C3_20261026.zip",
+          "sha256": "d1bf2445e7a80ef60d0a0cbefd1db73f062afe79bce0a221f1a26dbed7e43cf2"
+        },
+        "random_20261027": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/26_recent_region_contribution_polypgen_cpu_v2/run/full_seq2_C3_20261027.zip",
+          "sha256": "c7dbd3f45a169e98e45ff9ea1f6db5eea64c59ff7884d9104e7fc9c9d8581306"
+        }
+      }
+    },
+    "seq13": {
+      "frame": 10,
+      "prompt": 7,
+      "archives": {
+        "native": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/23_long_history_E3_screen_v1/full_seq13_C0.zip",
+          "sha256": "22d90ca9f82b57249acc2d97b24da85e95045207505f7367722f6a8dde9eca71"
+        },
+        "v2": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/26_recent_region_contribution_polypgen_cpu_v2/run/full_seq13_C2.zip",
+          "sha256": "67c418ea356a2ed04c4af601e0d8ebfbf1cb2ea3104bad7101784fb3bf09efef"
+        },
+        "random_20261025": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/26_recent_region_contribution_polypgen_cpu_v2/run/full_seq13_C3_20261025.zip",
+          "sha256": "6be9f9c28ba9f7258d0a5b6db6e4e006a44891765f47c08915a9d1213f4c24b7"
+        },
+        "random_20261026": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/26_recent_region_contribution_polypgen_cpu_v2/run/full_seq13_C3_20261026.zip",
+          "sha256": "e8a7cabeb970bb901dace09c7e007b7ccbda773501999ecea06c581e0cbf990f"
+        },
+        "random_20261027": {
+          "path": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/26_recent_region_contribution_polypgen_cpu_v2/run/full_seq13_C3_20261027.zip",
+          "sha256": "da76f0da1b498a558a173908cd0862746d25de14c1fc92e7b2b2596e6306291c"
+        }
+      }
+    }
+  },
+  "offline_targets_sha256": "b78b710749de9318c7a266b9af5a8dff41628969eabbdfb4904e3410513d47b3",
+  "date": "2026-10-30",
+  "selection_disclosure": "seq13 selected for known large loss; seq2 fixed engineering companion. Pulse frame uses first actual pruning, not failure onset."
+}
