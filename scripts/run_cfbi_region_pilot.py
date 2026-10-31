@@ -210,6 +210,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('checkpoint', 'reference-dir', 'source', 'engineering-dir', 'output-dir'):
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--integration-gate', type=Path, default=None)
     args = parser.parse_args()
     args.output_dir = validate_output(args.output_dir)
     args.output_dir.mkdir(parents=True, exist_ok=False)
@@ -226,7 +227,8 @@ def main():
         gradient = json.loads((args.engineering_dir / 'training_adapter_gate/gradient_gate.json').read_text())
         serialized = json.loads((args.engineering_dir / 'serialized_adapter_gate/optimizer_gate.json').read_text())
         tests = json.loads((args.engineering_dir / 'pilot_tests_receipt.json').read_text())
-        integration = json.loads((args.engineering_dir / 'pilot_integration_gate/completion.json').read_text())
+        integration_path = args.integration_gate or (args.engineering_dir / 'pilot_integration_gate/completion.json')
+        integration = json.loads(integration_path.read_text())
         if not (smoke['passed'] and zero['passed'] and gradient['passed'] and serialized['passed'] and tests['passed'] and integration['passed']):
             raise RuntimeError('Real-data gates incomplete')
         if tests['sources'] != hashes or integration['sources'] != hashes:
