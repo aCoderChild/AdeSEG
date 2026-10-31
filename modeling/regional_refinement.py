@@ -16,9 +16,36 @@ from modeling.region_tokens import _verified_source, SAM2_REVISION
 UACA_REVISION = '6b9e54eb8e94a29cf179a9a2ec2e98f02dfcb056'
 
 
+def project_valid_context(module, context, valid):
+    """Reuse author 1x1 projections, excluding padding from BatchNorm statistics.
+
+    With one valid vector, training BatchNorm has no variance estimate; use its
+    stored statistics without updating them. The all-valid path is unchanged.
+    """
+    if bool(valid.all()):
+        return module(context)
+    vectors = context.squeeze(-1).permute(0, 2, 1)
+    packed = vectors[valid].T[None, :, :, None]
+    if packed.shape[2] == 1 and module.training:
+        normalizers = [m for m in module.modules() if isinstance(m, nn.BatchNorm2d)]
+        states = [m.training for m in normalizers]
+        try:
+            for m in normalizers:
+                m.eval()
+            projected = module(packed)
+        finally:
+            for m, training in zip(normalizers, states):
+                m.train(training)
+    else:
+        projected = module(packed)
+    output = projected.new_zeros((*valid.shape, projected.shape[1]))
+    output[valid] = projected[0, :, :, 0].T
+    return output.permute(0, 2, 1).unsqueeze(-1)
+
+
 @lru_cache(maxsize=1)
 def author_components():
-    namespace = {'torch':torch, 'nn':nn, 'F':F}
+    namespace = {'torch':torch, 'nn':nn, 'F':F, 'project_valid_context':project_valid_context}
     path, source = _verified_source('UACANet', UACA_REVISION, 'lib/modules/layers.py')
     conv = next(n for n in ast.parse(source).body if isinstance(n,ast.ClassDef) and n.name=='conv')
     exec(compile(ast.Module(body=[conv],type_ignores=[]),str(path),'exec'),namespace)
@@ -30,6 +57,14 @@ def author_components():
     start = next(i for i,n in enumerate(forward.body) if isinstance(n,ast.Assign) and ast.unparse(n.targets[0])=='query')
     forward.body = forward.body[:2] + forward.body[start:]
     forward.args.args.extend([ast.arg(arg='context'), ast.arg(arg='valid')])
+    # Only the author key/value 1x1 projection input is packed; parameters and
+    # the query, attention, fusion and residual operations remain author code.
+    for node in ast.walk(forward):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ('conv_key', 'conv_value'):
+            projection = node.func
+            node.func = ast.Name(id='project_valid_context', ctx=ast.Load())
+            node.args = [projection, ast.Name(id='context', ctx=ast.Load()), ast.Name(id='valid', ctx=ast.Load())]
+
     softmax = next(i for i,n in enumerate(forward.body) if 'F.softmax' in ast.unparse(n))
     forward.body[softmax:softmax] = ast.parse("sim = sim.masked_fill(~valid[:, None, :], float('-inf'))").body
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls],type_ignores=[])),str(path),'exec'),namespace)

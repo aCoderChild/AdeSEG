@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-31",
+  "scope": "Compatibility for new current-frame CV gate/full runs only; not automatic migration of old CV progress. Historical source32/34 receipts are immutable.",
+  "repairs": {
+    "modeling/regional_refinement.py": {
+      "before": "4397c993c533842be9d334cabc2395738034c468afb7cd3ca9f9fc0a526a048e",
+      "after": "2cb62000176c54e6d5a6a78f61d4aa1dea4ab1103d5360ab1625fef60ee0f984"
+    },
+    "scripts/run_regional_refinement.py": {
+      "before": "24b6dc127641eb5a9023f2ab298cafe1b0c9198a790a14cadcc2161e6117d876",
+      "after": "8ab6c191b571d01d7166d6ed2ddc0f5d761b589dcb3e3c1fa4d78c7ec91e5904"
+    },
+    "tests/test_regional_refinement.py": {
+      "before": "204f87a56a1b5469af26d12e7145f1d03754c4880c20861f4e7e294399baebfc",
+      "after": "86891d097c46c619b88b588eed5ffdfb17288a99c80ae01f4362c383e04e2031"
+    }
+  },
+  "rationale": "Current-only network and optimizer unchanged. Repaired context projection is not used by that network; shared seeded initialization and saved real-frame checkpoint logits replay exactly. Loader uses checked byte snapshots; capture saves atomic verified tensors. Overfit changes verification only.",
+  "evidence": "outputs/experiment/35_current_frame_sequence_cv_v1/repair_verification_2026_10_31.json; outputs/experiment/36_repair_clearance_v1/overfit/overfit.json",
+  "required": "New full seq2 gate under repaired source hashes before full CV. No automatic regional-head result reuse. No changes to seed, folds, loss, iterations, prompts, or presence gate."
+}

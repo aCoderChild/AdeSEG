@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 import numpy as np
 import torch
@@ -14,15 +15,28 @@ sys.path.insert(0, str(ROOT))
 from datasets.video import load_manifest
 from modeling.current_frame_refinement import CurrentFrameRefinement
 from modeling.regional_refinement import refinement_loss
-from scripts.run_regional_refinement import batch, capture, evaluate, write, check_sources
+from scripts.run_regional_refinement import batch, capture, evaluate, write, check_sources, load, save_tensor
 from scripts.run_author_baseline import source_identity
 from scripts.memory_token_io import digest, validate_output, prompt_index
 from scripts.false_alarm_statistics import propagation_summary
 from evaluation.statistics import sequence_bootstrap_interval, paired_wilcoxon
 
 PROTOCOL = 'protocols/current_frame_cv_v1.json'
-FILES = [PROTOCOL, 'scripts/run_current_frame_cv.py', 'tests/test_current_frame_cv.py',
+COMPATIBILITY = 'protocols/current_frame_repair_compatibility_v1.json'
+FILES = [PROTOCOL, COMPATIBILITY, 'scripts/run_current_frame_cv.py', 'tests/test_current_frame_cv.py',
          'modeling/current_frame_refinement.py', 'evaluation/statistics.py']
+
+
+def check_compatible_sources(hashes):
+    """Permit only the exact reviewed old-to-new repair hashes; never wildcard."""
+    amendment=json.loads((ROOT/COMPATIBILITY).read_text())
+    for name, expected in hashes.items():
+        actual=digest(ROOT/name)
+        if actual==expected:
+            continue
+        permitted=amendment['repairs'].get(name)
+        if permitted!={'before':expected,'after':actual}:
+            raise RuntimeError(f'Unreviewed source mismatch: {name}')
 
 
 def validate_folds(folds):
@@ -49,14 +63,33 @@ def cleanup_new_tensors(index, folder):
     write(folder/'temporary_tensors_removed.json', {'count':len(index),'reason':'metrics and hashes retained; bounded Drive storage'})
 
 
+def verified_sequence_result(folder, sequence, targets):
+    """Accept a completed sequence only with matching checkpoint and frame set."""
+    result_path=folder/f'{sequence}_results.json'
+    receipt=json.loads((folder/f'{sequence}_complete.json').read_text())
+    if receipt['checkpoint_sha256']!=digest(folder/'head.pt') or receipt['results_sha256']!=digest(result_path):
+        raise RuntimeError(f'Resume result integrity mismatch: {sequence}')
+    scores=json.loads(result_path.read_text())
+    if set(scores['frames'])!={sequence} or set(scores['sequences'])!={sequence}:
+        raise RuntimeError(f'Resume sequence mismatch: {sequence}')
+    if [r['frame'] for r in scores['frames'][sequence]]!=targets:
+        raise RuntimeError(f'Resume frame coverage mismatch: {sequence}')
+    return scores
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for n in ('source','baseline','reference-dir','checkpoint','output-dir'):
         parser.add_argument('--'+n,type=Path,required=True)
     parser.add_argument('--gate',action='store_true')
+    parser.add_argument('--resume',action='store_true',help='Resume only a run with matching source hashes and integrity receipts')
     args = parser.parse_args()
     args.output_dir = validate_output(args.output_dir)
-    args.output_dir.mkdir(parents=True,exist_ok=False)
+    if args.resume and args.gate:
+        parser.error('Gate runs must start fresh')
+    if args.resume and not (args.output_dir/'setup.json').is_file():
+        parser.error('Resume requires an existing setup receipt')
+    args.output_dir.mkdir(parents=True,exist_ok=args.resume)
     out = args.output_dir
     try:
         torch.set_num_threads(2)
@@ -65,14 +98,20 @@ def main():
         folds = protocol['validation_folds']
         names = validate_folds(folds)
         prior = json.loads((args.source/'setup.json').read_text())
-        check_sources(prior['sources'])
+        check_compatible_sources(prior['sources'])
         if not json.loads((args.baseline/'completion.json').read_text())['complete']:
             raise RuntimeError('Source34 incomplete')
         baseline_setup = json.loads((args.baseline/'setup.json').read_text())
-        check_sources(baseline_setup['source_hashes'])
+        check_compatible_sources(baseline_setup['source_hashes'])
         subprocess.run(['git','diff','--exit-code','HEAD','--',*FILES],cwd=ROOT,check=True)
         subprocess.run(['git','ls-files','--error-unmatch',*FILES],cwd=ROOT,check=True,capture_output=True)
         hashes = {f:digest(ROOT/f) for f in FILES}
+        if args.resume:
+            previous=json.loads((out/'setup.json').read_text())
+            if previous['hashes']!=hashes or previous['protocol']!=protocol or previous['source32_setup_sha256']!=digest(args.source/'setup.json'):
+                raise RuntimeError('Resume source/protocol mismatch; do not mix old and repaired runs')
+            if (out/'completion.json').exists():
+                raise RuntimeError('Run is already complete')
         manifest = ROOT/'data/polypgen_sequence.jsonl'
         if digest(args.checkpoint)!=prior['checkpoint_sha256'] or digest(manifest)!=prior['manifest_sha256']:
             raise RuntimeError('Checkpoint/manifest mismatch')
@@ -127,36 +166,65 @@ def main():
         all_sequences={}
         for fi, valnames in enumerate(folds,1):
             check_sources(hashes)
-            folder=out/f'fold{fi}';folder.mkdir()
+            folder=out/f'fold{fi}';folder.mkdir(exist_ok=args.resume)
             train=[r for r in train_pool if r['sequence'] not in valnames]
-            write(folder/'training_samples.json',train)
+            training_receipt=folder/'training_complete.json'
             torch.manual_seed(20261031)
             head=CurrentFrameRefinement().train()
-            optimizer=torch.optim.Adam(head.parameters(),lr=.001)
-            rng=np.random.default_rng(20261031)
-            losses=[]
-            for step in range(500):
-                selected=rng.choice(len(train),size=4,replace=True)
-                x,y=batch([train[i]['path'] for i in selected],'regional')
-                optimizer.zero_grad();loss=refinement_loss(head(*x),y)
-                if not torch.isfinite(loss):raise RuntimeError('Nonfinite CV loss')
-                loss.backward();optimizer.step();losses.append(float(loss.detach()))
-                if step%10==0:write(out/'progress.json',{'phase':'training','fold':fi,'step':step+1,'total':500})
-            torch.save(head.state_dict(),folder/'head.pt');write(folder/'losses.json',losses)
+            if args.resume and training_receipt.exists():
+                receipt=json.loads(training_receipt.read_text())
+                if json.loads((folder/'training_samples.json').read_text())!=train:
+                    raise RuntimeError('Resume training samples changed')
+                if digest(folder/'losses.json')!=receipt['losses_sha256']:
+                    raise RuntimeError('Resume losses changed')
+                head.load_state_dict(load(folder/'head.pt',receipt['checkpoint_sha256']),strict=True)
+            else:
+                # No final receipt: retrain deterministically from initialization.
+                if args.resume and list(folder.glob('*_results.json')):
+                    raise RuntimeError('Saved scores without a verified training receipt')
+                write(folder/'training_samples.json',train)
+                optimizer=torch.optim.Adam(head.parameters(),lr=.001)
+                rng=np.random.default_rng(20261031)
+                losses=[]
+                for step in range(500):
+                    selected=rng.choice(len(train),size=4,replace=True)
+                    chosen=[train[i] for i in selected]
+                    x,y=batch([r['path'] for r in chosen],'regional',[r['sha256'] for r in chosen])
+                    optimizer.zero_grad();loss=refinement_loss(head(*x),y)
+                    if not torch.isfinite(loss):raise RuntimeError('Nonfinite CV loss')
+                    loss.backward();optimizer.step();losses.append(float(loss.detach()))
+                    if step%10==0:write(out/'progress.json',{'phase':'training','fold':fi,'step':step+1,'total':500})
+                save_tensor(head.state_dict(),folder/'head.pt');write(folder/'losses.json',losses)
+                write(training_receipt,{'checkpoint_sha256':digest(folder/'head.pt'),'losses_sha256':digest(folder/'losses.json')})
             for n in valnames:
+                result_path=folder/f'{n}_results.json'
+                receipt_path=folder/f'{n}_complete.json'
+                if args.resume and receipt_path.exists():
+                    scores=verified_sequence_result(folder,n,[r['frame'] for r in native_rows[n]])
+                    all_sequences[n]=scores['sequences'][n]
+                    continue
                 existing=sorted([r for r in index if r['sequence']==n],key=lambda r:r['frame'])
                 targets=[r['frame'] for r in native_rows[n]]
                 fresh=[r['frame'] for r in existing]!=targets
                 if fresh:
                     if shutil.disk_usage(out).free < 4*1024**3+len(targets)*6*1024**2:
                         raise RuntimeError('Insufficient Drive-backed disk space for sequence capture')
-                    existing,_=capture(args,n,videos[n],targets,gate=False)
-                    write(folder/f'{n}_cache_index.json',existing)
+                    cache_index=folder/f'{n}_cache_index.json'
+                    if args.resume and cache_index.exists():
+                        existing=json.loads(cache_index.read_text())
+                        if [r['frame'] for r in existing]!=targets or any(r['sequence']!=n for r in existing):
+                            raise RuntimeError(f'Resume cache coverage mismatch: {n}')
+                    else:
+                        if (out/'cache'/n).exists():
+                            raise RuntimeError(f'Incomplete capture without index: {n}; inspect before recapture')
+                        existing,_=capture(args,n,videos[n],targets,gate=False)
+                        write(cache_index,existing)
                 for r in existing:
                     if digest(r['path'])!=r['sha256']:raise RuntimeError('Validation cache mismatch')
                 write(out/'progress.json',{'phase':'validation','fold':fi,'sequence':n})
                 scores=evaluate(args,head,'regional',existing,None)
-                write(folder/f'{n}_results.json',scores)
+                write(result_path,scores)
+                write(receipt_path,{'results_sha256':digest(result_path),'checkpoint_sha256':digest(folder/'head.pt')})
                 all_sequences[n]=scores['sequences'][n]
                 write(out/'partial_sequences.json',all_sequences)
                 if fresh:cleanup_new_tensors(existing,out/'cache'/n)
@@ -182,11 +250,11 @@ def main():
                   f"Exploratory sequence-bootstrap delta interval: {result['delta_ci95']}.",
                   'No external confirmation, new regional method, or additional seeds were launched. Interpret gains together with all sequence losses, false alarms and return outcomes in results.json.']
         (out/'results.md').write_text('\n'.join(lines)+'\n')
-        check_sources(prior['sources']);check_sources(hashes)
+        check_compatible_sources(prior['sources']);check_sources(hashes)
         write(out/'completion.json',{'complete':True,'folds':3,'sequences':len(all_sequences),'seed':20261031})
         write(out/'progress.json',{'phase':'complete'})
     except BaseException as e:
-        write(out/'failure.json',{'error':repr(e)})
+        write(out/(f'resume_failure_{time.time_ns()}.json' if args.resume else 'failure.json'),{'error':repr(e)})
         raise
 
 

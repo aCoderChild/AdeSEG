@@ -1,6 +1,8 @@
 """Frozen, Drive-only UACANet-derived SAM2 refinement verification and pilot."""
 import argparse
 import gc
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -41,15 +43,48 @@ CORE=('prediction_sha256','low_res_sha256','bank_sha256','cache_sha256')
 
 
 def write(path,value):
-    path.write_text(json.dumps(value,indent=2)+'\n')
+    """Atomic JSON replacement; temporary data stays beside the Drive output."""
+    path = Path(path)
+    fd, temporary = tempfile.mkstemp(prefix=path.name+'.', suffix='.tmp', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(json.dumps(value,indent=2)+'\n')
+            stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
-def load(path):
-    return torch.load(path,map_location='cpu',weights_only=True)
+def load(path, expected_sha256=None):
+    """Hash and deserialize the same byte snapshot, with safe loading retained."""
+    path = Path(path)
+    try:
+        data = path.read_bytes()
+        if expected_sha256 is not None and hashlib.sha256(data).hexdigest()!=expected_sha256:
+            raise ValueError('SHA256 mismatch')
+        return torch.load(io.BytesIO(data),map_location='cpu',weights_only=True)
+    except Exception as error:
+        raise RuntimeError(f'Cannot load verified tensor {path}: {error}') from error
 
 
-def batch(paths,arm):
-    samples=[load(p) for p in paths]
+def save_tensor(value, path):
+    """Publish a tensor only after safe readback of its temporary file."""
+    path = Path(path)
+    fd, temporary = tempfile.mkstemp(prefix=path.name+'.', suffix='.tmp', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            torch.save(value, stream)
+            stream.flush(); os.fsync(stream.fileno())
+        load(temporary)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def batch(paths,arm,expected_hashes=None):
+    if expected_hashes is None:
+        expected_hashes = [None]*len(paths)
+    samples=[load(p,h) for p,h in zip(paths,expected_hashes,strict=True)]
     return (torch.stack([s['query'] for s in samples]),torch.stack([s['contexts'][arm] for s in samples]),
             torch.stack([s['valid'][arm] for s in samples]),torch.stack([s['native'] for s in samples]),
             torch.tensor([s['object_score'] for s in samples])),torch.stack([s['target'] for s in samples])
@@ -109,7 +144,7 @@ def capture(args,name,frames,selected,gate=False):
                              'object_score':sample['object_score'],'prediction_sha256':core['prediction_sha256']})
                 with (folder/'integrity.jsonl').open('a') as s:s.write(json.dumps({'frame':frame,**core,'memory_frames':sample['memory_frames'],'spatial_keys':sample['spatial_keys'],'pointer_keys':sample['pointer_keys'],'layers':layer_calls})+'\n')
                 if frame in selected:
-                    path=folder/f'{frame:06d}.pt';torch.save(sample,path)
+                    path=folder/f'{frame:06d}.pt';save_tensor(sample,path)
                     index.append({'sequence':name,'frame':frame,'path':str(path),'sha256':author.digest(path),
                                   'mask':str(frames[frame].mask_path),'object_score':sample['object_score']})
                 write(args.output_dir/'progress.json',{'phase':'capture_gate' if gate else 'capture','sequence':name,'frame':frame,'last':len(frames)-1})
@@ -129,20 +164,24 @@ def overfit(args,index):
     selected=[r for r in index if r['object_score']>0][:2]
     if len(selected)!=2:raise RuntimeError('Need two enabled training samples')
     torch.manual_seed(20261031);head=RegionalRefinement().train()
-    inputs,target=batch([r['path'] for r in selected],'regional')
+    inputs,target=batch([r['path'] for r in selected],'regional',[r['sha256'] for r in selected])
     optimizer=torch.optim.Adam(head.parameters(),lr=.001)
-    losses=[];gradient_seen=False
+    losses=[];gradient_seen={name:False for name in ('conv_query','conv_key','conv_value')}
     for step in range(500):
         optimizer.zero_grad();prediction=head(*inputs);loss=refinement_loss(prediction,target)
         if not torch.isfinite(loss):raise RuntimeError('Nonfinite overfit loss')
         loss.backward()
         if step>0:
-            gradients=[p.grad for n,p in head.named_parameters() if ('conv_query' in n or 'conv_key' in n or 'conv_value' in n) and p.grad is not None]
-            gradient_seen |= any(bool(g.abs().sum()>0) for g in gradients)
+            for name in gradient_seen:
+                gradients=[p.grad for n,p in head.named_parameters() if name in n and p.grad is not None]
+                gradient_seen[name] |= any(bool(torch.isfinite(g).all() and g.abs().sum()>0) for g in gradients)
         optimizer.step();losses.append(float(loss.detach()))
         if step%50==0:print(f'[overfit] step={step} loss={losses[-1]:.6f}',flush=True)
-    passed=gradient_seen and losses[-1]<=losses[0]*.5
-    write(args.output_dir/'overfit.json',{'passed':passed,'gradient_seen':gradient_seen,'samples':selected,'losses':losses,'scope':'training-only debugging, not efficacy'})
+    head.eval()
+    with torch.no_grad():
+        eval_loss=float(refinement_loss(head(*inputs),target))
+    passed=all(gradient_seen.values()) and losses[-1]<=losses[0]*.5 and eval_loss<=losses[0]*.5
+    write(args.output_dir/'overfit.json',{'passed':passed,'gradient_seen':gradient_seen,'evaluation_loss':eval_loss,'samples':selected,'losses':losses,'scope':'training-only debugging, not efficacy'})
     with torch.no_grad():
         fitted=head(*inputs)
         for i in range(2):
@@ -156,7 +195,7 @@ def evaluate(args,head,arm,index,native):
     head.eval();rows={};latencies=[]
     with torch.no_grad():
         for row in index:
-            inputs,_=batch([row['path']],arm)
+            inputs,_=batch([row['path']],arm,[row['sha256']])
             start=time.perf_counter();output=head(*inputs);latencies.append(time.perf_counter()-start)
             truth=load_label_mask(Path(row['mask']),[1])==1
             predicted=F.interpolate(output,size=truth.shape,mode='bilinear',align_corners=False)[0,0].numpy()>0
@@ -240,7 +279,7 @@ def main():
                 losses=[]
                 for step in range(protocol['training']['steps']):
                     selected=rng.choice(len(training),size=4,replace=True)
-                    inputs,target=batch([training[i]['path'] for i in selected],arm)
+                    inputs,target=batch([training[i]['path'] for i in selected],arm,[training[i]['sha256'] for i in selected])
                     optimizer.zero_grad();loss=refinement_loss(head(*inputs),target)
                     if not torch.isfinite(loss):raise RuntimeError('Nonfinite pilot loss')
                     loss.backward();optimizer.step();losses.append(float(loss.detach()))
@@ -248,7 +287,7 @@ def main():
                         print(f'[train] {arm} seed={seed} step={step} loss={losses[-1]:.6f}',flush=True)
                         write(args.output_dir/'progress.json',{'phase':'training','arm':arm,'seed':seed,'step':step})
                 destination=args.output_dir/f'{arm}_{seed}';destination.mkdir()
-                torch.save(head.state_dict(),destination/'head.pt');write(destination/'losses.json',losses)
+                save_tensor(head.state_dict(),destination/'head.pt');write(destination/'losses.json',losses)
                 evaluation=evaluate(args,head,arm,testing,native)
                 write(destination/'results.json',evaluation)
                 results.append({'arm':arm,'seed':seed,**{k:v for k,v in evaluation.items() if k!='frames'}})
