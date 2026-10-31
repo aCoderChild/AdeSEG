@@ -28,7 +28,7 @@ from scripts.run_author_baseline import build_author_predictor, source_identity,
 from scripts.run_regional_refinement import load, save_tensor, write
 
 PROTOCOL = 'protocols/cfbi_region_gate_pilot_v1.json'
-SOURCES = [PROTOCOL, 'scripts/run_cfbi_region_pilot.py', 'modeling/cfbi_region_gate.py',
+SOURCES = [PROTOCOL, 'protocols/cfbi_region_gate_development_v1.json', 'scripts/run_cfbi_region_pilot.py', 'modeling/cfbi_region_gate.py',
            'modeling/cfbi_training.py', 'tests/test_cfbi_region_pilot.py',
            'tests/test_cfbi_region_gate.py', 'tests/test_cfbi_training.py',
            'modeling/region_definitions.py', 'modeling/region_tokens.py', 'modeling/region_bias.py',

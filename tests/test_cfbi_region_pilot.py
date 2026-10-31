@@ -27,3 +27,9 @@ def test_baseline_coverage_rejects_missing_or_invalid_frames():
         verify_baseline_coverage(rows[:1],0,3)
     with pytest.raises(RuntimeError,match='presence'):
         verify_baseline_coverage([{'frame':1,'present':1}],0,2)
+
+
+def test_all_nonzero_smoke_sources_are_frozen():
+    from scripts.run_cfbi_region_pilot import SOURCES
+    assert {'modeling/cfbi_region_gate.py', 'modeling/cfbi_training.py',
+            'protocols/cfbi_region_gate_development_v1.json'} <= set(SOURCES)
