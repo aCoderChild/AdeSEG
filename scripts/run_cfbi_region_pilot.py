@@ -219,10 +219,11 @@ def main():
         gradient = json.loads((args.engineering_dir / 'training_adapter_gate/gradient_gate.json').read_text())
         serialized = json.loads((args.engineering_dir / 'serialized_adapter_gate/optimizer_gate.json').read_text())
         tests = json.loads((args.engineering_dir / 'pilot_tests_receipt.json').read_text())
-        if not (smoke['passed'] and zero['passed'] and gradient['passed'] and serialized['passed'] and tests['passed']):
+        integration = json.loads((args.engineering_dir / 'pilot_integration_gate/completion.json').read_text())
+        if not (smoke['passed'] and zero['passed'] and gradient['passed'] and serialized['passed'] and tests['passed'] and integration['passed']):
             raise RuntimeError('Real-data gates incomplete')
-        if tests['sources'] != hashes:
-            raise RuntimeError('Test receipt source differs')
+        if tests['sources'] != hashes or integration['sources'] != hashes:
+            raise RuntimeError('Test or integration receipt source differs')
         if any(hashes[name] != expected for name, expected in smoke['source_hashes'].items()):
             raise RuntimeError('Nonzero smoke source differs')
         repo, revision = source_identity('sam2')
