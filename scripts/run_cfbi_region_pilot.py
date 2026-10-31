@@ -253,6 +253,12 @@ def main():
                     raise RuntimeError(f'Exact image shared across sequences: {owner}/{name}')
         references = {name: digest(args.reference_dir / f'full_{name}_C0.zip') for name in protocol['training_sequences']}
         baseline_hashes = {name: digest(args.source / 'cache' / name / 'native_frames.json') for name in protocol['validation_sequences']}
+        native = {}
+        for name in protocol['validation_sequences']:
+            rows = json.loads((args.source / 'cache' / name / 'native_frames.json').read_text())
+            prompt = prompt_index(videos[name], {'initialization': 'first_labeled_frame'})
+            verify_baseline_coverage(rows, prompt, len(videos[name]))
+            native[name] = {**propagation_summary(rows), **{key: float(np.mean([r['scores'][key] for r in rows if r['present']])) for key in ('iou', 'boundary_f')}}
         write(args.output_dir / 'setup.json', {'protocol': protocol, 'sources': hashes, 'sam2_revision': revision,
               'checkpoint_sha256': prior['checkpoint_sha256'], 'manifest_sha256': prior['manifest_sha256'],
               'source32_setup_sha256': digest(args.source / 'setup.json'), 'inputs_sha256': inputs_hash,
@@ -266,12 +272,6 @@ def main():
         write(args.output_dir / 'schedule.json', schedule.tolist())
         for mode in protocol['conditions']:
             train(args, samples, repo, mode, schedule)
-        native = {}
-        for name in protocol['validation_sequences']:
-            rows = json.loads((args.source / 'cache' / name / 'native_frames.json').read_text())
-            prompt = prompt_index(videos[name], {'initialization': 'first_labeled_frame'})
-            verify_baseline_coverage(rows, prompt, len(videos[name]))
-            native[name] = {**propagation_summary(rows), **{key: float(np.mean([r['scores'][key] for r in rows if r['present']])) for key in ('iou', 'boundary_f')}}
         results = {'native': native, 'conditions': {}, 'scope': protocol['limits']}
         for mode in protocol['conditions']:
             info = json.loads((args.output_dir / mode / 'training.json').read_text())
