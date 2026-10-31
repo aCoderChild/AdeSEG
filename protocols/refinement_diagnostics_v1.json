@@ -1,0 +1,10 @@
+{
+  "date": "2026-10-31",
+  "scope": "Post hoc diagnostics of source32 seed20261031; no training, tuning, or SAM2 inference.",
+  "arms": ["generic", "regional", "shuffled"],
+  "training_check": "All181 enabled cached training samples in recorded order, groups of4, final group kept at its actual size. Compare identical batches in eval and train modes without gradients. Reload the saved state before every train-mode batch so BN updates cannot accumulate. Report per-frame loss and256-grid Dice and equal-sequence means. Train-mode results are diagnostic only.",
+  "context_mapping": "For each validation target, choose a donor from another validation sequence with the same regional valid-group pattern. Sort candidates by numeric sequence then frame; use target index modulo candidate count. Mapping uses only identifiers and predicted valid-group patterns, never GT or scores. Use the same donor for all arms. No compatible donor => explicitly ineligible, do not change the pattern.",
+  "evaluation": "All372 post-prompt targets seq16-23, original versus donor contexts, head eval mode. Preserve recipient query, native logits and object score. Report present-frame Dice, IoU, Boundary F, GT-empty false alarms and mean absolute logit change by sequence. Original-context Dice/IoU/BoundaryF must reproduce saved records within1e-9 before accepting each result. Context swaps are out-of-distribution diagnostic perturbations, not deployable methods.",
+  "integrity": "Verify every consumed cache SHA and all frozen source32 hashes, record checkpoint hashes and mapping before evaluation. No source32 mutations. Save results on Drive. Gate exercises train-mode state restoration and original-score replay before the full diagnostic.",
+  "next_stage": "Do not automatically launch another training pilot. Review train/eval gaps and context dependence first. Fix demonstrated normalization problems before any new model comparison; otherwise freeze a separate current-frame-only versus distinct nonregional versus regional context protocol. No universal Dice-gap threshold is inferred after results."
+}
