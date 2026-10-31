@@ -1,0 +1,36 @@
+{
+  "status": "pre-specified exploratory pilot; not independent confirmation",
+  "rationale": "CFBI's instance-attention gate is conditioned on SAM2's predicted background, interior and boundary memory summaries. Test region assignment against matched unlabelled and per-frame shuffled controls, with native SAM2 as the primary reference.",
+  "training_sequences": [
+    "seq4",
+    "seq5",
+    "seq9"
+  ],
+  "validation_sequences": [
+    "seq2",
+    "seq3",
+    "seq13",
+    "seq17"
+  ],
+  "training_targets": "Select four evenly spaced post-prompt target indices per training sequence before using outcomes. Retain all sampled targets regardless of native object score; hard no-object decisions can yield zero gradients.",
+  "training": {
+    "steps": 24,
+    "batch_size": 1,
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "seed": 20261031,
+    "loss": "BCE plus pinned SAM2 Dice on 256x256 ground-truth training mask",
+    "initialization": "zero CFBI IA_gate",
+    "schedule": "same RNG-selected sample indices for all conditions"
+  },
+  "conditions": [
+    "regional",
+    "shuffled",
+    "generic"
+  ],
+  "method": "Frozen SAM2, native frame selection and memory writing. Offline one-frame teacher-forced training from native trajectories; autonomous full-sequence validation, each condition using its own predicted memory masks. Generic repeats global mean, so information differs although gate parameter counts match. Only first-frame GT prompt during validation.",
+  "metrics": "Sequence mean present Dice and IoU, Boundary F, GT-empty false alarms, return events and per-frame scores. Compare all conditions to native and to each other; no significance or reliability claim from four selected validation sequences.",
+  "gates": "Require seq2/seq3 native hash parity, real multi-memory gradient/reload test, nonzero three-control full-propagation smoke, complete frozen-source test suite, and input/reference integrity checks. Output only on Drive. Stop on any mismatch or nonfinite value.",
+  "limits": "All PolypGen sequences have informed development; no untouched/patient-independent claim. Tiny sequence sample and single seed are a feasibility screen. No selection of the best region or seed and no automatic full-cohort or external evaluation.",
+  "validation_selection": "Seq2/3 are the engineering-gate sequences; seq13/17 are targeted stress cases identified by the prior current-frame correction diagnostic. Selection is outcome-informed and not representative."
+}
