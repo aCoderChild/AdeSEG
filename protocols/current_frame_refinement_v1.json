@@ -1,0 +1,10 @@
+{
+  "date": "2026-10-31",
+  "scope": "Exploratory current-frame-only ablation following sources32/33, not untouched confirmation.",
+  "hypothesis": "Does the additional pooled-memory branch improve over the same convolutional correction pathway using only native memory-conditioned current-frame features?",
+  "reuse": "Reuse pinned UACANet-derived source32 projection and conv_out2/3/4. Delete q/k/v and conv_out1 context processing; slice conv_out2 input weights to its first64 current-feature channels. Shared weights and BN buffers retain exact source32 seeded initialization. No new learned blocks; fewer parameters, explicitly reported.",
+  "fixed": "Same source32 cached181 positive-native-object-score training frames, original order, numpy RNG seed20261031 sampled batches4 with replacement, 500 Adam steps lr0.001, BCE plus author Dice, final checkpoint only. All372 validation frames seq16-23, same original-resolution metrics. Native object-score gate retained; native SAM2 writes unchanged; no SAM2 inference. Query already contains native memory information.",
+  "gate": "Synthetic exact zero residual, absent-score protection, context independence and shared initialization; real four-frame gradient check and zero-head lowres equality plus original-resolution native Dice/IoU/BoundaryF replay on seq18/23. Gate optimizer/model discarded before fresh full training.",
+  "integrity": "Frozen source32 hashes, all consumed cache hashes, source33 completion/replay receipts and checkpoint/reference report hashes recorded. New output directory only on Drive. No mutation of source32/33. Protocol/code committed before launch.",
+  "report": "Compare native, current-only, generic, regional and shuffled equal-sequence present Dice and per-sequence values, BoundaryF, IoU, false alarms, returns and parameter counts. Training loss recorded each step. No tuning, additional seeds or automatic further training. Interpret single-seed comparison with disclosed capacity difference; no significance claim."
+}
