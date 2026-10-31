@@ -179,6 +179,13 @@ def validate(args, frames, repo, mode, name, checkpoint, checkpoint_hash):
     return rows, summary
 
 
+def verify_baseline_coverage(rows, prompt, length):
+    if [r['frame'] for r in rows] != list(range(prompt + 1, length)):
+        raise RuntimeError('Native baseline does not cover the full validation trajectory')
+    if any(not isinstance(r['present'], bool) for r in rows):
+        raise RuntimeError('Native baseline presence labels are invalid')
+
+
 def report(results, names):
     lines = ['# Exploratory CFBI region-gate pilot', '',
              'Outcome-informed stress cases; four sequences, one seed, no independent confirmation.', '',
@@ -262,6 +269,8 @@ def main():
         native = {}
         for name in protocol['validation_sequences']:
             rows = json.loads((args.source / 'cache' / name / 'native_frames.json').read_text())
+            prompt = prompt_index(videos[name], {'initialization': 'first_labeled_frame'})
+            verify_baseline_coverage(rows, prompt, len(videos[name]))
             native[name] = {**propagation_summary(rows), **{key: float(np.mean([r['scores'][key] for r in rows if r['present']])) for key in ('iou', 'boundary_f')}}
         results = {'native': native, 'conditions': {}, 'scope': protocol['limits']}
         for mode in protocol['conditions']:
