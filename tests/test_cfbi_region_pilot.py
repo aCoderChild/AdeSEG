@@ -33,3 +33,19 @@ def test_all_nonzero_smoke_sources_are_frozen():
     from scripts.run_cfbi_region_pilot import SOURCES
     assert {'modeling/cfbi_region_gate.py', 'modeling/cfbi_training.py',
             'protocols/cfbi_region_gate_development_v1.json'} <= set(SOURCES)
+
+
+def test_author_repo_is_importable_from_fresh_path(tmp_path, monkeypatch):
+    import importlib.machinery
+    import sys
+    from scripts import run_cfbi_region_pilot as pilot
+    repo = tmp_path / 'author'
+    (repo / 'sam2').mkdir(parents=True)
+    (repo / 'sam2' / '__init__.py').write_text('')
+    monkeypatch.setattr(pilot, 'source_identity', lambda method: (repo, 'revision'))
+    monkeypatch.setattr(sys, 'path', list(sys.path))
+    assert pilot.activate_author_repo() == (repo, 'revision')
+    assert pilot.activate_author_repo() == (repo, 'revision')
+    assert sys.path.count(str(repo)) == 1
+    spec = importlib.machinery.PathFinder.find_spec('sam2', sys.path)
+    assert spec is not None and spec.origin == str(repo / 'sam2' / '__init__.py')

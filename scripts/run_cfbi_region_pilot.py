@@ -40,6 +40,14 @@ SOURCES = [PROTOCOL, 'protocols/cfbi_region_gate_development_v1.json', 'scripts/
 CORE = ('prediction_sha256', 'low_res_sha256', 'bank_sha256', 'cache_sha256')
 
 
+def activate_author_repo():
+    repo, revision = source_identity('sam2')
+    path = str(repo)
+    if path not in sys.path:
+        sys.path.insert(0, path)
+    return repo, revision
+
+
 def training_targets(prompt, length):
     targets = list(range(prompt + 1, length))
     if len(targets) < 4:
@@ -235,7 +243,7 @@ def main():
             raise RuntimeError('Test or integration receipt source differs')
         if any(hashes[name] != expected for name, expected in smoke['source_hashes'].items()):
             raise RuntimeError('Nonzero smoke source differs')
-        repo, revision = source_identity('sam2')
+        repo, revision = activate_author_repo()
         manifest = ROOT / 'data/polypgen_sequence.jsonl'
         prior = json.loads((args.source / 'setup.json').read_text())
         if digest(args.checkpoint) != prior['checkpoint_sha256'] or digest(manifest) != prior['manifest_sha256']:
