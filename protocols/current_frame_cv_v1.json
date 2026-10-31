@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-31",
+  "scope": "Exploratory three-fold sequence-grouped PolypGen development comparison; all sequences have previously informed the design. No patient-independent or external confirmation claim.",
+  "patient_evidence": "Manifest has no patient IDs. PolypGen paper Table3 describes23 sequences but does not establish a one-to-one unique-patient mapping: https://pmc.ncbi.nlm.nih.gov/articles/PMC9902556/ . Keep each sequence intact; reject exact-image overlap between sequences. Amend before further runs if patient mapping becomes available.",
+  "validation_folds": [
+    ["seq13", "seq21", "seq18", "seq6", "seq10", "seq14", "seq15"],
+    ["seq16", "seq12", "seq22", "seq5", "seq17", "seq19", "seq11"],
+    ["seq20", "seq3", "seq23", "seq8", "seq9", "seq2", "seq4"]
+  ],
+  "fold_generation": "Numeric eligible21sequence list, numpy default_rng(20261031).permutation then array_split3, frozen without using outcomes. Train on the other14 sequences. Seq1/7 excluded under existing prompt protocol.",
+  "training": "Unchanged current-frame head source34, single seed20261031 per fold, fresh initialization and optimizer. Select at most16 evenly spaced post-prompt frame indices per training sequence before filtering native object_score>0. Batch4 sampled uniformly with replacement from selected frames, Adam lr0.001, 500steps BCE+authorDice, final checkpoint only, no augmentation/tuning. Do not load a previously trained head.",
+  "evaluation": "All post-prompt frames of each held-out sequence exactly once, native SAM2 versus current-frame correction. Equal-sequence present Dice primary; IoU, BoundaryF, GT-empty false alarms, return delays and undetected returns secondary. Preserve native presence gate. Keep all sequence gains/losses; no selection of best folds or cases. Report per-fold and pooled out-of-fold means, paired sequence delta bootstrap95percent interval using existing function seed20261031, and exploratory paired Wilcoxon; overlapping training folds and unknown patient identity limit inference.",
+  "reuse": "Reuse source32 author-backed capture, exact native replay receipts, batching and evaluation; source34 unchanged head; existing sequence statistics. Only orchestration, fold selection and report assembly are new.",
+  "storage": "Drive only. Reuse source32 tensors when complete; for incomplete validation sequences capture all targets one sequence at a time with native parity and four-layer checks. Save index hashes, integrity receipts and metrics before removing ONLY newly generated per-frame.pt files. Preserve all old caches and checkpoints. Reserve4GiB free before capture with conservative6MiB per target estimate.",
+  "gates": "Tests verify disjoint exhaustive folds and outcome-independent sampling. Require source34 completion, original input/checkpoint/manifest/source hashes, no exact cross-sequence duplicates, and full seq2 native/corrector-zero replay gate before full cross-validation. Fail closed on mismatches. No regional extension or E4 automatically launched."
+}
