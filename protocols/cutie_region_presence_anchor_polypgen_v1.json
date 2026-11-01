@@ -1,0 +1,47 @@
+{
+  "name": "Presence-anchored Cutie regional memory readout",
+  "status": "Exploratory follow-up to experiment 92; no shuffled arm",
+  "motivation": "The prior Cutie regional projection produced nonempty raw decoder masks but drove SAM2 object-presence scores below zero on severe failure frames. SAM2 then replaced those masks with its no-object value. This run tests a fixed teacher-consistency term on presence scores, not a new inference threshold.",
+  "method": {
+    "regions": "Frozen predicted-mask grid assignment: background, foreground interior, and mixed boundary cells.",
+    "regional_branch": "Pinned Cutie regional summaries and pretrained CrossAttention, with the zero-initialized SAM2 output projection used in experiment 92.",
+    "loss": "Author-compatible decoder mask loss + SAM2 object-presence loss + 1.0 * SmoothL1(regional object score, archived native SAM2 object score) on GT-present training frames only.",
+    "inference": "No score threshold changes. Native encoder, memory writer, attention, decoder, pointers, frame schedule and all memory tokens are retained.",
+    "controls": "Paired native SAM2 reference only. No shuffled condition, per user direction."
+  },
+  "prior_work": {
+    "repository": "https://github.com/hkchengrex/Cutie",
+    "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+    "regional_components": "Reuses the same pinned Cutie ObjectSummarizer/CrossAttention components as experiment 92.",
+    "training_signal": "Uses SAM2's existing object-presence objective plus fixed consistency to archived native scores; no external learned component."
+  },
+  "model": {
+    "sam2_configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "frozen": ["SAM2 image encoder", "SAM2 memory encoder", "SAM2 native attention", "SAM2 decoder"],
+    "trainable": ["Cutie regional readers", "regional embeddings", "per-layer zero-initialized output projections"]
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "evaluation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "clip_length": 5,
+    "epochs": 5,
+    "seed": 20261106,
+    "scope": "Exploratory only: PolypGen has informed prior design and evaluation; seq16-seq23 are not untouched; patient independence is unverified."
+  },
+  "training": {
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "presence_anchor_weight": 1.0,
+    "anchor_selection": "GT-present training targets only; the normal presence loss handles absent targets.",
+    "updates": 65,
+    "no_evaluation_tuning": true
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice paired against archived native SAM2 on seq16-seq23.",
+    "exploratory_meaningful_screen": "At least +0.01 equal-sequence Dice, higher Dice on at least 6/8 sequences, and no increase in pooled false alarms on GT-empty frames.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false alarms", "missed returns", "attention-layer reads"],
+    "interpretation": "Passing the exploratory screen is a candidate signal only and requires independent external confirmation and a prospectively specified second seed."
+  }
+}
