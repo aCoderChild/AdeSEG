@@ -1,0 +1,49 @@
+{
+  "name": "MatAnyone-inspired change-supervised regional memory fusion",
+  "status": "exploratory follow-up; specified after inspecting run 96 partial results",
+  "motivation": "Run 96 imported MatAnyone's uncertainty-predictor architecture, but trained the gate only through segmentation loss and used it to gate an additive residual. MatAnyone supervises its change map from temporal target differences and directly fuses memory readout with the previous-frame value. This candidate tests that missing mechanism while retaining SAM2's native attention path at initialization.",
+  "prior_implementation": {
+    "paper": "MatAnyone: Stable Video Matting with Consistent Memory Propagation, CVPR 2025",
+    "paper_url": "https://openaccess.thecvf.com/content/CVPR2025/html/Yang_MatAnyone_Stable_Video_Matting_with_Consistent_Memory_Propagation_CVPR_2025_paper.html",
+    "repository": "https://github.com/pq-yang/MatAnyone",
+    "revision": "e5ddc534c1fff9bb9e54cf476095d29071b7cb4f",
+    "reused_component": "The official UncertPred module and MatAnyone's temporal mask-change target are reused; SAM2-specific regional readout and identity-preserving residual are project integration."
+  },
+  "method": {
+    "regions": "Background, foreground interior and mixed-boundary labels come from each stored predicted mask, using the frozen region assignment protocol.",
+    "memory": "Keep SAM2's frames, every spatial memory token, attention keys and pointer tokens. Construct three region-specific reads from the native projected keys/values.",
+    "fusion": "Predict per-query temporal-change probability U. Form a MatAnyone-style candidate U*regional_memory + (1-U)*recent_value, then apply a bounded learned residual toward that candidate. The residual coefficient initializes to zero, preserving exact native output before training.",
+    "change_target": "For each adjacent training pair, downsample abs(GT_t-GT_(t-1)) by area to the query grid and label any changed cell positive. GT is used only as a training target; inference-time region labels and inputs use SAM2 predictions/features.",
+    "frames": "Use SAM2's unchanged native frame schedule. No frame selection, frame dropping or good/bad-frame rule."
+  },
+  "training": {
+    "folds": "The same fixed sequence groups as the preceding run, copied here so the candidate protocol is self-contained.",
+    "clip_length": 5,
+    "epochs": 5,
+    "clips_per_sequence_per_epoch": 1,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "max_gradient_norm": 1.0,
+    "seed": 20261108,
+    "temporal_change_loss_weight": 1.0,
+    "loss": "Existing autoregressive SAM2 mask Dice/BCE plus object-presence loss, with temporal-change BCE weight 1.0.",
+    "frozen": ["SAM2 image encoder", "SAM2 memory encoder", "SAM2 decoder", "native frame schedule"]
+  },
+  "engineering_gate": {
+    "sequence": "seq5",
+    "required": ["zero-residual masks, scores and stored memory equal native SAM2", "change loss gives finite nonzero gradients to all four uncertainty predictors", "after one optimizer update regional projections and residual scales receive finite nonzero gradients", "all four layers observed on every read", "all spatial and pointer keys retained", "updated full clip propagation completes and changes at least one prediction"]
+  },
+  "evaluation": {
+    "cohort": "21 promptable sequences; seq1 and seq7 excluded because they have no positive prompt mask.",
+    "folds": [
+      ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21"],
+      ["seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22"],
+      ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"]
+    ],
+    "primary": "Equal-sequence mean present-frame Dice on out-of-fold predictions.",
+    "meaningful_development_screen": "At least +0.01 mean Dice, positive delta on at least 14/21 sequences, and no increase in GT-empty false alarms.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "GT-empty false alarms", "missed-return events", "actual memory/pointer key counts", "runtime"],
+    "interpretation": "PolypGen and these sequences have already informed method development. Results are exploratory only; sequence grouping is not patient-level validation because patient identity is unverified."
+  }
+}
