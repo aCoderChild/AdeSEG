@@ -1,0 +1,63 @@
+{
+  "name": "Region-supervised tuning of SAM2 memory query/key projections",
+  "status": "prospective exploratory protocol; freeze before engineering gate and full cohort",
+  "motivation": "Prior fixed adapters changed SAM2's values after the memory read and had negligible or unstable Dice effects. This candidate uses pinned CFBI foreground/background matching evidence to train SAM2's existing memory q/k projections, so region roles can shape which stored features are similar. It keeps native attention, all frames and all spatial/pointer tokens.",
+  "prior_work": {
+    "CFBI": {
+      "paper": "Collaborative Video Object Segmentation by Foreground-Background Integration",
+      "paper_url": "https://arxiv.org/abs/2003.08333",
+      "repository": "https://github.com/z-x-yang/CFBI",
+      "revision": "91fc6a31b1752a8a9110b3ed480e05656f756691",
+      "reused_code": "The unchanged author global_matching function and pairwise-distance helpers are loaded from external/CFBI/networks/layers/matching.py. Region-specific maps are used by the existing SAM2 residual adapter."
+    },
+    "SAM2": {
+      "repository": "https://github.com/facebookresearch/sam2",
+      "reused_code": "The pinned author's track_step, native video predictor, mask/presence losses, and SAM2 memory-attention projections. This project-specific runner trains only cross-attention q_proj and k_proj plus the existing CFBI evidence projection."
+    }
+  },
+  "hypothesis": "Supervised adaptation of SAM2's native memory query/key projections through three CFBI-derived region evidence channels can improve how spatial memory is matched, without selecting frames, deleting tokens, or hard attention gates.",
+  "method": {
+    "regions": "Three predicted-mask groups on the 64x64 memory grid: foreground interior, mixed boundary cells, and background, using the frozen project mixed-cell assignment.",
+    "query_and_memory_features": "The pinned CFBI matcher receives L2-normalized 16x16 pooled SAM2 cross-attention q/k descriptors before rotary encoding; memory descriptors are grouped by the labels of each frame's actually stored predicted mask.",
+    "regional_arm": "Train the four native memory-attention layers' q_proj/k_proj and the existing zero-initialized CFBI regional-evidence residual projections. Segmentation mask and object-presence losses drive the learned regional matching path.",
+    "matched_control": "Train the same q_proj/k_proj parameters, on the same clips, seeds, optimizer schedule and segmentation/presence loss, with the regional-evidence residual disabled and native attention returned unchanged. This controls for generic q/k fine-tuning.",
+    "inference": "Use the trained q/k weights and, for the regional arm, the CFBI regional-evidence residual. All original spatial keys, pointers and native SDPA remain active; no hard gate, threshold, frame selection or token removal is used.",
+    "prediction_source": "Stored memory region labels use each memory frame's own predicted mask. Ground-truth masks are used only as targets for the author's segmentation and presence losses, never as inference inputs."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "folds": [
+      ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21"],
+      ["seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22"],
+      ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"]
+    ],
+    "independence": "Sequence-grouped exploratory CV only. PolypGen has informed earlier candidate development and patient-to-sequence independence is unverified."
+  },
+  "training": {
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "clip_length": 5,
+    "epochs": 10,
+    "clips_per_training_sequence_per_epoch": 1,
+    "sampler": "Pinned SAM2 RandomUniformSampler; consecutive clips with a positive prompt frame.",
+    "seed": 20261102,
+    "optimizer": "AdamW",
+    "qk_learning_rate": 0.00001,
+    "regional_projection_learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "gradient_norm": 1.0,
+    "loss": "Pinned SAM2 autoregressive decoder mask Dice/BCE plus object-presence loss; identical for both arms.",
+    "frozen": ["image encoder", "memory encoder", "mask decoder", "self-attention", "feed-forward blocks", "native frame schedule"]
+  },
+  "evaluation": {
+    "design": "Three sequence-grouped folds; each sequence receives one out-of-fold full propagation per arm.",
+    "primary": "Equal-sequence mean present-frame Dice.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "GT-empty false alarms", "re-detection delay", "runtime", "actual spatial and pointer key counts"],
+    "screen_vs_native": "At least +0.01 equal-sequence mean Dice, positive delta on at least 14/21 sequences, and no increase in pooled GT-empty false alarms.",
+    "region_attribution_screen": "Regional arm must also outperform the matched q/k-only arm: positive mean Dice difference and wins on at least 14/21 sequences, with no increase in false alarms versus that arm.",
+    "scope": "Any result is exploratory on PolypGen; an untouched external video dataset is still needed for confirmatory evidence."
+  },
+  "decision": "Run the seq5 engineering gate before full CV. If the gate fails, stop and diagnose. If the frozen screens fail, record the outcome without tuning on this cohort."
+}
