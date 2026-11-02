@@ -1,0 +1,154 @@
+{
+  "name": "SimVOS regional prototypes PolypGen post-result seed replication",
+  "status": "post-result exploratory replication; frozen method and folds; not independent external confirmation",
+  "created": "2026-11-02",
+  "motivation": "Prior single-vector regional residuals and regional Q/K training did not pass the meaningful-improvement screen. This candidate adds multiple learned, mask-constrained prototypes from each stored memory frame as a separate attention read while preserving the complete native memory path.",
+  "prior_work": {
+    "SimVOS": {
+      "paper": "Scalable Video Object Segmentation with Simplified Framework",
+      "paper_url": "https://openaccess.thecvf.com/content/ICCV2023/html/Wu_Scalable_Video_Object_Segmentation_with_Simplified_Framework_ICCV_2023_paper.html",
+      "repository": "https://github.com/jimmy-dq/SimVOS",
+      "revision": "ef94709b9e8a4bda43276751be67f98ae1fc12e8",
+      "license": "GPL-3.0",
+      "reused_code": "The unchanged TokenLearnerModuleV11_w_Mask class is extracted from model/models_vit.py and verified against the pinned clean author source. Its learned mask-constrained assignment maps form per-region prototypes."
+    },
+    "SAM2": {
+      "repository": "https://github.com/facebookresearch/sam2",
+      "reused_code": "SAM2's four native RoPE memory-attention layers, native query/key/value projections, native scaled-dot-product attention, memory writer and decoder remain in the path."
+    }
+  },
+  "hypothesis": "Learned, spatially distributed summaries for foreground-interior, mixed-boundary and background positions can provide useful complementary memory context without selecting frames or removing native tokens.",
+  "method": {
+    "regions": "The frozen mixed-cell assignment from each stored frame's own native 256x256 predicted mask on its 64x64 memory grid.",
+    "prototype_count": 16,
+    "memory_policy": "Use every memory frame selected by native SAM2; preserve all 4096 spatial keys per frame and every native object-pointer key.",
+    "attention": "In each of the four layers, perform an additional SDPA read beside the complete native read. For each stored frame and represented region, the unchanged SimVOS TokenLearner produces a normalized value prototype and its assignment map. Project the value prototype through SAM2's native value projection. Use the assignment map to pool that same frame's already-projected, spatially and temporally encoded, RoPE-transformed native keys. The added read uses the current layer's native queries; object pointers remain exclusively in the unchanged dense read.",
+    "zero_initialization": "One additive prototype-read scale per layer is initialized to zero, making the initial model exactly native. The scales and three author TokenLearner modules are trained through the standard SAM2 segmentation and presence losses.",
+    "matched_control": "Use the same three TokenLearners, prototype count, scales, training clips, seed, optimizer and loss. For each region present in a frame, the regional arm constrains its learner to that region; the global control uses an all-one spatial mask. Both arms therefore add the same number of prototype keys for each stored frame, while only the regional arm constrains assignments by location.",
+    "training_targets": "Ground-truth masks are used only in the standard training loss. Predicted memory masks determine regional assignments at inference and training.",
+    "no_frame_selection": true,
+    "no_token_pruning": true,
+    "no_threshold_or_gate": true
+  },
+  "implementation_amendments": [
+    {
+      "date": "2026-11-02",
+      "scope": "Engineering correction before full-cohort CV; no full-CV outcomes had been generated for this candidate.",
+      "reason": "The active pinned SAM2 MemoryAttention API does not expose frame-unit metadata, and its RoPEAttention applies spatial rotary encoding to dense memory keys. The original integration assumed explicit frame-unit metadata and proposed unrotated prototype keys, which did not match the checked-out SAM2 implementation.",
+      "changes": [
+        "Associate each 4096-token memory block with a stored predicted mask by exact feature hash; fail on missing or ambiguous identities.",
+        "Pool assignment weights over the actual layer keys after SAM2 projection and RoPE, preserving native spatial and temporal key encoding.",
+        "Project the unchanged SimVOS normalized prototypes with SAM2's native value projection.",
+        "Make the global control skip absent region slots so it adds the same prototype-key count as the regional arm for a given stored frame.",
+        "Record the actual SAM2 architecture as Hiera-T; the 149 MB MedSAM2_latest checkpoint is Hiera-T, not Hiera-B+."
+      ],
+      "engineering_gate": "Seq2 and seq3 only; zero-gain replay and key accounting passed, but the post-update maximum logit delta reached 7.999676 on the seq3 pilot clip. This is an engineering observation, not an efficacy result; retain it in interpretation and do not tune on it."
+    }
+  ],
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15",
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded": {
+      "seq1": "No positive first-frame prompt mask",
+      "seq7": "No positive first-frame prompt mask"
+    },
+    "folds": [
+      [
+        "seq2",
+        "seq5",
+        "seq8",
+        "seq11",
+        "seq14",
+        "seq18",
+        "seq21"
+      ],
+      [
+        "seq3",
+        "seq6",
+        "seq9",
+        "seq12",
+        "seq15",
+        "seq19",
+        "seq22"
+      ],
+      [
+        "seq4",
+        "seq10",
+        "seq13",
+        "seq16",
+        "seq17",
+        "seq20",
+        "seq23"
+      ]
+    ],
+    "independence": "Sequence-grouped exploratory CV. PolypGen informed prior development; patient-to-sequence independence is unverified."
+  },
+  "training": {
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "clip_length": 5,
+    "epochs": 10,
+    "clips_per_training_sequence_per_epoch": 1,
+    "seed": 20261104,
+    "optimizer": "AdamW",
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "gradient_norm": 1.0,
+    "loss": "SAM2 autoregressive mask Dice/BCE plus object-presence loss, identical for regional and global arms.",
+    "frozen": [
+      "image encoder",
+      "memory encoder",
+      "SAM2 query/key/value/output projections",
+      "self-attention",
+      "feed-forward blocks",
+      "mask decoder",
+      "native frame schedule"
+    ]
+  },
+  "evaluation": {
+    "design": "Three sequence-grouped folds; every eligible sequence is evaluated once out of fold in full propagation.",
+    "primary": "Equal-sequence mean present-frame Dice.",
+    "secondary": [
+      "per-sequence Dice",
+      "IoU",
+      "Boundary F",
+      "GT-empty false-alarm frames",
+      "re-detection delay",
+      "native and prototype key counts",
+      "runtime"
+    ],
+    "screen_vs_native": "At least +0.01 equal-sequence mean Dice, positive delta on at least 14/21 sequences, and no increase in pooled GT-empty false alarms.",
+    "region_attribution_screen": "Regional prototypes must also beat the matched global-prototype control by at least +0.01 mean Dice, win on at least 14/21 sequences, and add no GT-empty false alarms.",
+    "scope": "Exploratory PolypGen evidence, not external confirmation."
+  },
+  "decision": "Run the seq2/seq3 engineering gate first. A gate pass verifies implementation only. Run the frozen full CV only if stored-mask identity, zero-gain native parity, finite nonzero learning gradients, all four layers and pointer integrity pass. Do not tune on PolypGen after observing full-CV outcomes.",
+  "replication": {
+    "reference_protocol": "protocols/simvos_region_prototypes_polypgen_v1.json",
+    "reference_protocol_sha256": "08aa38569ac5c79952548b478661d767c225c04ec9d76575000e78e153005bd2",
+    "purpose": "Check between-seed stability of the already completed seed-20261103 experiment.",
+    "only_protocol_change": "training.seed: 20261103 -> 20261104; method, folds, checkpoint, training schedule, and evaluation screens are unchanged.",
+    "interpretation": "Post-result replication on the same development cohort, not an independent confirmatory test."
+  }
+}
