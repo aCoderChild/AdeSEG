@@ -1,0 +1,73 @@
+{
+  "name": "Region-conditioned low-rank memory with native-history training",
+  "status": "Prospective exploratory CV; freeze before the full-sequence engineering gate and accuracy run",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "method": "Use Microsoft's pinned author LoRA Linear for three rank-4 residual experts in each of four native memory-attention layers. Mix each token's content-dependent residual by its own stored-prediction soft region memberships, then use native key/value projections, decoder and writer. Keep all native frames, tokens, positional encodings and pointers. No confidence gating, added threshold, frame-quality selection or second read.",
+  "global_control": "Same initialization, parameter count, training clips and compute; replace within-frame role maps by each frame's own mean memberships.",
+  "folds": [
+    [
+      "seq2",
+      "seq5",
+      "seq8",
+      "seq11",
+      "seq14",
+      "seq18",
+      "seq21"
+    ],
+    [
+      "seq3",
+      "seq6",
+      "seq9",
+      "seq12",
+      "seq15",
+      "seq19",
+      "seq22"
+    ],
+    [
+      "seq4",
+      "seq10",
+      "seq13",
+      "seq16",
+      "seq17",
+      "seq20",
+      "seq23"
+    ]
+  ],
+  "training": {
+    "seed": 20261122,
+    "epochs": 10,
+    "clip_length": 5,
+    "rank": 4,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "max_gradient_norm": 1.0
+  },
+  "training_rule": "Identical fresh LoRA initialization, folds, seed, author-sampled five-frame blocks, optimizer, losses and 140 updates/arm/fold as Run134. Replace only the fresh clip-local GT prompt context by the same targets captured from each training video's original native trajectory. Preserve original video indices, length, temporal positions and native selected frames/pointers. Start each block from strictly past native teacher memory; subsequent four target reads use the trained arm's own differentiable predicted writes. The first sampled frame is context, not a new prompt. This is truncated teacher-prefix training, not full-video on-policy training. Final-epoch weights only; no diagnostic weights reused.",
+  "engineering_gate": "Fresh complete seq2/seq3 native and zero-adapter trajectories must match archived native predictions and current stored outputs bit-for-bit. Also replay one fixed author-sampled cached block per gate sequence with exact native/zero masks, scores, intermediate writes and losses. Nonzero propagation in both arms must observe allfour layers, instance ownership and paired native key/pointer/frame schedules. Full CV requires this exact source inventory and cache completion. Stop on integrity failure, not unexpected accuracy.",
+  "capacity_prerequisite": "Run136 native-history capacity gate and independent audit must pass; Run137 native-history cache must complete all21 sequences/2012 post-prompt targets with matching native hashes, source inventory and checkpoint/manifest/config. Cache gate includes exact native, zero and trained block replay and gradients.",
+  "native_reference": "Reuse validated Run 118 MedSAM2 native predictions for all 21 promptable sequences. Require matching checkpoint, manifest, repository revision, frame hashes and prompt coverage. No third-party baseline reruns.",
+  "primary": "Within-sequence mean present-frame Dice, followed by equal-sequence mean; report all 21 sequences including zero-Dice failures, excluding seq1/seq7 only because no prompt is available.",
+  "secondary": "IoU, official DAVIS Boundary F, GT-empty false alarms/denominators, censored overlap re-detection, actual spatial/pointer key counts and measured runtime. Missing archived native runtime remains unavailable.",
+  "inference": "Two fixed contrasts: regional minus native and regional minus global control. Whole-sequence bootstrap 95% intervals with 10000 resamples and paired Wilcoxon with Holm across these two contrasts. Patient independence remains unverified.",
+  "meaningful_screen": "For both contrasts require mean Dice gain at least 0.01, at least 14 of 21 sequence wins, positive lower confidence limit, Holm-adjusted p below 0.05 and no extra pooled GT-empty false alarms. Report failures without redefining success. This remains exploratory after repeated PolypGen development; later independent confirmation and another seed are needed.",
+  "prior_work": {
+    "papers": [
+      "https://arxiv.org/abs/2106.09685",
+      "https://arxiv.org/html/2408.00714v2#A4.SS2.SSS2"
+    ],
+    "repositories": {
+      "LoRA": {
+        "url": "https://github.com/microsoft/LoRA",
+        "revision": "c4593f060e6a368d7bb5af5273b8e42810cdef90"
+      },
+      "SAM2": {
+        "url": "https://github.com/facebookresearch/sam2",
+        "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4"
+      }
+    }
+  },
+  "context": "native_history",
+  "cache": "Load only training-sequence teacher banks in each fold. Cached inference predictions never provide supervision; later GT is loss-only. Validation uses full original videos with the original first-positive prompt, own predicted memory and no cached teacher bank. No new GT prompts within training blocks.",
+  "amendment": "Run134 did not meet its meaningful Dice screen. Read-only inspection found fresh five-frame context differs from native inference history and pointer time normalization. SAM2 AppendixD.2.2 motivates examining context mismatch; the cached truncated prefix is a project adaptation, not the author training recipe. Keep all other settings and success criteria unchanged. This is exploratory after repeated PolypGen development."
+}
