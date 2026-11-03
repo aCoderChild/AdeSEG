@@ -1,0 +1,85 @@
+{
+  "name": "Native-history regional low-rank capture and optimization gate",
+  "status": "Prospective engineering/training-only follow-up after failed Run134 accuracy screen",
+  "context": "native_history",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "sampling_rule": "Reuse the exact four author-sampled clips from Run132. No selection by validation outcome, frame quality or failure severity.",
+  "clips": [
+    {
+      "sequence": "seq2",
+      "seed": 20561118,
+      "frames": [
+        52,
+        53,
+        54,
+        55,
+        56
+      ]
+    },
+    {
+      "sequence": "seq3",
+      "seed": 20561119,
+      "frames": [
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "sequence": "seq5",
+      "seed": 20561120,
+      "frames": [
+        229,
+        230,
+        231,
+        232,
+        233
+      ]
+    },
+    {
+      "sequence": "seq6",
+      "seed": 20561121,
+      "frames": [
+        31,
+        32,
+        33,
+        34,
+        35
+      ]
+    }
+  ],
+  "excluded_fold3_sequences": [
+    "seq4",
+    "seq10",
+    "seq13",
+    "seq16",
+    "seq17",
+    "seq20",
+    "seq23"
+  ],
+  "training": {
+    "seed": 20261121,
+    "rank": 4,
+    "updates_per_arm": 20,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "clip_gradient_norm": 1.0
+  },
+  "capture": "Run the pinned unmodified SAM2 video predictor from the full video's first GT-positive prompt through the block. No later GT prompts. Check every processed native prediction against archived Run118 hashes. Preserve original manifest positions, full video num_frames, native spatial memories, pointers and positions. Regions use each stored prediction. Ground truth supplies target supervision only.",
+  "replay_gate": "Require bit-equal native low-resolution predictions, object scores for every target and all intermediate autoregressive memory writes with full and compact history. Require equal full/compact losses, untouched source banks, identical selected spatial inputs and all pointer inputs. Zero regional/global adapters must reproduce native targets. Check actual four-layer schedules and native key counts before optimization.",
+  "method": "Same 6144-parameter author-LoRA regional/global arms, loss and optimizer as Run132/134. Only capture context changes. No inference threshold, confidence gate, frame-quality selection, region-definition change or hyperparameter sweep.",
+  "measurements": "Save capture provenance, full video lengths, pointer normalization denominators, read frame IDs/key counts, prefix replay receipts, initial/final fixed training losses and all 20 updates. Verify finite gradients/weights, unchanged backbone/source hashes and paired schedules. CPU FP32 with native BF16 memory storage; outputs and tracking on Drive only.",
+  "decision": "Stop on integrity failure; diagnose without bypassing the check. A decrease in mean fixed training loss shows optimization responsiveness only. No held-out accuracy or full CV in this gate. Do not reuse these diagnostic weights in later CV or choose parameters from its results.",
+  "prior_work": {
+    "sam2_paper": "https://arxiv.org/html/2408.00714v2#A4.SS2.SSS2",
+    "sam2_repository": "https://github.com/facebookresearch/sam2",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "lora_repository": "https://github.com/microsoft/LoRA",
+    "lora_revision": "c4593f060e6a368d7bb5af5273b8e42810cdef90",
+    "adaptation": "Native video-history capture and compact training-block replay are project integration. This is not a reproduction of the paper's eight/sixteen-frame interactive training recipe."
+  },
+  "scope": "Single-object PolypGen engineering and training-only diagnostic on previously used training clips; not clinical validation, patient-independent evidence or an external benchmark. Adapter multi-object support is unchanged."
+}
