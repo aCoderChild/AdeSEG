@@ -1,0 +1,22 @@
+{
+  "name": "Verified native SAM2 bank cache for regional history training",
+  "status": "Engineering/data capture only; no training or accuracy comparison",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "capacity_prerequisite": "Run136 completion and independent final audit must pass; all inherited sources must match.",
+  "gate_blocks": [
+    {"sequence": "seq2", "frames": [52, 53, 54, 55, 56]},
+    {"sequence": "seq3", "frames": [4, 5, 6, 7, 8]}
+  ],
+  "capture": "Use the pinned author video predictor from each full video's original first-positive GT prompt, with no later GT prompts. Every post-prompt prediction must match archived Run118 hashes. Serialize only the native per-object output bank and full-video metadata using existing safe torch serialization. Do not serialize video images or duplicate current-frame vision features.",
+  "gate": "On seq2/seq3 require identical tensor value/dtype/layout fingerprints after serialization, source/cache immutability, strict past-only training memories, intact persistent object identity, native low-resolution/object-score/intermediate-write replay, and actual four-layer frame/key/pointer schedules. Native and zero-adapter losses must exactly match Run136 before losses; trained diagnostic heads must exactly match Run136 after losses. Verify finite adapter gradients without an optimizer step and unchanged backbone. Diagnostic weights are never reused for accuracy training.",
+  "full_cache": "Only after the gate passes, extend the same immutable cache to all 21 promptable sequences, reusing verified seq2/seq3 files. Exclude seq1/seq7 because no initial prompt is available. Save per-frame hash receipts and bank/index hashes. This collects missing training inputs, not a duplicate third-party accuracy benchmark.",
+  "causality": "Cached banks may contain an entire native trajectory. Existing capture_training_read must filter every memory entry to frame < target before any training read. Current-frame cached masks/scores are replay references only. Recompute frozen image features from the original frame; GT supplies loss targets only. Preserve original full-video num_frames and pointer timing.",
+  "unchanged": "No frame-quality selection, inference threshold, confidence gate, region-definition change, adapter change or hyperparameter tuning. CPU FP32 and native BF16 memory tensors. All artifacts remain on Drive.",
+  "scope": "Exploratory PolypGen engineering. The cache-read helper preserves individual persistent IDs; this cache builder currently exercises the single-object PolypGen protocol, not a complete DAVIS/SA-V evaluator.",
+  "sources": [
+    "https://github.com/facebookresearch/sam2/blob/2b90b9f5ceec907a1c18123530e92e794ad901a4/sam2/sam2_video_predictor.py",
+    "https://arxiv.org/html/2408.00714v2",
+    "https://pytorch.org/docs/stable/notes/serialization.html"
+  ]
+}
