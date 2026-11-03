@@ -1,0 +1,23 @@
+{
+  "name": "Region-conditioned low-rank native memory transform",
+  "status": "Prospective exploratory cross-validation after training-capacity and full-sequence engineering gates",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "method": "Use Microsoft's pinned author LoRA Linear for three rank-4 residual experts in each of four native memory-attention layers. Mix each token's content-dependent residual by its own stored-prediction soft region memberships, then use native key/value projections, decoder and writer. Keep all native frames, tokens, positional encodings and pointers. No confidence gating, added threshold, frame-quality selection or second read.",
+  "global_control": "Same initialization, parameter count, training clips and compute; replace within-frame role maps by each frame's own mean memberships.",
+  "folds": [
+    ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21"],
+    ["seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22"],
+    ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"]
+  ],
+  "training": {"seed": 20261122, "epochs": 10, "clip_length": 5, "rank": 4, "learning_rate": 0.0001, "weight_decay": 0.01, "max_gradient_norm": 1.0},
+  "training_rule": "Initialize both arms from identical fresh LoRA factors per fold. One author-sampled clip per training sequence per epoch, 140 updates per arm per fold. Preserve native autoregressive memory writes and raw decoder-mask plus object-presence supervision. Never select weights, epochs or settings using held-out outcomes; use the final epoch. Capacity-diagnostic weights are never reused for CV.",
+  "engineering_gate": "On complete seq2/seq3, compare zero-adapter predictions against archived native hashes, and current stored masks/memory/pointers/positions against a freshly replayed native run with matched cold positional caches. Verify nonzero-adapter propagation in both arms, all four layers, object ownership and paired key/pointer/frame schedules. Stop on integrity failures; do not stop or retune for surprising accuracy.",
+  "capacity_prerequisite": "Run 132 must finish with finite optimization, unchanged backbone/source hashes and lower mean fixed training loss in both arms. This is not a held-out improvement screen.",
+  "native_reference": "Reuse validated Run 118 MedSAM2 native predictions for all 21 promptable sequences. Require matching checkpoint, manifest, repository revision, frame hashes and prompt coverage. No third-party baseline reruns.",
+  "primary": "Within-sequence mean present-frame Dice, followed by equal-sequence mean; report all 21 sequences including zero-Dice failures, excluding seq1/seq7 only because no prompt is available.",
+  "secondary": "IoU, official DAVIS Boundary F, GT-empty false alarms/denominators, censored overlap re-detection, actual spatial/pointer key counts and measured runtime. Missing archived native runtime remains unavailable.",
+  "inference": "Two fixed contrasts: regional minus native and regional minus global control. Whole-sequence bootstrap 95% intervals with 10000 resamples and paired Wilcoxon with Holm across these two contrasts. Patient independence remains unverified.",
+  "meaningful_screen": "For both contrasts require mean Dice gain at least 0.01, at least 14 of 21 sequence wins, positive lower confidence limit, Holm-adjusted p below 0.05 and no extra pooled GT-empty false alarms. Report failures without redefining success. This remains exploratory after repeated PolypGen development; later independent confirmation and another seed are needed.",
+  "prior_work": {"paper": "https://arxiv.org/abs/2106.09685", "repository": "https://github.com/microsoft/LoRA", "revision": "c4593f060e6a368d7bb5af5273b8e42810cdef90"}
+}
