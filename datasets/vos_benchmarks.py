@@ -44,6 +44,8 @@ def inventory(root,dataset,split):
         frames=sorted([p for p in (images/name).iterdir() if p.suffix.lower() in ('.jpg','.jpeg')],key=lambda p:int(p.stem))
         if not frames or len({p.stem for p in frames})!=len(frames):
             raise ValueError('Missing or ambiguous video frames')
+        if per_object and [int(p.stem) for p in frames]!=list(range(len(frames))):
+            raise ValueError('SA-V 24-fps input must contain every consecutive frame from zero')
         objects,palette=tools['load_masks_from_dir'](str(masks),name,frames[0].stem,per_object)
         if not per_object:
             objects.pop(255,None)  # DAVIS ignored pixels are not an object prompt.

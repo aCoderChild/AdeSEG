@@ -27,6 +27,9 @@ def test_sav_preserves_object_zero_overlap_and_full_rate_frames(tmp_path):
     assert result['videos'][0]['annotations']['0']==['00000','00004','00008']
     masks,_=author_mask_io()['load_masks_from_dir'](str(tmp_path/'Annotations_6fps'),'video','00000',True)
     assert masks[0][3,4] and masks[1][3,4]
+    (tmp_path/'JPEGImages_24fps/video/00001.jpg').unlink()
+    with pytest.raises(ValueError,match='24-fps input'):
+        inventory(tmp_path,'sav','val')
 
 
 def test_davis_preserves_indexed_ids_and_ignores_void(tmp_path):
