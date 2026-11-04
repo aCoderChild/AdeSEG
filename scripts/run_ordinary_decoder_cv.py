@@ -146,7 +146,8 @@ def main():
         if audit['scope']!=native['scope'] or set(audit['sequences'])!=set(native['entries']):
             raise RuntimeError('Native audit covers different evidence')
         sources={**training_gate['sources'],**{p:digest(ROOT/p) for p in
-            [PROTOCOL,'scripts/run_ordinary_decoder_cv.py','tests/test_ordinary_decoder_cv.py']}}
+            [PROTOCOL,'scripts/run_ordinary_decoder_cv.py','tests/test_ordinary_decoder_cv.py',
+             'pytest.ini','workflows/pytest_groups.py']}}
         if any(digest(ROOT/n)!=h for n,h in sources.items()) or any(sources.get(n)!=h for n,h in native['sources'].items()):
             raise RuntimeError('Verified source inventory differs')
         if digest(Path(parent['checkpoint']))!=setup['checkpoint_sha256'] or setup['checkpoint_sha256']!=parent['checkpoint_sha256']:
