@@ -1,0 +1,34 @@
+{
+  "status": "Prospective engineering verification; no efficacy claim",
+  "date": "2026-11-04",
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "sequences": ["seq2", "seq13"],
+  "clip_length": 3,
+  "seed": 20261104,
+  "tokens_per_region_per_frame": 16,
+  "updates": 1,
+  "learning_rate": 0.0001,
+  "weight_decay": 0.01,
+  "method": "Three shared author TokenLearners pool continuously region-weighted stored memory into auxiliary keys/values. Append to native memory at all four layers. All native spatial tokens, selected frames, temporal encoding, pointers, decoder and presence behavior remain. All original SAM2 parameters frozen in eval mode.",
+  "roles": "Existing detached within-cell probability variance memberships in background/interior/mixedness order from each stored native low-resolution prediction. These are continuous positional descriptors, not semantic-purity labels or anatomical truth.",
+  "position": "Author assignment pools the pre-projection memory-position contribution with the same soft memberships. Auxiliary summaries have no single spatial coordinate and join the non-RoPE tail after untouched native pointers. Report auxiliary tokens separately from pointers.",
+  "control": "Equal parameters, initialization and summary counts; replace per-cell roles with per-frame mean roles. No shuffled control.",
+  "prior_work": [
+    {"paper": "Scalable Video Object Segmentation with Simplified Framework, ICCV 2023", "repository": "https://github.com/jimmy-dq/SimVOS", "revision": "ef94709b9e8a4bda43276751be67f98ae1fc12e8", "reuse": "Unchanged TokenLearnerModuleV11_w_Mask, loaded from verified author source; project supplies region-weighted features and all-one author masks."},
+    {"paper": "https://arxiv.org/abs/2603.05873", "repository": "https://github.com/b0wenchen/MemSeg-Agent", "revision": "332dbc67961b4cec6de814e376f641bdfaa7f200", "reuse": "Inspected frozen-backbone memory-conditioning and concatenation pattern; its full image wrapper, threshold controller and altered decoder output policy are not used. This integration is not a reproduction of its published method."}
+  ],
+  "checks": [
+    "Disabled hook reproduces native masks, object scores and autoregressive memory writes bit-for-bit.",
+    "Active regional and global arms visit all four layers with the same native spatial/pointer schedule and auxiliary counts.",
+    "Original native key/value prefix and pointer RoPE exclusion are preserved; auxiliary summaries are separately counted.",
+    "Finite loss and external-module gradients, nonzero gradient through the previous predicted memory write, finite optimizer update.",
+    "Original SAM2 parameter digest and source banks remain unchanged; original model has no gradients.",
+    "Unit fixture checks independent object batches; real multi-object benchmark remains conditional on a separate instance-aware video gate."
+  ],
+  "loss": "Pinned unchanged SAM2 MultiStepMultiMasksAndIous through decoder_clip_loss; raw masks before native presence suppression, with mask/focal/IoU/objectness supervision.",
+  "limits": "Appending summaries changes softmax competition even before learning; only disabled hooks are claimed native-identical. Missing-region summaries can learn priors and are not asserted to contain only that region. Short clips prove engineering only, not full-video generalization or Dice improvement.",
+  "next": "Only after engineering passes, prospectively freeze a bounded sequence-grouped regional versus equal-capacity global training comparison; final-epoch full-video evaluation against compatible official native references, false alarms and paired sequence metrics. PolypGen remains exploratory and patient independence is unverified. Do not reuse these diagnostic weights."
+}
