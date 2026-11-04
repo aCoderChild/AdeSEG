@@ -1,0 +1,362 @@
+{
+  "status": "Frozen post hoc native diagnostic; no training or altered propagation",
+  "drive_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment",
+  "cache": "137_native_history_cache_polypgen_v1",
+  "cv": "139_regional_low_rank_native_history_polypgen_cv_v1",
+  "native": "118_simvos_region_prototypes_polypgen_cv_v1/native",
+  "selection_source": "140_native_failure_decomposition_v1/frames.json",
+  "selection_sha256": "1db9e60860b8b1adfdf1b585892922ae218ee05656b38f7fc6e4d2a254a1fc64",
+  "checkpoint": "checkpoints/MedSAM2_latest.pt",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "gate_sequences": [
+    "seq2",
+    "seq13"
+  ],
+  "selection": "One temporal median per observed GT-present outcome category per sequence; one median per GT-empty false-alarm/correct-absence group. Cases fixed before inspecting raw masks. Categories are outcome-informed: all findings exploratory, no efficacy claim.",
+  "cases": [
+    {
+      "sequence": "seq2",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 33
+    },
+    {
+      "sequence": "seq3",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 7
+    },
+    {
+      "sequence": "seq3",
+      "category": "positive_score_nonempty_zero_overlap",
+      "frame": 14
+    },
+    {
+      "sequence": "seq4",
+      "category": "gt_empty_false_alarm",
+      "frame": 18
+    },
+    {
+      "sequence": "seq4",
+      "category": "native_score_nonpositive",
+      "frame": 35
+    },
+    {
+      "sequence": "seq4",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 10
+    },
+    {
+      "sequence": "seq4",
+      "category": "positive_score_nonempty_zero_overlap",
+      "frame": 22
+    },
+    {
+      "sequence": "seq5",
+      "category": "gt_empty_correct_absence",
+      "frame": 132
+    },
+    {
+      "sequence": "seq5",
+      "category": "gt_empty_false_alarm",
+      "frame": 150
+    },
+    {
+      "sequence": "seq5",
+      "category": "native_score_nonpositive",
+      "frame": 180
+    },
+    {
+      "sequence": "seq5",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 43
+    },
+    {
+      "sequence": "seq5",
+      "category": "positive_score_nonempty_zero_overlap",
+      "frame": 219
+    },
+    {
+      "sequence": "seq6",
+      "category": "gt_empty_false_alarm",
+      "frame": 88
+    },
+    {
+      "sequence": "seq6",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 55
+    },
+    {
+      "sequence": "seq8",
+      "category": "gt_empty_correct_absence",
+      "frame": 71
+    },
+    {
+      "sequence": "seq8",
+      "category": "gt_empty_false_alarm",
+      "frame": 19
+    },
+    {
+      "sequence": "seq8",
+      "category": "native_score_nonpositive",
+      "frame": 66
+    },
+    {
+      "sequence": "seq8",
+      "category": "positive_score_empty_prediction",
+      "frame": 62
+    },
+    {
+      "sequence": "seq8",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 32
+    },
+    {
+      "sequence": "seq9",
+      "category": "gt_empty_correct_absence",
+      "frame": 22
+    },
+    {
+      "sequence": "seq9",
+      "category": "gt_empty_false_alarm",
+      "frame": 23
+    },
+    {
+      "sequence": "seq9",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 34
+    },
+    {
+      "sequence": "seq9",
+      "category": "positive_score_nonempty_zero_overlap",
+      "frame": 16
+    },
+    {
+      "sequence": "seq10",
+      "category": "gt_empty_false_alarm",
+      "frame": 24
+    },
+    {
+      "sequence": "seq10",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 21
+    },
+    {
+      "sequence": "seq11",
+      "category": "gt_empty_false_alarm",
+      "frame": 183
+    },
+    {
+      "sequence": "seq11",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 71
+    },
+    {
+      "sequence": "seq12",
+      "category": "native_score_nonpositive",
+      "frame": 221
+    },
+    {
+      "sequence": "seq12",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 73
+    },
+    {
+      "sequence": "seq12",
+      "category": "positive_score_nonempty_zero_overlap",
+      "frame": 195
+    },
+    {
+      "sequence": "seq13",
+      "category": "gt_empty_correct_absence",
+      "frame": 65
+    },
+    {
+      "sequence": "seq13",
+      "category": "gt_empty_false_alarm",
+      "frame": 19
+    },
+    {
+      "sequence": "seq13",
+      "category": "native_score_nonpositive",
+      "frame": 153
+    },
+    {
+      "sequence": "seq13",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 16
+    },
+    {
+      "sequence": "seq13",
+      "category": "positive_score_nonempty_zero_overlap",
+      "frame": 26
+    },
+    {
+      "sequence": "seq14",
+      "category": "gt_empty_correct_absence",
+      "frame": 116
+    },
+    {
+      "sequence": "seq14",
+      "category": "gt_empty_false_alarm",
+      "frame": 132
+    },
+    {
+      "sequence": "seq14",
+      "category": "native_score_nonpositive",
+      "frame": 102
+    },
+    {
+      "sequence": "seq14",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 140
+    },
+    {
+      "sequence": "seq14",
+      "category": "positive_score_nonempty_zero_overlap",
+      "frame": 166
+    },
+    {
+      "sequence": "seq15",
+      "category": "native_score_nonpositive",
+      "frame": 37
+    },
+    {
+      "sequence": "seq15",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 61
+    },
+    {
+      "sequence": "seq15",
+      "category": "positive_score_nonempty_zero_overlap",
+      "frame": 36
+    },
+    {
+      "sequence": "seq16",
+      "category": "gt_empty_correct_absence",
+      "frame": 14
+    },
+    {
+      "sequence": "seq16",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 24
+    },
+    {
+      "sequence": "seq17",
+      "category": "gt_empty_correct_absence",
+      "frame": 47
+    },
+    {
+      "sequence": "seq17",
+      "category": "gt_empty_false_alarm",
+      "frame": 45
+    },
+    {
+      "sequence": "seq17",
+      "category": "native_score_nonpositive",
+      "frame": 46
+    },
+    {
+      "sequence": "seq17",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 37
+    },
+    {
+      "sequence": "seq18",
+      "category": "gt_empty_correct_absence",
+      "frame": 61
+    },
+    {
+      "sequence": "seq18",
+      "category": "gt_empty_false_alarm",
+      "frame": 58
+    },
+    {
+      "sequence": "seq18",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 28
+    },
+    {
+      "sequence": "seq19",
+      "category": "gt_empty_correct_absence",
+      "frame": 52
+    },
+    {
+      "sequence": "seq19",
+      "category": "native_score_nonpositive",
+      "frame": 53
+    },
+    {
+      "sequence": "seq19",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 25
+    },
+    {
+      "sequence": "seq20",
+      "category": "gt_empty_correct_absence",
+      "frame": 48
+    },
+    {
+      "sequence": "seq20",
+      "category": "native_score_nonpositive",
+      "frame": 34
+    },
+    {
+      "sequence": "seq21",
+      "category": "gt_empty_correct_absence",
+      "frame": 47
+    },
+    {
+      "sequence": "seq21",
+      "category": "gt_empty_false_alarm",
+      "frame": 36
+    },
+    {
+      "sequence": "seq21",
+      "category": "native_score_nonpositive",
+      "frame": 18
+    },
+    {
+      "sequence": "seq21",
+      "category": "positive_score_nonempty_overlap",
+      "frame": 24
+    },
+    {
+      "sequence": "seq22",
+      "category": "gt_empty_correct_absence",
+      "frame": 36
+    },
+    {
+      "sequence": "seq22",
+      "category": "gt_empty_false_alarm",
+      "frame": 1
+    },
+    {
+      "sequence": "seq22",
+      "category": "native_score_nonpositive",
+      "frame": 23
+    },
+    {
+      "sequence": "seq23",
+      "category": "gt_empty_correct_absence",
+      "frame": 22
+    },
+    {
+      "sequence": "seq23",
+      "category": "native_score_nonpositive",
+      "frame": 35
+    }
+  ],
+  "checks": [
+    "Unhooked and hooked native outputs match cached mask, score, pointer, BF16 memory and memory positions",
+    "Full-resolution native prediction hash matches Run118",
+    "All four attention layers and native key schedule",
+    "Read-only bank and frozen weights",
+    "Complete frozen case coverage"
+  ],
+  "measurement": "Use existing decoder_training_mask/select_decoder_mask; native IoU selection, original-resolution resize and score_frame. Measure raw-mask Dice and GT-empty false alarms without changing or propagating those predictions.",
+  "limits": "Systematic outcome-stratified sample, not a representative full-cohort estimate. No lower object-score boundary, threshold tuning, new frame selection, new method or oracle-deployable rule. Raw signal does not localize causal failure to a module.",
+  "sources": [
+    "https://github.com/facebookresearch/sam2",
+    "https://arxiv.org/abs/2408.00714"
+  ],
+  "stopping": "Stop on any identity/integrity failure. Complete6-read seq2/seq13 gate before66-read diagnostic. Reuse matching gate records; no rerun of those cases needed."
+}
