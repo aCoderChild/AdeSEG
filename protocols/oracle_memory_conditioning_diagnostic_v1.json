@@ -1,0 +1,242 @@
+{
+  "status": "Frozen post hoc oracle diagnostic; not a method or efficacy evaluation",
+  "drive_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment",
+  "previous": "141_native_decoder_replay_v1",
+  "cache": "137_native_history_cache_polypgen_v1",
+  "checkpoint": "checkpoints/MedSAM2_latest.pt",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "selection_sha256": "023d712d81eaec30b74c46de0922b3d0e67b3d4596a0e6583cb5a59a9ed92412",
+  "gate_sequences": [
+    "seq2",
+    "seq13"
+  ],
+  "cases": [
+    {
+      "sequence": "seq2",
+      "frame": 33,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq3",
+      "frame": 7,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq3",
+      "frame": 14,
+      "category": "positive_score_nonempty_zero_overlap"
+    },
+    {
+      "sequence": "seq4",
+      "frame": 35,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq4",
+      "frame": 10,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq4",
+      "frame": 22,
+      "category": "positive_score_nonempty_zero_overlap"
+    },
+    {
+      "sequence": "seq5",
+      "frame": 180,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq5",
+      "frame": 43,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq5",
+      "frame": 219,
+      "category": "positive_score_nonempty_zero_overlap"
+    },
+    {
+      "sequence": "seq6",
+      "frame": 55,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq8",
+      "frame": 66,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq8",
+      "frame": 62,
+      "category": "positive_score_empty_prediction"
+    },
+    {
+      "sequence": "seq8",
+      "frame": 32,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq9",
+      "frame": 34,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq9",
+      "frame": 16,
+      "category": "positive_score_nonempty_zero_overlap"
+    },
+    {
+      "sequence": "seq10",
+      "frame": 21,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq11",
+      "frame": 71,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq12",
+      "frame": 221,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq12",
+      "frame": 73,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq12",
+      "frame": 195,
+      "category": "positive_score_nonempty_zero_overlap"
+    },
+    {
+      "sequence": "seq13",
+      "frame": 153,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq13",
+      "frame": 16,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq13",
+      "frame": 26,
+      "category": "positive_score_nonempty_zero_overlap"
+    },
+    {
+      "sequence": "seq14",
+      "frame": 102,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq14",
+      "frame": 140,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq14",
+      "frame": 166,
+      "category": "positive_score_nonempty_zero_overlap"
+    },
+    {
+      "sequence": "seq15",
+      "frame": 37,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq15",
+      "frame": 61,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq15",
+      "frame": 36,
+      "category": "positive_score_nonempty_zero_overlap"
+    },
+    {
+      "sequence": "seq16",
+      "frame": 24,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq17",
+      "frame": 46,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq17",
+      "frame": 37,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq18",
+      "frame": 28,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq19",
+      "frame": 53,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq19",
+      "frame": 25,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq20",
+      "frame": 34,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq21",
+      "frame": 18,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq21",
+      "frame": 24,
+      "category": "positive_score_nonempty_overlap"
+    },
+    {
+      "sequence": "seq22",
+      "frame": 23,
+      "category": "native_score_nonpositive"
+    },
+    {
+      "sequence": "seq23",
+      "frame": 35,
+      "category": "native_score_nonpositive"
+    }
+  ],
+  "selection": "All40 GT-present cases fixed by Run141, with no new outcome selection. Four seq2/seq13 cases form the engineering gate.",
+  "conditions": [
+    "Native unprompted temporal read, replay verified against Runs137/141",
+    "Exact current GT box with native temporal history",
+    "Same GT box using author no-memory initial-conditioning path"
+  ],
+  "implementation": "Pinned SAM2 sample_box_points(noise=0), unmodified track_step and no-memory initialisation. Same cached current features, high-resolution skips, box coordinates/labels, no dense mask prompt and matched multimask policy in both oracle arms. No weights or stored memories changed.",
+  "checks": [
+    "Native cached mask/score/pointer/memory and frame hash identity",
+    "No-memory boxed output bit-identical to author public add_new_points_or_box API on the same frame",
+    "Four memory layers in temporal oracle, zero in no-memory oracle",
+    "Unchanged native source bank and weights",
+    "Saved low-resolution native/oracle/raw tensors and original GT mask for offline rescoring"
+  ],
+  "measurement": "Native versus each oracle shows oracle-prompt recovery, not deployable improvement. Oracle-memory minus oracle-no-memory compares conditioning under identical GT prompt. Summarise all paired cases and outcome strata; no tuned success threshold or p-value claiming efficacy.",
+  "limits": [
+    "GT supplies current target extent, so the task differs from first-frame-only VOS.",
+    "A better oracle output does not prove current unprompted localisation is recoverable, or isolate a particular attention layer.",
+    "No-memory path includes the author no-memory embedding.",
+    "No positive/negative box exists for GT-empty cases; false alarms remain assessed by Run141 rather than inventing oracle boxes.",
+    "No oracle predictions are propagated or written as memory. No confidence boundary is changed."
+  ],
+  "sources": [
+    "https://github.com/facebookresearch/sam2",
+    "https://arxiv.org/abs/2408.00714"
+  ],
+  "stopping": "Gate before full diagnostic; stop on any identity failure. Do not choose a new architecture from partial oracle results."
+}
