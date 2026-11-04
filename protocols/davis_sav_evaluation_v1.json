@@ -1,0 +1,16 @@
+{
+  "status": "Dataset preparation and official evaluator integration; no benchmark accuracy run launched",
+  "method_constraints": "No new confidence gates, adaptive/tuned thresholds, frame-quality selection or temporal subsampling. Preserve native SAM2 mask-logit conversion and built-in presence behavior. Ordinary training and any regional mechanism retain native memory reads.",
+  "datasets": {
+    "davis2017": {"split": "val", "resolution": "480p", "format": "Indexed persistent multi-object masks; ignore label255; original first-frame prompt for every object", "role": "External-to-PolypGen benchmark, not proof of exclusion from foundation-model training; audit published SAM2 data overlap"},
+    "sav": {"splits": ["val", "test"], "format": "Per-object binary PNGs with possible overlap, including object000; do not merge or remap IDs", "timing": "Propagate all24fps JPEG frames; score only annotated6fps frames, excluding first/last annotated masks via author evaluator", "role": "Val for engineering only; freeze one PolypGen configuration before reporting test. Never train/tune the adapter on SA-V test."}
+  },
+  "implementation": "Reuse pinned SAM2 tools/vos_inference.py mask I/O unchanged and official evaluators. Dataset inventory/commands are project orchestration, not a replacement metric or new network.",
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "davis_evaluator_revision": "ac7c43fca936f9722837b7fbd337d284ba37004b",
+  "metrics": "Official J, F and J&F primary for literature comparison; framewise Dice supplementary. Retain per-object/sequence results and denominators. Do not infer mean Dice from mean IoU or compare aggregate published J&F as a paired local experiment.",
+  "baselines": "Use compatible published numbers where available, with source/backbone/checkpoint/split/precision/prompt recorded. Matched native predictions are necessary for missing Dice or paired local statistics. No redundant third-party full reruns by default.",
+  "engineering_before_accuracy": ["Official first-frame prompts and persistent IDs, including SA-V000", "SA-V overlap preserved and unannotated frames retained during propagation", "Dataset-specific native-vs-integrated replay and zero-change identity", "First/last annotation exclusions and void pixels agree with official evaluator", "Exact frame/instance coverage, finite predictions, fixed source/checkpoint provenance"],
+  "storage": "Dataset archives, extracted files and all experiment outputs on Google Drive filesystem only.",
+  "sources": ["https://davischallenge.org/davis2017/code.html", "https://github.com/davisvideochallenge/davis2017-evaluation", "https://github.com/facebookresearch/sam2/blob/main/tools/README.md", "https://github.com/facebookresearch/sam2/blob/main/sav_dataset/README.md", "https://ai.meta.com/datasets/segment-anything-video-downloads/"]
+}

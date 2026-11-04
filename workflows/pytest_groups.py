@@ -10,3 +10,4 @@ def pytest_configure():
         'native_decoder_diagnostic', 'native_stage_summary', 'decoder_core_training',
         'decoder_adaptation', 'native_stage_capture', 'ordinary_decoder_cv',
     })
+    GROUPS['baselines'].add('vos_benchmarks')
