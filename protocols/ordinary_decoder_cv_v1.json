@@ -1,0 +1,16 @@
+{
+  "name": "Ordinary SAM2.1 decoder-core adaptation baseline",
+  "parent": "protocols/encoder_decoder_bottleneck_v1.json",
+  "scope": "Exploratory sequence-grouped PolypGen CV. No regional mechanism, frame selection, confidence gate, later GT prompt or new inference threshold.",
+  "settings": "Inherit ordinary_baseline unchanged from parent: three folds, 40 epochs, 560 updates/fold, 8-frame clips, AdamW5e-6/weight_decay0.01/clip1, raw-mask author losses, final epoch only.",
+  "sampling_seed": "parent.seed + fold_number*100000 + epoch_zero_based*14 + training_sequence_index_zero_based; training sequences retain parent.sequences order",
+  "prerequisites": "Completed official native cohort and its independent audit; passed ordinary training engineering gate and independent receipt audit; complete ordinary propagation gate with identical source inventory.",
+  "propagation_gate": "On complete seq2/seq13, fresh official weights reproduce native prediction and stored-output hashes. Then diagnostic gate weights propagate autonomously, see four layers each frame, retain native key/pointer schedules, and remain unchanged. Diagnostic weights never initialise CV.",
+  "training": "Only training-fold native banks may be loaded during optimization. Teacher prefix is strictly past native history, then own differentiable predicted writes within each seven-target block. No full-video on-policy training claim.",
+  "evaluation": "Original full videos, original prompt only. No cached teacher bank or GT beyond metric scoring. Save every frame, layer schedule, object score and mask occupancy; verify weights before/after evaluation. Native reference uses same official checkpoint and prompt.",
+  "reporting": "Primary equal-sequence present-frame Dice, paired sequence-bootstrap interval and Wilcoxon; frozen parent meaningful-gain screen. Also IoU, Boundary F, empty-frame false alarms with denominator, censored re-detection events and runtime. A significant training-loss decrease is not an efficacy result.",
+  "checkpoint_rule": "Save final decoder core before validation, anchor its SHA in a receipt, never choose checkpoints or hyperparameters from held-out results.",
+  "stopping": "Stop on nonfinite outputs/gradients, source or asset mismatch, wrong layer/token/pointer schedule, frozen-weight mutation, native-replay mismatch or incomplete coverage. Unexpected Dice is recorded without changing the design.",
+  "external": "Deferred. Existing PolypGen sequences are not untouched external confirmation; patient independence unverified.",
+  "implementation": "Reuse pinned SAM2 predictor, author sampler/loss and verified project cache/training/metric/statistical helpers. This orchestration is a project adaptation, not unchanged full SAM2 training."
+}
