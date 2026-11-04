@@ -1,8 +1,10 @@
 import numpy as np
 from PIL import Image
 import pytest
+import importlib.util
 
 from datasets.vos_benchmarks import author_mask_io, inventory
+from modeling.region_tokens import SAM2_REVISION, _verified_source
 
 
 def frames(root,folder,count):
@@ -48,3 +50,21 @@ def test_inventory_rejects_unsafe_official_list_entry(tmp_path):
     (tmp_path/'sav_test.txt').write_text('../video\n')
     with pytest.raises(ValueError,match='official video list'):
         inventory(tmp_path,'sav','test')
+
+
+def test_official_sav_evaluator_excludes_endpoints_and_returns_percent(tmp_path):
+    path,_=_verified_source('sam2',SAM2_REVISION,'sav_dataset/utils/sav_benchmark.py')
+    spec=importlib.util.spec_from_file_location('official_sav_evaluator_test',path)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    for obj in ('000','001'):
+        for frame in (0,4,8):
+            target=np.zeros((32,40),np.uint8);target[8:24,10:30]=255
+            pred=target if frame==4 else np.zeros_like(target)
+            for folder,array in [('gt',target),('pred',pred)]:
+                directory=tmp_path/folder/'video'/obj;directory.mkdir(parents=True,exist_ok=True)
+                Image.fromarray(array).save(directory/f'{frame:05d}.png')
+    evaluator=module.VideoEvaluator(str(tmp_path/'gt'),str(tmp_path/'pred'),True)
+    _,j,f=evaluator('video')
+    assert j=={'000':100.,'001':100.} and f=={'000':100.,'001':100.}
+    _,included,_=module.VideoEvaluator(str(tmp_path/'gt'),str(tmp_path/'pred'),False)('video')
+    assert all(value==pytest.approx(100/3) for value in included.values())

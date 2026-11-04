@@ -9,6 +9,7 @@
   "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
   "davis_evaluator_revision": "ac7c43fca936f9722837b7fbd337d284ba37004b",
   "metrics": "Official J, F and J&F primary for literature comparison; framewise Dice supplementary. Retain per-object/sequence results and denominators. Do not infer mean Dice from mean IoU or compare aggregate published J&F as a paired local experiment.",
+  "metric_units": "Pinned DAVIS Python API returns fractions0-1; pinned SA-V VideoEvaluator returns percentages0-100. Label units explicitly and normalize only for clearly named supplementary analyses.",
   "baselines": "Use compatible published numbers where available, with source/backbone/checkpoint/split/precision/prompt recorded. Matched native predictions are necessary for missing Dice or paired local statistics. No redundant third-party full reruns by default.",
   "engineering_before_accuracy": ["Official first-frame prompts and persistent IDs, including SA-V000", "SA-V overlap preserved and unannotated frames retained during propagation", "Dataset-specific native-vs-integrated replay and zero-change identity", "First/last annotation exclusions and void pixels agree with official evaluator", "Exact frame/instance coverage, finite predictions, fixed source/checkpoint provenance"],
   "storage": "Dataset archives, extracted files and all experiment outputs on Google Drive filesystem only.",
