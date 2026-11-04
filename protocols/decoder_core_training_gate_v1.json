@@ -1,0 +1,47 @@
+{
+  "name": "Ordinary decoder-core engineering gate",
+  "status": "Freeze before running; no efficacy claim",
+  "clips": [
+    {
+      "sequence": "seq2",
+      "seed": 20261130,
+      "frames": [
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ]
+    },
+    {
+      "sequence": "seq13",
+      "seed": 20261131,
+      "frames": [
+        203,
+        204,
+        205,
+        206,
+        207,
+        208,
+        209,
+        210
+      ]
+    }
+  ],
+  "updates": 4,
+  "selection": "Two fixed8-frame author-sampled clips; original full-video native prefix, then own differentiable predicted writes. No new GT prompts.",
+  "checks": [
+    "Initial no-update native masks/scores and intermediate writes identical",
+    "Gradient-enabled initial seq2 masks/scores/writes identical",
+    "Last-frame loss gives finite nonzero gradient to first predicted memory write on seq2",
+    "Four finite AdamW updates of decoder core only; all frozen parameter hashes unchanged",
+    "Finite changed saved weights; repeat losses finite",
+    "Image encoder remains eval/frozen; both high-resolution projections frozen"
+  ],
+  "loss_and_optimizer": "Identical to frozen encoder_decoder_bottleneck_v1 ordinary baseline: author losses; AdamW5e-6, weight_decay0.01, clip1.0. Sum frame objectives within each seven-read block.",
+  "tracking": "W&B offline by default and authoritative JSON on Drive; no online upload claimed.",
+  "limits": "Engineering gate only. Neither training-loss decrease nor four updates establish adaptation efficacy. Do not reuse gate-trained weights in CV. Full CV requires its separate prospective runner/protocol, completed official native cohort and real-data propagation checks."
+}
