@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-04",
+  "status": "Prospective full-video engineering verification, not efficacy",
+  "prerequisite": "Passed regional_memory_prompts_gate_v1; exact source hashes, checkpoint and native cohort provenance",
+  "sequences": ["seq2", "seq13"],
+  "conditions": ["disabled hooks with diagnostic regional weights", "diagnostic regional prompts", "diagnostic equal-capacity global prompts"],
+  "checks": [
+    "Disabled hooks reproduce every archived official native prediction, score-derived metric and stored-output fingerprint.",
+    "All full-video targets are present and finite; all four native layers appear once per target.",
+    "Auxiliary count equals 48 per native selected memory frame, kept distinct from native pointer counts.",
+    "All stored frame IDs precede the target; native spatial and pointer schedules match across conditions.",
+    "All original SAM2 weights remain frozen in eval mode; neither original nor auxiliary weights mutate in inference.",
+    "Source inventory and archived native trajectories remain hash-identical during verification."
+  ],
+  "interpretation": "Weights came from one diagnostic training update on each sequence; accuracy is not an efficacy or validation result. Do not initialise subsequent efficacy training with these weights. Real multi-object video verification is still required before benchmarking."
+}
