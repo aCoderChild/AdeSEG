@@ -7,7 +7,7 @@ Updated **2026-11-05**. Detailed frame records and receipts are stored in Drive 
 - No completed regional method has shown a reliable, meaningful Dice gain over its matched native SAM2 baseline.
 - Among the newer trainable CVs, the largest native gain was **+0.008575 Dice** (Run 119); it did not beat the global-role control and added false alarms. Earlier sparse-history C2 gained +0.01935 over native, but its interval crossed zero and Holm p=1.000.
 - Region labels are reproducible positional groups of the model's own predicted mask. Boundary tokens receive high attention per token, but exclusion studies do not show boundary indispensability.
-- Run 155's interim hard-ToMe mean is +0.0452 Dice across 11/21 completed sequences, but its median paired gain is −0.000015; excluding seq8, the mean gain is +0.00238. It has 5 wins and 6 losses against native, with higher pooled false alarms; this is not reliable improvement evidence.
+- Run 155's interim hard-ToMe mean is +0.0413 Dice across 12/21 sequences complete in all arms, but its median paired gain is −0.00045; excluding seq8, the mean gain is +0.00201. It has 5 wins and 7 losses against native, with higher pooled false alarms; this is not reliable improvement evidence.
 - Run 150, using the official SAM2.1 Hiera-Tiny checkpoint with all original SAM2 weights frozen, is still running. Its completed Fold 1 is negative for the regional arm; Fold 2 regional training is at update 304/560 (epoch 21, seq17) as of 2026-11-05 12:01 +07.
 
 PolypGen has informed repeated development, so these are exploratory results. Sequences 1 and 7 have no eligible first-frame prompt and are excluded. Patient-to-sequence independence is unverified.
@@ -149,7 +149,7 @@ The two-sequence Dice differences are mixed and cannot establish efficacy. The m
 
 Seq11 is complete in all arms. This is an interim single-sequence result: present Dice was **0.28075 native, 0.28110 region-constrained ToMe, and 0.28039 generic local ToMe**; all three produced false alarms on 90/90 GT-empty targets. Regional ToMe took 695 s versus 240 s for native. The +0.00035 Dice difference versus native is descriptive and does not establish efficacy.
 
-### Interim paired snapshot (11/21 sequences)
+### Interim paired snapshot (12/21 sequences)
 
 Only sequences with completion receipts for all three arms are included. Values are per-sequence present-frame Dice; FP is false alarms / GT-empty targets. Mean Dice is equal-weighted by sequence; FP totals are pooled.
 
@@ -166,11 +166,12 @@ Only sequences with completion receipts for all three arms are included. Values 
 | seq11 | 225 | 0.2808 | 0.2811 | +0.0004 | 0.2804 | −0.0004 | 90/90 | 90/90 | 90/90 |
 | seq12 | 249 | 0.9444 | 0.9422 | −0.0023 | 0.9410 | −0.0035 | 0/0 | 0/0 | 0/0 |
 | seq13 | 242 | 0.7699 | 0.7699 | −0.000015 | 0.7698 | −0.0001 | 42/44 | 42/44 | 42/44 |
-| **Mean Dice (11 sequences)** | — | **0.7366** | **0.7818** | **+0.0452** | **0.7399** | **+0.0033** | **145/218** | **153/218** | **146/218** |
+| seq14 | 248 | 0.8399 | 0.8382 | −0.0017 | 0.8376 | −0.0023 | 32/49 | 32/49 | 32/49 |
+| **Mean Dice (12 sequences)** | — | **0.7452** | **0.7865** | **+0.0413** | **0.7480** | **+0.0029** | **177/267** | **185/267** | **178/267** |
 
-This interim mean is **not a reliable efficacy estimate**: the region arm's median paired gain is −0.000015 Dice (5 wins, 6 losses), and its mean gain falls to +0.00238 when seq8 is omitted. Seq8 still drives the headline difference: region ToMe raises its false alarms from 4/19 to 12/19; generic ToMe stays at 4/19. Seq13 is essentially tied with native (−0.000015 Dice) and has the same 42/44 false alarms in all three arms. Thus the current pattern remains mixed, with a false-alarm cost concentrated in seq8, and does not show a stable cohort-wide gain. Source frame-record hashes for all 11 native runs match their archived reference receipts; target and GT-presence counts align across arms, and the run records matched compressed-arm budgets and attention/pointer integrity checks.
+This interim mean is **not a reliable efficacy estimate**: the region arm's median paired gain is −0.00045 Dice (5 wins, 7 losses), and its mean gain falls to +0.00201 when seq8 is omitted. Region ToMe's +0.03845 mean advantage over generic ToMe falls to +0.00063 without seq8, so almost all of that control contrast is also concentrated in seq8. On seq8, regional merging raises false alarms from 4/19 to 12/19; generic ToMe stays at 4/19. Seq14 is slightly below native (−0.00172 Dice) with the same 32/49 false alarms across all arms. The interim result remains mixed and does not show a stable cohort-wide gain. Source frame-record hashes match archived references for all 12 complete sequences; target-frame indices and ground-truth presence labels align across the three arms, and the run records show matched compressed-arm budgets and attention/pointer integrity checks.
 
-The full 21-sequence, 2,012-target run is **currently running** on Drive at `155_region_constrained_tome_polypgen_v1/full/`, with native, region-constrained ToMe, and matched generic local-ToMe arms. Checkpoints are saved per sequence and condition. As of **2026-11-05 12:01 +07**, 11 sequences (seq2–seq6 and seq8–seq13) were complete across all arms; seq14 native and region-constrained ToMe had completed 248/248 targets, and its generic local-ToMe arm was at 97/248. The remaining cohort is pending; final full-cohort comparisons have not been produced.
+The full 21-sequence, 2,012-target run is **currently running** on Drive at `155_region_constrained_tome_polypgen_v1/full/`, with native, region-constrained ToMe, and matched generic local-ToMe arms. Checkpoints are saved per sequence and condition. As of **2026-11-05 12:09 +07**, 12 sequences (seq2–seq6 and seq8–seq14) were complete across all arms. The remaining cohort is pending; final full-cohort comparisons have not been produced.
 
 ## Continuous mask-aware ToMe candidate
 
