@@ -136,7 +136,7 @@
     },
     {
       "method": "SAM 2",
-      "model_variant": "Hiera-T (paper checkpoint/training)",
+      "model_variant": "Hiera-T‡ (SAM 2 paper; footnote says trained with additional SA-V/internal data)",
       "DAVIS17_val_JF_percent": 89.4,
       "source_paper": "SAM 2, Table 17",
       "source_url": "https://arxiv.org/abs/2408.00714"
@@ -157,31 +157,38 @@
     },
     {
       "method": "SAMURAI",
-      "model_variant": "paper configuration",
+      "model_variant": "SeC paper's reported comparison; not a locally matched run",
       "DAVIS17_val_JF_percent": 89.9,
       "source_paper": "SeC, ICLR 2026, Table 6",
-      "source_url": "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf"
+      "source_url": "https://github.com/OpenIXCLab/SeC#sec-performance"
     },
     {
       "method": "SAM2Long",
-      "model_variant": "paper configuration",
+      "model_variant": "SAM2.1-L, original SAM2Long paper Table 4",
+      "DAVIS17_val_JF_percent": 90.2,
+      "source_paper": "SAM2Long, ICCV 2025, Table 4",
+      "source_url": "https://www.openaccess.thecvf.com/content/ICCV2025/papers/Ding_SAM2Long_Enhancing_SAM_2_for_Long_Video_Segmentation_with_a_ICCV_2025_paper.pdf"
+    },
+    {
+      "method": "SAM2.1Long",
+      "model_variant": "SeC paper's reported comparison; not a locally matched run",
       "DAVIS17_val_JF_percent": 91.4,
       "source_paper": "SeC, ICLR 2026, Table 6",
-      "source_url": "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf"
+      "source_url": "https://github.com/OpenIXCLab/SeC#sec-performance"
     },
     {
       "method": "SeC",
       "model_variant": "paper configuration",
       "DAVIS17_val_JF_percent": 91.3,
       "source_paper": "SeC, ICLR 2026, Table 6",
-      "source_url": "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf"
+      "source_url": "https://github.com/OpenIXCLab/SeC#sec-performance"
     },
     {
       "method": "SAM 2.1",
       "model_variant": "Hiera-L (SeC paper configuration)",
       "DAVIS17_val_JF_percent": 90.7,
       "source_paper": "SeC, ICLR 2026, Table 6",
-      "source_url": "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf"
+      "source_url": "https://github.com/OpenIXCLab/SeC#sec-performance"
     },
     {
       "method": "SAM 2.1-B+ Original",
@@ -254,13 +261,32 @@
       "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
     }
   ],
-  "published_comparison_note": "Published scores are context, not controlled arms: checkpoints, backbones, training data, precision and inference code differ. The SAM2 paper gives conventional VOS baselines and SAM2 scale variants; SeC reports SAMURAI/SAM2Long/SeC; Efficient-SAM2 provides directly relevant memory-retrieval and image-encoder merging comparisons. The local paired conclusion is based only on native Hiera-Tiny, generic local ToMe, and soft-mask-aware local ToMe under one checkpoint, prompt setup, and evaluator.",
+  "published_methods_without_davis_score": [
+    {
+      "method": "Lean-SAM2",
+      "status": "No DAVIS 2017 score was found in the paper's reported benchmark tables. Its official repository documents inference on DAVIS-style packed masks.",
+      "source_paper": "Lean-SAM2, arXiv:2607.19811",
+      "source_url": "https://arxiv.org/abs/2607.19811",
+      "source_code_url": "https://github.com/DeawhaleQwQ/Lean-SAM2"
+    }
+  ],
+  "published_comparison_note": "Published scores are context, not controlled arms: checkpoints, backbones, training data, precision and inference code differ. The SAM2 paper gives conventional VOS baselines and SAM2 scale variants; the original SAM2Long paper reports 90.2 for SAM2.1-L on DAVIS-17, while the later SeC comparison table reports SAM2.1Long at 91.4 and SAMURAI at 89.9. Keep those source-specific values distinct. Efficient-SAM2 provides directly relevant memory-retrieval and image-encoder merging comparisons. Lean-SAM2 code supports DAVIS-style inference, but its paper does not report a DAVIS score. The local paired conclusion is based only on native Hiera-Tiny, generic local ToMe, and soft-mask-aware local ToMe under one checkpoint, prompt setup, and evaluator.",
+  "amendments": [
+    {
+      "date": "2026-11-05",
+      "scope": "Literature comparator provenance only; no local DAVIS validation inference had started.",
+      "change": "Added original-paper SAM2Long result separately from the SeC table's SAM2.1Long result, clarified SAM2 Hiera-Tiny's extra-data footnote, recorded that Lean-SAM2 supports DAVIS-style inference without reporting a DAVIS score, and linked SeC score rows to the authors' benchmark table while adding the official ICLR proceedings page to sources.",
+      "reason": "Prevent source/protocol conflation and avoid inventing an unreported Lean-SAM2 DAVIS number."
+    }
+  ],
   "sources": [
     "https://arxiv.org/abs/2408.00714",
     "https://davischallenge.org/davis2017/code.html",
     "https://github.com/davisvideochallenge/davis2017-evaluation",
     "https://arxiv.org/abs/2411.11922",
-    "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf",
+    "https://proceedings.iclr.cc/paper_files/paper/2026/hash/d3f48777432f64bc96b1203713f20352-Abstract-Conference.html",
+    "https://www.openaccess.thecvf.com/content/ICCV2025/papers/Ding_SAM2Long_Enhancing_SAM_2_for_Long_Video_Segmentation_with_a_ICCV_2025_paper.pdf",
+    "https://github.com/DeawhaleQwQ/Lean-SAM2",
     "https://openreview.net/pdf?id=HcivRSezJp"
   ]
 }
