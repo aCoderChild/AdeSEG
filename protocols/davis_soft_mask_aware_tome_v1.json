@@ -32,6 +32,15 @@
       "description": "Same ToMe implementation, window, and budget; matching metric combines appearance and continuous occupancy from the exact prediction passed to SAM2's memory writer."
     }
   ],
+  "research_hypothesis": {
+    "statement": "At a fixed native temporal memory schedule, using the model's own soft predicted-mask occupancy to guide local memory-token merging can improve segmentation quality over native dense reading, without explicitly selecting good or bad frames.",
+    "mechanism_tested": "The region cue changes which spatial keys and values are merged within each memory frame; it does not drop, rank, or choose memory frames. The original SAM2 weights, memory writes, frame schedule and decoder remain fixed.",
+    "primary_evidence": "soft_mask_aware_tome versus native",
+    "regional_specificity_control": "soft_mask_aware_tome versus generic_local_tome at the same per-window merge budget",
+    "interpretation_if_only_beats_native": "Supports the combined token-merging intervention, but does not establish that region information caused the gain unless it also beats matched generic ToMe.",
+    "interpretation_if_beats_both": "Supports predicted-mask regional information as a useful token-utilization cue under the tested fixed schedule and key budget.",
+    "not_established_here": "Published SAMURAI or SAM2Long scores are not matched controls and cannot establish superiority or non-inferiority. Such a claim requires running their released methods under the same DAVIS split, prompt, compatible backbone/checkpoint, and evaluator."
+  },
   "method": {
     "read_location": "Native SAM2 memory SDPA after native key/value projection and rotary position encoding.",
     "preserved": [
@@ -92,7 +101,7 @@
     "paired_inference": "Two-sided Wilcoxon signed-rank tests and 95% percentile bootstrap intervals over video-level J&F differences; 10,000 resamples, seed 20261105; Holm correction across the two primary local contrasts.",
     "dice": "If reported, compute separately from framewise binary masks and label it supplementary. Do not equate Dice with DAVIS J&F or compare it directly with PolypGen Dice.",
     "official_evaluator_revision": "ac7c43fca936f9722837b7fbd337d284ba37004b",
-    "comparison_policy": "Published DAVIS results are context only: different checkpoints, backbones, training sets and inference implementations prevent treating them as paired controls. Re-run only the local native and matched generic controls.",
+    "comparison_policy": "The local controlled contrasts are soft-mask-aware ToMe versus native SAM2 and matched generic ToMe. Published DAVIS scores for SAMURAI, SAM2Long, Efficient-SAM2 and other methods are descriptive context only because checkpoints, backbones, training sets and inference implementations differ. Do not claim superiority or non-inferiority to frame/path-selection methods from these scores. A direct competitiveness claim requires a separate same-setup run of their released methods.",
     "official_frame_policy": "The pinned official semi-supervised evaluator removes frame 0 and the final frame from scoring (frames 1 through N-2 are scored). This behavior is verified in davis2017/evaluation.py and applies to every local condition.",
     "aggregation": "Report the official global score (equal-weight mean across object-level temporal means) and per-object J/F. For primary paired inference, first average per-object J, F and J&F within each video, then treat the 30 videos equally.",
     "raw_precision": "Use DAVISEvaluation.evaluate from the pinned official evaluator API; retain full precision in JSON/CSV. Do not read cached 3-decimal CSVs for statistical tests.",
@@ -277,6 +286,12 @@
       "scope": "Literature comparator provenance only; no local DAVIS validation inference had started.",
       "change": "Added original-paper SAM2Long result separately from the SeC table's SAM2.1Long result, clarified SAM2 Hiera-Tiny's extra-data footnote, recorded that Lean-SAM2 supports DAVIS-style inference without reporting a DAVIS score, and linked SeC score rows to the authors' benchmark table while adding the official ICLR proceedings page to sources.",
       "reason": "Prevent source/protocol conflation and avoid inventing an unreported Lean-SAM2 DAVIS number."
+    },
+    {
+      "date": "2026-11-05",
+      "scope": "Comparison interpretation only; DAVIS validation inference had not started.",
+      "change": "Predeclared the fixed-frame-schedule regional-token hypothesis, the native and merge-matched generic contrasts, and the limit on claims against published SAMURAI/SAM2Long results.",
+      "reason": "Separate evidence for regional token use from cross-paper score context and frame/path-selection strategies."
     }
   ],
   "sources": [
