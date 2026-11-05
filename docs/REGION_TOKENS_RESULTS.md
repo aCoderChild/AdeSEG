@@ -8,7 +8,7 @@ Updated **2026-11-05**. Detailed frame records and receipts are stored in Drive 
 - Among the newer trainable CVs, the largest native gain was **+0.008575 Dice** (Run 119); it did not beat the global-role control and added false alarms. Earlier sparse-history C2 gained +0.01935 over native, but its interval crossed zero and Holm p=1.000.
 - Region labels are reproducible positional groups of the model's own predicted mask. Boundary tokens receive high attention per token, but exclusion studies do not show boundary indispensability.
 - Run 155's interim hard-ToMe mean is +0.0452 Dice across 11/21 completed sequences, but its median paired gain is −0.000015; excluding seq8, the mean gain is +0.00238. It has 5 wins and 6 losses against native, with higher pooled false alarms; this is not reliable improvement evidence.
-- Run 150, using the official SAM2.1 Hiera-Tiny checkpoint with all original SAM2 weights frozen, is still running. Its completed Fold 1 is negative for the regional arm; Fold 2 regional training is at update 301/560 (epoch 21, seq13) as of 2026-11-05 11:59 +07.
+- Run 150, using the official SAM2.1 Hiera-Tiny checkpoint with all original SAM2 weights frozen, is still running. Its completed Fold 1 is negative for the regional arm; Fold 2 regional training is at update 303/560 (epoch 21, seq16) as of 2026-11-05 12:00 +07.
 
 PolypGen has informed repeated development, so these are exploratory results. Sequences 1 and 7 have no eligible first-frame prompt and are excluded. Patient-to-sequence independence is unverified.
 
@@ -170,7 +170,7 @@ Only sequences with completion receipts for all three arms are included. Values 
 
 This interim mean is **not a reliable efficacy estimate**: the region arm's median paired gain is −0.000015 Dice (5 wins, 6 losses), and its mean gain falls to +0.00238 when seq8 is omitted. Seq8 still drives the headline difference: region ToMe raises its false alarms from 4/19 to 12/19; generic ToMe stays at 4/19. Seq13 is essentially tied with native (−0.000015 Dice) and has the same 42/44 false alarms in all three arms. Thus the current pattern remains mixed, with a false-alarm cost concentrated in seq8, and does not show a stable cohort-wide gain. Source frame-record hashes for all 11 native runs match their archived reference receipts; target and GT-presence counts align across arms, and the run records matched compressed-arm budgets and attention/pointer integrity checks.
 
-The full 21-sequence, 2,012-target run is **currently running** on Drive at `155_region_constrained_tome_polypgen_v1/full/`, with native, region-constrained ToMe, and matched generic local-ToMe arms. Checkpoints are saved per sequence and condition. As of **2026-11-05 11:59 +07**, 11 sequences (seq2–seq6 and seq8–seq13) were complete across all arms; seq14 native and region-constrained ToMe had completed 248/248 targets, and its generic local-ToMe arm was at 56/248. The remaining cohort is pending; final full-cohort comparisons have not been produced.
+The full 21-sequence, 2,012-target run is **currently running** on Drive at `155_region_constrained_tome_polypgen_v1/full/`, with native, region-constrained ToMe, and matched generic local-ToMe arms. Checkpoints are saved per sequence and condition. As of **2026-11-05 12:00 +07**, 11 sequences (seq2–seq6 and seq8–seq13) were complete across all arms; seq14 native and region-constrained ToMe had completed 248/248 targets, and its generic local-ToMe arm was at 79/248. The remaining cohort is pending; final full-cohort comparisons have not been produced.
 
 ## Continuous mask-aware ToMe candidate
 
@@ -186,7 +186,7 @@ The hard three-role ToMe gate passed, but its two-sequence Dice screen was mixed
 | Upstream ToMe revision and source | Pinned and unchanged (`af95e4b1`; source integrity check passed) |
 | Focused candidate tests | 9 passed across the soft-ToMe module and full-run budget checks after the pre-gate alignment correction |
 | Gate runner and protocol | Implemented in `protocols/soft_mask_aware_tome_polypgen_v1.json`; settings fixed before gate |
-| Soft-method seq2/seq3 gate | Not run yet; queue 156 is active and heartbeat-updated while waiting for Run 155 to exit, to avoid CPU contention (checked 2026-11-05 11:59 +07) |
+| Soft-method seq2/seq3 gate | Not run yet; queue 156 is active and heartbeat-updated while waiting for Run 155 to exit, to avoid CPU contention (checked 2026-11-05 12:00 +07) |
 | Full-cohort runner and queue | Implemented; queued to launch only after a passing soft-method gate |
 | Full-cohort efficacy run | Not started; requires this variant's gate to pass |
 
