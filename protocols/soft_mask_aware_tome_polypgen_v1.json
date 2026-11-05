@@ -14,6 +14,12 @@
       "timing": "Before the soft-method seq2/seq3 gate and with no soft-method outputs inspected. The separate Run155 hard-region ToMe cohort was partially observed; this soft candidate is therefore exploratory in the broader study.",
       "change": "Record the relevant token-merging literature and why this implementation adapts ToMe rather than copying an encoder-specific segmentation method. No code, merge weight, window, budget, or evaluation criterion changed.",
       "reason": "ALGM supports local similarity-based token merging as a segmentation efficiency technique, while StructSAM and the MaskMerge preprint motivate preserving structural or mask distinctions during merging. Their tasks and insertion points differ from frozen SAM2 temporal memory attention; ALGM's public implementation also uses an adaptive threshold, which conflicts with the frozen no-threshold protocol."
+    },
+    {
+      "date": "2026-11-05",
+      "timing": "Before the soft-method seq2/seq3 gate; no soft-method outputs were inspected.",
+      "change": "Document the positional approximation caused by applying ToMe after native K/V projection and rotary position encoding.",
+      "reason": "The merged key is a weighted average of locally positioned, RoPE-transformed keys. Restricting matches to 4x4 windows bounds spatial separation but does not preserve a single exact positional phase. The fixed experiment tests this approximation as implemented; no merge setting or criterion changes."
     }
   ],
   "motivation": "Replace hard foreground/interior, boundary, and background merge groups with a continuous occupancy compatibility prior. The method tests whether mask structure helps decide which nearby, similar memory tokens can be averaged without dropping all tokens from a region.",
@@ -137,6 +143,7 @@
     "The method is a compression test. Published token-merging results support accuracy/compute trade-offs, not a reliable Dice improvement over dense frozen SAM2.",
     "ToMe was designed for transformer token efficiency, not SAM2 temporal memory accuracy.",
     "Mass correction approximates the contribution of merged keys; it is exact only when merged keys and values are identical.",
-    "This PolypGen experiment is exploratory and cannot provide independent confirmation."
+    "This PolypGen experiment is exploratory and cannot provide independent confirmation.",
+    "The post-RoPE merge averages keys carrying different local rotary phases; 4x4 locality bounds but does not remove this positional approximation."
   ]
 }
