@@ -8,7 +8,7 @@ Updated **2026-11-05**. Detailed frame records and receipts are stored in Drive 
 - Among the newer trainable CVs, the largest native gain was **+0.008575 Dice** (Run 119); it did not beat the global-role control and added false alarms. Earlier sparse-history C2 gained +0.01935 over native, but its interval crossed zero and Holm p=1.000.
 - Region labels are reproducible positional groups of the model's own predicted mask. Boundary tokens receive high attention per token, but exclusion studies do not show boundary indispensability.
 - Run 155's interim hard-ToMe mean is +0.03369 Dice across 15/21 matched sequences, but the median paired gain is +0.00035; excluding seq8, the mean gain is +0.00227. It has 8 wins and 7 losses against native, with more pooled false alarms; this is not reliable meaningful-improvement evidence.
-- Run 150, using the official SAM2.1 Hiera-Tiny checkpoint with all original SAM2 weights frozen, is still running. Its completed Fold 1 is negative for the regional arm; Fold 2 regional training is at update 342/560 (epoch 24, seq11) as of 2026-11-05 12:35 +07.
+- Run 150, using the official SAM2.1 Hiera-Tiny checkpoint with all original SAM2 weights frozen, is still running. Its completed Fold 1 is negative for the regional arm; Fold 2 regional training is at update 343/560 (epoch 24, seq13) as of 2026-11-05 12:36 +07.
 
 PolypGen has informed repeated development, so these are exploratory results. Sequences 1 and 7 have no eligible first-frame prompt and are excluded. Patient-to-sequence independence is unverified.
 
@@ -176,7 +176,7 @@ The interim mean is highly sensitive to seq8: region ToMe's mean gain over nativ
 
 Across the 15 completed sequences, the per-read audit covers **6,876 layer reads** (four layers per target). Regional and generic ToMe have identical spatial-key counts at each target and layer, matched memory-frame lists, equal pointer counts, and conserved spatial key mass; they retain **50.25%** of the dense spatial keys in aggregate. The original SAM2 parameter digest is unchanged. Recorded CPU wall times are 1,846.5 s native, 5,271.1 s region ToMe and 5,040.8 s generic ToMe, so this implementation currently incurs substantial runtime overhead despite shortening attention keys. These are interim measurements from the current pipeline, not a speed benchmark.
 
-The full 21-sequence, 2,012-target run is **currently running** on Drive at `155_region_constrained_tome_polypgen_v1/full/`, with native, region-constrained ToMe, and matched generic local-ToMe arms. As of **2026-11-05 12:35 +07**, all three arms have complete matched receipts for seq2–seq6 and seq8–seq17 (15 sequences); seq18–seq23 remain pending. The results above were recomputed from Drive frame records and checked for matching references, labels, per-frame-to-summary metrics, budgets, pointers, and mass conservation.
+The full 21-sequence, 2,012-target run is **currently running** on Drive at `155_region_constrained_tome_polypgen_v1/full/`, with native, region-constrained ToMe, and matched generic local-ToMe arms. As of **2026-11-05 12:36 +07**, all three arms have complete matched receipts for seq2–seq6 and seq8–seq17 (15 sequences). Native has also completed seq18; region and generic seq18 outputs are still pending, as are seq19–seq23. The results above were recomputed from Drive frame records and checked for matching references, labels, per-frame-to-summary metrics, budgets, pointers, and mass conservation.
 
 ## Continuous mask-aware ToMe candidate
 
