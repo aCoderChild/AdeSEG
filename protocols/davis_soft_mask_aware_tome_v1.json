@@ -1,0 +1,266 @@
+{
+  "name": "Frozen soft mask-aware local ToMe on DAVIS 2017 validation",
+  "created": "2026-11-05",
+  "status": "Prospectively amended and frozen 2026-11-05 before any DAVIS validation inference; train engineering gate must pass.",
+  "scope": {
+    "dataset": "DAVIS 2017 semi-supervised validation, 480p",
+    "videos": 30,
+    "objects": 61,
+    "frames": 1999,
+    "prompt": "Ground-truth indexed mask on frame 0 for every object present in that frame; no later annotation is read by inference.",
+    "interpretation": "External to the PolypGen development cohort, but not asserted to be unseen by foundation-model pretraining. DAVIS val is exploratory transfer evidence, not a substitute for independent clinical data."
+  },
+  "model": {
+    "repository": "external/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint": "Google Drive outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "precision": "CPU FP32",
+    "parameters_frozen": true
+  },
+  "conditions": [
+    {
+      "id": "native",
+      "description": "Unmodified SAM2 memory read and mask decoding."
+    },
+    {
+      "id": "generic_local_tome",
+      "description": "Pinned upstream ToMe matching and weighted K/V merging within 4x4 windows; fixed 8 of 16 spatial keys merged per window."
+    },
+    {
+      "id": "soft_mask_aware_tome",
+      "description": "Same ToMe implementation, window, and budget; matching metric combines appearance and continuous occupancy from the exact prediction passed to SAM2's memory writer."
+    }
+  ],
+  "method": {
+    "read_location": "Native SAM2 memory SDPA after native key/value projection and rotary position encoding.",
+    "preserved": [
+      "current-frame image encoder",
+      "SAM2 mask decoder",
+      "memory writes",
+      "native frame schedule",
+      "pointer tokens",
+      "all pretrained parameters",
+      "native score-to-mask rule"
+    ],
+    "merge": "Use the frozen PolypGen protocol values: 4x4 spatial windows, 8 merges per 16 keys, role_weight 0.5, and attention log(cluster_size) mass correction.",
+    "window_size": 4,
+    "merges_per_window": 8,
+    "role_weight": 0.5,
+    "multi_object": "Use SAM2's native per-object propagation. Route each stored writer-mask occupancy map using the persistent object ID; never share occupancy across objects in the same frame.",
+    "forbidden": [
+      "learned or hand-tuned confidence gates",
+      "adaptive thresholds",
+      "frame selection",
+      "temporal subsampling",
+      "DAVIS-based tuning"
+    ]
+  },
+  "engineering_gate": {
+    "split": "train",
+    "sequence": "bmx-bumps",
+    "objects": [
+      1,
+      2
+    ],
+    "frames": [
+      0,
+      1
+    ],
+    "conditions": [
+      "native",
+      "generic_local_tome",
+      "soft_mask_aware_tome"
+    ],
+    "pass_checks": [
+      "Both persistent IDs receive only their own frame-0 writer-mask occupancy, matched by the exact SAM2 preflight resize.",
+      "Frame-1 propagation returns both original object IDs, finite logits, and unchanged output geometry.",
+      "Both ToMe conditions invoke all four native memory-attention layers once per object at frame 1.",
+      "Generic and mask-aware conditions use the same per-object, per-layer, per-frame, per-window key budget.",
+      "Spatial token mass is conserved; pointer keys and values are unchanged; SAM2 parameter digest is unchanged.",
+      "All predictions, receipts, and evaluator outputs are written beneath Google Drive outputs/experiment."
+    ],
+    "before_full_cohort": true
+  },
+  "evaluation": {
+    "primary": "Official DAVIS 2017 J&F-Mean on val at 480p; report J and F components alongside it using the pinned davisvideochallenge evaluator.",
+    "local_contrasts": [
+      "soft_mask_aware_tome - native",
+      "soft_mask_aware_tome - generic_local_tome"
+    ],
+    "statistical_unit": "video; average the official per-object J, F, and J&F values within each video before paired analysis. Preserve per-object rows descriptively.",
+    "paired_inference": "Two-sided Wilcoxon signed-rank tests and 95% percentile bootstrap intervals over video-level J&F differences; 10,000 resamples, seed 20261105; Holm correction across the two primary local contrasts.",
+    "dice": "If reported, compute separately from framewise binary masks and label it supplementary. Do not equate Dice with DAVIS J&F or compare it directly with PolypGen Dice.",
+    "official_evaluator_revision": "ac7c43fca936f9722837b7fbd337d284ba37004b",
+    "comparison_policy": "Published DAVIS results are context only: different checkpoints, backbones, training sets and inference implementations prevent treating them as paired controls. Re-run only the local native and matched generic controls.",
+    "official_frame_policy": "The pinned official semi-supervised evaluator removes frame 0 and the final frame from scoring (frames 1 through N-2 are scored). This behavior is verified in davis2017/evaluation.py and applies to every local condition.",
+    "aggregation": "Report the official global score (equal-weight mean across object-level temporal means) and per-object J/F. For primary paired inference, first average per-object J, F and J&F within each video, then treat the 30 videos equally.",
+    "raw_precision": "Use DAVISEvaluation.evaluate from the pinned official evaluator API; retain full precision in JSON/CSV. Do not read cached 3-decimal CSVs for statistical tests.",
+    "bootstrap_unit": "Resample the 30 paired video-level differences with replacement; do not resample objects or frames."
+  },
+  "published_context": [
+    {
+      "method": "STCN",
+      "model_variant": "paper configuration",
+      "DAVIS17_val_JF_percent": 85.4,
+      "source_paper": "SAM 2, Table 17",
+      "source_url": "https://arxiv.org/abs/2408.00714"
+    },
+    {
+      "method": "XMem",
+      "model_variant": "paper configuration",
+      "DAVIS17_val_JF_percent": 86.0,
+      "source_paper": "SAM 2, Table 17",
+      "source_url": "https://arxiv.org/abs/2408.00714"
+    },
+    {
+      "method": "DEVA",
+      "model_variant": "paper configuration",
+      "DAVIS17_val_JF_percent": 87.0,
+      "source_paper": "SAM 2, Table 17",
+      "source_url": "https://arxiv.org/abs/2408.00714"
+    },
+    {
+      "method": "Cutie-base",
+      "model_variant": "base",
+      "DAVIS17_val_JF_percent": 87.9,
+      "source_paper": "SAM 2, Table 17",
+      "source_url": "https://arxiv.org/abs/2408.00714"
+    },
+    {
+      "method": "Cutie-base+",
+      "model_variant": "base+",
+      "DAVIS17_val_JF_percent": 88.1,
+      "source_paper": "SAM 2, Table 17",
+      "source_url": "https://arxiv.org/abs/2408.00714"
+    },
+    {
+      "method": "SAM 2",
+      "model_variant": "Hiera-T (paper checkpoint/training)",
+      "DAVIS17_val_JF_percent": 89.4,
+      "source_paper": "SAM 2, Table 17",
+      "source_url": "https://arxiv.org/abs/2408.00714"
+    },
+    {
+      "method": "SAM 2",
+      "model_variant": "Hiera-B+ (paper checkpoint/training)",
+      "DAVIS17_val_JF_percent": 90.2,
+      "source_paper": "SAM 2, Table 17",
+      "source_url": "https://arxiv.org/abs/2408.00714"
+    },
+    {
+      "method": "SAM 2",
+      "model_variant": "Hiera-L (paper checkpoint/training)",
+      "DAVIS17_val_JF_percent": 90.7,
+      "source_paper": "SAM 2, Table 17",
+      "source_url": "https://arxiv.org/abs/2408.00714"
+    },
+    {
+      "method": "SAMURAI",
+      "model_variant": "paper configuration",
+      "DAVIS17_val_JF_percent": 89.9,
+      "source_paper": "SeC, ICLR 2026, Table 6",
+      "source_url": "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf"
+    },
+    {
+      "method": "SAM2Long",
+      "model_variant": "paper configuration",
+      "DAVIS17_val_JF_percent": 91.4,
+      "source_paper": "SeC, ICLR 2026, Table 6",
+      "source_url": "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf"
+    },
+    {
+      "method": "SeC",
+      "model_variant": "paper configuration",
+      "DAVIS17_val_JF_percent": 91.3,
+      "source_paper": "SeC, ICLR 2026, Table 6",
+      "source_url": "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf"
+    },
+    {
+      "method": "SAM 2.1",
+      "model_variant": "Hiera-L (SeC paper configuration)",
+      "DAVIS17_val_JF_percent": 90.7,
+      "source_paper": "SeC, ICLR 2026, Table 6",
+      "source_url": "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf"
+    },
+    {
+      "method": "SAM 2.1-B+ Original",
+      "model_variant": "Delta-t 1",
+      "DAVIS17_val_JF_percent": 89.7,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 1",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-B+ ToMe",
+      "model_variant": "image encoder merge, Delta-t 1",
+      "DAVIS17_val_JF_percent": 74.5,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 1",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-B+ ALGM",
+      "model_variant": "image encoder merge, Delta-t 1",
+      "DAVIS17_val_JF_percent": 88.4,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 1",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-B+ SMR-random",
+      "model_variant": "memory retrieval, Delta-t 1",
+      "DAVIS17_val_JF_percent": 89.6,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 1",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-B+ SMR",
+      "model_variant": "memory retrieval, Delta-t 1",
+      "DAVIS17_val_JF_percent": 89.7,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 1",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-L Original",
+      "model_variant": "Delta-t 1",
+      "DAVIS17_val_JF_percent": 89.9,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 2",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-L ToMe",
+      "model_variant": "image encoder merge, Delta-t 1",
+      "DAVIS17_val_JF_percent": 67.0,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 2",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-L ALGM",
+      "model_variant": "image encoder merge, Delta-t 1",
+      "DAVIS17_val_JF_percent": 88.4,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 2",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-L SMR-random",
+      "model_variant": "memory retrieval, Delta-t 1",
+      "DAVIS17_val_JF_percent": 89.8,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 2",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    },
+    {
+      "method": "SAM 2.1-L SMR",
+      "model_variant": "memory retrieval, Delta-t 1",
+      "DAVIS17_val_JF_percent": 89.9,
+      "source_paper": "Efficient-SAM2, ICLR 2026, Table 2",
+      "source_url": "https://openreview.net/pdf?id=HcivRSezJp"
+    }
+  ],
+  "published_comparison_note": "Published scores are context, not controlled arms: checkpoints, backbones, training data, precision and inference code differ. The SAM2 paper gives conventional VOS baselines and SAM2 scale variants; SeC reports SAMURAI/SAM2Long/SeC; Efficient-SAM2 provides directly relevant memory-retrieval and image-encoder merging comparisons. The local paired conclusion is based only on native Hiera-Tiny, generic local ToMe, and soft-mask-aware local ToMe under one checkpoint, prompt setup, and evaluator.",
+  "sources": [
+    "https://arxiv.org/abs/2408.00714",
+    "https://davischallenge.org/davis2017/code.html",
+    "https://github.com/davisvideochallenge/davis2017-evaluation",
+    "https://arxiv.org/abs/2411.11922",
+    "https://openreview.net/pdf/c01d0dd8d4e7179b0952062eff08eb52c8d8c322.pdf",
+    "https://openreview.net/pdf?id=HcivRSezJp"
+  ]
+}
