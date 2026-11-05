@@ -1,13 +1,19 @@
 {
   "name": "Soft mask-aware token merging in frozen SAM2 memory attention",
   "created": "2026-11-05",
-  "status": "prospective; pre-gate mask-source alignment amendment recorded 2026-11-05; engineering gate queued; do not launch the cohort before the gate passes",
+  "status": "prospective; pre-gate mask-source and literature-review amendments recorded 2026-11-05; engineering gate queued; do not launch the cohort before the gate passes",
   "amendment_history": [
     {
       "date": "2026-11-05",
       "timing": "Before the seq2/seq3 gate; no soft-method efficacy outputs were inspected.",
       "change": "Derive soft occupancy from each stored frame's pred_masks_high_res tensor and pool it to that frame's maskmem_features grid.",
       "reason": "SAM2 passes pred_masks_high_res to its memory encoder; pred_masks is the separate 256x256 decoder output. The high-resolution source makes the spatial assignment follow the exact prediction tensor used for that memory write."
+    },
+    {
+      "date": "2026-11-05",
+      "timing": "Before the soft-method seq2/seq3 gate and with no soft-method outputs inspected. The separate Run155 hard-region ToMe cohort was partially observed; this soft candidate is therefore exploratory in the broader study.",
+      "change": "Record the relevant token-merging literature and why this implementation adapts ToMe rather than copying an encoder-specific segmentation method. No code, merge weight, window, budget, or evaluation criterion changed.",
+      "reason": "ALGM supports local similarity-based token merging as a segmentation efficiency technique, while StructSAM and the MaskMerge preprint motivate preserving structural or mask distinctions during merging. Their tasks and insertion points differ from frozen SAM2 temporal memory attention; ALGM's public implementation also uses an adaptive threshold, which conflicts with the frozen no-threshold protocol."
     }
   ],
   "motivation": "Replace hard foreground/interior, boundary, and background merge groups with a continuous occupancy compatibility prior. The method tests whether mask structure helps decide which nearby, similar memory tokens can be averaged without dropping all tokens from a region.",
@@ -23,9 +29,21 @@
     "related_idea": "MaskMerge and SaMer motivate using predicted object structure to reduce cross-structure token fusion. Their reported tasks differ from frozen temporal SAM2 memory attention; this protocol tests that transfer rather than assuming it works.",
     "adjacent_mask_structure_work": [
       {
+        "name": "ALGM",
+        "paper_url": "https://openaccess.thecvf.com/content/CVPR2024/papers/Norouzi_ALGM_Adaptive_Local-then-Global_Token_Merging_for_Efficient_Semantic_Segmentation_with_Plain_Vision_Transformers_CVPR_2024_paper.pdf",
+        "repository": "https://github.com/tue-mps/algm-segmenter",
+        "inspected_revision": "674eaa290118e290dd7ddf620bed2f98eee771d5",
+        "scope": "Local-then-global token merging in a Segmenter image encoder. Reports efficiency gains and some mIoU gains, but is not a SAM2 temporal-memory method; its released implementation uses an adaptive similarity threshold and encoder-specific patches."
+      },
+      {
+        "name": "StructSAM",
+        "paper_url": "https://arxiv.org/abs/2603.07307",
+        "scope": "Preprint on structure-preserving token merging in SAM image encoders using feature-gradient/flatness screening and merge-unmerge. The paper does not supply a SAM2 memory-attention implementation; its screening is not used here."
+      },
+      {
         "name": "MaskMerge",
         "paper_url": "https://arxiv.org/abs/2610.22921",
-        "scope": "Mask-aware token merging for image instance segmentation; not evidence of video-memory Dice gains."
+        "scope": "Recent preprint on coarse-mask-constrained merging for image instance segmentation. No official implementation was located during this review; not evidence of video-memory Dice gains."
       },
       {
         "name": "SaMer",
@@ -115,6 +133,8 @@
   "limitations": [
     "The continuous mask prior describes predicted spatial occupancy, not the semantic purity of a K/V vector.",
     "MaskMerge and SaMer are adjacent inspiration, not direct evidence for video memory Dice improvement.",
+    "ALGM and StructSAM operate in image encoders, while this adaptation operates on already-positioned temporal memory K/V; no cited work validates this exact placement.",
+    "The method is a compression test. Published token-merging results support accuracy/compute trade-offs, not a reliable Dice improvement over dense frozen SAM2.",
     "ToMe was designed for transformer token efficiency, not SAM2 temporal memory accuracy.",
     "Mass correction approximates the contribution of merged keys; it is exact only when merged keys and values are identical.",
     "This PolypGen experiment is exploratory and cannot provide independent confirmation."
