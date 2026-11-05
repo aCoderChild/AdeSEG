@@ -1,8 +1,11 @@
+import hashlib
+
 import pytest
 import torch
 import torch.nn.functional as F
 
 from modeling.soft_mask_aware_tome import (
+    NativeSoftMaskAwareToMe,
     compress_memory_kv,
     occupancy_from_mask_logits,
     soft_mask_similarity_metric,
@@ -74,3 +77,51 @@ def test_invalid_occupancy_is_rejected():
     keys = torch.ones(1, 1, 16, 4)
     with pytest.raises(ValueError, match="Occupancy"):
         soft_mask_similarity_metric(keys, torch.full((1, 16), 1.5))
+
+
+def test_memory_writer_masks_are_captured_with_their_source_frame():
+    class FakePredictor:
+        def _prepare_memory_conditioned_features(self):
+            return None
+
+        binarize_mask_from_pts_for_mem_enc = False
+
+        def track_step(self, frame_idx, pred_masks_high_res, is_mask_from_pts=False):
+            return self._encode_new_memory(
+                pred_masks_high_res=pred_masks_high_res,
+                is_mask_from_pts=is_mask_from_pts,
+            )
+
+        def _run_memory_encoder(self, frame_idx, high_res_masks):
+            return self._encode_new_memory(pred_masks_high_res=high_res_masks)
+
+        def _encode_new_memory(self, pred_masks_high_res, is_mask_from_pts=False):
+            return torch.zeros(1, 4, 2, 2), None
+
+    model = FakePredictor()
+    observer = NativeSoftMaskAwareToMe(model)
+    model.track_step = observer._track_step_with_write_frame
+    model._run_memory_encoder = observer._run_memory_encoder_with_write_frame
+    model._encode_new_memory = observer._capture_encode_new_memory_input
+
+    predicted = torch.full((1, 1, 8, 8), 2.0)
+    prompted = torch.full((1, 1, 8, 8), -2.0)
+    model.track_step(frame_idx=7, pred_masks_high_res=predicted)
+    model._run_memory_encoder(frame_idx=3, high_res_masks=prompted)
+
+    assert set(observer.mask_cache) == {3, 7}
+    assert torch.all(observer.mask_cache[7][0] > 0.88)
+    assert torch.all(observer.mask_cache[3][0] < 0.12)
+    for frame, logits in ((7, predicted), (3, prompted)):
+        metadata = observer.mask_cache[frame][1]
+        source = logits[0, 0].contiguous()
+        expected_hash = hashlib.sha256(source.view(torch.uint8).numpy().tobytes()).hexdigest()
+        assert metadata["frame"] == frame
+        assert metadata["mask_source_field"] == "pred_masks_high_res"
+        assert metadata["capture_stage"] == "input_to_sam2__encode_new_memory"
+        assert metadata["memory_write_mask_sha256"] == expected_hash
+        assert metadata["memory_write_mask_shape"] == [8, 8]
+    assert observer.active_write_frame is None
+    model.binarize_mask_from_pts_for_mem_enc = True
+    with pytest.raises(RuntimeError, match="binarization is incompatible"):
+        model.track_step(frame_idx=9, pred_masks_high_res=predicted, is_mask_from_pts=True)

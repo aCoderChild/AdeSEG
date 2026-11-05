@@ -130,10 +130,16 @@ def run_condition(name, condition, frames, prompt, reference, checkpoint, config
                                 call["mask_sources"], call["frames"], strict=True
                             ):
                                 expected_mask_shape = [model.image_size, model.image_size]
-                                if source["stored_mask_field"] != "pred_masks_high_res":
-                                    raise RuntimeError("Occupancy did not use SAM2's stored high-resolution mask")
-                                if source["stored_mask_shape"] != expected_mask_shape:
-                                    raise RuntimeError("Stored high-resolution mask differs from model image size")
+                                if source["mask_source_field"] != "pred_masks_high_res":
+                                    raise RuntimeError("Occupancy did not use SAM2's memory-writer mask input")
+                                if source["capture_stage"] != "input_to_sam2__encode_new_memory":
+                                    raise RuntimeError("Mask was not captured at SAM2's memory-writer input")
+                                if source["memory_write_mask_shape"] != expected_mask_shape:
+                                    raise RuntimeError("Memory-writer mask differs from model image size")
+                                if len(source["memory_write_mask_sha256"]) != 64:
+                                    raise RuntimeError("Memory-writer mask hash is missing or malformed")
+                                if source["memory_mask_binarized"]:
+                                    raise RuntimeError("Memory-writer mask was binarized before occupancy assignment")
                                 token_count = sum(
                                     window["original_spatial_keys"]
                                     for window in memory_frame["windows"]

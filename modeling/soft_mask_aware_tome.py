@@ -26,9 +26,8 @@ ROLE_WEIGHT = 0.5
 def occupancy_from_mask_logits(mask_logits, grid_shape, *, device=None):
     """Area-average native high-resolution mask probabilities onto memory grid.
 
-    ``mask_logits`` must be the exact high-resolution prediction stored for the
-    frame and used to form SAM2's memory-encoder mask input. No binary threshold
-    or three-way region assignment is applied.
+    ``mask_logits`` is captured at the exact input to SAM2's memory writer. No
+    binary threshold or three-way region assignment is applied.
     """
     logits = torch.as_tensor(mask_logits).detach().float()
     while logits.ndim > 2 and logits.shape[0] == 1:
@@ -227,11 +226,106 @@ class NativeSoftMaskAwareToMe(NativeRegionConstrainedToMe):
             raise ValueError("Unknown soft-mask ToMe mode")
         parent_mode = "regional" if mode == "soft_mask_aware" else "global"
         super().__init__(model, mode=parent_mode)
+        import inspect
+
         self.method_mode = mode
         self.role_weight = float(role_weight)
         self.occupancy = None
         self.mask_sources = []
         self.mask_cache = {}
+        self.active_write_frame = None
+        self.original_track_step = model.track_step
+        self.track_step_signature = inspect.signature(self.original_track_step)
+        self.original_run_memory_encoder = model._run_memory_encoder
+        self.run_memory_encoder_signature = inspect.signature(self.original_run_memory_encoder)
+        self.original_encode_new_memory = model._encode_new_memory
+        self.encode_new_memory_signature = inspect.signature(self.original_encode_new_memory)
+
+    def _capture_memory_write_mask(self, frame, mask_logits, memory_features, *, is_mask_from_pts=False):
+        if not isinstance(mask_logits, torch.Tensor) or mask_logits.ndim != 4 or mask_logits.shape[:2] != (1, 1):
+            shape = tuple(mask_logits.shape) if isinstance(mask_logits, torch.Tensor) else None
+            raise ValueError(
+                "Expected one high-resolution mask at SAM2's memory-write input "
+                f"for frame {frame}; got shape {shape}"
+            )
+        if not isinstance(memory_features, torch.Tensor) or memory_features.ndim != 4:
+            raise ValueError(f"Memory write for frame {frame} returned no spatial feature grid")
+        native_mask = mask_logits[0, 0].detach().cpu().contiguous()
+        grid_shape = tuple(int(value) for value in memory_features.shape[-2:])
+        token_occupancy = occupancy_from_mask_logits(native_mask, grid_shape)
+        mask_bytes = native_mask.view(torch.uint8).numpy().tobytes()
+        metadata = {
+            "frame": int(frame),
+            "mask_source_field": "pred_masks_high_res",
+            "capture_stage": "input_to_sam2__encode_new_memory",
+            "memory_write_mask_sha256": hashlib.sha256(mask_bytes).hexdigest(),
+            "memory_write_mask_shape": list(native_mask.shape),
+            "memory_write_mask_dtype": str(native_mask.dtype),
+            "is_mask_from_pts": bool(is_mask_from_pts),
+            "memory_mask_binarized": bool(
+                is_mask_from_pts
+                and getattr(self.model, "binarize_mask_from_pts_for_mem_enc", False)
+            ),
+            "memory_grid_shape": list(grid_shape),
+            "occupancy_pool_kernel": [
+                int(native_mask.shape[0]) // grid_shape[0],
+                int(native_mask.shape[1]) // grid_shape[1],
+            ],
+            "occupancy_tokens": int(token_occupancy.numel()),
+        }
+        previous = self.mask_cache.get(int(frame))
+        if previous is not None and previous[1]["memory_write_mask_sha256"] != metadata["memory_write_mask_sha256"]:
+            raise RuntimeError(f"SAM2 produced different memory-write masks for frame {frame}")
+        self.mask_cache[int(frame)] = (token_occupancy.detach().cpu(), metadata)
+
+    def _track_step_with_write_frame(self, *args, **kwargs):
+        bound = self.track_step_signature.bind(*args, **kwargs)
+        frame = int(bound.arguments["frame_idx"])
+        previous = self.active_write_frame
+        self.active_write_frame = frame
+        try:
+            return self.original_track_step(*args, **kwargs)
+        finally:
+            self.active_write_frame = previous
+
+    def _run_memory_encoder_with_write_frame(self, *args, **kwargs):
+        bound = self.run_memory_encoder_signature.bind(*args, **kwargs)
+        frame = int(bound.arguments["frame_idx"])
+        previous = self.active_write_frame
+        self.active_write_frame = frame
+        try:
+            return self.original_run_memory_encoder(*args, **kwargs)
+        finally:
+            self.active_write_frame = previous
+
+    def _capture_encode_new_memory_input(self, *args, **kwargs):
+        if self.active_write_frame is None:
+            raise RuntimeError("SAM2 memory write did not expose its source frame index")
+        bound = self.encode_new_memory_signature.bind(*args, **kwargs)
+        mask_logits = bound.arguments["pred_masks_high_res"]
+        is_mask_from_pts = bool(bound.arguments.get("is_mask_from_pts", False))
+        if (
+            is_mask_from_pts
+            and bool(getattr(self.model, "binarize_mask_from_pts_for_mem_enc", False))
+        ):
+            raise RuntimeError(
+                "Point-prompt memory binarization is incompatible with continuous raw-mask occupancy"
+            )
+        result = self.original_encode_new_memory(*args, **kwargs)
+        self._capture_memory_write_mask(
+            self.active_write_frame,
+            mask_logits,
+            result[0],
+            is_mask_from_pts=is_mask_from_pts,
+        )
+        return result
+
+    def __enter__(self):
+        super().__enter__()
+        self.model.track_step = self._track_step_with_write_frame
+        self.model._run_memory_encoder = self._run_memory_encoder_with_write_frame
+        self.model._encode_new_memory = self._capture_encode_new_memory_input
+        return self
 
     def _prepare(self, *args, **kwargs):
         bound = self.prepare_signature.bind(*args, **kwargs)
@@ -256,10 +350,6 @@ class NativeSoftMaskAwareToMe(NativeRegionConstrainedToMe):
                 output = outputs.get(int(span["frame"]))
                 if output is None:
                     raise RuntimeError(f"Missing stored prediction for memory frame {span['frame']}")
-                mask_field = "pred_masks_high_res"
-                masks = output.get(mask_field)
-                if not isinstance(masks, torch.Tensor) or masks.ndim != 4 or masks.shape[:2] != (1, 1):
-                    raise ValueError("Expected one stored high-resolution object mask per frame")
                 memory_features = output.get("maskmem_features")
                 if not isinstance(memory_features, torch.Tensor) or memory_features.ndim != 4:
                     raise ValueError("Stored frame is missing spatial memory features")
@@ -267,30 +357,13 @@ class NativeSoftMaskAwareToMe(NativeRegionConstrainedToMe):
                 source_frame = int(span["frame"])
                 cached = self.mask_cache.get(source_frame)
                 if cached is None:
-                    native_mask = masks[0, 0].detach().float().cpu().contiguous()
-                    mask_sha256 = hashlib.sha256(native_mask.numpy().tobytes()).hexdigest()
-                    token_occupancy = occupancy_from_mask_logits(
-                        native_mask, memory_grid_shape, device=memory_features.device
+                    raise RuntimeError(
+                        f"No mask was captured at SAM2's memory write for frame {source_frame}"
                     )
-                    pool_kernel = [
-                        int(native_mask.shape[0]) // memory_grid_shape[0],
-                        int(native_mask.shape[1]) // memory_grid_shape[1],
-                    ]
-                    metadata = {
-                        "frame": source_frame,
-                        "stored_mask_field": mask_field,
-                        "stored_mask_sha256": mask_sha256,
-                        "stored_mask_shape": list(native_mask.shape),
-                        "memory_grid_shape": list(memory_grid_shape),
-                        "occupancy_pool_kernel": pool_kernel,
-                        "occupancy_tokens": int(token_occupancy.numel()),
-                    }
-                    self.mask_cache[source_frame] = (token_occupancy, metadata)
-                else:
-                    token_occupancy, metadata = cached
-                    if tuple(metadata["memory_grid_shape"]) != memory_grid_shape:
-                        raise RuntimeError("A stored frame's memory grid changed between reads")
-                    token_occupancy = token_occupancy.to(device=memory_features.device)
+                token_occupancy, metadata = cached
+                if tuple(metadata["memory_grid_shape"]) != memory_grid_shape:
+                    raise RuntimeError("A stored frame's memory grid differs from its captured mask grid")
+                token_occupancy = token_occupancy.to(device=memory_features.device)
                 if token_occupancy.numel() != int(span["stop"]) - int(span["start"]):
                     raise RuntimeError("Stored mask grid does not align with memory spatial tokens")
                 maps.append(token_occupancy)
@@ -338,3 +411,10 @@ class NativeSoftMaskAwareToMe(NativeRegionConstrainedToMe):
             **audit,
         })
         return output
+
+    def __exit__(self, *exc):
+        self.model.track_step = self.original_track_step
+        self.model._run_memory_encoder = self.original_run_memory_encoder
+        self.model._encode_new_memory = self.original_encode_new_memory
+        self.active_write_frame = None
+        return super().__exit__(*exc)

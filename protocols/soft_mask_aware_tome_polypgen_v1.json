@@ -1,13 +1,13 @@
 {
   "name": "Soft mask-aware token merging in frozen SAM2 memory attention",
   "created": "2026-11-05",
-  "status": "prospective; pre-gate mask-source and literature-review amendments recorded 2026-11-05; engineering gate queued; do not launch the cohort before the gate passes",
+  "status": "prospective; first engineering-gate attempt failed before any ToMe treatment outputs; memory-writer capture correction recorded before retry; do not launch the cohort before the retry gate passes",
   "amendment_history": [
     {
       "date": "2026-11-05",
-      "timing": "Before the seq2/seq3 gate; no soft-method efficacy outputs were inspected.",
-      "change": "Derive soft occupancy from each stored frame's pred_masks_high_res tensor and pool it to that frame's maskmem_features grid.",
-      "reason": "SAM2 passes pred_masks_high_res to its memory encoder; pred_masks is the separate 256x256 decoder output. The high-resolution source makes the spatial assignment follow the exact prediction tensor used for that memory write."
+      "timing": "After the first seq2/seq3 engineering-gate attempt failed and before retry; native replay completed, but no ToMe treatment output was produced.",
+      "change": "Capture the current frame's pred_masks_high_res tensor at the input to SAM2 _encode_new_memory, instead of trying to read it from the compacted stored output dictionary; pool its sigmoid probabilities onto the matching memory-feature grid.",
+      "reason": "SAM2VideoPredictor._run_single_frame_inference compacts stored frame outputs and omits pred_masks_high_res. The first gate attempt therefore failed when the observer looked for a field that is not retained. The writer call receives the exact high-resolution prediction tensor that SAM2 uses to construct that frame's memory; this amendment corrects the data source, not the method settings or efficacy criterion."
     },
     {
       "date": "2026-11-05",
@@ -20,6 +20,12 @@
       "timing": "Before the soft-method seq2/seq3 gate; no soft-method outputs were inspected.",
       "change": "Document the positional approximation caused by applying ToMe after native K/V projection and rotary position encoding.",
       "reason": "The merged key is a weighted average of locally positioned, RoPE-transformed keys. Restricting matches to 4x4 windows bounds spatial separation but does not preserve a single exact positional phase. The fixed experiment tests this approximation as implemented; no merge setting or criterion changes."
+    },
+    {
+      "date": "2026-11-05",
+      "timing": "Before the retry gate; the first attempt failed before either ToMe treatment condition produced results.",
+      "change": "Use a new run directory for the retry and full cohort, preserving the original failed gate and queue receipts.",
+      "reason": "Keeping attempt outputs immutable prevents a retry from overwriting the engineering failure record."
     }
   ],
   "motivation": "Replace hard foreground/interior, boundary, and background merge groups with a continuous occupancy compatibility prior. The method tests whether mask structure helps decide which nearby, similar memory tokens can be averaged without dropping all tokens from a region.",
@@ -31,7 +37,10 @@
     "source": "tome/merge.py",
     "source_sha256": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e",
     "license": "CC BY-NC 4.0",
-    "reused_functions": ["bipartite_soft_matching", "merge_wavg"],
+    "reused_functions": [
+      "bipartite_soft_matching",
+      "merge_wavg"
+    ],
     "related_idea": "MaskMerge and SaMer motivate using predicted object structure to reduce cross-structure token fusion. Their reported tasks differ from frozen temporal SAM2 memory attention; this protocol tests that transfer rather than assuming it works.",
     "adjacent_mask_structure_work": [
       {
@@ -62,8 +71,33 @@
   "scope": {
     "dataset": "PolypGen 2021",
     "manifest": "data/polypgen_sequence.jsonl",
-    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
-    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15",
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded": {
+      "seq1": "No positive first-frame prompt mask",
+      "seq7": "No positive first-frame prompt mask"
+    },
     "interpretation": "Exploratory only. PolypGen and these sequences have informed earlier method development; sequence-level independence does not establish patient-level independence."
   },
   "model": {
@@ -75,19 +109,30 @@
   },
   "method": {
     "read_location": "Before native scaled-dot-product memory attention, after K/V projection and spatial RoPE. Preserve native current-frame query, memory writes, decoder, frame schedule, pointer keys, and all SAM2 parameters.",
-    "stored_mask": "For each selected past memory frame, use that frame's own stored pred_masks_high_res logits, the exact high-resolution decoder tensor from which SAM2 constructs the memory-encoder mask input. Apply sigmoid to these raw logits and area-average each mask footprint onto that frame's maskmem_features HxW grid (64x64 for the frozen 1024-image Hiera-Tiny setup), yielding one continuous occupancy p in [0,1] per spatial memory token. This is the decoder's raw occupancy probability, before SAM2's separate memory-mask scale/bias. Require exact integer tiling; do not threshold or use a different low-resolution mask field.",
     "similarity_metric": "For token i, normalize the mean-over-heads post-RoPE key appearance a_i and the two-component occupancy vector r_i=normalize([1-p_i,p_i]). Give each equally weighted unit contribution: m_i=concat(sqrt(0.5)*a_i, sqrt(0.5)*r_i). ToMe's cosine score is therefore 0.5*cos(a_i,a_j)+0.5*cos(r_i,r_j). No argmax region label or mask threshold is used.",
     "locality": "Apply upstream ToMe matching independently within non-overlapping 4x4 spatial token windows.",
     "fixed_budget": "Merge exactly 8 of 16 spatial keys in each full 4x4 window. Use this same fixed count for mask-aware and generic controls; no result-dependent budget.",
     "control": "Generic local ToMe uses the same window and merge count, with the native post-RoPE key appearance metric only.",
     "attention_mass": "Use the same upstream weighted-mean merge for K and V and add log(cluster_size) to the attention logits. Pointer keys and values retain mass one and remain bit-identical.",
-    "arms": ["native dense SAM2", "generic local ToMe at 50% spatial compression", "soft mask-aware local ToMe at 50% spatial compression"],
-    "forbidden": ["hard region assignment", "mask or confidence threshold", "confidence gate", "frame selection", "SAM2 parameter updates", "budget tuning on PolypGen outcomes"]
+    "arms": [
+      "native dense SAM2",
+      "generic local ToMe at 50% spatial compression",
+      "soft mask-aware local ToMe at 50% spatial compression"
+    ],
+    "forbidden": [
+      "hard region assignment",
+      "mask or confidence threshold",
+      "confidence gate",
+      "frame selection",
+      "SAM2 parameter updates",
+      "budget tuning on PolypGen outcomes"
+    ],
+    "memory_write_mask": "For each selected past memory frame, capture the pred_masks_high_res tensor as it enters SAM2 _encode_new_memory. SAM2VideoPredictor compacts its saved frame output and drops this tensor, so it cannot be read back from output_dict. The observer records the exact source frame, tensor shape, dtype, and SHA-256 at the writer call. It then applies sigmoid to the raw logits and area-averages each footprint onto that frame's maskmem_features HxW grid (64x64 for the frozen 1024-image Hiera-Tiny setup), yielding continuous occupancy p in [0,1] per spatial memory token. This uses raw predicted occupancy before SAM2's separate memory-mask scale/bias. Require exact integer tiling; do not threshold or substitute the 256x256 decoder output."
   },
   "engineering_gate": {
-    "run_after": "Run 155 frozen hard-region ToMe cohort finishes, to avoid CPU competition and keep its code/protocol receipts intact.",
+    "run_after": "Run 155 is complete. Run the small seq2/seq3 gate now; its timing is not comparable while Run 150 is active. The full-cohort queue must wait for both a passing retry gate and Run 150 to exit, to avoid CPU contention during efficacy evaluation.",
     "runner": "scripts/run_soft_mask_aware_tome_gate.py",
-    "output_location": "Google Drive outputs/experiment/156_soft_mask_aware_tome_polypgen_v1/gate/",
+    "output_location": "Google Drive outputs/experiment/158_soft_mask_aware_tome_polypgen_v1/gate/",
     "source_files_to_hash": [
       "datasets/io.py",
       "datasets/video.py",
@@ -108,33 +153,57 @@
       "scripts/run_soft_role_affinity_cv.py",
       "modeling/soft_mask_aware_tome.py",
       "scripts/run_soft_mask_aware_tome_gate.py",
-      "tests/test_soft_mask_aware_tome.py"
+      "tests/test_soft_mask_aware_tome.py",
+      "external/sam2/sam2/modeling/sam2_base.py",
+      "external/sam2/sam2/sam2_video_predictor.py"
     ],
-    "sequences": ["seq2", "seq3"],
+    "sequences": [
+      "seq2",
+      "seq3"
+    ],
     "before_full_cohort": true,
     "checks": [
       "Native full-video replay is bit-identical to archived logits, stored predictions, and object scores on both sequences.",
       "The new observer intercepts each of SAM2's four memory-attention layers once per post-prompt target.",
-      "Mask occupancy is read from the stored pred_masks_high_res tensor used to form SAM2's memory-encoder mask input, then area-pooled to the exact maskmem_features grid for every selected K/V span.",
+      "For every selected K/V span, the mask tensor is captured at the SAM2 _encode_new_memory input; the recorded source frame, shape, dtype, and SHA-256 are present, and sigmoid-area-pooled occupancy covers the exact matching memory-feature grid.",
+      "SAM2 memory-mask binarization is not applied to the mask-prompt/prediction path used by this gate; fail if a point-prompt binarization path would make raw occupancy inconsistent.",
       "Native SAM2 parameters, memory writes, object pointers, and pointer ordering remain unchanged.",
       "Mask-aware and generic arms retain identical spatial-key counts for every memory frame and local window.",
       "Merged spatial mass equals the original spatial-key count and total key mass includes untouched pointers; all values are finite.",
       "The pinned ToMe source revision and source digest are unchanged."
-    ]
+    ],
+    "previous_attempt": {
+      "output_location": "Google Drive outputs/experiment/156_soft_mask_aware_tome_polypgen_v1/gate/",
+      "status": "failed before ToMe treatment output",
+      "failure": "The initial implementation expected pred_masks_high_res in compacted stored frame output; SAM2 does not retain this field there.",
+      "preservation": "Do not overwrite or delete this attempt."
+    }
   },
   "evaluation": {
     "primary": "Equal-sequence mean present-frame Dice.",
-    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false-alarm rate on GT-empty frames", "re-detection delay", "retained spatial keys", "memory-attention wall time", "end-to-end wall time"],
-    "planned_contrasts": ["soft mask-aware ToMe minus native SAM2", "soft mask-aware ToMe minus generic local ToMe"],
+    "secondary": [
+      "per-sequence Dice",
+      "IoU",
+      "Boundary F",
+      "false-alarm rate on GT-empty frames",
+      "re-detection delay",
+      "retained spatial keys",
+      "memory-attention wall time",
+      "end-to-end wall time"
+    ],
+    "planned_contrasts": [
+      "soft mask-aware ToMe minus native SAM2",
+      "soft mask-aware ToMe minus generic local ToMe"
+    ],
     "statistics": "Paired sequence bootstrap 95% intervals and two-sided Wilcoxon tests with Holm correction over the two planned contrasts.",
     "meaningful_screen": "At least +0.01 equal-sequence Dice over native; positive mean over generic ToMe; at least 14/21 sequence wins over native; positive lower 95% bounds and Holm-adjusted p<0.05 for both contrasts; no increase in pooled false alarms versus native.",
     "decision": "Only run the full cohort if this method's own seq2/seq3 gate passes. Apply this frozen screen once; record failure as a negative result without changing the metric, weight, window, budget, or mask processing."
   },
   "full_cohort": {
     "runner": "scripts/run_soft_mask_aware_tome_full.py",
-    "queue_runner": "scripts/queue_soft_mask_aware_tome_full.py",
-    "output_location": "Google Drive outputs/experiment/157_soft_mask_aware_tome_polypgen_v1/full/",
-    "start_condition": "Only after the soft-method seq2/seq3 engineering gate writes completion.json with passed=true."
+    "queue_runner": "scripts/queue_soft_mask_aware_tome_full.py --wait-pid <Run150 PID> --wait-command-substring continue_regional_memory_prompts_cv.py",
+    "output_location": "Google Drive outputs/experiment/158_soft_mask_aware_tome_polypgen_v1/full/",
+    "start_condition": "Only after the retry gate at 158_soft_mask_aware_tome_polypgen_v1/gate writes completion.json with passed=true and Run 150 has exited."
   },
   "limitations": [
     "The continuous mask prior describes predicted spatial occupancy, not the semantic purity of a K/V vector.",
