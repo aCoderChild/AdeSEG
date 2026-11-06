@@ -2,7 +2,7 @@
   "name": "Offline probe of stored SAM2 memory features",
   "version": 1,
   "created": "2026-11-06",
-  "status": "frozen before diagnostic fitting; exploratory representation diagnostic only",
+  "status": "amended before diagnostic fitting; exploratory representation diagnostic only",
   "question": "Do same-frame stored SAM2 memory features predict ground-truth object occupancy more accurately than the frame's stored predicted-mask probabilities, on sequences not used to fit the probe?",
   "scope_limits": [
     "This is a same-frame decodability test, not a causal test of later-frame memory attention or the complementary reader.",
@@ -34,10 +34,19 @@
     "eligible_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
     "excluded_sequences": {"seq1": "No eligible positive first-frame prompt", "seq7": "No eligible positive first-frame prompt"},
     "fit_split": {"manifest_split": "dev", "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"], "post_prompt_frames": 1640},
-    "evaluation_split": {"manifest_split": "test", "sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"], "post_prompt_frames": 432},
+    "evaluation_split": {"manifest_split": "test", "sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"], "post_prompt_frames": 372},
     "total_post_prompt_frames": 2012,
     "statistical_unit": "sequence; the patient-to-sequence mapping is unknown"
   },
+  "amendments": [
+    {
+      "date": "2026-11-06",
+      "timing": "Before any probe was fitted or diagnostic result examined.",
+      "reason": "The initial test-split frame total was transcribed as 432. Recounting manifest lengths minus each archived prompt index gives 372 test frames; the dev split remains 1,640 and the cohort remains 2,012.",
+      "evidence": "Per-sequence manifest and receipt recount during read-only preflight; no model fitting or diagnostic output had started.",
+      "change": "Set evaluation_split.post_prompt_frames to 372. All sequence IDs, fitting/scoring methods, probe settings and pass criteria remain fixed."
+    }
+  ],
   "alignment": {
     "memory_feature": "Each native output's maskmem_features [1,64,64,64], converted to float32 for the probe.",
     "mask_input": "Sigmoid of the same output's pred_masks [1,1,256,256], area-averaged to 64x64. This is the stored output mask cue, not a claim that it exactly matches the memory encoder's internal mask input.",

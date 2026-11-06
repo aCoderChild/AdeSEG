@@ -118,8 +118,9 @@ records, not a fresh process or hash verification.
 | Item | State | Evidence / next action |
 |---|---|---|
 | Run 165 engineering gate | Recorded complete | Drive `165_complementary_memory_v1/gate_retry1/`; revalidate at Step 0 |
-| Current-state inventory | Complete (2026-11-06) | No experiment process active; Run 165 receipt passed, `pilot_authorized_by_this_receipt=false`; all 228 snapshotted sources match the worktree; checkpoint hash matches; Run 143 bank receipts verify all 21 sequences / 2,012 post-prompt frames. seq13 bank is referenced from `gate/observed/seq13`. |
-| Diagnostic protocol | Frozen before diagnostic outcomes | [Complementary memory diagnostic v1](complementary_memory_diagnostic_v1.json); use exact committed protocol and read-only Run 143 banks. |
+| Current-state inventory | Complete (2026-11-06) | No experiment process active; Run 165 receipt passed, `pilot_authorized_by_this_receipt=false`; all 228 Run 165 snapshotted sources and the checkpoint match; Run 143 bank receipts verify all 21 sequences / 2,012 post-prompt frames. In Run 143's 81-file source list, 79 match; the only differences are test configuration and CLI catalog, excluded from inference imports and disclosed in diagnostic v1. seq13 bank is referenced from `gate/observed/seq13`. |
+| Diagnostic protocol | Amended and frozen before fitting (2026-11-06) | [Complementary memory diagnostic v1](complementary_memory_diagnostic_v1.json); preflight corrected test-split post-prompt count from 432 to 372 using manifests and receipts. No probe was fitted and no result inspected. |
+| Diagnostic implementation/preflight | In progress | Pinned environment installed; 4 targeted synthetic checks pass. Real-bank read-only validation must be rerun against the amended protocol before fitting. |
 | Diagnostic results | Not started | Step 2; test sequences were examined in prior studies, so result remains exploratory. |
 | Pilot protocol | Pending | Step 3 |
 | Pilot runner verification | Pending | Step 4 |
