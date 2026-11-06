@@ -1,0 +1,176 @@
+{
+  "name": "Foreground/context contrastive supervision of a frozen-SAM2 complementary reader",
+  "run": "169",
+  "version": 1,
+  "date": "2026-11-07",
+  "status": "prospectively frozen before training",
+  "hypothesis": "Supervising foreground-versus-context discrimination in the actual reader Q/K content projections improves full-propagation Dice over the identical regional reader without that loss and native SAM2.",
+  "scope": "Exploratory one-seed mechanism pilot; all PolypGen sequences have already been examined. No patient independence, publication novelty or improvement is assumed. This isolates a training objective; it does not implement a new logit bias, hard token removal, or multi-object benchmark.",
+  "model": {
+    "repository": "external/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "device": "cpu",
+    "compute_precision": "FP32 SAM2 inference/training operations; retain native bfloat16 stored memory features",
+    "postprocessing": false,
+    "prompt": "Official predictor mask-prompt path using the first manifest frame whose object-1 GT mask is nonempty. The prompt mask may initialize the first memory. No later GT is passed to the model or written into memory.",
+    "original_parameters": "All original SAM2 parameters frozen; predictor remains eval mode; native frame selection, temporal positions, pointers, decoder and memory encoder retained. No additional confidence gate, learned decision threshold, hard token deletion, or frame selection."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256_at_freeze": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "prompt_rule": "first_labeled_frame",
+    "training_sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15"
+    ],
+    "training_sequences_count": 13,
+    "training_post_prompt_frames": 1640,
+    "training_updates_per_arm_per_seed": 415,
+    "evaluation_sequences": [
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "evaluation_sequences_count": 8,
+    "evaluation_post_prompt_frames": 372,
+    "excluded_sequences": [
+      "seq1",
+      "seq7"
+    ],
+    "split_and_sampling": "Use every post-prompt manifest frame exactly once for training, in listed sequence order and chronological frame order. No augmentation, resampling, validation-based selection or test-time adaptation. Reinitialize the prompt and memory independently for each video and arm."
+  },
+  "upstream": {
+    "supcontrast": {
+      "url": "https://github.com/HobbitLong/SupContrast",
+      "revision": "66a8fe53880d6a1084b2e4e0db0a019024d6d41a",
+      "file": "losses.py",
+      "sha256": "a432e24bdff118aa0ab3013a4c85a4b099871ebef554177054d91fe6fca616db",
+      "paper": "https://arxiv.org/abs/2004.11362",
+      "reuse": "SupConLoss unchanged; CPU FP32; BSD-2-Clause license retained"
+    },
+    "cutie": {
+      "repository": "external/Cutie",
+      "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+      "reused": [
+        "ObjectSummarizer",
+        "_weighted_pooling",
+        "CrossAttention"
+      ],
+      "checkpoint_transfer": "none"
+    },
+    "conceptual_evidence": [
+      "https://arxiv.org/abs/2003.08333",
+      "https://arxiv.org/abs/2310.12982"
+    ]
+  },
+  "mechanism": {
+    "forward": "Existing ComplementaryMemoryReader and NativeComplementaryRead unchanged; four predicted soft-mask pooled summaries per native-selected frame; frozen SAM2 dense read, pointers and memory selection; reader residual after native memory attention.",
+    "supervision": "After forward, pool current query content and per-pixel memory feature_pred content with the corresponding training-frame GT foreground occupancy and its complement. Apply the actual Cutie Q/K projections, L2-normalize, and pass prototypes to unchanged SupConLoss. Exclude positional encodings from this auxiliary content objective; inference still uses native pooled positions.",
+    "labels": "GT targets are resized to 256x256 by the existing loss helper then area-pooled to the real 64x64 grid. Fractional cells contribute to both role centroids. Exactly zero-area classes have no prototype. The auxiliary loss is zero if only one class exists. Upstream handles singleton positives. These are loss-sampling rules, not inference gates.",
+    "pairs": "Same foreground identity across current and native-selected stored frames are positives; foreground and context prototypes are negatives. Context prototypes are also same-class positives within ONE video/instance. No queue or cross-video/instance mixing. This context pooling may hide multimodal distractors; it is a limitation.",
+    "causality": "No GT enters predictor forward, reader forward, memory writes or evaluation beyond first prompt. Stored frames must precede the current frame. Each training arm carries only its own predicted bank.",
+    "parameters": 560644,
+    "new_parameters": 0,
+    "distinction_from_old_three_region_contrast": "Two soft occupancy supports, no hard boundary class, no region queue across videos. Auxiliary gradients reach the inference reader Q/K and feature transform; no discarded projection head."
+  },
+  "training": {
+    "objective": "Existing SAM2 decoder-candidate mask loss: binary cross-entropy plus the pinned SAM2 Dice loss on the selected decoder mask for GT-present frames only, plus the existing SAM2 object-presence focal loss on every target frame. Resize GT targets to 256x256 by nearest-neighbor for the mask loss.",
+    "memory_feedback": "At every post-prompt frame call the frozen model's native track_step with no prompt, run the native memory encoder, and write that arm's own predicted masks, pointers, object score and memory features to its own chronological bank. GT is used only by the loss. Never seed later training frames from an archived native rollout.",
+    "truncated_bptt_frames": 4,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "betas": [
+      0.9,
+      0.999
+    ],
+    "epsilon": 1e-08,
+    "schedule": "One fixed chronological pass through the 13 training sequences. One optimizer update per consecutive four-frame chunk (the final shorter chunk is also an update); detach the arm's own stored bank between chunks. No scheduler, warm-up, validation checkpointing, early stopping or best-checkpoint selection. Evaluate the final state.",
+    "sequence_order": "listed order",
+    "determinism": "Set the seed before each reader initialization; enable deterministic algorithms and use two CPU threads. For a given seed both arms receive bit-identical initial state and data order.",
+    "seeds": [
+      20261106
+    ],
+    "seed_policy": "One fixed seed only. No automatic repeat or tuning after the result.",
+    "auxiliary_weight": 0.1,
+    "temperature": 0.07,
+    "base_temperature": 0.07
+  },
+  "arms": [
+    "native",
+    "no_contrast",
+    "contrastive"
+  ],
+  "control": "Both learned arms use identical regional cues, initialization, parameter count, samples, 415 updates and segmentation/presence objectives. Both compute/log the auxiliary statistic; its coefficient is 0 in no_contrast and 0.1 in contrastive. Train from scratch, not Run167 checkpoints.",
+  "verification": [
+    "Pinned upstream source hashes",
+    "upstream loss separability sanity",
+    "GT changes loss only, not forward or stored outputs",
+    "nonzero contrast-only Q/K and feature gradients",
+    "zero-weight auxiliary gradient parity",
+    "no future memory labels",
+    "finite empty-support loss",
+    "seq2/seq3 full zero-residual native parity including memory/pointers and all four layers",
+    "two optimizer updates per seq2/seq3 per arm with own prediction writes",
+    "active short propagation and unchanged frozen SAM2 digest"
+  ],
+  "evaluation": {
+    "propagation": "Official SAM2 predictor full forward propagation, independent state per sequence and condition, prompt frame included only for initialization and excluded from scored targets. Each learned condition reads and writes only its own predictions.",
+    "mask_decision": "Use the official returned SAM2 mask logits > 0, unchanged; no extra threshold or postprocessing.",
+    "primary_endpoint": "Equal-sequence mean present-frame Dice. For each sequence, average Dice over all post-prompt frames with nonempty GT; then average the sequence means equally. A sequence with no present target would be reported and excluded from this endpoint by rule, not silently omitted.",
+    "primary_contrasts": [
+      "contrastive minus native",
+      "contrastive minus no_contrast"
+    ],
+    "secondary_endpoints": [
+      "equal-sequence all-frame Dice",
+      "equal-sequence IoU and Boundary F on GT-present frames",
+      "equal-sequence GT-empty false-alarm rate with per-sequence denominators",
+      "re-detection delay in sampled manifest frames after GT-empty to GT-present transitions, with censored events reported",
+      "per-sequence inference time and frames per second"
+    ],
+    "uncertainty": "For each contrast, 10,000 paired bootstrap resamples of the eight evaluation sequences with replacement; sequence is the resampling unit; NumPy RNG seed 20261106; percentile 95% interval. Also report paired Wilcoxon p-values with Holm correction across the two primary contrasts. All inferential summaries are exploratory because the sequences were previously examined.",
+    "false_alarm_harm_limit": "Contrastive equal-sequence GT-empty false-alarm rate may exceed neither comparator by more than 0.05."
+  },
+  "decision": {
+    "criterion": "Contrastive minus native >= 0.020 and contrastive minus no_contrast >= 0.010 equal-sequence present Dice; both paired 95% sequence-bootstrap lower bounds > 0; equal-sequence GT-empty false-alarm increase <=0.05 against each comparator. One seed cannot establish reliability.",
+    "if_failed": "Stop this candidate, retain negative evidence, no automatic hyperparameter sweep, repeat seeds or DAVIS/LVOS launch.",
+    "if_passed": "Report a promising exploratory result and propose independent repeats/transfer; do not claim confirmation."
+  },
+  "artifacts": {
+    "drive_folder": "outputs/experiment/169_foreground_context_contrast_v1",
+    "tracking": [
+      "setup.json",
+      "source_snapshot.zip",
+      "run_status.json",
+      "progress.json",
+      "training/<arm>/<sequence>.json",
+      "training/<arm>/checkpoint.pt",
+      "gate/gate.json",
+      "evaluation/<arm>/<sequence>/frames.jsonl",
+      "results.json",
+      "results.md",
+      "completion.json"
+    ],
+    "storage": "All logs, outputs, checkpoints and staged frames are under the requested Drive tree. Local sync path does not prove remote upload.",
+    "source_guard": "Verify code/protocol/input hashes before each stage; interrupted work fails closed; preserve attempts. No silent result reuse from another setup."
+  }
+}
