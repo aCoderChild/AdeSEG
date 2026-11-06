@@ -153,8 +153,8 @@ def report(result, full, diagnostics):
         'Post-hoc diagnostic of unchanged Run167 readers. Eight previously examined',
         'sequences, 372 post-prompt targets. No replay predictions enter later memory.',
         'Sequence is the unit. This is not a full-propagation benchmark.', '',
-        '| Arm | Replay present Dice | Full-propagation Dice | Replay − full | Replay Boundary F | Replay false alarms |',
-        '|---|---:|---:|---:|---:|---:|']
+        '| Arm | Replay present Dice | Full-propagation Dice | Replay − full | Replay Boundary F | Replay false alarms | Mean sequence FA rate |',
+        '|---|---:|---:|---:|---:|---:|---:|']
     seqs = list(result['per_sequence'])
     for arm in ARMS:
         values = [result['per_sequence'][s][arm] for s in seqs]
@@ -162,7 +162,8 @@ def report(result, full, diagnostics):
         old = full['equal_sequence'][arm]
         fa = sum(r['gt_empty_false_alarm_count'] for r in values)
         absent = sum(r['gt_empty_frames'] for r in values)
-        lines.append(f'| {arm} | {score:.6f} | {old:.6f} | {score-old:+.6f} | {np.mean([r["present_boundary_f"] for r in values]):.6f} | {fa}/{absent} |')
+        fa_mean = np.mean([r['gt_empty_false_alarm_rate'] for r in values])
+        lines.append(f'| {arm} | {score:.6f} | {old:.6f} | {score-old:+.6f} | {np.mean([r["present_boundary_f"] for r in values]):.6f} | {fa}/{absent} | {fa_mean:.2%} |')
     lines += ['', '| Contrast on native memory | Dice Δ | 95% sequence-bootstrap CI | Wins / ties / losses | Holm p |',
               '|---|---:|---|---:|---:|']
     for name, c in result['primary_contrasts'].items():
@@ -177,6 +178,17 @@ def report(result, full, diagnostics):
     for arm in ARMS:
         d = diagnostics[arm]
         lines.append(f'| {arm} | {d["present"]["native_absence_decisions"]}/{d["present"]["frames"]} | {d["present"]["states"]["missed_empty"]} | {d["empty"]["states"]["false_alarm"]}/{d["empty"]["frames"]} |')
+    lines += ['', '| Arm / GT state | Object-score logit: min / median / max | Median positive raw-candidate fraction | Residual/native RMS: min / median / max |',
+              '|---|---:|---:|---:|']
+    for arm in ARMS:
+        for state in ('present', 'empty'):
+            d = diagnostics[arm][state]
+            quantiles = lambda x: ' / '.join(f'{x[k]:.4f}' for k in ('min', 'median', 'max'))
+            ratio = quantiles(d['residual_over_native_rms']) if arm != 'native' else '—'
+            lines.append(f'| {arm} / {state} | {quantiles(d["object_score_logit"])} | {d["raw_candidate_positive_fraction"]["median"]:.4f} | {ratio} |')
+    lines += ['', 'Distributions pool frames for descriptive diagnosis; uncertainty for Dice uses',
+              'paired sequences. RMS is measured on the reader output residual relative to',
+              'the native memory-conditioned feature, before the frozen decoder.']
     lines += ['', 'The object-score rule is unchanged author SAM2 behavior, not an added gate.',
         'Raw decoder candidate logits are saved before this suppression; candidate',
         'positivity alone does not establish a correct selected mask. Residual RMS',
