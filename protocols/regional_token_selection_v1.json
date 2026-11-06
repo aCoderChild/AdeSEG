@@ -1,0 +1,87 @@
+{
+  "name": "Region-informed read-time memory token selection",
+  "run": 170,
+  "version": 1,
+  "date": "2026-11-07",
+  "status": "freeze and commit before real inference",
+  "hypothesis": "Soft foreground/context membership improves the selection of useful memory tokens beyond attention-only and prompt-anchor selection, producing meaningful present-frame Dice gains with native memory-frame selection fixed.",
+  "scope": "One bounded, training-free exploratory PolypGen experiment. All sequences have informed prior development; this is not held-out confirmation. No patient independence or publication novelty is assumed. Prior residual-reader results do not test this specific selector.",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "model": {
+    "repository": "external/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "device": "CPU FP32; native bfloat16 stored memory retained",
+    "frozen": "All original parameters; native frame selection, encoder, decoder, object-presence decision, pointers, position encodings and memory writes.",
+    "prompt": "Existing first-labeled-frame mask prompt; no later GT enters selection or prediction.",
+    "native_memory": "Prompt plus up to six recent processed manifest frames. Current frame supplies queries, not a stored memory frame. Chronology refers to sampled manifest frames, not guaranteed consecutive source-video frames.",
+    "intervention": "Only spatial K/V retrieval inside all four memory cross-attention layers. Read-time gathering leaves the stored memory intact. Prompt and latest memory frame stay full; pointer tail stays exact. Original cell RoPE coordinates are gathered, never reassigned."
+  },
+  "upstream": {
+    "efficient_sam2": {
+      "repository": "external/Efficient-SAM2",
+      "revision": "8e1ad06089b9c958ff5ebfc72b9b7d0b904f5ce5",
+      "paper": "https://arxiv.org/abs/2602.08224v2",
+      "reuse": "Unchanged author Attention.forward for chunked first-recollection latest-frame importance; unchanged get_topk_mask; existing author gather assignments and apply_rotary_enc_prune via modeling/sparse_memory.py.",
+      "importance": "For each layer, softmax current-query dot products over the latest unpruned frame only, average over query positions/heads. Cache a mask for that frame's later reads, as in the author's top-k retrieval path."
+    },
+    "lean_sam2": {
+      "repository": "external/Lean-SAM2",
+      "revision": "8d1cf2618519d291905d22fe859b8302476d7f50",
+      "paper": "https://arxiv.org/abs/2607.19811v1",
+      "download_check": "Fresh official clone at external/Lean-SAM2-token-selection confirmed the same revision as the existing checkout. Reuse the existing pinned checkout, preserving past runs.",
+      "reuse": "Unchanged prompt-mask-to-token, diverse-anchor selection, max-cosine similarity, score preparation and multiplicative fusion methods from SAM2Base.",
+      "anchor_settings": {"ratio": 0.05, "min_tokens": 8, "max_tokens": 64, "lambda": 2.0, "fusion": "mul"},
+      "isolation": "Memory selection components only. No temporal condensation, insurance bank, encoder routing or confidence-based branches. This adaptation is not a reproduction of the full published method."
+    }
+  },
+  "arms": ["native", "usage", "foreground", "role_blind", "regional"],
+  "selection": {
+    "keep_fraction_of_each_older_frame": 0.25,
+    "keep_count": "Exactly 1024 of 4096 spatial tokens per older frame, independently in each layer; prompt/latest remain 4096. With seven full native slots: 13312 selected spatial tokens versus 28672 native, plus unchanged pointers.",
+    "anchors": "Initialize fixed prompt foreground anchors using author diverse selection with prompt first-read importance. Apply the same author procedure to the prompt complement for context anchors. Separate per layer and instance. No later GT or anchor updates.",
+    "probability": "p = adaptive average pool of sigmoid(stored native 256x256 predicted mask logits) onto 64x64. It must come from that exact stored frame and own rollout; full-resolution PNGs never drive selection.",
+    "usage": "Efficient-SAM2 top-k on cached first-read importance u.",
+    "foreground": "Lean-style foreground-anchor affinity sf = maximum cosine similarity to prompt foreground anchors; author fuse(u,sf,lambda=2,mul), then same top-k budget.",
+    "role_blind": "Same foreground/context anchors and score fusion, affinity max(sf,sb), ignoring regional membership. Controls for the additional anchor coverage.",
+    "regional": "New project combination: affinity = p*sf + (1-p)*sb. Apply unchanged author fuse and top-k. Tests consistency with the token's own predicted soft role while allowing both object and context evidence.",
+    "empty_support": "If prompt context support is absent, role_blind/regional use foreground affinity and report zero context anchors. If prompt foreground support vanishes on the memory grid, stop on the unsupported case and report it; no silent replacement.",
+    "decisions": "No confidence threshold, score-triggered inference gate, good/bad frame decision or additional training. Fixed top-k remains a discrete token-selection operation and retention budget is a prespecified hyperparameter.",
+    "limits": "This score is a hypothesis about relevance, not a known causal token-harm measure. Predicted roles may be wrong; prompt appearance may become stale; context is multimodal. No semantic purity claim. Fixed native history cannot recover information never available in its window."
+  },
+  "stages": {
+    "unit_checks": "Pinned source checks; exact published top-k reuse; same-budget sensitivity to context; role-blind occupancy invariance; no-context fallback; private SDPA namespace; all-token native projection/RoPE parity; existing original-cell/pointer sparse-retrieval tests.",
+    "engineering_and_diagnostic": {
+      "sequences": ["seq2", "seq3"],
+      "targets": 73,
+      "trajectory": "Untouched native SAM2 trajectory. Clone each target's current features and earlier memory with existing replay helpers. Each arm reads that same native history with memory encoding disabled and no writeback. Selector masks retain chronological causal first-recollection provenance per arm.",
+      "must_pass": "All-token replay bit-identical for native low-resolution masks, full-resolution output, pointers and object scores at every target. Native bank/cache and cloned samples unchanged. Four layers, native spans and positions, exact pointer-tail gather, exact fixed counts and distinct regional versus foreground selections observed. Repeat first/middle/last targets exactly after restoring selector cache.",
+      "continuation": "Only after engineering passes: regional equal-sequence present Dice difference >0 versus native and >=0 versus both foreground and role_blind; pooled and equal-sequence false-alarm increases <=0.05 versus all three. If no GT-empty diagnostic frames exist, report the missing safety denominator and defer that assessment to full propagation.",
+      "if_failed": "Stop. Report whether this was an integrity failure or a negative mechanism diagnostic. No budget/weight changes, extra seeds or full-cohort launch."
+    },
+    "full_propagation": {
+      "conditional": "Only when the diagnostic continuation criterion passes.",
+      "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+      "excluded": ["seq1", "seq7"],
+      "post_prompt_targets_per_arm": 2012,
+      "rollout": "Independent official forward propagation per condition. Each arm writes only its own predictions. Same native frame IDs/time slots and per-frame token budgets are verified across arms. Save masks, frame metrics, selection masks, prompt anchors and receipts.",
+      "meaningful_gain_screen": "Regional-native mean present Dice >=0.020; regional-foreground >=0.010; regional-role_blind >=0.010. All three paired sequence-bootstrap 95% lower bounds >0 and wins in >half of sequences; pooled and equal-sequence false-alarm increases <=0.05 against each comparator. This screen supports only an exploratory signal, not confirmation.",
+      "if_failed": "Stop candidate; retain results without outcome-driven changes.",
+      "if_passed": "Report exploratory promise, then propose independently frozen repeats and suitable external evaluation; launch nothing automatically."
+    }
+  },
+  "metrics": {
+    "primary": "Present-frame Dice averaged within sequence, then equally over sequences.",
+    "secondary": ["present IoU", "present Boundary F", "false alarms with per-sequence and pooled GT-empty denominators", "re-detection in sampled manifest frames", "actual selected key counts", "CPU wall time including selection overhead"],
+    "statistics": "Paired sequence bootstrap, 10000 resamples, seed 20261107; Wilcoxon with Holm over the three primary contrasts. Usage-only comparison is secondary. No frame-wise pseudo-replication.",
+    "timing": "Instrumentation adds overhead; CPU timings are descriptive and do not establish the GPU efficiency reported by the author papers."
+  },
+  "tracking": {
+    "folder": "outputs/experiment/170_regional_token_selection_v1/attempt_01",
+    "artifacts": ["setup.json", "source_snapshot.zip", "run_status.json", "progress.json", "diagnostic/<sequence>/<arm>/frames.jsonl", "diagnostic_results.json", "full/<sequence>/<arm>/frames.jsonl", "selection_cache.pt", "partial_results.json", "results.json", "results.md", "completion.json", "failure.json if applicable"],
+    "storage": "All results, model checkpoints if any, temporary staged frames and tracking logs under the requested mounted Google Drive tree. Remote upload must be separately verified.",
+    "wandb": "Offline logs by default in the same Drive tree. Tracking service errors are recorded and do not invalidate or interrupt a valid scientific calculation.",
+    "freeze": "Commit scientific protocol and integration code before real inference. Snapshot/hashes guard source and input changes; preserve every attempt. No retries or integrity bypass in the same attempt."
+  }
+}
