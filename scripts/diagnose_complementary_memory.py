@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -87,8 +88,13 @@ def verify_frozen_protocol(protocol: dict) -> tuple[str, str]:
 def check_output_path(path: Path, drive: Path) -> Path:
     resolved = path.expanduser().resolve()
     required = (drive / "outputs/experiment").resolve()
-    if not resolved.is_relative_to(required) or resolved.name != EXPERIMENT_NAME:
-        raise ValueError(f"Output must be Drive/outputs/experiment/{EXPERIMENT_NAME}")
+    experiment_root = required / EXPERIMENT_NAME
+    if (not resolved.is_relative_to(experiment_root)
+            or resolved.parent != experiment_root
+            or re.fullmatch(r"attempt_[0-9]{2}", resolved.name) is None):
+        raise ValueError(
+            f"Output must be Drive/outputs/experiment/{EXPERIMENT_NAME}/attempt_NN"
+        )
     if resolved.exists():
         raise FileExistsError(f"Refusing to reuse existing experiment directory: {resolved}")
     return resolved
@@ -255,8 +261,10 @@ def verify_archive(protocol: dict, drive: Path, videos: dict) -> dict:
     if targets != protocol["cohort"]["total_post_prompt_frames"]:
         raise RuntimeError("Total frame coverage differs from frozen protocol")
     return {
+        "archive_setup_sha256": digest(files["setup.json"]),
         "archive_completion_sha256": digest(source),
         "archive_independent_audit_sha256": digest(files["independent_audit.json"]),
+        "archive_report_verification_sha256": digest(files["report_verification.json"]),
         "checkpoint_sha256": digest(checkpoint),
         "manifest_sha256": digest(MANIFEST_PATH),
         "bank_receipts": bank_receipts,
@@ -406,6 +414,7 @@ def run(args: argparse.Namespace) -> None:
         "script_sha256": digest(Path(__file__)),
         "git_head": commit, "command": command,
         "drive_output_directory": str(output), "versions": actual_versions,
+        "pid": os.getpid(),
         "input_receipt": input_receipt,
         "fit_sequences": protocol["cohort"]["fit_split"]["sequences"],
         "evaluation_sequences": protocol["cohort"]["evaluation_split"]["sequences"],
@@ -588,6 +597,7 @@ def run(args: argparse.Namespace) -> None:
         "results_sha256": digest(output / "diagnostic_results.json"),
         "predictions_sha256": digest(output / "per_sequence_predictions.npz"),
         "frames": frame_cursor, "screen_pass": screen_pass,
+        "pid": os.getpid(), "exit_code": 0,
         "efficacy_started": False,
     })
     print(json.dumps({"complete": True, "output_directory": str(output),
@@ -617,7 +627,8 @@ def main() -> None:
                         previous = json.loads(status_path.read_text())
                     previous.update({"phase": "failed", "failed_at": timestamp(),
                                      "error_type": type(error).__name__,
-                                     "error": str(error), "efficacy_started": False})
+                                     "error": str(error), "pid": os.getpid(),
+                                     "exit_code": 1, "efficacy_started": False})
                     atomic_json(status_path, previous)
                     with (output / "fit_log.txt").open("a", encoding="utf-8") as log:
                         log.write(f"failure={type(error).__name__}: {error}\n")

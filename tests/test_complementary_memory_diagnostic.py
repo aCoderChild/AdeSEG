@@ -6,12 +6,14 @@ import pytest
 import torch
 
 from scripts.diagnose_complementary_memory import (
+    EXPERIMENT_NAME,
     _area_target,
     _bootstrap,
     _bounded_predict,
     _fit,
     _sequence_scores,
     _stored_inputs,
+    check_output_path,
 )
 
 
@@ -78,3 +80,15 @@ def test_sequence_metrics_and_bootstrap_are_deterministic():
 
     values = np.asarray([0.1, 0.2, -0.1, 0.3])
     assert _bootstrap(values, seed=20261106) == _bootstrap(values, seed=20261106)
+
+
+def test_output_is_confined_to_unique_drive_attempt(tmp_path: Path):
+    drive = tmp_path / "My Drive/AdeSEG"
+    attempt = drive / "outputs/experiment" / EXPERIMENT_NAME / "attempt_01"
+
+    assert check_output_path(attempt, drive) == attempt.resolve()
+    with pytest.raises(ValueError, match="attempt_NN"):
+        check_output_path(drive / "outputs/local/attempt_01", drive)
+    attempt.mkdir(parents=True)
+    with pytest.raises(FileExistsError, match="Refusing to reuse"):
+        check_output_path(attempt, drive)

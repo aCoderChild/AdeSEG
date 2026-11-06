@@ -119,8 +119,8 @@ records, not a fresh process or hash verification.
 |---|---|---|
 | Run 165 engineering gate | Recorded complete | Drive `165_complementary_memory_v1/gate_retry1/`; revalidate at Step 0 |
 | Current-state inventory | Complete (2026-11-06) | No experiment process active; Run 165 receipt passed, `pilot_authorized_by_this_receipt=false`; all 228 Run 165 snapshotted sources and the checkpoint match; Run 143 bank receipts verify all 21 sequences / 2,012 post-prompt frames. In Run 143's 81-file source list, 79 match; the only differences are test configuration and CLI catalog, excluded from inference imports and disclosed in diagnostic v1. seq13 bank is referenced from `gate/observed/seq13`. |
-| Diagnostic protocol | Amended and frozen before fitting (2026-11-06) | [Complementary memory diagnostic v1](complementary_memory_diagnostic_v1.json); preflight corrected test-split post-prompt count from 432 to 372 using manifests and receipts. No probe was fitted and no result inspected. |
-| Diagnostic implementation/preflight | In progress | Pinned environment installed; 4 targeted synthetic checks pass. Real-bank read-only validation must be rerun against the amended protocol before fitting. |
+| Diagnostic protocol | Amended and frozen before fitting (2026-11-06) | [Complementary memory diagnostic v1](complementary_memory_diagnostic_v1.json); preflight corrected test-split post-prompt count from 432 to 372 using manifests and receipts, then froze immutable Drive attempts. No probe was fitted and no result inspected. |
+| Diagnostic implementation/preflight | Ready for frozen run (2026-11-06) | Pinned environment installed; 5 targeted synthetic checks pass; read-only validation verifies all 21 eligible banks / 2,012 post-prompt frames, archive provenance and the amended splits. Run only under Drive `166_complementary_memory_diagnostic_v1/attempt_01`. |
 | Diagnostic results | Not started | Step 2; test sequences were examined in prior studies, so result remains exploratory. |
 | Pilot protocol | Pending | Step 3 |
 | Pilot runner verification | Pending | Step 4 |

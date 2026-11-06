@@ -45,6 +45,13 @@
       "reason": "The initial test-split frame total was transcribed as 432. Recounting manifest lengths minus each archived prompt index gives 372 test frames; the dev split remains 1,640 and the cohort remains 2,012.",
       "evidence": "Per-sequence manifest and receipt recount during read-only preflight; no model fitting or diagnostic output had started.",
       "change": "Set evaluation_split.post_prompt_frames to 372. All sequence IDs, fitting/scoring methods, probe settings and pass criteria remain fixed."
+    },
+    {
+      "date": "2026-11-06",
+      "timing": "Before any probe was fitted or diagnostic result examined.",
+      "reason": "Real-bank preflight showed that output provenance should preserve every attempt and explicitly record the runtime PID and successful exit code.",
+      "evidence": "Runner review and passing read-only validation of all 21 sequence banks / 2,012 post-prompt frames.",
+      "change": "Write this frozen diagnostic to a unique attempt_NN subdirectory under the Drive experiment root; record PID and exit code, plus hashes of all archive-level receipts. No input, method, split, metric or pass criterion changed."
     }
   ],
   "alignment": {
@@ -98,8 +105,9 @@
     "interpretation": "Passing supports additional decodable same-frame information in memory features beyond the soft stored-mask cue. It does not authorize a positive Dice claim."
   },
   "artifacts": {
-    "drive_output": "outputs/experiment/166_complementary_memory_diagnostic_v1",
+    "drive_output": "outputs/experiment/166_complementary_memory_diagnostic_v1/attempt_01",
+    "attempt_policy": "Each attempt is immutable under attempt_NN. Preserve failed attempts; retry only in a new attempt_NN from the beginning under the same frozen protocol.",
     "required": ["setup.json", "status.json", "fit_log.txt", "diagnostic_results.json", "per_sequence_predictions.npz", "completion.json"],
-    "provenance": "Record protocol commit, script and input hashes, all bank receipt hashes, package versions, exact command, split membership, timestamps and exit status. Save no output in the repository or other local directory."
+    "provenance": "Record protocol commit, script and input hashes, all bank receipt hashes, package versions, exact command, process ID, split membership, timestamps and exit status. Save no output in the repository or other local directory."
   }
 }
