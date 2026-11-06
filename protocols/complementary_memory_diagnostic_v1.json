@@ -1,0 +1,96 @@
+{
+  "name": "Offline probe of stored SAM2 memory features",
+  "version": 1,
+  "created": "2026-11-06",
+  "status": "frozen before diagnostic fitting; exploratory representation diagnostic only",
+  "question": "Do same-frame stored SAM2 memory features predict ground-truth object occupancy more accurately than the frame's stored predicted-mask probabilities, on sequences not used to fit the probe?",
+  "scope_limits": [
+    "This is a same-frame decodability test, not a causal test of later-frame memory attention or the complementary reader.",
+    "Stored memory features are already conditioned by SAM2's predicted mask and image features; feature-only does not mean mask-independent.",
+    "A positive probe result does not prove semantic purity, temporal transfer, reader utility, or Dice improvement.",
+    "The manifest test sequences have appeared in prior project analyses; this is exploratory, not independent confirmation or a patient-level split."
+  ],
+  "inputs": {
+    "dataset_manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "native_archive": "outputs/experiment/143_official_native_feature_audit_v1/full/completion.json",
+    "archive_setup_sha256": "b9f1eb375f5a26657e5a621c07ec9c129af9e7ed103fbff656d6f7a9a937df31",
+    "archive_completion_sha256": "1375363a7d92339fba4d282aac445c1b8366111264a164bbdb2764fe981d33ec",
+    "archive_independent_audit_sha256": "2322124922d7538b5b23ac78dd124d96e7201b830b92e20fadbf03e6ac53ef6e",
+    "archive_report_verification_sha256": "4393d44f53d7a760671cf57aae3a36a6354687b2c656fc22d5d273d32ce7f2fa",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "archive_source_audit": {
+      "source_files_in_archive_setup": 81,
+      "permitted_post_capture_support_only_changes": {
+        "tests/conftest.py": "Test fixture configuration; not imported by native inference or bank capture.",
+        "workflows/catalog.py": "CLI workflow catalog; not imported by native inference or bank capture."
+      },
+      "rule": "At run time, compare every archived source hash with the working file. Fail on any missing or changed source except the two explicitly listed support-only files, and record their actual hashes."
+    },
+    "bank_verification": "Verify each referenced bank against its receipt SHA256 and verify frame indices, manifest lengths, predicted-mask and feature-grid shapes before fitting. Do not infer missing frames."
+  },
+  "cohort": {
+    "eligible_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded_sequences": {"seq1": "No eligible positive first-frame prompt", "seq7": "No eligible positive first-frame prompt"},
+    "fit_split": {"manifest_split": "dev", "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"], "post_prompt_frames": 1640},
+    "evaluation_split": {"manifest_split": "test", "sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"], "post_prompt_frames": 432},
+    "total_post_prompt_frames": 2012,
+    "statistical_unit": "sequence; the patient-to-sequence mapping is unknown"
+  },
+  "alignment": {
+    "memory_feature": "Each native output's maskmem_features [1,64,64,64], converted to float32 for the probe.",
+    "mask_input": "Sigmoid of the same output's pred_masks [1,1,256,256], area-averaged to 64x64. This is the stored output mask cue, not a claim that it exactly matches the memory encoder's internal mask input.",
+    "target": "The corresponding manifest ground-truth binary mask, area-averaged directly to 64x64 to give fractional object occupancy per memory cell. This matches SAM2's square-resized image geometry without assigning a hard boundary class.",
+    "frames": "Use every post-prompt native output exactly once. Exclude prompt frames. Match predictor-local frame index to the same sorted manifest position; fail on any gap or mismatch.",
+    "prediction": "Clamp probe outputs to [0,1] only for bounded occupancy scoring. No binary segmentation threshold is used."
+  },
+  "conditions": {
+    "mask_only": "One scalar per cell: stored-mask occupancy probability.",
+    "feature_only": "The 64 stored memory feature channels per cell.",
+    "combined": "Concatenated stored-mask probability and all 64 stored memory feature channels."
+  },
+  "probe": {
+    "implementation": "scikit-learn StandardScaler and Ridge regression; CPU only.",
+    "requirements_file": "protocols/complementary_memory_diagnostic_requirements.txt",
+    "environment": {
+      "python": "3.14.6",
+      "scikit-learn": "1.9.1",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "torch": "2.12.0",
+      "Pillow": "12.2.0",
+      "joblib": "1.6.0",
+      "threadpoolctl": "3.8.0",
+      "narwhals": "2.27.1"
+    },
+    "scaling": "Fit channel means and scales on dev sequences only, weighted so each dev sequence has equal total weight; apply unchanged to test sequences.",
+    "estimator": "Ridge(alpha=1.0, fit_intercept=true), fixed for all three conditions; no hyperparameter search or test-based checkpoint selection.",
+    "sample_weight": "Within the dev fit, each token receives weight 1/(post-prompt frames in its sequence * 4096), giving each sequence equal total fitting weight.",
+    "training_targets": "Dev ground truth is used only to fit the offline probe. No probe training or input normalization uses test labels.",
+    "evaluation_targets": "Test ground truth is used only for scoring the frozen probes. No SAM2 inference or memory writing occurs in this diagnostic."
+  },
+  "metrics": {
+    "primary": "Equal-sequence mean Brier/MSE on fractional occupancy for GT-present test frames; lower is better.",
+    "required_secondary": [
+      "Equal-sequence all-frame Brier/MSE, including GT-empty frames",
+      "Equal-sequence GT-empty-frame Brier/MSE",
+      "Equal-sequence mean absolute error",
+      "Per-sequence Brier/MSE for all, present and empty frames",
+      "Paired sequence bootstrap interval for mask-only minus combined Brier/MSE"
+    ],
+    "aggregation": "Average cells within each frame, frames within each applicable sequence stratum, then sequences equally. Do not pool tokens as independent observations.",
+    "uncertainty": "10,000 paired bootstrap resamples of the eight test sequences with replacement, NumPy RNG seed 20261106; percentile 95% interval. Exploratory due to small cohort and prior use.",
+    "baseline_error_analysis": "Report prediction error reduction on all cells and separately the absolute baseline-residual-weighted squared error, with cell weights abs(mask_probability - target). Do not threshold or select test cells using the outcome."
+  },
+  "decision": {
+    "screen_pass": "Proceed to a separately frozen efficacy-pilot protocol only if combined has lower equal-sequence present-frame Brier/MSE than mask-only, the paired 95% sequence-bootstrap interval for that improvement is entirely above zero, and equal-sequence all-frame Brier/MSE is not worse.",
+    "otherwise": "Record a negative or inconclusive diagnostic and stop before efficacy training. Review the evidence and rationale before authorizing any further work; do not change probe settings or automatically start another architecture.",
+    "interpretation": "Passing supports additional decodable same-frame information in memory features beyond the soft stored-mask cue. It does not authorize a positive Dice claim."
+  },
+  "artifacts": {
+    "drive_output": "outputs/experiment/166_complementary_memory_diagnostic_v1",
+    "required": ["setup.json", "status.json", "fit_log.txt", "diagnostic_results.json", "per_sequence_predictions.npz", "completion.json"],
+    "provenance": "Record protocol commit, script and input hashes, all bank receipt hashes, package versions, exact command, split membership, timestamps and exit status. Save no output in the repository or other local directory."
+  }
+}
