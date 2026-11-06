@@ -1,0 +1,92 @@
+{
+  "name": "Complementary regional memory reader: PolypGen causal propagation pilot",
+  "version": 1,
+  "status": "frozen before efficacy training; exploratory",
+  "frozen_date": "2026-11-06",
+  "objective": "Test whether soft object/context summaries from native-selected SAM2 memory improve full-video present-frame Dice over both native SAM2 and a training/parameter-matched generic-summary reader.",
+  "scope_and_limits": {
+    "dataset": "PolypGen",
+    "interpretation": "Exploratory. Every train and evaluation sequence has been examined in earlier project analyses; the evaluation split is not independent confirmation. No patient-to-sequence mapping is available, so independence is not claimed.",
+    "method_claim": "A positive result supports this specified complementary reader on this split only; it does not establish that region labels are semantically pure, that all regional memory methods work, or that it generalizes to other datasets.",
+    "negative_result": "If the frozen rule fails, report it as failure to meet the pilot criterion; do not tune this candidate on the evaluation sequences or start another architecture automatically."
+  },
+  "model": {
+    "repository": "external/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "device": "cpu",
+    "compute_precision": "FP32 SAM2 inference/training operations; retain native bfloat16 stored memory features",
+    "postprocessing": false,
+    "prompt": "Official predictor mask-prompt path using the first manifest frame whose object-1 GT mask is nonempty. The prompt mask may initialize the first memory. No later GT is passed to the model or written into memory.",
+    "original_parameters": "All original SAM2 parameters frozen; predictor remains eval mode; native frame selection, temporal positions, pointers, decoder and memory encoder retained. No additional confidence gate, learned decision threshold, hard token deletion, or frame selection."
+  },
+  "candidate": {
+    "implementation": "modeling/complementary_memory/ComplementaryMemoryReader and NativeComplementaryRead",
+    "upstream_components": {
+      "repository": "external/Cutie",
+      "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+      "reused": ["ObjectSummarizer", "_weighted_pooling", "CrossAttention"],
+      "checkpoint_transfer": "none"
+    },
+    "regional_arm": "For each native-selected prior frame, area-average sigmoid(stored 256x256 predicted mask logits) to its stored memory grid. Use the resulting soft occupancy as object cue and one-minus-occupancy as context cue. Apply the unchanged Cutie learned pooling weights to the corresponding native 64-channel stored memory vectors and native spatial-plus-temporal positions. Keep four summaries per selected frame (two object, two context), including zero-area summaries; add one zero-initialized, learned cross-attention residual after the complete native four-layer memory-attention output.",
+    "generic_control": "Identical module, number of summaries, initialization, parameter count and training schedule. Use the constant 0.5 external cue. It remains a learned summary of SAM2 memory vectors, which are themselves mask-conditioned; it is not an image-only control.",
+    "parameters_per_reader": 560644,
+    "shared_parameters_between_arms": "For each seed, initialize both reader arms from exactly the same state. Optimize them independently."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256_at_freeze": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "prompt_rule": "first_labeled_frame",
+    "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "training_sequences_count": 13,
+    "training_post_prompt_frames": 1640,
+    "training_updates_per_arm_per_seed": 415,
+    "evaluation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "evaluation_sequences_count": 8,
+    "evaluation_post_prompt_frames": 372,
+    "excluded_sequences": ["seq1", "seq7"],
+    "split_and_sampling": "Use every post-prompt manifest frame exactly once for training, in listed sequence order and chronological frame order. No augmentation, resampling, validation-based selection or test-time adaptation. Reinitialize the prompt and memory independently for each video and arm."
+  },
+  "training": {
+    "objective": "Existing SAM2 decoder-candidate mask loss: binary cross-entropy plus the pinned SAM2 Dice loss on the selected decoder mask for GT-present frames only, plus the existing SAM2 object-presence focal loss on every target frame. Resize GT targets to 256x256 by nearest-neighbor for the mask loss.",
+    "memory_feedback": "At every post-prompt frame call the frozen model's native track_step with no prompt, run the native memory encoder, and write that arm's own predicted masks, pointers, object score and memory features to its own chronological bank. GT is used only by the loss. Never seed later training frames from an archived native rollout.",
+    "truncated_bptt_frames": 4,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "betas": [0.9, 0.999],
+    "epsilon": 1e-8,
+    "schedule": "One fixed chronological pass through the 13 training sequences. One optimizer update per consecutive four-frame chunk (the final shorter chunk is also an update); detach the arm's own stored bank between chunks. No scheduler, warm-up, validation checkpointing, early stopping or best-checkpoint selection. Evaluate the final state.",
+    "sequence_order": "listed order",
+    "determinism": "Set the seed before each reader initialization; enable deterministic algorithms and use two CPU threads. For a given seed both arms receive bit-identical initial state and data order.",
+    "seeds": [20261106, 20261107, 20261108],
+    "seed_policy": "Run seed 20261106 first. Run seeds 20261107 and 20261108 only if seed 20261106 passes the predeclared continuation screen. Include all completed predeclared seeds in the final report; never select the best seed."
+  },
+  "conditions": [
+    {"id": "C0", "name": "native SAM2", "training": "none"},
+    {"id": "C1", "name": "generic learned summary", "training": "one frozen schedule per seed"},
+    {"id": "C2", "name": "complementary regional reader", "training": "one frozen schedule per seed"}
+  ],
+  "evaluation": {
+    "propagation": "Official SAM2 predictor full forward propagation, independent state per sequence and condition, prompt frame included only for initialization and excluded from scored targets. Each learned condition reads and writes only its own predictions.",
+    "mask_decision": "Use the official returned SAM2 mask logits > 0, unchanged; no extra threshold or postprocessing.",
+    "primary_endpoint": "Equal-sequence mean present-frame Dice. For each sequence, average Dice over all post-prompt frames with nonempty GT; then average the sequence means equally. A sequence with no present target would be reported and excluded from this endpoint by rule, not silently omitted.",
+    "primary_contrasts": ["C2 minus C0", "C2 minus C1"],
+    "secondary_endpoints": ["equal-sequence all-frame Dice", "equal-sequence IoU and Boundary F on GT-present frames", "equal-sequence GT-empty false-alarm rate with per-sequence denominators", "re-detection delay in sampled manifest frames after GT-empty to GT-present transitions, with censored events reported", "per-sequence inference time and frames per second"],
+    "uncertainty": "For each contrast, 10,000 paired bootstrap resamples of the eight evaluation sequences with replacement; sequence is the resampling unit; NumPy RNG seed 20261106; percentile 95% interval. Also report paired Wilcoxon p-values with Holm correction across the two primary contrasts. All inferential summaries are exploratory because the sequences were previously examined.",
+    "false_alarm_harm_limit": "C2 equal-sequence GT-empty false-alarm rate may not exceed either comparator by more than 0.05 absolute (five percentage points). Report the raw counts and denominators."
+  },
+  "decision_rules": {
+    "seed_1_continuation_screen": "Continue to seeds 20261107 and 20261108 only if seed 20261106 has C2 minus C0 present Dice >= +0.020 absolute, C2 minus C1 >= +0.010 absolute, the paired sequence-bootstrap 95% interval lower bound is > 0 for both primary contrasts, and the false-alarm harm limit holds against both comparators.",
+    "final_positive_rule_after_three_seeds": "Using each sequence's present-frame Dice averaged across the three completed seeds, both practical-effect margins (+0.020 vs C0 and +0.010 vs C1) must be met; both paired sequence-bootstrap 95% interval lower bounds must exceed zero; both Holm-adjusted primary p-values must be < 0.05; the false-alarm harm limit must hold versus both comparators; and C2's sequence-mean contrast must be positive in at least two of three seeds for each comparator.",
+    "if_seed_1_fails": "Stop this candidate after the first-seed screen. Report the completed results and state that it did not meet the prospective continuation criterion; do not tune or relaunch on the same evaluation sequences.",
+    "if_final_rule_fails": "Stop this candidate and report which criteria failed. Do not claim meaningful improvement or launch an architecture sweep."
+  },
+  "artifacts": {
+    "drive_root": "Google Drive/AdeSEG/outputs/experiment/167_complementary_memory_pilot_v1/",
+    "attempts": "Immutable attempt_XX directories. Record exact protocol commit, source/checkpoint/manifest hashes, command, environment, status, completed units and exit code. Never overwrite failed attempts.",
+    "resume": "Resume only at a fully completed video boundary after verifying the checkpoint, optimizer state, protocol, source, manifest, sequence position and all completed video receipts. An interrupted video is rerun from its start using the last verified video-boundary state.",
+    "deliverables": ["setup.json", "progress.json", "training receipts and final weights for each arm/seed", "per-frame and per-sequence evaluation JSONL/JSON", "completion.json", "results.md", "source snapshot and hashes"]
+  }
+}
