@@ -1,0 +1,40 @@
+{
+  "name": "Run 168: fixed-native-memory diagnostic of the frozen Run 167 readers",
+  "date": "2026-11-06",
+  "status": "Freeze and commit before the first replay; post-hoc exploratory diagnosis, not a new efficacy experiment",
+  "source_run": "167_complementary_memory_pilot_v1/attempt_02",
+  "seed": 20261106,
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "reader_files_sha256": {
+    "generic": "357c8f27f7a46b56d1c6bee9182b0132fa2d5fcac400a801be165c11a44a46d7",
+    "regional": "3c4123aacd6df8c0947b19e43d3e6cfc3be7f46d766621f0ab11bcaf3a4d36d8"
+  },
+  "engineering_sequences": ["seq2", "seq3"],
+  "engineering_targets": 73,
+  "diagnostic_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+  "diagnostic_targets": 372,
+  "reference": "Reconstruct the same Run 167 CPU deterministic native SAM2 trajectory, first labeled mask prompt, unchanged sampled manifest. Check every diagnostic native full-resolution logit hash against Run 167, and all input/checkpoint/source identities. Native memory features retain author bfloat16 storage; compute is FP32.",
+  "replay": "Reuse capture_training_read and native track_step with run_mem_encoder=False, plus NativeComplementaryRead. Clone identical current image features and all strictly earlier native memory outputs separately for each arm. Pointers, temporal positions and current frame are identical. Never feed replay outputs back into the native trajectory; forbid _encode_new_memory during replay. Ground truth is for scoring only after the initial prompt.",
+  "order_per_target": ["native", "zero_generic", "zero_regional", "generic", "regional", "native_restoration"],
+  "zero_controls": "Copy each trained reader and zero only its output projection. Require bit-identical final mask logits, object-score logits and output pointers versus native. Do not change the original trained reader.",
+  "engineering_repetition": "At first, middle and last post-prompt target of each engineering sequence, repeat regional then generic in reversed order and require identical outputs and traces.",
+  "integrity": [
+    "all four layers, matching selected memory spans, pointer inputs and positions",
+    "sample tensor/layout fingerprint unchanged before/after each replay",
+    "native bank and image-cache fingerprint unchanged across replay block",
+    "no new memory output and no memory encoder call",
+    "all original SAM2 and trained reader parameter digests unchanged",
+    "complete chronological coverage and finite logits/residual statistics"
+  ],
+  "metrics": {
+    "primary": "Equal-sequence present-frame Dice; regional minus native and regional minus generic on native banks",
+    "uncertainty": "Reuse paired sequence bootstrap (10000 draws, seed 20261106), paired Wilcoxon and Holm across the two primary diagnostic contrasts. Descriptive/exploratory, not a continuation screen.",
+    "secondary": ["present IoU", "present Boundary F", "pooled and equal-sequence GT-empty false alarms with denominators", "object-score logits", "raw decoder candidate logits before native absence suppression", "final low-resolution mask logits", "residual RMS and L1 and native feature RMS"],
+    "history_comparison": "Compare each replay arm with its completed Run 167 full-propagation arm on the same targets, aggregating per sequence. This intervenes on history conditional on a native trajectory; training/history distribution shift and interactions prevent assigning every discrepancy uniquely to error accumulation.",
+    "redetection": "Do not call independent one-step replay a propagated video and do not compute a new re-detection metric from stitched replay masks.",
+    "examples": "Inspect previously identified seq17 frames 43/46, seq18 frames 37/61, seq19 frame50, seq20 frame46 and seq21 frame52; retain all targets in main tables. No outcome-selected retuning."
+  },
+  "stop_rule": "Any integrity failure stops dependent work. Passing engineering authorizes the 372-target diagnostic only. A negative result does not trigger new training, another seed, architecture changes or DAVIS/LVOS efficacy runs.",
+  "literature_comparison": "Verify primary papers/official results for PolypGen, DAVIS2017 validation and LVOS v2. Record method/checkpoint, prompt, split/frame scope, training, metric, source table/version and comparability. Never convert aggregate J or J&F to Dice, substitute paper scores for the required native replay, or rank the one-step diagnostic against full-propagation benchmarks. Missing matched results remain unavailable.",
+  "storage": "New immutable attempts on the user's Google Drive outputs/experiment; setup/source snapshots, command/PID/progress/failure/completion receipts, PNGs, low-resolution tensors and sequence summaries. Preserve Run167."
+}
