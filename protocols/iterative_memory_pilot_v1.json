@@ -1,0 +1,102 @@
+{
+  "id": "iterative_memory_pilot_v1",
+  "run": 174,
+  "date": "2026-11-07",
+  "status": "Prospective exploratory pilot specification; commit before gate/training.",
+  "hypothesis": "Iterative interaction between current memory-conditioned pixels and soft object/context summaries can improve frozen SAM2 over an equally trained generic interaction and the earlier single-read regional reader.",
+  "prior_audit": "Runs150/163 already used a Cutie query block with hard three-region pooling, pretrained frozen block and constrained small residuals at each attention layer. Runs167-169 used learned soft summaries and one one-way read after native attention, with one chronological pass and no validation selection. Run173 is a negative linear utility probe. This candidate is an incremental component adaptation, not assumed novelty: three trainable author interaction blocks after the full native read, soft learned summaries, randomized 8-frame clips and validation-selected training.",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "cutie_revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+  "sources": {
+    "paper": "https://arxiv.org/abs/2310.12982",
+    "repository": "https://github.com/hkchengrex/Cutie",
+    "download": "Five official pinned source/config files downloaded and matched against existing clone in Drive run174/references/download_receipt.json",
+    "reused": "Unchanged ObjectSummarizer, QueryTransformerBlock, CrossAttention, SelfAttention, FFN and PixelFFN; pinned SAM2 RandomUniformSampler; existing project native integration, autoregressive loss/training, evaluator and sequence statistics."
+  },
+  "architecture": {
+    "blocks": 3,
+    "summaries_per_native_frame": 16,
+    "channels": 256,
+    "heads": 8,
+    "feedforward": 2048,
+    "memory_channels": 64,
+    "insertion": "Once after all four original memory-attention layers, before frozen mask decoder. Complete native dense spatial/pointer read happens unchanged.",
+    "interaction": "Soft summaries from the stored frame's own native sigmoid low-res mask and memory features. Each author block reads current pixels into summaries, mixes summaries, reads summaries back into pixels and applies author PixelFFN. Native positional embeddings are retained and pooled with identical summary weights. Output projection is zero initialized for exact identity.",
+    "adaptation": "Summary tokens from selected frames are concatenated (up to 7x16) rather than Cutie's streaming temporal sum. No Cutie auxiliary mask-prediction heads or hard masked attention; attn_mask=None in every author block. PixelFFN contains the author's continuous channel attention, not a confidence threshold or token/frame keep/drop decision. This is not full Cutie reproduction; no Cutie weights transferred into SAM2 feature space.",
+    "original_weights": "Every original SAM2 weight remains frozen and eval mode. Only new reader parameters trained; native frame schedule, spatial keys, pointers, object-presence rule and decoder retained."
+  },
+  "arms": [
+    "native",
+    "single_regional",
+    "iterative_generic",
+    "iterative_regional"
+  ],
+  "controls": "Generic iterative arm has same initialization, parameters, clips, updates, loss and validation budget, with all occupancy cues set to 0.5. Single-regional uses existing 560644-parameter ComplementaryMemoryReader under the same new schedule to expose benefits due merely to training. Generic native memories are already mask-conditioned; this is not an image-only control.",
+  "parameters": {
+    "single_regional": 560644,
+    "iterative": 9366303
+  },
+  "data": {
+    "train": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12"
+    ],
+    "validation": [
+      "seq13",
+      "seq14",
+      "seq15"
+    ],
+    "test": [
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded": [
+      "seq1",
+      "seq7"
+    ],
+    "limits": "All PolypGen sequences previously examined; this is exploratory development, no claim of untouched confirmation or patient independence."
+  },
+  "seed": 20261107,
+  "training": {
+    "epochs": 12,
+    "clips_per_sequence_per_epoch": 4,
+    "clip_length": 8,
+    "validation_epochs": [
+      3,
+      6,
+      9,
+      12
+    ],
+    "checkpoint_every_clips": 10,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.001,
+    "clip_grad_norm": 3.0,
+    "optimizer": "PyTorch AdamW, fixed learning rate. LR/weight decay/gradient clipping follow Cutie author training config; training duration/data are project pilot adaptations. No seed or hyperparameter sweep.",
+    "coverage": "480 author-sampled clips, 3360 post-prompt frames and 960 optimizer updates per trained arm. Each 8-frame clip is contiguous in processed manifest order and begins with one sampled visible-object GT prompt, followed by seven own-prediction frames. Match plans exactly across arms; shuffle clip order deterministically each epoch. Manifest frames need not be consecutive original-video frames.",
+    "loss": "Reuse existing reader_clip_loss: present-frame BCE/Dice-style mask loss from the selected pre-suppression decoder logits plus object-presence loss. GT is loss-only after clip prompt; no later GT memory writes. No contrastive auxiliary objective.",
+    "gradient": "Four-frame truncated BPTT chunks, final three-frame chunk. Detach bank between optimizer updates. Frozen image encoder features captured per frame; native encoder writes each arm's own predicted memory in bfloat16; CPU FP32 computation.",
+    "checkpoint_selection": "At epochs3/6/9/12, full-propagate seq13/14/15 independently per arm, score equal-sequence present Dice. Select max, exact tie earliest epoch. Finish all training/selection before generating pilot test predictions. No early stopping or result-driven schedule changes. Report training/validation curves; bounded duration does not establish convergence."
+  },
+  "engineering": "Commit code/protocol first. All targeted tests must pass. Full seq2/seq3 native hashes match archived official native, and zero-initialized reads for all three trained arms reproduce native logits, memory and pointers exactly. All layers, stored-mask/native-position alignment and causal frame IDs checked. Real training gradients, frozen weight hashes, nonzero active effects, exact model+optimizer resume on real clips; two-object IDs7/42 fixture checks native identity, registration order and isolated execution. Tiny/empty/full occupancy numerical tests have no foreground-anchor requirement.",
+  "evaluation": "After gate, train three arms and select checkpoints on validation only; then full propagation of seq16-23 and same-setup native. First GT mask prompt, no additional GT; exclude prompt from scoring. Report per-sequence/aggregate present Dice, IoU, official DAVIS boundary F, GT-empty false alarms, propagation re-detection summaries, elapsed cost and parameter counts. Inspect outlier influence.",
+  "statistics": "Sequence as unit; 10000 sequence bootstrap resamples seed20261107, paired Wilcoxon with Holm across three comparisons. Eight sequences gives exploratory uncertainty only.",
+  "continuation": "All three contrasts must have mean Dice gain at least +0.010 vs native, +0.005 vs iterative generic and +0.002 vs equally trained single reader, positive sequence-bootstrap lower bound and at least5/8 wins. GT-empty false alarm rate must rise by no more than0.02 absolute with identical denominators. These are study decisions, not model inference gates. Do not auto-launch repeat seeds or DAVIS until independently reviewing first-seed results.",
+  "failure": "Fail closed on implementation/integrity problems; keep failure receipts, fix only the failed check and freeze a new attempt when sources change. If scientific criteria fail, stop this candidate and report negative/inconclusive evidence. No threshold changes, budgets, extra seeds or architectures selected to make the result positive.",
+  "output": "Google Drive outputs/experiment/174_iterative_memory_reader_v1/attempt_NN, including source snapshot, setup/plan, gate traces/receipts, training clip receipts, resume+hash receipts, validation checkpoints/results, final masks/rows/summaries and completion/failure. W&B/network upload must not be necessary for continuation; local Drive-path status is not cloud-sync proof."
+}
