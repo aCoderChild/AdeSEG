@@ -4,7 +4,8 @@
 
 Cross-dataset follow-up: Run172 replicates this diagnostic on DAVIS 2017
 validation with unchanged selector settings. Its multi-object engineering gate
-must pass before the 30-video cohort. No Run172 result is available yet.
+passed after 70 focused tests; the 30-video cohort is running. No complete
+Run172 score is available yet.
 Progress and final artifacts are stored in Drive under
 `outputs/experiment/172_davis_token_contribution_v1`.
 
