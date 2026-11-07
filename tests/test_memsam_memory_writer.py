@@ -23,6 +23,9 @@ class _Model(nn.Module):
         super().__init__()
         self.memory_encoder = _MemoryEncoder()
 
+    def track_step(self, frame_idx, pix_feat, masks, skip_mask_sigmoid=False):
+        return self.memory_encoder(pix_feat, masks, skip_mask_sigmoid)
+
 
 def test_zero_initialized_writer_is_exact_identity_and_keeps_native_mask():
     torch.manual_seed(7)
@@ -33,16 +36,20 @@ def test_zero_initialized_writer_is_exact_identity_and_keeps_native_mask():
     native = model.memory_encoder(features, masks, skip_mask_sigmoid=True)
 
     with NativeMemoryWriter(model, writer, "regional") as observer:
-        adapted = model.memory_encoder(features, masks, skip_mask_sigmoid=True)
+        adapted = model.track_step(17, features, masks, skip_mask_sigmoid=True)
 
     assert torch.equal(adapted["vision_features"], native["vision_features"])
     assert torch.equal(adapted["mask_seen"], native["mask_seen"])
     assert adapted["skip_mask_sigmoid"] is True
-    assert observer.records == [{
-        "feature_shape": [2, 8, 16, 16],
-        "mask_shape": [2, 1, 64, 64],
-        "mode": "regional",
-    }]
+    assert len(observer.records) == 1
+    record = observer.records[0]
+    assert record["frame"] == 17
+    assert record["feature_shape"] == [2, 8, 16, 16]
+    assert record["mask_shape"] == [2, 1, 64, 64]
+    assert record["mode"] == "regional"
+    assert all(len(record[key]) == 64 for key in (
+        "input_feature_sha256", "mask_input_sha256", "adapted_feature_sha256"
+    ))
     # Hook teardown is explicit and subsequent calls are native again.
     after = model.memory_encoder(features, masks, skip_mask_sigmoid=True)
     assert torch.equal(after["vision_features"], native["vision_features"])

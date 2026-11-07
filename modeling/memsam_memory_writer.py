@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import functools
 import subprocess
 import sys
 import types
@@ -52,6 +53,15 @@ def _author_module_class():
             sys.modules[name] = package
     module = importlib.import_module("_adeseg_memsam.modeling.mem_modules")
     return module.ForegroundReinforcingModule
+
+
+def _tensor_sha256(value: torch.Tensor) -> str:
+    tensor = value.detach().cpu().contiguous()
+    digest = hashlib.sha256()
+    digest.update(str(tensor.dtype).encode())
+    digest.update(str(tuple(tensor.shape)).encode())
+    digest.update(tensor.view(torch.uint8).numpy().tobytes())
+    return digest.hexdigest()
 
 
 class SoftMaskResidualWriter(nn.Module):
@@ -121,24 +131,38 @@ class NativeMemoryWriter:
         self.mode = mode
         self.handle = None
         self.records = []
+        self.original_track_step = None
+        self.current_frame = None
 
     def _pre_hook(self, module, args, kwargs):
-        if len(args) >= 2:
-            features, probabilities = args[:2]
-            updated = self.writer(features, probabilities, self.mode)
+        if args:
+            input_features = args[0]
+        elif "pix_feat" in kwargs:
+            input_features = kwargs["pix_feat"]
+        else:
+            raise RuntimeError("Could not identify SAM2 memory feature input")
+        if len(args) > 1:
+            probabilities = args[1]
+        elif "masks" in kwargs:
+            probabilities = kwargs["masks"]
+        else:
+            raise RuntimeError("Could not identify SAM2 memory mask input")
+        updated = self.writer(input_features, probabilities, self.mode)
+        if args:
             args = (updated, *args[1:])
         else:
-            if "pix_feat" not in kwargs or "masks" not in kwargs:
-                raise RuntimeError("Could not identify SAM2 memory-encoder inputs")
             kwargs = dict(kwargs)
-            kwargs["pix_feat"] = self.writer(
-                kwargs["pix_feat"], kwargs["masks"], self.mode
-            )
-            features, probabilities = kwargs["pix_feat"], kwargs["masks"]
+            kwargs["pix_feat"] = updated
+        if self.current_frame is None:
+            raise RuntimeError("Memory write occurred outside a tracked frame step")
         self.records.append({
-            "feature_shape": list(features.shape),
+            "frame": self.current_frame,
+            "feature_shape": list(input_features.shape),
             "mask_shape": list(probabilities.shape),
             "mode": self.mode,
+            "input_feature_sha256": _tensor_sha256(input_features),
+            "mask_input_sha256": _tensor_sha256(probabilities),
+            "adapted_feature_sha256": _tensor_sha256(updated),
         })
         return args, kwargs
 
@@ -147,6 +171,25 @@ class NativeMemoryWriter:
             raise RuntimeError("Memory writer hook is already installed")
         if not hasattr(self.model, "memory_encoder"):
             raise TypeError("Model has no SAM2 memory_encoder")
+        if not hasattr(self.model, "track_step"):
+            raise TypeError("Model has no track_step method for memory-write frame alignment")
+        self.original_track_step = self.model.track_step
+
+        @functools.wraps(self.original_track_step)
+        def track_step_with_frame(*args, **kwargs):
+            frame = kwargs.get("frame_idx")
+            if frame is None and args:
+                frame = args[0]
+            if frame is None:
+                raise RuntimeError("Could not identify SAM2 track_step frame index")
+            previous_frame = self.current_frame
+            self.current_frame = int(frame)
+            try:
+                return self.original_track_step(*args, **kwargs)
+            finally:
+                self.current_frame = previous_frame
+
+        self.model.track_step = track_step_with_frame
         self.handle = self.model.memory_encoder.register_forward_pre_hook(
             self._pre_hook, with_kwargs=True
         )
@@ -156,6 +199,10 @@ class NativeMemoryWriter:
         if self.handle is not None:
             self.handle.remove()
             self.handle = None
+        if self.original_track_step is not None:
+            self.model.track_step = self.original_track_step
+            self.original_track_step = None
+        self.current_frame = None
 
     def __enter__(self):
         return self.install()
