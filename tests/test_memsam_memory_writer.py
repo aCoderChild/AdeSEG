@@ -1,7 +1,11 @@
 import torch
 from torch import nn
 
-from modeling.memsam_memory_writer import NativeMemoryWriter, SoftMaskResidualWriter
+from modeling.memsam_memory_writer import (
+    NativeMemoryWriter,
+    SoftMaskResidualWriter,
+    _tensor_sha256,
+)
 
 
 class _MemoryEncoder(nn.Module):
@@ -22,6 +26,8 @@ class _Model(nn.Module):
     def __init__(self):
         super().__init__()
         self.memory_encoder = _MemoryEncoder()
+        self.sigmoid_scale_for_mem_enc = 20.0
+        self.sigmoid_bias_for_mem_enc = -10.0
 
     def track_step(self, frame_idx, pix_feat, masks, skip_mask_sigmoid=False):
         return self.memory_encoder(pix_feat, masks, skip_mask_sigmoid)
@@ -38,32 +44,45 @@ def test_zero_initialized_writer_is_exact_identity_and_keeps_native_mask():
     model = _Model().requires_grad_(False)
     writer = SoftMaskResidualWriter(channels=8, mid_channels=4)
     features = torch.randn(2, 8, 16, 16)
-    masks = torch.rand(2, 1, 64, 64)
-    native = model.memory_encoder(features, masks, skip_mask_sigmoid=True)
+    probabilities = torch.rand(2, 1, 64, 64)
+    memory_mask = probabilities * model.sigmoid_scale_for_mem_enc + model.sigmoid_bias_for_mem_enc
+    native = model.memory_encoder(features, memory_mask, skip_mask_sigmoid=True)
+    recovered = []
+    writer.register_forward_pre_hook(
+        lambda _module, args: recovered.append(args[1].detach().clone())
+    )
 
     with NativeMemoryWriter(model, writer, "regional") as observer:
-        adapted = model.track_step(17, features, masks, skip_mask_sigmoid=True)
+        adapted = model.track_step(17, features, memory_mask, skip_mask_sigmoid=True)
         preflight = model._run_memory_encoder(
-            {"prompt": True}, 3, features, masks, skip_mask_sigmoid=True
+            {"prompt": True}, 3, features, memory_mask, skip_mask_sigmoid=True
         )
 
     assert torch.equal(adapted["vision_features"], native["vision_features"])
     assert torch.equal(preflight["vision_features"], native["vision_features"])
+    assert torch.equal(adapted["mask_seen"], memory_mask)
+    assert torch.equal(preflight["mask_seen"], memory_mask)
     assert torch.equal(adapted["mask_seen"], native["mask_seen"])
-    assert torch.equal(preflight["mask_seen"], native["mask_seen"])
     assert adapted["skip_mask_sigmoid"] is True
     assert preflight["skip_mask_sigmoid"] is True
+    assert len(recovered) == 2
+    assert all(torch.allclose(item, probabilities, atol=2e-7, rtol=2e-7) for item in recovered)
     assert [record["frame"] for record in observer.records] == [17, 3]
     record = observer.records[0]
     assert record["frame"] == 17
     assert record["feature_shape"] == [2, 8, 16, 16]
     assert record["mask_shape"] == [2, 1, 64, 64]
     assert record["mode"] == "regional"
+    assert record["memory_encoder_mask_sha256"] == _tensor_sha256(memory_mask)
+    assert record["recovered_probability_sha256"] == _tensor_sha256(recovered[0])
+    assert record["memory_mask_scale"] == 20.0
+    assert record["memory_mask_bias"] == -10.0
     assert all(len(record[key]) == 64 for key in (
-        "input_feature_sha256", "mask_input_sha256", "adapted_feature_sha256"
+        "input_feature_sha256", "memory_encoder_mask_sha256",
+        "recovered_probability_sha256", "adapted_feature_sha256"
     ))
     # Hook teardown is explicit and subsequent calls are native again.
-    after = model.memory_encoder(features, masks, skip_mask_sigmoid=True)
+    after = model.memory_encoder(features, memory_mask, skip_mask_sigmoid=True)
     assert torch.equal(after["vision_features"], native["vision_features"])
 
 

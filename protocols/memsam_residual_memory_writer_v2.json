@@ -1,0 +1,117 @@
+{
+  "id": "memsam_residual_memory_writer_v2",
+  "status": "V2 prospectively amended before real-frame work after identifying the SAM2.1 sigmoid-affine mask transform; v1 is retained as a superseded protocol record.",
+  "trigger": "Consider only after Run174 is complete and fails its frozen continuation criterion. Do not run concurrently with Run174.",
+  "hypothesis": "A small soft-mask-conditioned residual at the input to SAM2's native memory encoder can make all stored spatial values more useful for later segmentation, improving autoregressive Dice over both native SAM2 and the same-capacity mask-neutral residual writer.",
+  "method": {
+    "prior_source": "MemSAM CVPR 2024 public ForegroundReinforcingModule, pinned at external/MemSAM commit 36f1b988f14b518a6346d2edb1267340387e646c.",
+    "adaptation": "Reuse the author's Conv3x3 and Conv1x1 feature path. Concatenate the memory-encoder input feature and a soft mask cue; predict a residual added to the feature before the unchanged SAM2 memory encoder. The Conv1x1 is zero initialized so the writer is an exact identity before training. Do not reproduce MemSAM's final mask-times-channel-softmax output.",
+    "regional_cue": "Recover the soft probability map from the exact mask tensor entering SAM2 MemoryEncoder by inverting the model-configured sigmoid affine transform: p=(memory_encoder_mask - sigmoid_bias_for_mem_enc)/sigmoid_scale_for_mem_enc. Area-average p to writer feature resolution. Keep the original affine-transformed mask as the native MemoryEncoder mask input, unchanged.",
+    "generic_control": "Identical writer architecture, initialization, parameters, training and data, but replace only the writer's mask cue by constant 0.5. The native memory encoder still receives its normal mask in this control.",
+    "unchanged": [
+      "all pretrained SAM2 weights and decoder",
+      "native memory encoder weights and operation",
+      "native memory attention, all four layers, spatial positions and temporal positions",
+      "object pointers, prompt setup, memory frame schedule and token count",
+      "all spatial tokens; no token deletion, threshold, confidence gate or frame selection"
+    ],
+    "memory_feedback": "Each arm writes its own predicted mask and its own writer-corrected memory feature. Ground-truth masks are loss targets only after the prompt frame; no later ground-truth memory writes."
+  },
+  "arms": [
+    "native_sam2",
+    "mask_neutral_writer",
+    "soft_mask_writer"
+  ],
+  "data": {
+    "dataset": "PolypGen, exploratory because these sequences informed prior method development.",
+    "train_sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12"
+    ],
+    "validation_sequences": [
+      "seq13",
+      "seq14",
+      "seq15"
+    ],
+    "test_sequences": [
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded_sequences": [
+      "seq1",
+      "seq7"
+    ],
+    "prompt": "Existing first-labeled-frame prompt policy; score only post-prompt frames. Persistent object IDs are isolated per object; preserve the native multi-object identity path.",
+    "split_limit": "No patient independence claim unless a patient-to-sequence map is verified. No external confirmation is implied."
+  },
+  "model": {
+    "checkpoint": "SAM2.1 Hiera Tiny, SHA-256 7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69.",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "memsam_revision": "36f1b988f14b518a6346d2edb1267340387e646c",
+    "memsam_source_sha256": "71a959a61f544da2ca945bdfccb880d66e5e355da4c48f351230422a59b70dd9",
+    "trainable_parameters": "Only the added MemSAM-derived writer convolutions; same count and initialization between the two writer arms.",
+    "optimizer_and_loss": "Reuse the Run174 AdamW, learning rate, weight decay, gradient clipping, truncated-BPTT, autoregressive Dice/BCE-style mask loss and object-presence loss unless a separate amendment is committed before the gate.",
+    "duration": "Match the Run174 clip plan, updates, validation epochs and seed across both writer arms; do not extend training or tune seeds based on validation/test outcomes."
+  },
+  "engineering_gate": {
+    "required_before_training": [
+      "Pinned MemSAM source and clean repository identity verified.",
+      "On real PolypGen frames, zero-initialized writer reproduces native decoder logits, memory values, memory positions and pointers exactly.",
+      "For the exact mask tensor entering SAM2 MemoryEncoder, recover p using that model instance\u2019s configured sigmoid scale and bias; verify the recovered map is finite and within [0,1] up to floating-point tolerance. Preserve and hash the original affine-transformed mask unchanged.",
+      "Native memory-attention trace confirms all four layers and unchanged spatial/pointer counts and positional encodings.",
+      "Persistent multi-object ID fixture confirms per-object memory writer calls remain isolated and ordered.",
+      "Real-clip training produces finite, nonzero gradients only in the added writer; frozen SAM2 parameter hashes remain unchanged.",
+      "Save/resume of writer, optimizer and RNG on a real clip reproduces the next update and receipts exactly."
+    ],
+    "failure": "Fail closed; diagnose only the failed invariant, create a new attempt/protocol amendment when implementation changes, and do not launch efficacy evaluation until the complete gate passes."
+  },
+  "training": {
+    "seed": 20261107,
+    "clips": "Exactly match Run174: 12 epochs, 480 eight-frame clips and 960 optimizer updates per trained arm; four clips per train sequence per epoch; same deterministic clip plan and ordering across arms.",
+    "optimizer": "AdamW, learning rate 0.0001, weight decay 0.001, gradient norm clip 3.0; four-frame truncated BPTT; CPU FP32.",
+    "loss": "Use the Run174 autoregressive present-frame BCE/Dice-style loss plus object-presence loss. Predicted masks feed memory; GT is loss-only after the prompt.",
+    "validation": "Evaluate epochs 3, 6, 9 and 12 on seq13-15. Select highest equal-sequence present-frame Dice; ties choose earliest epoch. Release seq16-23 only if the selected soft-mask writer exceeds both native and mask-neutral writer by at least +0.005 mean Dice on validation, wins on at least 2/3 validation sequences against each, and increases GT-empty false-alarm rate by no more than 0.02 absolute versus native. Otherwise stop without test inference. No test outputs may be generated until both arms' training and selection are complete."
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean post-prompt present-frame Dice on seq16-23; paired contrasts soft_mask_writer-native_sam2 and soft_mask_writer-mask_neutral_writer.",
+    "secondary": [
+      "per-sequence Dice",
+      "IoU",
+      "boundary F",
+      "false-alarm rate on GT-empty frames",
+      "re-detection after annotated absence",
+      "runtime and parameter count"
+    ],
+    "statistics": "Sequence is the unit. Report paired sequence differences, bootstrap intervals, paired Wilcoxon/Holm where appropriate, and leave-one-sequence-out influence. Eight sequences are exploratory, not independent external confirmation.",
+    "decision": "Call the PolypGen pilot positive only if the soft-mask writer gains at least +0.010 mean sequence Dice versus native and +0.005 versus the mask-neutral writer, has a positive 95% paired sequence-bootstrap lower bound for both contrasts, wins on at least 5/8 sequences against each comparator, increases GT-empty false-alarm rate by no more than 0.02 absolute, and does not increase the missed-return rate by more than 0.05 absolute. Report all outcomes even if this rule fails; do not alter the rule after seeing results."
+  },
+  "known_risks": [
+    "SAM2 already fuses mask probabilities into memory features, so the added writer may be redundant.",
+    "Predicted masks can be wrong and feed errors into later memory writes.",
+    "MemSAM evidence is domain-specific to SAMUS/XMem echocardiography; its ablation reports a small 0.45-point mean-Dice difference without reinforcement.",
+    "PolypGen sequences have already informed method development; positive results require an untouched external dataset before broad claims."
+  ],
+  "output": "Google Drive outputs/experiment/<new-run-id>/attempt_01, with protocol, source snapshot, receipts, training and validation logs, checkpoints, final masks and concise result tables. No local-only result is considered delivered.",
+  "supersedes": "protocols/memsam_residual_memory_writer_v1.json",
+  "amendment": {
+    "date": "2026-11-07",
+    "reason": "Integration review found that SAM2.1 passes affine-transformed sigmoid masks (scale=20, bias=-10) to MemoryEncoder, not values in [0,1]. V1 described the writer cue as the tensor entering MemoryEncoder and the initial implementation incorrectly treated that tensor as probabilities.",
+    "correction": "Recover p=(memory_encoder_mask - sigmoid_bias_for_mem_enc)/sigmoid_scale_for_mem_enc from the exact native mask input. Use p as the writer cue, with area averaging at writer resolution; pass the original affine-transformed mask unchanged to SAM2 MemoryEncoder. Validate range within floating-point tolerance and log both tensors and scale/bias.",
+    "execution_status": "No real-frame gate, training, or efficacy evaluation has run under v1 or v2. V2 supersedes v1 before real-frame work."
+  }
+}

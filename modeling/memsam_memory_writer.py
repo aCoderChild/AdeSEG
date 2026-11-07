@@ -68,9 +68,11 @@ class SoftMaskResidualWriter(nn.Module):
     """Apply a zero-initialized, continuous mask-conditioned memory correction.
 
     ``regional`` uses area-averaged soft foreground probabilities at each
-    memory-encoder input location. ``generic`` uses the same feature path and
-    parameters with neutral 0.5 occupancy. The native SAM2 memory encoder still
-    receives its original mask unchanged in both modes.
+    memory-encoder input location. SAM2.1 applies an affine transform to those
+    probabilities before calling the memory encoder; this module reverses that
+    configured transform for its cue. ``generic`` uses the same feature path
+    and parameters with neutral 0.5 occupancy. The native SAM2 memory encoder
+    still receives its original transformed mask unchanged in both modes.
     """
 
     def __init__(self, channels: int = 256, mid_channels: int = 128, kernel: int = 3):
@@ -133,6 +135,10 @@ class NativeMemoryWriter:
         self.records = []
         self.original_methods = {}
         self.current_frame = None
+        self.mask_scale = float(getattr(model, "sigmoid_scale_for_mem_enc", 1.0))
+        self.mask_bias = float(getattr(model, "sigmoid_bias_for_mem_enc", 0.0))
+        if self.mask_scale == 0:
+            raise ValueError("SAM2 memory-mask scale must be nonzero")
 
     def _pre_hook(self, module, args, kwargs):
         if args:
@@ -142,11 +148,22 @@ class NativeMemoryWriter:
         else:
             raise RuntimeError("Could not identify SAM2 memory feature input")
         if len(args) > 1:
-            probabilities = args[1]
+            memory_mask = args[1]
         elif "masks" in kwargs:
-            probabilities = kwargs["masks"]
+            memory_mask = kwargs["masks"]
         else:
             raise RuntimeError("Could not identify SAM2 memory mask input")
+        # SAM2.1 applies sigmoid_scale_for_mem_enc and sigmoid_bias_for_mem_enc
+        # after sigmoid, then calls MemoryEncoder(skip_mask_sigmoid=True).
+        # Reverse that exact model-configured affine transform to recover the
+        # soft probability cue. Preserve `memory_mask` itself unchanged below.
+        probabilities = (memory_mask.float() - self.mask_bias) / self.mask_scale
+        tolerance = 8 * torch.finfo(probabilities.dtype).eps
+        if (probabilities < -tolerance).any() or (probabilities > 1 + tolerance).any():
+            raise RuntimeError(
+                "SAM2 memory mask is inconsistent with its configured sigmoid affine transform"
+            )
+        probabilities = probabilities.clamp(0.0, 1.0)
         updated = self.writer(input_features, probabilities, self.mode)
         if args:
             args = (updated, *args[1:])
@@ -158,10 +175,13 @@ class NativeMemoryWriter:
         self.records.append({
             "frame": self.current_frame,
             "feature_shape": list(input_features.shape),
-            "mask_shape": list(probabilities.shape),
+            "mask_shape": list(memory_mask.shape),
             "mode": self.mode,
             "input_feature_sha256": _tensor_sha256(input_features),
-            "mask_input_sha256": _tensor_sha256(probabilities),
+            "memory_encoder_mask_sha256": _tensor_sha256(memory_mask),
+            "recovered_probability_sha256": _tensor_sha256(probabilities),
+            "memory_mask_scale": self.mask_scale,
+            "memory_mask_bias": self.mask_bias,
             "adapted_feature_sha256": _tensor_sha256(updated),
         })
         return args, kwargs
