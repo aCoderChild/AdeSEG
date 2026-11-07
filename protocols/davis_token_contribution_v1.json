@@ -1,0 +1,152 @@
+{
+  "name": "Frozen cross-dataset token-group contribution replication",
+  "run": 172,
+  "version": 1,
+  "date": "2026-11-07",
+  "hypothesis": "The unchanged regional selector ranks useful memory evidence across datasets: removing rejected-enriched groups harms segmentation less than count/geometry/age-matched retained-enriched and random groups.",
+  "scope": "Exploratory DAVIS 2017 validation transfer diagnostic. This split has already been used in project development. Neither independent held-out confirmation nor a claim that foundation pretraining excluded these videos. Counterfactuals condition on fixed native histories; no treatment writes memory and no autoregressive method efficacy claim.",
+  "design_preflight_sha256": "16a6b10658f42818052c8b35e107cb4606a0800cb0a648d01c482db9f8aabbe5",
+  "design_preflight": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/172_davis_token_contribution_v1/design/preflight.json",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "polypgen_reference": {
+    "setup": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/171_token_contribution_v1/attempt_02/setup.json",
+    "setup_sha256": "b4bb4fde0d45a16ab988dc21ab990fc8c286471f358c653c843c9044c9e1c170",
+    "results": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/171_token_contribution_v1/attempt_02/results.json",
+    "results_sha256": "ce1286c8516514a10687460cda33c3cfd10d082c70e30fbad03993c7a1a31893",
+    "original_protocol": "protocols/token_contribution_v1.json"
+  },
+  "unchanged_selector_sources": [
+    "modeling/token_contribution.py",
+    "modeling/regional_token_selection.py",
+    "modeling/sparse_memory.py",
+    "modeling/complementary_memory/integration.py",
+    "modeling/native_memory_layout.py",
+    "modeling/cfbi_training.py",
+    "external/Efficient-SAM2/sam2/modeling/sam/transformer.py",
+    "external/Efficient-SAM2/sam2/modeling/sam2_base.py",
+    "external/Lean-SAM2/sam2/modeling/sam2_base.py"
+  ],
+  "author_implementations": {
+    "sam2": {
+      "repository": "https://github.com/facebookresearch/sam2",
+      "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+      "reuse": "Original native frame schedule, mask encoder/decoder, pointers, first-frame prompting, indexed mask I/O and non-overlap output resolution."
+    },
+    "efficient_sam2": {
+      "revision": "8e1ad06089b9c958ff5ebfc72b9b7d0b904f5ce5",
+      "reuse": "Unchanged pinned first-read attention importance, top-k and sparse K/V gathering with original RoPE coordinates, exactly as Run171."
+    },
+    "lean_sam2": {
+      "revision": "8d1cf2618519d291905d22fe859b8302476d7f50",
+      "reuse": "Unchanged pinned prompt appearance anchors, maximum cosine matching, score preparation and multiplicative fusion, exactly as Run171. Not a full-system reproduction."
+    },
+    "official_davis_evaluator": {
+      "repository": "https://github.com/davisvideochallenge/davis2017-evaluation",
+      "revision": "ac7c43fca936f9722837b7fbd337d284ba37004b",
+      "reuse": "Unmodified semi-supervised DAVISEvaluation.evaluate(J,F); first and last frames excluded. Pinned API converts void GT to background in this path; audited data contain zero void-labelled frames. Supplementary Dice excludes void explicitly."
+    }
+  },
+  "model": {
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "device": "CPU FP32, two threads, deterministic algorithms; native stored-memory dtype retained",
+    "all_weights_frozen": true,
+    "memory": "Prompt plus up to six recent past frames; current frame supplies queries. Native pointer tail and original coordinates remain intact.",
+    "non_overlap_masks": true,
+    "non_overlap_masks_for_mem_enc": false,
+    "no_added_gates_or_thresholds": "No confidence decision, frame quality selection, learned adapter or training. Native SAM2 object-presence and binary output rules remain unchanged."
+  },
+  "data": {
+    "dataset": "DAVIS 2017",
+    "split": "val",
+    "videos": 30,
+    "objects": 61,
+    "input_frames": 1999,
+    "official_scored_object_frames": 3862,
+    "eligible_intervention_object_frames": 3740,
+    "first_frame_prompts": "Persistent indexed IDs, every prompted instance separately, no later annotation enters inference or selection. Later GT only scores and freezes uniformly sampled analysis targets.",
+    "all_inputs_sha256": "design/preflight.json records every input image and mask; checked before and after each video.",
+    "no_outcome_selection": "Run all 30 videos after engineering passes, irrespective of effect direction."
+  },
+  "selector_and_groups": {
+    "same_as_run171": true,
+    "native_trajectory": "Retain all keys. Compute causal per-layer first-read importance and soft own-stored-mask prompt-anchor affinity p*sf+(1-p)*sb. Cache top25% selector disposition, not a pruned native state.",
+    "instances": "Each persistent ID has its own masks, attention usage and foreground/context prompt anchors; no global foreground union. Context can contain another object, following the unchanged one-versus-rest selector.",
+    "group": "64x64 grid, disjoint 4x4-token blocks. Remove 16 blocks=256 tokens per older frame per layer. Protect prompt, latest frame and pointers. Rejected/retained rank block membership in selector top25%; random matches block count, size and source age, not global connectivity.",
+    "split": "A/B remove 8 blocks=128 tokens, exact disjoint halves of rejected union.",
+    "seed": 20261107,
+    "seed_context": "Unchanged layer|source_frame|video. Random positions may correlate across instances; video is the unit. No extra seeds, width/budget changes or outcome-driven tuning."
+  },
+  "conditions": {
+    "full_coverage": [
+      "native",
+      "rejected",
+      "retained",
+      "random"
+    ],
+    "full_coverage_detail": "Export complete indexed predictions for every video/frame. On each official scored frame, replay each object and merge outputs through native non-overlap resolution. Initial frames with no eligible older memory naturally have no deletion; first/last exports reuse native outputs.",
+    "split_diagnostic": [
+      "rejected_a",
+      "rejected_b"
+    ],
+    "split_targets": "Union across object-specific four uniformly spaced GT-present plus up to two GT-absent targets, local frame>=3 and <last. The full frozen plan is in preflight. At union frames, apply A/B to every prompted object before native overlap resolution. No full official A/B benchmark score; only sampled interaction analysis.",
+    "history": "All arms use the same native history; private replay clones cannot call the memory encoder or write state."
+  },
+  "engineering": {
+    "fixture": "DAVIS training bmx-bumps first8 frames, two persistent IDs. All variants use fresh models and native mask prompts.",
+    "required": [
+      "Exact native collector parity for raw per-object masks, object scores, pointers, memory features and joint full-resolution logits against an independent uninstrumented run.",
+      "Exact private all-key replay for masks, pointers and object scores; all four layers, identical memory-frame/position/pointer input hashes and own stored-mask lineage.",
+      "Joint, reverse-registration and each-object-alone runs give identical raw per-ID outputs and selector cache signatures.",
+      "Asymmetric intervention on one ID leaves other raw output and caches untouched. Final overlap-resolved visible masks may change normally.",
+      "Matched main budgets and protected prompt/latest/pointers; deterministic repeat random replay; no bank, feature-cache, selector-cache or foundation-weight mutation.",
+      "Author indexed export and official evaluation exercised on the eight-frame engineering fixture, explicitly not reported as benchmark performance."
+    ],
+    "cohort_baseline": "Every validation frame must reproduce archived Run161 native full-logit hashes and indexed mask pixels under the identical checkpoint/config/author source. Validate all archived PNG checksums and receipts before inference.",
+    "failure": "Stop at integrity failure. Preserve failed attempt and diagnose; never bypass assertions. Scientific settings do not change because results are unexpected."
+  },
+  "statistics": {
+    "unit": "Video. Average frames within object, objects within video, videos equally for inferential comparisons. Official leaderboard global scores additionally average over all61 objects.",
+    "co_primary_endpoints": [
+      "Full official-protocol video J&F",
+      "Uniformly sampled present Dice, matching Run171 target scheme"
+    ],
+    "contrasts": [
+      "rejected minus retained",
+      "rejected minus random"
+    ],
+    "multiplicity": "Two endpoints x two contrasts = four two-sided paired Wilcoxon tests, Holm adjustment across four.",
+    "intervals": "Paired video bootstrap,10000 resamples,seed20261107. Report all videos, wins/ties/losses, leave-one-video-out mean effects.",
+    "secondary": [
+      "Official J and F separately",
+      "Full present-frame Dice",
+      "Sampled empty false-alarm counts with denominators",
+      "Split-group U(AB)-U(A)-U(B)=DiceA+DiceB-DiceAB-DiceNative, averaged over matched sampled present objects/videos",
+      "Removed-block descriptors, cached first-read attention share, predicted occupancy and vector norm"
+    ],
+    "decision": "Ranking discrimination signal requires complete30-video cohort and positive lower bootstrap bound plus majority video wins on all four co-primary contrasts. Report Holm p-values. A positive diagnostic is not an efficacy gain; a negative one stops this selector, without tuning or reversing it.",
+    "cross_dataset": "Compare signs and uncertainty with fixed Run171 PolypGen contrasts. Dataset scores are not numerically interchangeable; evidence concerns whether selector utility ordering transfers. No pooled frame-level significance or paper-score substitution."
+  },
+  "storage_and_tracking": {
+    "destination": "Mounted Google Drive outputs/experiment/172_davis_token_contribution_v1; outputs, runtime staging and logs remain there. No local result copy.",
+    "freeze": "Commit this protocol, instance adapter, runner and tests before any model inference; snapshot/hash imported sources, inputs, checkpoint and reference outputs.",
+    "progress": [
+      "run_status.json",
+      "engineering_pass.json",
+      "per-video completion.json and compressed per-object/arm records",
+      "indexed PNGs",
+      "progress.json",
+      "partial_results.json",
+      "results.json",
+      "analysis.md",
+      "completion.json or failure.json"
+    ],
+    "cloud": "Mount writes alone do not prove remote sync. Do not use the currently connected wrong-account Drive connector."
+  },
+  "later_mose_assessment": {
+    "repository": "https://github.com/henghuiding/MOSE-api",
+    "cloned_revision": "a74b23aa3a31597f487eec10f452e0b9f61347e1",
+    "finding": "Author repository inspected. Public MOSEv2 training split has dense annotations; validation supplies only first-frame masks. A local utility diagnostic requires a separately reserved densely annotated training subset, clearly not official validation. No MOSE inference is launched in this protocol.",
+    "license": "CC BY-NC-SA 4.0, noncommercial research; preserve author terms.",
+    "excluded": "Do not import the MOSE repository SAM2 confidence/memory-selection baseline into this frozen replication."
+  }
+}

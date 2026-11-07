@@ -23,7 +23,7 @@ Roles describe predicted positions/context, not pure vector content. All vectors
 can contain information from surrounding regions. There is no new confidence
 rule, frame-quality gate, decoder training or foundation-weight update.
 
-## Current experiment: Run171
+## Completed diagnostic: Run171
 
 This is a contribution diagnostic, not a new deployed pruning method. Native
 trajectories keep every token. At fixed targets, private replays compare:
@@ -62,6 +62,30 @@ source-video frames.
 All results are exploratory: this cohort has already informed development.
 Keep the distinction between group deletion effects, intrinsic vector content
 and a deployable predictor of harmful tokens.
+
+## Cross-dataset replication: Run172
+
+Repeat the frozen diagnostic on DAVIS 2017 validation: 30 videos, 61 persistent
+objects. Each object uses its own masks, anchors and cached selector scores.
+Keep the same token budget, block geometry and seed; do not tune on DAVIS.
+
+First verify native replay, instance isolation, pointers and all four layers on
+an eight-frame, two-object training clip. Only a passing gate permits the full
+cohort. Every validation frame must reproduce the archived same-setup native
+baseline. Replays never write memory.
+
+Export all frames for native/rejected/retained/random conditions. Use the pinned
+official DAVIS evaluator for J, F and J&F; use videos as statistical units.
+Four uniformly sampled present targets per object also provide Dice comparable
+in design with Run171. Split A/B interactions use sampled targets only.
+The four primary contrasts and stopping rule are frozen before inference.
+
+DAVIS has already informed this project, so this is exploratory transfer.
+MOSE is a later option: public validation lacks dense labels, requiring a
+separately reserved, densely annotated training subset for this diagnostic.
+No MOSE experiment is launched now.
+
+[Frozen Run172 protocol](../protocols/davis_token_contribution_v1.json)
 
 [Frozen Run171 protocol](../protocols/token_contribution_v1.json) ·
 [Verified results and analysis](REGION_TOKENS_RESULTS.md) ·

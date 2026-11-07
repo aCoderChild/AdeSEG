@@ -2,6 +2,12 @@
 
 **Completed and verified. The current selector failed its frozen ranking criterion; no temporal follow-up was launched.**
 
+Cross-dataset follow-up: Run172 replicates this diagnostic on DAVIS 2017
+validation with unchanged selector settings. Its multi-object engineering gate
+must pass before the 30-video cohort. No Run172 result is available yet.
+Progress and final artifacts are stored in Drive under
+`outputs/experiment/172_davis_token_contribution_v1`.
+
 21 PolypGen sequences (seq1/seq7 excluded); 114 fixed targets: 84 GT-present and 30 GT-empty. All pretrained SAM2 weights stay frozen. Each intervention replays the same native history without memory encoding or writeback. These are sampled immediate effects, not full-propagation results.
 
 ## Aggregate results
