@@ -1,6 +1,6 @@
 {
   "id": "memsam_residual_memory_writer_v1",
-  "status": "Prospective candidate protocol; commit before any real-frame gate or efficacy inference. No real-frame run is authorized while Run174 is active.",
+  "status": "Prospective candidate protocol frozen before real-frame work; no real-frame run is authorized until Run174 completes and fails its existing continuation criterion.",
   "trigger": "Consider only after Run174 is complete and fails its frozen continuation criterion. Do not run concurrently with Run174.",
   "hypothesis": "A small soft-mask-conditioned residual at the input to SAM2's native memory encoder can make all stored spatial values more useful for later segmentation, improving autoregressive Dice over both native SAM2 and the same-capacity mask-neutral residual writer.",
   "method": {
