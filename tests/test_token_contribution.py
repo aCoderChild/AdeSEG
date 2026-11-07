@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from modeling.token_contribution import ARMS, TokenContributionRead, block_plan
-from scripts.run_token_contribution import spaced, summarize
+from scripts.run_token_contribution import spaced, summarize, native_signatures
 
 
 def test_groups_preserve_shape_count_and_split_union():
@@ -105,3 +105,15 @@ def test_target_replay_does_not_reestimate_selector_or_change_cache():
     assert torch.equal(actual,torch.nn.functional.scaled_dot_product_attention(q,k,v))
     with pytest.raises(RuntimeError,match='key count'):
         controller._capture_sdpa(q,k[:,:,:7],v[:,:,:7])
+
+
+def test_independent_reference_includes_pointer_score_and_native_low_resolution():
+    stored = {k:torch.ones(1,1) for k in ('pred_masks','obj_ptr','object_score_logits')}
+    state = {'output_dict_per_obj':{0:{'cond_frame_outputs':{0:stored},'non_cond_frame_outputs':{1:stored}}}}
+    full = torch.ones(1,1)
+    original = native_signatures(state,1,0,full)
+    for key in stored:
+        stored[key] += 1
+        assert native_signatures(state,1,0,full) != original
+        stored[key] -= 1
+    assert native_signatures(state,0,0,full) == original

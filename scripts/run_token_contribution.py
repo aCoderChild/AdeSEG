@@ -166,6 +166,13 @@ def status(out, phase, **kwargs):
         "updated_at":datetime.now(timezone.utc).isoformat(), **kwargs})
 
 
+def native_signatures(state, frame, prompt, full_logits):
+    bucket = 'cond_frame_outputs' if frame == prompt else 'non_cond_frame_outputs'
+    stored = state['output_dict_per_obj'][0][bucket][frame]
+    return {'full_logits':tensor_hash(full_logits),
+            **{key:tensor_hash(stored[key]) for key in ('pred_masks','obj_ptr','object_score_logits')}}
+
+
 @torch.inference_mode()
 def sequence(args, videos, name, repo, out, core, gate):
     frames, plan = videos[name], core['target_plan'][name]
@@ -179,7 +186,8 @@ def sequence(args, videos, name, repo, out, core, gate):
             for frame, ids, logits in model.propagate_in_video(state, start_frame_idx=prompt):
                 if ids != [1]:
                     raise RuntimeError('Object identity changed')
-                references[frame] = tensor_hash(logits)
+                references[frame] = native_signatures(state,frame,prompt,logits)
+        base.atomic_json(target/'native_reference_hashes.json',references)
         del model, state
         gc.collect()
     model = base.init_predictor(args.checkpoint, repo)
@@ -203,7 +211,7 @@ def sequence(args, videos, name, repo, out, core, gate):
             if ids != [1] or frame != expected:
                 raise RuntimeError('Native trajectory identity/order changed')
             expected += 1
-            if gate and tensor_hash(logits) != references[frame]:
+            if gate and native_signatures(state,frame,prompt,logits) != references[frame]:
                 raise RuntimeError(f'Read-only collector changed native prediction {name}/{frame}')
             if frame == prompt:
                 continue

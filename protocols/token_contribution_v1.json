@@ -385,5 +385,14 @@
       "absent_eligible": 13,
       "total_frames": 56
     }
-  }
+  },
+  "verification_amendments": [
+    {
+      "date": "2026-11-07",
+      "before_cohort_launch": true,
+      "reason": "Persist and compare independent native reference hashes for low-resolution masks, object pointers and object-score logits as well as full-resolution logits. Initial attempt interrupted during seq3 engineering; no cohort launch or scientific changes.",
+      "scientific_settings_and_targets_unchanged": true,
+      "initial_protocol_commit": "eed4884a"
+    }
+  ]
 }
