@@ -1,0 +1,82 @@
+{
+  "id": "within_frame_token_utility_v1",
+  "status": "Design draft; not frozen or executed. Finalize and commit the protocol and verify the implementation before launch. Existing Run174 remains unchanged.",
+  "research_question": "Can different spatial memory groups within the same source frame have beneficial and harmful effects on a later SAM2 prediction, including when that source frame's own predicted mask has low Dice?",
+  "claims_to_distinguish": {
+    "heterogeneity": "Within one source frame, equal-size spatial groups can have different conditional effects on target segmentation.",
+    "predictability": "A selector using only information available at inference can rank those effects on sequences excluded from fitting.",
+    "efficacy": "Applying the frozen selector throughout a video improves segmentation over native SAM2 and matched controls. Neither heterogeneity nor oracle selection alone establishes this claim."
+  },
+  "prior_review": {
+    "Run170": "Already combined Efficient-SAM2 first-read importance and top-k retrieval with Lean-SAM2 prompt-anchor cosine similarity and score fusion. Its limited fixed-native replay did not establish a Dice gain. Do not relaunch the same mechanism under a new name.",
+    "Run171": "Intervened jointly across multiple older source frames and all four attention layers. It cannot attribute a target-level utility value to one source frame's local group.",
+    "Run173": "Regional features did not pass the utility-prediction continuation rule. Its GT-informed retrospective choice among the recorded arms is neither a deployed selector nor a bound on all possible token subsets.",
+    "EfficientSAM2": "Reuse the pinned retrieval and original-coordinate RoPE implementation if audited. Its sparse retrieval ranks attention saliency; its reported accuracy/efficiency tradeoff does not prove pruning raises native Dice.",
+    "LeanSAM2": "Reuse pinned prompt-anchor similarity and score fusion only as explicit selection baselines. Full Lean-SAM2 also changes temporal memory and encoder routing; its complete-system score cannot isolate token pruning.",
+    "references": [
+      "https://arxiv.org/html/2602.08224v2",
+      "https://arxiv.org/html/2607.19811v1",
+      "protocols/token_contribution_v1.json",
+      "protocols/token_utility_probe_v1.json",
+      "protocols/PRIOR_EXPERIMENTS.md"
+    ]
+  },
+  "model_and_data": {
+    "reuse": "Pin the same SAM2 checkpoint, source revisions, PolypGen manifest, prompt policy, CPU FP32 evaluation and native stored-memory precision as Run171. Recover the exact archived source recipe before reusing its replay machinery.",
+    "sequences": "The 21 PolypGen sequences excluding seq1 and seq7. This cohort has already informed development; all inference is exploratory.",
+    "quality": "Source quality means the source frame's own stored prediction Dice against its GT on GT-present source frames. Keep it continuous. It does not identify visual blur, illumination or occlusion causes. Report GT-empty source frames separately. No GT enters memory selection or inference.",
+    "targets": "Reuse Run171's frozen target IDs: the first and last listed GT-present target per sequence and the earliest listed GT-empty target when available. Deduplicate. This gives at most 63 targets, selected without reviewing new intervention effects.",
+    "source_frame": "At each target, enumerate actual selected native spatial memories excluding prompt and latest. Sort source IDs chronologically. Serialize [sequence,target,20261108] as compact JSON without spaces, SHA256 its UTF-8 bytes, convert the full hexadecimal digest to an integer, and take modulo the eligible count. Save all eligible IDs, chosen ID, processed-frame age and original-source index. If no source is eligible, report missing coverage; never substitute based on outcomes."
+  },
+  "fixed_history_diagnostic": {
+    "native_reference": "Capture native current features and prior memory once. Every intervention is a private, read-only replay with no memory encoding or writeback.",
+    "spatial_groups": "Partition the chosen source's 64x64 spatial grid into sixteen disjoint 16x16-token tiles. Each tile removes 256 of that source's 4096 spatial keys. These are spatial token groups, not individual tokens or pure semantic regions.",
+    "arms": [
+      "Native replay with every token retained",
+      "Sixteen separate replays, each removing one tile from only the chosen source frame",
+      "One replay removing all spatial keys from that source frame, retaining its pointer tokens",
+      "Two fixed union replays: tiles 0+15 and 3+12 under row-major tile numbering, to measure nonadditivity"
+    ],
+    "uniform_control": "The arithmetic mean over all sixteen equal-size tile removals is the exact expected outcome of uniformly choosing a tile. No best random seed is selected.",
+    "preserved": "All other source frames, native query, source-frame schedule, original spatial/temporal coordinates, pointer tail and pretrained weights. Intervene jointly in all four attention layers; make no individual-layer claim.",
+    "whole_source_reference": "Dropping all spatial tokens from a frame has a larger removal budget. It is a mechanistic reference, not a budget-matched method comparison. It is not deletion of the complete stored frame because pointers remain.",
+    "utility": "U(G|source,target,history) = Dice_native - Dice_without_G. Positive means the group is helpful under this intervention; negative means its removal improves the target. Zero is unresolved and does not prove irrelevance. All signs are conditional on the remaining memory and attention renormalization.",
+    "interactions": "Measure U(A union B)-U(A)-U(B) for the two prespecified pairs. Do not sum individual group effects to predict arbitrary combined pruning.",
+    "persistence": "For every tile, repeat its removal at the next processed target frame if the same source remains in native memory and target GT exists. Reuse that later frame's native trajectory. Report eligibility and attrition. Any tile chosen using current-target GT and assessed later remains an oracle diagnostic, not an online method.",
+    "cost_bound": "At most 20 main replays per target plus 16 later-frame tile replays: at most 2268 replays for 63 targets, excluding engineering, native trajectory generation and any required verification. Measure runtime before full launch."
+  },
+  "analysis": {
+    "primary_outputs": [
+      "One source-target row with source quality, source age, sixteen tile utilities and whole-source removal effect",
+      "Distribution of utility magnitudes and signs within each source, plotted against continuous source Dice",
+      "Sequence-level prevalence of sources containing both helpful and harmful tile effects, with effect magnitudes shown rather than relying on signs alone",
+      "Uniform-tile removal, observed best-tile removal and native Dice, with explicit oracle labels",
+      "Persistence of tile effects across adjacent target queries and fixed-pair nonadditivity"
+    ],
+    "secondary": "Boundary F, IoU, target object-presence logits, GT-empty false alarms and predicted foreground area. Use Dice utility for GT-present targets; analyze GT-empty targets separately using false alarms and predicted area rather than mixing empty-mask Dice into the primary utility. A Dice tie can hide different logits/masks.",
+    "coverage": "Report the observed continuous source-quality distribution before interpreting poor-frame claims. Sparse coverage of low-quality sources makes that question inconclusive. Do not replace sampled sources after examining intervention outcomes. The sixteen coarse tiles cannot resolve individual-token utility or rule out finer-grained selection.",
+    "statistics": "Sequence is the unit. Report all sequences, equal-sequence summaries, sequence-cluster bootstrap intervals, median effects and leave-one-sequence-out sensitivity. Do not count tiles/frames as independent replicates. Do not apply a significance test to the outcome-selected best-tile oracle as evidence of a deployable selector.",
+    "headroom_scope": "Best observed tile removal is an optimistic attainable effect among these sixteen tested interventions only. It is not a global pruning upper bound, and it does not establish learnability or full-propagation benefit.",
+    "decision": "Before fitting another selector, assess whether even the optimistic tested-family headroom could reach the project's +0.01 equal-sequence Dice goal without depending on one sequence. If not, stop this pruning family. If yes, a separately frozen prediction study is needed. Do not redefine group geometry or choose new budgets after examining these results and call it the same study."
+  },
+  "conditional_next_studies": {
+    "selector_prediction": "Use source-specific group utilities as training labels only on training sequences. Compare existing attention-only and attention-plus-anchor scores against any newly justified scorer. Match group geometry, removed count, source ages and training capacity. Record role labels as explanatory features, never assume background or boundary is harmful by definition. Freeze the full training recipe before fitting.",
+    "propagation": "Only after a predictor demonstrates discrimination on excluded development sequences, freeze one deployable policy and run autoregressively using its own predictions/writes. Compare native, uniform matched pruning, Efficient-SAM2-derived selection, Lean-SAM2-derived selection, and the new policy under the same frame schedule, checkpoint and budget. Full published systems can be separate system comparisons.",
+    "efficacy_criteria": "Primary equal-sequence present Dice must show the prespecified meaningful gain over native plus an advantage over matched pruning controls, with uncertainty, false alarms, re-detection and compute reported. A learned selector must operate without GT or future-frame information. Existing PolypGen and examined DAVIS data remain exploratory; independent confirmation is still required."
+  },
+  "engineering_before_launch": [
+    "Keep-all retrieval reproduces native logits and stored memory bit-for-bit on seq2/seq3",
+    "Exactly one intended source-frame spatial span changes per intervention, with actual frame IDs verified",
+    "Every kept key and value retains its original coordinate/index and pairing; pointers remain exact",
+    "All four memory layers are observed; exact removal counts and native replay are checked at every target",
+    "Captured inputs, memory/cache, model parameters and source files are unchanged after replays",
+    "Repeat a fixed intervention, preserve failure receipts, and verify resume equivalence",
+    "Benchmark replay runtime before launching the cohort; keep Run174 source/configuration isolated"
+  ],
+  "implementation_status": {
+    "controller": "modeling/within_frame_token_utility.py reuses NativeRegionalTokenSelection in identity mode plus the pinned Efficient-SAM2 gather and original-coordinate RoPE. It does not compute anchor/attention ranking or change stored memory.",
+    "engineering_runner": "scripts/verify_within_frame_token_utility.py checks complete seq2/seq3 native trajectories and source-isolated replays at prompt+3 and prompt+4. Each of 35 interventions per sequence is repeated. No Dice is scored. Commit engineering sources before this gate; its completion is not scientific-study completion.",
+    "remaining": ["real-frame engineering execution after Run174 reconciliation", "scientific runner and source-quality reporting", "safe-resume check", "final scientific protocol freeze", "full diagnostic", "independent multi-object verification before any multi-object benchmark"]
+  },
+  "storage": "All runtime artifacts and temporary frame staging must be under mounted Google Drive outputs/experiment in a new dedicated attempt folder. Keep prior runs and their stopping decisions intact."
+}
