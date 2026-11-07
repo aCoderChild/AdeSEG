@@ -43,3 +43,15 @@ because there are no GT-empty scored targets.
 Artifacts: `/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/170_regional_token_selection_v1/attempt_01`. Mounted Drive presence does not independently prove remote upload.
 
 [Method](REGION_TOKENS.md) · [Frozen protocol](../protocols/regional_token_selection_v1.json)
+
+## Next diagnostic: Run171
+
+The current selection configuration remains stopped. A separate fixed-history
+contribution diagnostic is prepared: 114 sampled targets across 21 sequences,
+including 30 GT-empty targets. It compares removal of rejected-enriched,
+retained-enriched and random spatial blocks at equal budgets, with split-group
+interaction checks. No treatment writes memory. No new efficacy claim is made.
+The seq2/seq3 engineering check must pass before the remaining sequences run.
+
+[Frozen diagnostic protocol](../protocols/token_contribution_v1.json).
+Outputs and live status: `outputs/experiment/171_token_contribution_v1/attempt_01/`.

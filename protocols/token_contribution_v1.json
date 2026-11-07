@@ -1,0 +1,389 @@
+{
+  "name": "Fixed-history token-group contribution diagnostic",
+  "run": 171,
+  "version": 1,
+  "date": "2026-11-07",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "hypothesis": "The current regional selector ranks useful memory evidence: removing rejected-enriched groups harms present Dice less than matched retained-enriched and random groups.",
+  "scope": "Exploratory PolypGen, 21 sequences excluding seq1/seq7. Group contribution conditional on native history and this intervention. Not individual token attribution, anatomical content, oracle method efficacy, patient-independent confirmation or full propagation.",
+  "model": {
+    "repository": "external/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "device": "CPU FP32; native bfloat16 stored memory retained",
+    "frozen": "All original parameters; native frame selection, encoder, decoder, object-presence decision, pointers, position encodings and memory writes.",
+    "prompt": "Existing first-labeled-frame mask prompt; no later GT enters selection or prediction.",
+    "native_memory": "Prompt plus up to six recent processed manifest frames. Current frame supplies queries, not a stored memory frame. Chronology refers to sampled manifest frames, not guaranteed consecutive source-video frames.",
+    "intervention": "Only spatial K/V retrieval inside all four memory cross-attention layers. Read-time gathering leaves the stored memory intact. Prompt and latest memory frame stay full; pointer tail stays exact. Original cell RoPE coordinates are gathered, never reassigned."
+  },
+  "upstream": {
+    "efficient_sam2": {
+      "repository": "external/Efficient-SAM2",
+      "revision": "8e1ad06089b9c958ff5ebfc72b9b7d0b904f5ce5",
+      "paper": "https://arxiv.org/abs/2602.08224v2",
+      "reuse": "Unchanged author Attention.forward for chunked first-recollection latest-frame importance; unchanged get_topk_mask; existing author gather assignments and apply_rotary_enc_prune via modeling/sparse_memory.py.",
+      "importance": "For each layer, softmax current-query dot products over the latest unpruned frame only, average over query positions/heads. Cache a mask for that frame's later reads, as in the author's top-k retrieval path."
+    },
+    "lean_sam2": {
+      "repository": "external/Lean-SAM2",
+      "revision": "8d1cf2618519d291905d22fe859b8302476d7f50",
+      "paper": "https://arxiv.org/abs/2607.19811v1",
+      "download_check": "Fresh official clone at external/Lean-SAM2-token-selection confirmed the same revision as the existing checkout. Reuse the existing pinned checkout, preserving past runs.",
+      "reuse": "Unchanged prompt-mask-to-token, diverse-anchor selection, max-cosine similarity, score preparation and multiplicative fusion methods from SAM2Base.",
+      "anchor_settings": {
+        "ratio": 0.05,
+        "min_tokens": 8,
+        "max_tokens": 64,
+        "lambda": 2.0,
+        "fusion": "mul"
+      },
+      "isolation": "Memory selection components only. No temporal condensation, insurance bank, encoder routing or confidence-based branches. This adaptation is not a reproduction of the full published method."
+    }
+  },
+  "prior_audit": "protocols/PRIOR_EXPERIMENTS.md: whole-region exclusions already exist. This diagnostic instead compares selector-disposition enrichment at modest matched removal and adds split-group interactions. Existing pinned repositories are reused; no new predictive method is attributed to a paper.",
+  "selector": "Run170 regional formula and 25% per-frame retention masks, recomputed causally on untouched NATIVE reads. Native trajectory retains ALL tokens. First-recollection usage is computed from the latest frame as in the pinned Efficient-SAM2 method. Prompt foreground/context anchors and soft own-stored-mask occupancy match Run170. No GT enters the selector.",
+  "groups": {
+    "grid": [
+      64,
+      64
+    ],
+    "block": [
+      4,
+      4
+    ],
+    "blocks_per_older_frame": 16,
+    "removed_tokens_per_older_frame_per_layer": 256,
+    "split": "A/B are the first/last 8 rejected-enriched blocks. AB is their exact union.",
+    "ranking": "Rank disjoint 4x4 blocks by count of selector-retained cells; ties use context-seeded permutation. Lowest 16 are rejected-enriched; highest 16 retained-enriched. Record actual retained fraction; do not call these pure rejected/retained tokens.",
+    "controls": "Uniform sample of 16 blocks from the same grid. Exact removed count, block shape, memory-frame age and four-layer schedule; global arrangement/contiguity is not matched. One fixed random seed 20261107; no best-seed selection. Random groups may overlap other arms.",
+    "protected": "Prompt frame, latest frame and pointer tail remain exact. Older native spatial frames only. Native cell RoPE and temporal slots remain unchanged. All four memory layers are intervened jointly; no individual-layer causal claim."
+  },
+  "arms": [
+    "native",
+    "rejected_a",
+    "rejected_b",
+    "rejected",
+    "retained",
+    "random"
+  ],
+  "sampling": {
+    "rule": "Before inference, find first labeled prompt. Candidate targets start prompt+3, ensuring an older eligible nonprompt memory. Within each sequence, uniformly select up to 4 GT-present and up to 2 GT-empty candidates using rounded linspace over chronological stratum indices. Save exact target list and input hashes in setup.json before any inference. No outcome-dependent target selection.",
+    "limits": "GT-stratified diagnostic target sample, not a full-cohort framewise efficacy estimate. Missing GT-empty frames are explicitly reported. Same manifest processed frames and original source indices are saved; do not equate manifest steps with source-video frames."
+  },
+  "stages": {
+    "engineering": "First seq2/seq3: independent uninstrumented native trajectories vs read-only collector, all full-resolution logits bit-identical. Native replay masks/pointers/object scores and full-resolution hashes exact on EVERY postprompt frame. Read-only hooks, attention mass normalized, actual key counts, original-cell position reuse, all four layers, pointer-tail unchanged, replay sample/bank/cache and original parameters unchanged. Repeat first sampled random intervention exactly. Fail closed on any mismatch.",
+    "cohort": "After engineering passes, run remaining 19 sequences sequentially regardless of gate scientific effects. Use gate seq2/seq3 sampled results directly. Native trajectories with read-only collector and paired diagnostic replays at frozen targets; no treatment writeback or memory encoding. Native parity at every sampled target. No full-propagation efficacy launch."
+  },
+  "metrics": {
+    "primary": "Dice averaged over sampled present targets within each sequence, then equally across eligible sequences.",
+    "utility": "U(G)=Dice_native-Dice_without_G. Positive means the removal hurts this prediction; negative means removal helps. Zero is unresolved/redundant at this resolution, not proof of dispensability. Do not identify individual causal vectors from a group effect.",
+    "contrasts": [
+      "Dice_without_rejected - Dice_without_retained",
+      "Dice_without_rejected - Dice_without_random"
+    ],
+    "statistics": "Paired sequence bootstrap 10000 resamples seed 20261107; paired Wilcoxon with Holm across both primary contrasts. Report every sequence and wins/losses. No frame-level significance tests.",
+    "secondary": [
+      "IoU",
+      "Boundary F via existing DAVIS implementation",
+      "GT-empty false alarm count/rate with per-sequence and pooled denominators",
+      "stored object-score logits",
+      "removed counts, selector enrichment, first-read attention mass, soft foreground occupancy and memory-vector norm"
+    ],
+    "interaction": "U(AB)-U(A)-U(B)=Dice_A+Dice_B-Dice_AB-Dice_native. Positive means joint removal hurts more than additive. This is descriptive nonadditivity and includes attention normalization effects, not unique representation redundancy."
+  },
+  "decisions": {
+    "discrimination_signal": "On all 21 sequences, both primary sequence-bootstrap lower bounds >0 and majority sequence wins. This supports exploratory ranking discrimination only. Report Holm p-values; do not claim deployment benefit.",
+    "if_negative": "Stop selector refinement; report effect distributions and limitations. No outcome-driven budget, weights or extra seeds.",
+    "if_positive": "A bounded single-pulse temporal diagnostic may be proposed. Freeze targets independently of observed treatment gains and commit a separate protocol before launching; no automatic efficacy run. An oracle diagnostic never establishes a deployable policy."
+  },
+  "provenance": {
+    "freeze": "Commit protocol, integration, runner and tests before inference; archive and hash all imported scientific sources and input files. Never overwrite prior runs.",
+    "storage": "All experiment outputs, temporary staged frame links and runtime logs go under mounted Google Drive outputs/experiment/171_token_contribution_v1. Mount writes are not independent proof of cloud sync. No model checkpoint training or local result copy.",
+    "runtime_tracking": "run_status.json, setup.json, per-sequence receipts and masks/frames.jsonl, engineering_pass.json, partial_results.json, analysis.md, results.json, completion.json or failure.json. Network logging must not stop science."
+  },
+  "target_plan": {
+    "seq2": {
+      "prompt": 3,
+      "targets": [
+        6,
+        25,
+        43,
+        62
+      ],
+      "present_eligible": 57,
+      "absent_eligible": 0,
+      "total_frames": 63
+    },
+    "seq3": {
+      "prompt": 0,
+      "targets": [
+        3,
+        7,
+        10,
+        14
+      ],
+      "present_eligible": 12,
+      "absent_eligible": 0,
+      "total_frames": 15
+    },
+    "seq4": {
+      "prompt": 0,
+      "targets": [
+        3,
+        17,
+        18,
+        19,
+        33,
+        47
+      ],
+      "present_eligible": 43,
+      "absent_eligible": 2,
+      "total_frames": 48
+    },
+    "seq5": {
+      "prompt": 0,
+      "targets": [
+        3,
+        68,
+        81,
+        183,
+        184,
+        249
+      ],
+      "present_eligible": 196,
+      "absent_eligible": 51,
+      "total_frames": 250
+    },
+    "seq6": {
+      "prompt": 24,
+      "targets": [
+        27,
+        46,
+        66,
+        85,
+        86,
+        90
+      ],
+      "present_eligible": 59,
+      "absent_eligible": 5,
+      "total_frames": 91
+    },
+    "seq8": {
+      "prompt": 0,
+      "targets": [
+        3,
+        11,
+        29,
+        47,
+        69,
+        72
+      ],
+      "present_eligible": 51,
+      "absent_eligible": 19,
+      "total_frames": 73
+    },
+    "seq9": {
+      "prompt": 3,
+      "targets": [
+        6,
+        19,
+        20,
+        25,
+        37,
+        50
+      ],
+      "present_eligible": 39,
+      "absent_eligible": 6,
+      "total_frames": 51
+    },
+    "seq10": {
+      "prompt": 17,
+      "targets": [
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "present_eligible": 4,
+      "absent_eligible": 1,
+      "total_frames": 25
+    },
+    "seq11": {
+      "prompt": 2,
+      "targets": [
+        5,
+        23,
+        50,
+        95,
+        173,
+        227
+      ],
+      "present_eligible": 133,
+      "absent_eligible": 90,
+      "total_frames": 228
+    },
+    "seq12": {
+      "prompt": 0,
+      "targets": [
+        3,
+        85,
+        167,
+        249
+      ],
+      "present_eligible": 247,
+      "absent_eligible": 0,
+      "total_frames": 250
+    },
+    "seq13": {
+      "prompt": 7,
+      "targets": [
+        10,
+        19,
+        111,
+        177,
+        187,
+        249
+      ],
+      "present_eligible": 196,
+      "absent_eligible": 44,
+      "total_frames": 250
+    },
+    "seq14": {
+      "prompt": 0,
+      "targets": [
+        3,
+        24,
+        75,
+        179,
+        230,
+        248
+      ],
+      "present_eligible": 197,
+      "absent_eligible": 49,
+      "total_frames": 249
+    },
+    "seq15": {
+      "prompt": 0,
+      "targets": [
+        3,
+        40,
+        78,
+        115
+      ],
+      "present_eligible": 113,
+      "absent_eligible": 0,
+      "total_frames": 116
+    },
+    "seq16": {
+      "prompt": 6,
+      "targets": [
+        9,
+        14,
+        20,
+        29,
+        39
+      ],
+      "present_eligible": 30,
+      "absent_eligible": 1,
+      "total_frames": 40
+    },
+    "seq17": {
+      "prompt": 16,
+      "targets": [
+        19,
+        32,
+        42,
+        47,
+        49,
+        62
+      ],
+      "present_eligible": 41,
+      "absent_eligible": 3,
+      "total_frames": 63
+    },
+    "seq18": {
+      "prompt": 0,
+      "targets": [
+        3,
+        20,
+        38,
+        54,
+        56,
+        62
+      ],
+      "present_eligible": 53,
+      "absent_eligible": 7,
+      "total_frames": 63
+    },
+    "seq19": {
+      "prompt": 0,
+      "targets": [
+        3,
+        20,
+        37,
+        52,
+        55
+      ],
+      "present_eligible": 52,
+      "absent_eligible": 1,
+      "total_frames": 56
+    },
+    "seq20": {
+      "prompt": 16,
+      "targets": [
+        19,
+        20,
+        29,
+        39,
+        50,
+        51
+      ],
+      "present_eligible": 29,
+      "absent_eligible": 4,
+      "total_frames": 52
+    },
+    "seq21": {
+      "prompt": 8,
+      "targets": [
+        11,
+        12,
+        19,
+        27,
+        34,
+        55
+      ],
+      "present_eligible": 23,
+      "absent_eligible": 22,
+      "total_frames": 56
+    },
+    "seq22": {
+      "prompt": 0,
+      "targets": [
+        3,
+        17,
+        30,
+        36,
+        45
+      ],
+      "present_eligible": 42,
+      "absent_eligible": 1,
+      "total_frames": 46
+    },
+    "seq23": {
+      "prompt": 6,
+      "targets": [
+        9,
+        10,
+        29,
+        43,
+        44,
+        55
+      ],
+      "present_eligible": 34,
+      "absent_eligible": 13,
+      "total_frames": 56
+    }
+  }
+}
