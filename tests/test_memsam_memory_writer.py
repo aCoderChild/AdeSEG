@@ -26,6 +26,12 @@ class _Model(nn.Module):
     def track_step(self, frame_idx, pix_feat, masks, skip_mask_sigmoid=False):
         return self.memory_encoder(pix_feat, masks, skip_mask_sigmoid)
 
+    def _run_memory_encoder(self, inference_state, frame_idx, pix_feat, masks,
+                            skip_mask_sigmoid=False):
+        # Mirrors SAM2's preflight call shape: the prompt-frame memory write
+        # reaches the encoder directly with inference state and frame index.
+        return self.memory_encoder(pix_feat, masks, skip_mask_sigmoid)
+
 
 def test_zero_initialized_writer_is_exact_identity_and_keeps_native_mask():
     torch.manual_seed(7)
@@ -37,11 +43,17 @@ def test_zero_initialized_writer_is_exact_identity_and_keeps_native_mask():
 
     with NativeMemoryWriter(model, writer, "regional") as observer:
         adapted = model.track_step(17, features, masks, skip_mask_sigmoid=True)
+        preflight = model._run_memory_encoder(
+            {"prompt": True}, 3, features, masks, skip_mask_sigmoid=True
+        )
 
     assert torch.equal(adapted["vision_features"], native["vision_features"])
+    assert torch.equal(preflight["vision_features"], native["vision_features"])
     assert torch.equal(adapted["mask_seen"], native["mask_seen"])
+    assert torch.equal(preflight["mask_seen"], native["mask_seen"])
     assert adapted["skip_mask_sigmoid"] is True
-    assert len(observer.records) == 1
+    assert preflight["skip_mask_sigmoid"] is True
+    assert [record["frame"] for record in observer.records] == [17, 3]
     record = observer.records[0]
     assert record["frame"] == 17
     assert record["feature_shape"] == [2, 8, 16, 16]

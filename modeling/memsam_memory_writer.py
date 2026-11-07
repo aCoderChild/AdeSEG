@@ -131,7 +131,7 @@ class NativeMemoryWriter:
         self.mode = mode
         self.handle = None
         self.records = []
-        self.original_track_step = None
+        self.original_methods = {}
         self.current_frame = None
 
     def _pre_hook(self, module, args, kwargs):
@@ -171,25 +171,31 @@ class NativeMemoryWriter:
             raise RuntimeError("Memory writer hook is already installed")
         if not hasattr(self.model, "memory_encoder"):
             raise TypeError("Model has no SAM2 memory_encoder")
-        if not hasattr(self.model, "track_step"):
-            raise TypeError("Model has no track_step method for memory-write frame alignment")
-        self.original_track_step = self.model.track_step
+        methods = {
+            "track_step": lambda args, kwargs: kwargs.get("frame_idx", args[0] if args else None),
+            "_run_memory_encoder": lambda args, kwargs: kwargs.get("frame_idx", args[1] if len(args) > 1 else None),
+        }
+        for name, get_frame in methods.items():
+            if not hasattr(self.model, name):
+                raise TypeError(f"Model has no {name} method for memory-write frame alignment")
+            original = getattr(self.model, name)
+            self.original_methods[name] = original
 
-        @functools.wraps(self.original_track_step)
-        def track_step_with_frame(*args, **kwargs):
-            frame = kwargs.get("frame_idx")
-            if frame is None and args:
-                frame = args[0]
-            if frame is None:
-                raise RuntimeError("Could not identify SAM2 track_step frame index")
-            previous_frame = self.current_frame
-            self.current_frame = int(frame)
-            try:
-                return self.original_track_step(*args, **kwargs)
-            finally:
-                self.current_frame = previous_frame
+            def wrap(method, frame_getter, method_name):
+                @functools.wraps(method)
+                def aligned(*args, **kwargs):
+                    frame = frame_getter(args, kwargs)
+                    if frame is None:
+                        raise RuntimeError(f"Could not identify SAM2 {method_name} frame index")
+                    previous_frame = self.current_frame
+                    self.current_frame = int(frame)
+                    try:
+                        return method(*args, **kwargs)
+                    finally:
+                        self.current_frame = previous_frame
+                return aligned
 
-        self.model.track_step = track_step_with_frame
+            setattr(self.model, name, wrap(original, get_frame, name))
         self.handle = self.model.memory_encoder.register_forward_pre_hook(
             self._pre_hook, with_kwargs=True
         )
@@ -199,9 +205,9 @@ class NativeMemoryWriter:
         if self.handle is not None:
             self.handle.remove()
             self.handle = None
-        if self.original_track_step is not None:
-            self.model.track_step = self.original_track_step
-            self.original_track_step = None
+        for name, method in self.original_methods.items():
+            setattr(self.model, name, method)
+        self.original_methods.clear()
         self.current_frame = None
 
     def __enter__(self):
