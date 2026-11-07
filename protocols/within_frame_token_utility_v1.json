@@ -1,6 +1,6 @@
 {
   "id": "within_frame_token_utility_v1",
-  "status": "Design draft; not frozen or executed. Finalize and commit the protocol and verify the implementation before launch. Existing Run174 remains unchanged.",
+  "status": "frozen_for_scientific_diagnostic",
   "research_question": "Can different spatial memory groups within the same source frame have beneficial and harmful effects on a later SAM2 prediction, including when that source frame's own predicted mask has low Dice?",
   "claims_to_distinguish": {
     "heterogeneity": "Within one source frame, equal-size spatial groups can have different conditional effects on target segmentation.",
@@ -25,7 +25,7 @@
     "reuse": "Pin the same SAM2 checkpoint, source revisions, PolypGen manifest, prompt policy, CPU FP32 evaluation and native stored-memory precision as Run171. Recover the exact archived source recipe before reusing its replay machinery.",
     "sequences": "The 21 PolypGen sequences excluding seq1 and seq7. This cohort has already informed development; all inference is exploratory.",
     "quality": "Source quality means the source frame's own stored prediction Dice against its GT on GT-present source frames. Keep it continuous. It does not identify visual blur, illumination or occlusion causes. Report GT-empty source frames separately. No GT enters memory selection or inference.",
-    "targets": "Reuse Run171's frozen target IDs: the first and last listed GT-present target per sequence and the earliest listed GT-empty target when available. Deduplicate. This gives at most 63 targets, selected without reviewing new intervention effects.",
+    "targets": "Reuse Run171 frozen IDs: first and last listed GT-present target and earliest listed GT-empty target per sequence. Exact GT-only enumeration in target_plan gives 59 targets (42 present, 17 empty) across 21 sequences. No new intervention outcomes were used.",
     "source_frame": "At each target, enumerate actual selected native spatial memories excluding prompt and latest. Sort source IDs chronologically. Serialize [sequence,target,20261108] as compact JSON without spaces, SHA256 its UTF-8 bytes, convert the full hexadecimal digest to an integer, and take modulo the eligible count. Save all eligible IDs, chosen ID, processed-frame age and original-source index. If no source is eligible, report missing coverage; never substitute based on outcomes."
   },
   "fixed_history_diagnostic": {
@@ -43,7 +43,7 @@
     "utility": "U(G|source,target,history) = Dice_native - Dice_without_G. Positive means the group is helpful under this intervention; negative means its removal improves the target. Zero is unresolved and does not prove irrelevance. All signs are conditional on the remaining memory and attention renormalization.",
     "interactions": "Measure U(A union B)-U(A)-U(B) for the two prespecified pairs. Do not sum individual group effects to predict arbitrary combined pruning.",
     "persistence": "For every tile, repeat its removal at the next processed target frame if the same source remains in native memory and target GT exists. Reuse that later frame's native trajectory. Report eligibility and attrition. Any tile chosen using current-target GT and assessed later remains an oracle diagnostic, not an online method.",
-    "cost_bound": "At most 20 main replays per target plus 16 later-frame tile replays: at most 2268 replays for 63 targets, excluding engineering, native trajectory generation and any required verification. Measure runtime before full launch."
+    "cost_bound": "Conservative implementation bound per main target: one native parity replay plus 20 scored arms; next query if eligible: one native parity replay plus 17 scored arms. At most 39 x 59 = 2301 replay calls, before resume/repeat checks, independent engineering and full native trajectory generation. Shared requests at one target can reuse the parity replay. Measure actual runtime; this is not an ETA."
   },
   "analysis": {
     "primary_outputs": [
@@ -76,7 +76,430 @@
   "implementation_status": {
     "controller": "modeling/within_frame_token_utility.py reuses NativeRegionalTokenSelection in identity mode plus the pinned Efficient-SAM2 gather and original-coordinate RoPE. It does not compute anchor/attention ranking or change stored memory.",
     "engineering_runner": "scripts/verify_within_frame_token_utility.py checks complete seq2/seq3 native trajectories and source-isolated replays at prompt+3 and prompt+4. Each of 35 interventions per sequence is repeated. No Dice is scored. Commit engineering sources before this gate; its completion is not scientific-study completion.",
-    "remaining": ["real-frame engineering execution after Run174 reconciliation", "scientific runner and source-quality reporting", "safe-resume check", "final scientific protocol freeze", "full diagnostic", "independent multi-object verification before any multi-object benchmark"]
+    "remaining": [
+      "real-frame engineering execution after Run174 reconciliation",
+      "real-frame staged safe-resume check",
+      "full diagnostic",
+      "independent multi-object verification before any multi-object benchmark"
+    ],
+    "scientific_runner": "scripts/run_within_frame_token_utility.py reuses Run171 private replay and scoring; scripts/within_frame_utility_records.py handles target sampling, immutable receipts, equal-sequence summaries and adjacent-query comparisons. Synthetic resume is tested; real inference has not begun."
   },
-  "storage": "All runtime artifacts and temporary frame staging must be under mounted Google Drive outputs/experiment in a new dedicated attempt folder. Keep prior runs and their stopping decisions intact."
+  "storage": "All runtime artifacts and temporary frame staging must be under mounted Google Drive outputs/experiment in a new dedicated attempt folder. Keep prior runs and their stopping decisions intact.",
+  "target_plan": {
+    "seq2": {
+      "prompt": 3,
+      "targets": [
+        6,
+        62
+      ],
+      "present_targets": [
+        6,
+        62
+      ],
+      "empty_targets": [],
+      "source_frame_indices": {
+        "6": 6,
+        "62": 62
+      }
+    },
+    "seq3": {
+      "prompt": 0,
+      "targets": [
+        3,
+        14
+      ],
+      "present_targets": [
+        3,
+        14
+      ],
+      "empty_targets": [],
+      "source_frame_indices": {
+        "3": 3,
+        "14": 14
+      }
+    },
+    "seq4": {
+      "prompt": 0,
+      "targets": [
+        3,
+        17,
+        47
+      ],
+      "present_targets": [
+        3,
+        47
+      ],
+      "empty_targets": [
+        17
+      ],
+      "source_frame_indices": {
+        "3": 3,
+        "17": 17,
+        "47": 47
+      }
+    },
+    "seq5": {
+      "prompt": 0,
+      "targets": [
+        3,
+        81,
+        249
+      ],
+      "present_targets": [
+        3,
+        249
+      ],
+      "empty_targets": [
+        81
+      ],
+      "source_frame_indices": {
+        "3": 3,
+        "81": 81,
+        "249": 249
+      }
+    },
+    "seq6": {
+      "prompt": 24,
+      "targets": [
+        27,
+        85,
+        86
+      ],
+      "present_targets": [
+        27,
+        85
+      ],
+      "empty_targets": [
+        86
+      ],
+      "source_frame_indices": {
+        "27": 27,
+        "85": 85,
+        "86": 86
+      }
+    },
+    "seq8": {
+      "prompt": 0,
+      "targets": [
+        3,
+        11,
+        69
+      ],
+      "present_targets": [
+        3,
+        69
+      ],
+      "empty_targets": [
+        11
+      ],
+      "source_frame_indices": {
+        "3": 3,
+        "11": 11,
+        "69": 69
+      }
+    },
+    "seq9": {
+      "prompt": 3,
+      "targets": [
+        6,
+        20,
+        50
+      ],
+      "present_targets": [
+        6,
+        50
+      ],
+      "empty_targets": [
+        20
+      ],
+      "source_frame_indices": {
+        "6": 6,
+        "20": 20,
+        "50": 50
+      }
+    },
+    "seq10": {
+      "prompt": 17,
+      "targets": [
+        20,
+        23,
+        24
+      ],
+      "present_targets": [
+        20,
+        23
+      ],
+      "empty_targets": [
+        24
+      ],
+      "source_frame_indices": {
+        "20": 20,
+        "23": 23,
+        "24": 24
+      }
+    },
+    "seq11": {
+      "prompt": 2,
+      "targets": [
+        5,
+        23,
+        173
+      ],
+      "present_targets": [
+        5,
+        173
+      ],
+      "empty_targets": [
+        23
+      ],
+      "source_frame_indices": {
+        "5": 5,
+        "23": 23,
+        "173": 173
+      }
+    },
+    "seq12": {
+      "prompt": 0,
+      "targets": [
+        3,
+        249
+      ],
+      "present_targets": [
+        3,
+        249
+      ],
+      "empty_targets": [],
+      "source_frame_indices": {
+        "3": 3,
+        "249": 249
+      }
+    },
+    "seq13": {
+      "prompt": 7,
+      "targets": [
+        10,
+        19,
+        249
+      ],
+      "present_targets": [
+        10,
+        249
+      ],
+      "empty_targets": [
+        19
+      ],
+      "source_frame_indices": {
+        "10": 10,
+        "19": 19,
+        "249": 249
+      }
+    },
+    "seq14": {
+      "prompt": 0,
+      "targets": [
+        3,
+        24,
+        248
+      ],
+      "present_targets": [
+        3,
+        248
+      ],
+      "empty_targets": [
+        24
+      ],
+      "source_frame_indices": {
+        "3": 3,
+        "24": 24,
+        "248": 248
+      }
+    },
+    "seq15": {
+      "prompt": 0,
+      "targets": [
+        3,
+        115
+      ],
+      "present_targets": [
+        3,
+        115
+      ],
+      "empty_targets": [],
+      "source_frame_indices": {
+        "3": 3,
+        "115": 115
+      }
+    },
+    "seq16": {
+      "prompt": 6,
+      "targets": [
+        9,
+        14,
+        39
+      ],
+      "present_targets": [
+        9,
+        39
+      ],
+      "empty_targets": [
+        14
+      ],
+      "source_frame_indices": {
+        "9": 9,
+        "14": 14,
+        "39": 39
+      }
+    },
+    "seq17": {
+      "prompt": 16,
+      "targets": [
+        19,
+        42,
+        62
+      ],
+      "present_targets": [
+        19,
+        62
+      ],
+      "empty_targets": [
+        42
+      ],
+      "source_frame_indices": {
+        "19": 19,
+        "42": 42,
+        "62": 62
+      }
+    },
+    "seq18": {
+      "prompt": 0,
+      "targets": [
+        3,
+        54,
+        56
+      ],
+      "present_targets": [
+        3,
+        56
+      ],
+      "empty_targets": [
+        54
+      ],
+      "source_frame_indices": {
+        "3": 3,
+        "54": 54,
+        "56": 56
+      }
+    },
+    "seq19": {
+      "prompt": 0,
+      "targets": [
+        3,
+        52,
+        55
+      ],
+      "present_targets": [
+        3,
+        55
+      ],
+      "empty_targets": [
+        52
+      ],
+      "source_frame_indices": {
+        "3": 3,
+        "52": 52,
+        "55": 55
+      }
+    },
+    "seq20": {
+      "prompt": 16,
+      "targets": [
+        19,
+        20,
+        51
+      ],
+      "present_targets": [
+        20,
+        51
+      ],
+      "empty_targets": [
+        19
+      ],
+      "source_frame_indices": {
+        "19": 19,
+        "20": 20,
+        "51": 51
+      }
+    },
+    "seq21": {
+      "prompt": 8,
+      "targets": [
+        11,
+        12,
+        34
+      ],
+      "present_targets": [
+        12,
+        34
+      ],
+      "empty_targets": [
+        11
+      ],
+      "source_frame_indices": {
+        "11": 11,
+        "12": 12,
+        "34": 34
+      }
+    },
+    "seq22": {
+      "prompt": 0,
+      "targets": [
+        3,
+        36,
+        45
+      ],
+      "present_targets": [
+        3,
+        45
+      ],
+      "empty_targets": [
+        36
+      ],
+      "source_frame_indices": {
+        "3": 3,
+        "36": 36,
+        "45": 45
+      }
+    },
+    "seq23": {
+      "prompt": 6,
+      "targets": [
+        9,
+        10,
+        55
+      ],
+      "present_targets": [
+        9,
+        55
+      ],
+      "empty_targets": [
+        10
+      ],
+      "source_frame_indices": {
+        "9": 9,
+        "10": 10,
+        "55": 55
+      }
+    }
+  },
+  "runtime_design": {
+    "scientific_runner": "scripts/run_within_frame_token_utility.py",
+    "summary_and_receipts": "scripts/within_frame_utility_records.py",
+    "resume": "First invocation completes seq2 and exits. --resume regenerates its entire native history and exactly repeats a cached non-native arm at each resumed request. The remaining cohort is refused without a successful regenerated comparison. Output receipts and masks are content-hashed and never silently replaced. Completed native histories are regenerated on later resumes as well. Runtime integrity compares regenerated source-mask hashes to their original native quality records. Changed saved files or configuration fail closed; a live filesystem lock prevents concurrent writers.",
+    "gate": "Require independently verified complete seq2/seq3 native trajectories, all-layer source-isolation receipts and source hashes from verify_within_frame_token_utility.py before any scientific replay.",
+    "statistics": "No prediction model is trained in this diagnostic. Uniform-tile and whole-source contrasts use sequence bootstrap; the outcome-selected best-tile oracle is descriptive only. Adjacent-frame same-sign fractions include exact-zero ties, so inspect the recorded magnitudes alongside them.",
+    "compute": "Each arm receipt records replay wall-clock seconds including its integrity checks; report this as diagnostic overhead, not production FPS. Frozen model inference is CPU FP32 with native stored-memory dtype preserved.",
+    "temporal_metrics": "Re-detection is not estimable for read-only single-target interventions. Report source age and adjacent-native-query utility; full-propagation re-detection is reserved for a future deployable-policy study."
+  },
+  "freeze_date": "2026-11-08",
+  "freeze_scope": "Scientific settings, exact 59 target IDs, summary and two-invocation resume design fixed before any new gate or diagnostic inference. Engineering execution is pending; frozen does not mean verified."
 }

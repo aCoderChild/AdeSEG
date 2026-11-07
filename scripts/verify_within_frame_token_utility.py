@@ -31,6 +31,8 @@ from scripts.run_token_contribution import native_signatures
 SOURCES = ("protocols/within_frame_token_utility_v1.json",
            "modeling/within_frame_token_utility.py", "scripts/verify_within_frame_token_utility.py",
            "tests/test_within_frame_token_utility.py")
+RUNTIME_SOURCES = ("external/sam2/sam2/modeling/sam/transformer.py",
+                   "external/sam2/sam2/modeling/position_encoding.py")
 
 
 @torch.inference_mode()
@@ -137,7 +139,7 @@ def main():
     tempfile.tempdir = str(out)
     torch.set_num_threads(2)
     torch.use_deterministic_algorithms(True)
-    sources = sorted(set(base.SOURCE_REL) | set(EXTRA_SOURCES) | set(SOURCES) |
+    sources = sorted(set(base.SOURCE_REL) | set(EXTRA_SOURCES) | set(SOURCES) | set(RUNTIME_SOURCES) |
                      {"scripts/run_token_contribution.py", "protocols/token_contribution_v1.json"})
     hashes = {p: digest(ROOT/p) for p in sources}
     videos = load_manifest(manifest, "dev") | load_manifest(manifest, "test")
@@ -159,6 +161,7 @@ def main():
             raise RuntimeError("Sources or inputs changed during verification")
         base.atomic_json(out/"completion.json", {"passed": True, "sequences": ["seq2", "seq3"],
             "setup_sha256": digest(out/"setup.json"), "efficacy": False,
+            "receipt_sha256": {name: digest(out/name/"receipt.json") for name in ("seq2", "seq3")},
             "remaining": ["scientific runner", "safe resume verification", "scientific protocol freeze"]})
     except BaseException as exc:
         base.atomic_json(out/"failure.json", {"error": repr(exc), "no_bypass": True})
