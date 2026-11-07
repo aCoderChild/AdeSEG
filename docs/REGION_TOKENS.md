@@ -56,3 +56,9 @@ launched. See the measured results below.
 
 [Frozen protocol](../protocols/regional_token_selection_v1.json) ·
 [Current results](REGION_TOKENS_RESULTS.md)
+
+Before changing the model or launching another experiment, review the
+[prior-experiment audit](../protocols/PRIOR_EXPERIMENTS.md). Identify the closest
+predecessor, the concrete mechanism that changes and the observed failure it
+addresses. Previous pruning, regional weighting, matching, merging and residual
+reader experiments must inform that decision.
