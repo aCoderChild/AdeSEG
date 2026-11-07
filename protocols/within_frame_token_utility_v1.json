@@ -495,10 +495,14 @@
     "scientific_runner": "scripts/run_within_frame_token_utility.py",
     "summary_and_receipts": "scripts/within_frame_utility_records.py",
     "resume": "First invocation completes seq2 and exits. --resume regenerates its entire native history and exactly repeats a cached non-native arm at each resumed request. The remaining cohort is refused without a successful regenerated comparison. Output receipts and masks are content-hashed and never silently replaced. Completed native histories are regenerated on later resumes as well. Runtime integrity compares regenerated source-mask hashes to their original native quality records. Changed saved files or configuration fail closed; a live filesystem lock prevents concurrent writers.",
-    "gate": "Require independently verified complete seq2/seq3 native trajectories, all-layer source-isolation receipts and source hashes from verify_within_frame_token_utility.py before any scientific replay.",
+    "gate": "Require independently verified complete seq2/seq3 native trajectories, all-layer source-isolation receipts and source hashes from verify_within_frame_token_utility.py before any scientific replay. Gate manifest, seq2/seq3 image/mask hashes and PyTorch version must match the scientific launch.",
     "statistics": "No prediction model is trained in this diagnostic. Uniform-tile and whole-source contrasts use sequence bootstrap; the outcome-selected best-tile oracle is descriptive only. Adjacent-frame same-sign fractions include exact-zero ties, so inspect the recorded magnitudes alongside them.",
     "compute": "Each arm receipt records replay wall-clock seconds including its integrity checks; report this as diagnostic overhead, not production FPS. Frozen model inference is CPU FP32 with native stored-memory dtype preserved.",
     "temporal_metrics": "Re-detection is not estimable for read-only single-target interventions. Report source age and adjacent-native-query utility; full-propagation re-detection is reserved for a future deployable-policy study."
+  },
+  "pre_execution_integrity_amendment": {
+    "date": "2026-11-08",
+    "reason": "Review found gate acceptance compared sources and checkpoint but omitted current data-file hashes and PyTorch version. Reject mismatches before launch; no targets, arms, estimands, or stopping rules changed. No real gate or scientific diagnostic has run."
   },
   "freeze_date": "2026-11-08",
   "freeze_scope": "Scientific settings, exact 59 target IDs, summary and two-invocation resume design fixed before any new gate or diagnostic inference. Engineering execution is pending; frozen does not mean verified."

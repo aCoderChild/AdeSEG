@@ -54,13 +54,17 @@ def guard(core, videos, name=None):
         raise RuntimeError("Frozen input changed")
 
 
-def verify_engineering(folder, checkpoint):
+def verify_engineering(folder, checkpoint, videos, manifest):
     completion = json.loads((folder/"completion.json").read_text())
     setup = json.loads((folder/"setup.json").read_text())
     if not completion["passed"] or completion["sequences"] != ["seq2", "seq3"]:
         raise RuntimeError("Missing full engineering verification")
     if completion["setup_sha256"] != digest(folder/"setup.json") or setup["checkpoint_sha256"] != digest(checkpoint):
         raise RuntimeError("Engineering identity differs")
+    if (setup["manifest_sha256"] != digest(manifest)
+            or setup["inputs"] != base.input_hashes(videos, ["seq2", "seq3"])
+            or setup["torch"] != torch.__version__):
+        raise RuntimeError("Engineering data or PyTorch environment differs")
     if any(digest(ROOT/p) != h for p, h in setup["sources"].items()):
         raise RuntimeError("Engineering verified different sources")
     for name in ("seq2", "seq3"):
@@ -231,8 +235,8 @@ def main():
     manifest = ROOT/"data/polypgen_sequence.jsonl"
     if digest(args.checkpoint) != ref["checkpoint_sha256"] or digest(manifest) != ref["manifest_sha256"]:
         raise RuntimeError("Checkpoint/manifest changed")
-    gate = verify_engineering(args.engineering_dir, args.checkpoint)
     videos = load_manifest(manifest, "dev") | load_manifest(manifest, "test")
+    gate = verify_engineering(args.engineering_dir, args.checkpoint, videos, manifest)
     planned = sample_targets(videos, ref["target_plan"])
     if planned != protocol.get("target_plan"):
         raise RuntimeError("Targets differ from frozen protocol")

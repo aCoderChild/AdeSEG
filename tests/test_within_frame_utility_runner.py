@@ -1,5 +1,6 @@
 """Bookkeeping integration with deterministic fake inference, not a SAM2 gate."""
 from types import SimpleNamespace
+import json
 
 import pytest
 import torch
@@ -7,6 +8,36 @@ from PIL import Image
 import numpy as np
 
 from scripts import run_within_frame_token_utility as runner
+
+
+@pytest.mark.parametrize("changed", [None, "inputs", "manifest_sha256", "torch"])
+def test_engineering_receipt_requires_same_data_and_environment(tmp_path, monkeypatch, changed):
+    checkpoint, manifest = tmp_path/"model.pt", tmp_path/"manifest.jsonl"
+    checkpoint.write_bytes(b"checkpoint")
+    manifest.write_bytes(b"manifest")
+    inputs = {"seq2": "images-and-masks-2", "seq3": "images-and-masks-3"}
+    monkeypatch.setattr(runner.base, "input_hashes", lambda videos, names: inputs)
+    setup = {"sources": {}, "inputs": inputs,
+             "checkpoint_sha256": runner.digest(checkpoint),
+             "manifest_sha256": runner.digest(manifest), "torch": torch.__version__}
+    if changed:
+        setup[changed] = {"seq2": "different"} if changed == "inputs" else "different"
+    (tmp_path/"setup.json").write_text(json.dumps(setup))
+    receipts = {}
+    for name in ("seq2", "seq3"):
+        (tmp_path/name).mkdir()
+        path = tmp_path/name/"receipt.json"
+        path.write_text(json.dumps({"passed": True, "interventions": [None]*35}))
+        receipts[name] = runner.digest(path)
+    (tmp_path/"completion.json").write_text(json.dumps({"passed": True,
+        "sequences": ["seq2", "seq3"], "setup_sha256": runner.digest(tmp_path/"setup.json"),
+        "receipt_sha256": receipts}))
+    if changed:
+        with pytest.raises(RuntimeError, match="Engineering data or PyTorch environment differs"):
+            runner.verify_engineering(tmp_path, checkpoint, {}, manifest)
+    else:
+        result = runner.verify_engineering(tmp_path, checkpoint, {}, manifest)
+        assert result["receipts"] == receipts
 
 
 def test_sequence_resume_rebuilds_identical_outputs_and_repeats_altered_arms(tmp_path, monkeypatch):
