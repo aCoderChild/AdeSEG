@@ -1,0 +1,53 @@
+{
+  "id": "token_utility_probe_v1",
+  "date": "2026-11-07",
+  "run": 173,
+  "status": "Prospective analysis specification for previously examined archives; exploratory, not held-out confirmation.",
+  "hypothesis": "Past native memory features can predict joint removal utility across sequences; predicted-region occupancy adds value beyond features and a dimension-matched geometry control.",
+  "input_receipts": {
+    "171_token_contribution_v1/attempt_02/completion.json": "bc07bb210ec2532deae4d52ec097527815e9d5385649c0c406886718c5edddb0",
+    "171_token_contribution_v1/attempt_02/independent_completion_audit.json": "a725301a029ec503176f453dcc9feeeb7ea82fb1e24c19c03f25b69e9165d40b",
+    "143_official_native_feature_audit_v1/full/completion.json": "1375363a7d92339fba4d282aac445c1b8366111264a164bbdb2764fe981d33ec",
+    "143_official_native_feature_audit_v1/full/independent_audit.json": "2322124922d7538b5b23ac78dd124d96e7201b830b92e20fadbf03e6ac53ef6e"
+  },
+  "unit": "One target by joint arm across all older memory frames and all four attention layers. Never assign a group effect to individual tokens or count layers as independent.",
+  "cohort": "21 sequences, seq2 through seq23 excluding seq7; seq1 excluded. Four fixed GT-present targets per sequence; 84 targets x 3 equal-budget arms = 252 rows. Validate but exclude 90 GT-empty arm rows. No claim about absent-frame safety.",
+  "arms": [
+    "rejected",
+    "retained",
+    "random"
+  ],
+  "outcome": "Dice_native - Dice_after_removal; positive means harmful removal. All three arms remove 256 tokens per older memory frame/layer. Exclude half-budget A/B.",
+  "features": "Per layer, pool removed past memory vectors: mean64, std64, elementwise product of mean with latest past memory mean64, mean/std age, mean cached first-read mass, mean norm, x/y mean/std =200. Shared descriptors: native first-pass object-score logit, native first-pass mean sigmoid low-res probability, count older frames. No treatment outputs, GT descriptors, sequence/frame/arm identity, or current post-decoding memory vectors.",
+  "regional": "Append per-layer mean/std and 64 vector covariances for soft stored-mask occupancy and within-cell mixture (4 times variance of sigmoid native mask values in each 4x4 footprint). No hard region classes or new prediction gate. Uses model prediction, not anatomy.",
+  "geometry_control": "Same 132 extra dimensions per layer, using x/y position fields rather than occupancy/mixture. Generic native memory features remain mask-conditioned by SAM2.",
+  "feature_dimensions": {
+    "features": 803,
+    "geometry": 1331,
+    "regional": 1331
+  },
+  "estimator": "Reuse installed upstream scikit-learn StandardScaler + Ridge(cholesky), both weighted so each training sequence has equal total weight. Pipeline preprocessing fitted inside every training split. Unbounded signed utility output.",
+  "outer": "LeaveOneGroupOut over sequence; all arms/targets of held sequence excluded from training and alpha selection. Patient independence unverified.",
+  "inner_folds": 4,
+  "alphas": [
+    1,
+    10,
+    100,
+    1000
+  ],
+  "selection": "GroupKFold equal-sequence validation MSE; exact ties choose larger alpha. All modes use same search.",
+  "seed": 20261107,
+  "primary": "Equal-sequence OOF MSE; compare regional against features and geometry. Also zero utility and training-sequence mean baselines.",
+  "secondary": "Within-target three-arm pair concordance, true ties omitted and prediction ties score 0.5. Offline choose lowest predicted utility; average exact prediction ties. Report choice vs native and vs uniform mixture of the three arms, plus oracle best-of-three headroom. These are retrospective sampled immediate effects, not full propagation.",
+  "continuation": "All required: regional MSE lower than zero and train-mean; MSE reduction bootstrap lower>0 and >=14/21 wins vs BOTH features and geometry; pair concordance>0.5 and both controls; offline choice-vs-uniform bootstrap lower>0 and mean choice-minus-native>0. These are research continuation criteria, never model confidence gates.",
+  "statistics": "Sequence bootstrap 10000, paired Wilcoxon/Holm for the two MSE contrasts. Descriptive uncertainty on OOF errors: folds overlap and bootstrap does not refit nested CV. No independent generalization claim.",
+  "failure_action": "Stop before attention-module implementation or inference. Do not change features, regularization grid or cohort because outcomes disappoint. Report a negative result as limited to this linear probe and sampled joint interventions.",
+  "archive_checks": "Pin completion/audit receipts; verify checkpoint/manifest/prompt, full native target-logit hashes, all block/retained-index hashes, four layers/causality/pointers/budgets, bank hashes, group occupancy/norm, prediction PNG and GT hashes and recomputed Dice. Run171 lacks full vector elementwise hashes: disclose this lineage limitation.",
+  "sources": [
+    "https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html",
+    "https://scikit-learn.org/stable/common_pitfalls.html",
+    "https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GroupKFold.html",
+    "Existing Run166 archive extraction and project sequence statistics; Run171 measured interventions. This is a project diagnostic, not an author-provided segmentation method."
+  ],
+  "output": "Only Google Drive outputs/experiment/173_token_utility_probe_v1/attempt_NN. Preserve old archives. Snapshot protocol, code and sklearn source files; record progress, folds, predictions, completion/failure."
+}
