@@ -2,6 +2,7 @@
 import torch
 
 from scripts.trace_key_adapter_parity import tensor_difference
+from scripts.run_token_conditioned_key_adapter import _tree_digest
 
 
 def test_small_logit_difference_does_not_imply_changed_binary_mask():
@@ -48,3 +49,20 @@ def test_position_encoding_container_type_is_not_ignored():
     report = tensor_difference([torch.zeros(1)], (torch.zeros(1),))
     assert report['structure_mismatch']
     assert not report['equal']
+
+
+def test_scalar_optimizer_step_is_hashable_and_value_sensitive():
+    state = {'state': {0: {'step': torch.tensor(17.0), 'exp_avg': torch.ones(2)}}}
+    copied = {'state': {0: {'step': torch.tensor(17.0), 'exp_avg': torch.ones(2)}}}
+    assert _tree_digest(state) == _tree_digest(copied)
+    copied['state'][0]['step'].add_(1)
+    assert _tree_digest(state) != _tree_digest(copied)
+
+
+def test_scalar_digest_retains_shape_dtype_and_signed_zero():
+    scalar = torch.tensor(0.0)
+    assert _tree_digest(scalar) != _tree_digest(scalar.reshape(1))
+    assert _tree_digest(scalar) != _tree_digest(scalar.double())
+    assert _tree_digest(scalar) != _tree_digest(torch.tensor(-0.0))
+    report = tensor_difference(scalar, torch.tensor(-0.0))
+    assert report['equal'] and not report['bitwise_equal']

@@ -49,7 +49,8 @@ def tensor_difference(left, right):
                 'left_dtype': str(left.dtype), 'right_dtype': str(right.dtype)}
     delta = (left.float() - right.float()).abs()
     return {'equal': torch.equal(left, right),
-            'bitwise_equal': torch.equal(left.contiguous().view(torch.uint8), right.contiguous().view(torch.uint8)),
+            'bitwise_equal': torch.equal(left.contiguous().reshape(-1).view(torch.uint8),
+                                        right.contiguous().reshape(-1).view(torch.uint8)),
             'changed_values': int((left != right).sum()),
             'max_absolute_difference': float(delta.max()),
             'mean_absolute_difference': float(delta.mean()),
@@ -198,6 +199,8 @@ def run(out, threads=2):
     native_after, after_native_log = forward(model, cache['seq2'])
     zero_heads_after = _make_heads(model, protocol)
     zero_after, after_zero_log = forward(model, cache['seq2'], zero_heads_after)
+    atomic_torch_save(out / 'replayed_state.pt', {'heads': heads.state_dict(),
+                                                'optimizer': optimizer.state_dict()})
     report.update({'native_after': after_native_log, 'zero_after': after_zero_log,
                    'native_after_vs_before': compare_banks(native_after, native_before),
                    'zero_after_vs_native_before': compare_banks(zero_after, native_before),
@@ -208,8 +211,6 @@ def run(out, threads=2):
                    'replayed_adapter_sha256': _tree_digest(heads.state_dict()),
                    'replayed_optimizer_sha256': _tree_digest(optimizer.state_dict()),
                    'test_accessed': False})
-    atomic_torch_save(out / 'replayed_state.pt', {'heads': heads.state_dict(),
-                                                'optimizer': optimizer.state_dict()})
     _guard_sources(sources)
     atomic_json(out / 'trace.json', report)
     atomic_json(out / 'completion.json', {'trace_complete': True, 'efficacy_authorized': False,

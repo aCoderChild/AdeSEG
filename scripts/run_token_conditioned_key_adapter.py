@@ -144,7 +144,7 @@ def _tree_digest(value) -> str:
             hasher.update(path.encode())
             hasher.update(str(tensor.dtype).encode())
             hasher.update(str(tuple(tensor.shape)).encode())
-            hasher.update(tensor.view(torch.uint8).numpy().tobytes())
+            hasher.update(tensor.reshape(-1).view(torch.uint8).numpy().tobytes())
         elif isinstance(item, dict):
             for key in sorted(item, key=str):
                 visit(item[key], f"{path}.{key}")
