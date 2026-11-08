@@ -78,6 +78,13 @@ def _rollout(writer_records, layers=(0, 1, 2, 3)):
     }
 
 
+def test_native_baseline_has_no_writer_receipts():
+    run.expected_writer_state(None, None, range(3), [])
+
+    with pytest.raises(RuntimeError, match="Native baseline unexpectedly has writer records"):
+        run.expected_writer_state(None, None, range(3), [{"frame": 0}])
+
+
 def test_zero_writer_identity_requires_all_layers_and_unchanged_memory():
     writer_rows = [
         {

@@ -1,16 +1,17 @@
 {
   "id": "memsam_residual_memory_writer_v2",
-  "status": "V2 is frozen before real-frame work with a hash-pinned source snapshot amendment; initial v1 is retained as superseded. Real-frame launch is conditional on a verified Run174 completion with its frozen continuation criterion failed.",
+  "status": "The method, splits, schedule and efficacy criteria were frozen before real-frame work. Engineering attempt_01 stopped on a native-baseline writer-receipt assertion bug; the dated engineering-only amendment preserves the failed receipt and defines attempt_02. No training or efficacy result exists yet.",
   "trigger": "Consider only after Run174 is complete and fails its frozen continuation criterion. Do not run concurrently with Run174.",
   "hypothesis": "A small soft-mask-conditioned residual at the input to SAM2's native memory encoder can make all stored spatial values more useful for later segmentation, improving autoregressive Dice over both native SAM2 and the same-capacity mask-neutral residual writer.",
   "implementation": {
     "source_freeze": "The exact runner dependencies are SHA-256 pinned here and archived in the Drive source_snapshot.zip. This allows already-existing working-tree dependencies without staging unrelated project files; any missing, extra, or changed source stops before inference.",
     "source_sha256": {
+      "protocols/memsam_residual_writer_engineering_amendment_2026-11-08.json": "83a023968ad922fce627f753919359735605c3b795e62134edc9bd766ac3fc28",
       "data/polypgen_sequence.jsonl": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
-      "scripts/run_memsam_residual_writer.py": "cec55274e87ab6e083768d402f4dd86aabf4ebe7829ebf247a5aedfde64a7b52",
+      "scripts/run_memsam_residual_writer.py": "9b39540da8c828e7bdffeaf9cedbd13b8862e510c13a04f04074fef12e9681ad",
       "modeling/memsam_memory_writer.py": "82ceb1af45818dcb8c0f52f1ebecc4e5363e0439c9d8abfe91a005373acfaf08",
       "tests/test_memsam_memory_writer.py": "a1feb32e31e32ba5303401af2c456ac831ae84059fa3ab1985ad8d158379f1c1",
-      "tests/test_run_memsam_residual_writer.py": "a5bdebf391c6b5f9d94e0dc0ac241230465845544e8f5e2e50cc88497c7551cd",
+      "tests/test_run_memsam_residual_writer.py": "5fd8bc8ca8976c022e12119f1b9ecade4515c5f2d7ffee9b2e2abe7a9c54e04c",
       "scripts/run_complementary_memory_pilot.py": "811e8063b6ade45b9690cf00f26049412436f63b0eb9c32e8f0c47a26344f39c",
       "scripts/run_iterative_memory_pilot.py": "85dba96624df6f81a712b2262030fa2c50d68e705ccf51d2e50622b9d3764db4",
       "scripts/verify_complementary_memory_pilot.py": "007f955ff7523efb0b017562e6257d9507c489b7170e7ef29b1e3140aa98a812",
@@ -190,5 +191,6 @@
     "mid_channels": 128,
     "kernel": 3,
     "trainable_parameter_count": "Computed from the pinned upstream module and verified in setup; same for both writer arms."
-  }
+  },
+  "latest_engineering_amendment": "protocols/memsam_residual_writer_engineering_amendment_2026-11-08.json"
 }

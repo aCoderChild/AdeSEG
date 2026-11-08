@@ -171,7 +171,8 @@ def training_plan(videos, protocol):
 
 def source_inventory():
     return [
-        PROTOCOL_REL, MANIFEST_REL, "scripts/run_memsam_residual_writer.py",
+        PROTOCOL_REL, "protocols/memsam_residual_writer_engineering_amendment_2026-11-08.json",
+        MANIFEST_REL, "scripts/run_memsam_residual_writer.py",
         "modeling/memsam_memory_writer.py", "tests/test_memsam_memory_writer.py",
         "tests/test_run_memsam_residual_writer.py",
         "scripts/run_complementary_memory_pilot.py", "scripts/run_iterative_memory_pilot.py",
@@ -318,13 +319,13 @@ def writer_optimizer(writer, protocol):
 
 
 def expected_writer_state(mode, writer, expected_frames, records):
+    if mode is None:
+        require(not records, "Native baseline unexpectedly has writer records")
+        return
     frame_ids = [row["frame"] for row in records]
     require(len(records) == len(set(frame_ids)), "Memory writer wrote a frame more than once")
     require(set(frame_ids) == set(expected_frames),
             "Memory writer did not record each frame exactly once")
-    if mode is None:
-        require(not records, "Native baseline unexpectedly has writer records")
-        return
     for row in records:
         require(row["mode"] == mode, "Writer mode differs from requested condition")
         require(row["memory_mask_scale"] != 0, "Invalid memory-mask scale receipt")

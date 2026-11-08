@@ -1,0 +1,23 @@
+{
+  "id": "memsam_residual_writer_engineering_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective engineering-only correction; no training or efficacy result",
+  "parent_protocol": "protocols/memsam_residual_memory_writer_v2.json",
+  "parent_protocol_sha256": "71975dcbd493b02c5f8fb6b169bf2f581ee89c090ea6409d965254b6b0c7c112",
+  "failed_attempt": {
+    "drive_output": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_01/",
+    "failure_receipt": "failure.json",
+    "failure_receipt_sha256": "69dd21db3488f658e0688d4349d5f0ba9dc38d8436e18e338035977d4973aa5c",
+    "observed": "The native seq2 rollout completed, but the harness called the writer-frame coverage assertion before its native-baseline no-writer branch. It therefore failed while validating an expected empty writer receipt. The adapted writer, gradient/resume check, multi-object fixture, training and efficacy evaluation did not run."
+  },
+  "correction": {
+    "only_change": "Return from the native-baseline branch after asserting that no writer records exist; apply exact frame-coverage checks only when a writer is installed.",
+    "regression_test": "Add a unit test that accepts an empty native writer receipt and rejects any writer receipt on the native branch.",
+    "method_changed": false,
+    "data_or_split_changed": false,
+    "training_schedule_or_optimizer_changed": false,
+    "efficacy_criteria_changed": false
+  },
+  "next_attempt": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_02/",
+  "scope": "Rerun the full frozen seq2/seq3 engineering gate only. No training or efficacy evaluation is authorized by this amendment."
+}
