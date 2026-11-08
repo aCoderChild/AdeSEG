@@ -1,8 +1,39 @@
 {
   "id": "memsam_residual_memory_writer_v2",
-  "status": "V2 prospectively amended before real-frame work after identifying the SAM2.1 sigmoid-affine mask transform; v1 is retained as a superseded protocol record.",
+  "status": "V2 is frozen before real-frame work with a hash-pinned source snapshot amendment; initial v1 is retained as superseded. Real-frame launch is conditional on a verified Run174 completion with its frozen continuation criterion failed.",
   "trigger": "Consider only after Run174 is complete and fails its frozen continuation criterion. Do not run concurrently with Run174.",
   "hypothesis": "A small soft-mask-conditioned residual at the input to SAM2's native memory encoder can make all stored spatial values more useful for later segmentation, improving autoregressive Dice over both native SAM2 and the same-capacity mask-neutral residual writer.",
+  "implementation": {
+    "source_freeze": "The exact runner dependencies are SHA-256 pinned here and archived in the Drive source_snapshot.zip. This allows already-existing working-tree dependencies without staging unrelated project files; any missing, extra, or changed source stops before inference.",
+    "source_sha256": {
+      "data/polypgen_sequence.jsonl": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+      "scripts/run_memsam_residual_writer.py": "cec55274e87ab6e083768d402f4dd86aabf4ebe7829ebf247a5aedfde64a7b52",
+      "modeling/memsam_memory_writer.py": "82ceb1af45818dcb8c0f52f1ebecc4e5363e0439c9d8abfe91a005373acfaf08",
+      "tests/test_memsam_memory_writer.py": "a1feb32e31e32ba5303401af2c456ac831ae84059fa3ab1985ad8d158379f1c1",
+      "tests/test_run_memsam_residual_writer.py": "a5bdebf391c6b5f9d94e0dc0ac241230465845544e8f5e2e50cc88497c7551cd",
+      "scripts/run_complementary_memory_pilot.py": "811e8063b6ade45b9690cf00f26049412436f63b0eb9c32e8f0c47a26344f39c",
+      "scripts/run_iterative_memory_pilot.py": "85dba96624df6f81a712b2262030fa2c50d68e705ccf51d2e50622b9d3764db4",
+      "scripts/verify_complementary_memory_pilot.py": "007f955ff7523efb0b017562e6257d9507c489b7170e7ef29b1e3140aa98a812",
+      "scripts/run_author_baseline.py": "6d45eb32fe7a52763509b27af638a3ffb22e887b1f9725083ca75f0c8ed72b56",
+      "scripts/memory_token_io.py": "6203ab7f441cf0dca082db7053099fe7908142ba25d873deadaccb6d3f4e8df4",
+      "scripts/bank_integrity.py": "5fd5664110cde769979678b97c7e19efea70a1c41c1344b40c5f87b3d37dd333",
+      "scripts/false_alarm_statistics.py": "ca38561fb964f607fb78dcf5428b9dfd7089823bcc81f531775989d310583a1a",
+      "modeling/complementary_memory/integration.py": "f68b86bf6abbb72da206193ff643bc75ba2cb3f35b523548e7fbdf08d5501174",
+      "modeling/complementary_memory/training.py": "4d5e19d41d641726fedf32e0fefff4fb773db4a60441c3f0a1b531b4d40b8175",
+      "modeling/cfbi_training.py": "9f83cfac2ab4385305fd33ceabf948724316a997a048d5e85aff00e8fcc8963d",
+      "modeling/decoder_training_mask.py": "ed767319e3b8452befd890133edd649716c7d77f14981e06181d3d5d973cd370",
+      "datasets/sam2_clip_sampler.py": "e9044451137aa6f2de73ff712078ace74c72316ec2a8e3290f267f74b5258030",
+      "datasets/video.py": "273b54371286359fbd4446f20743ecdc07fc9f1b1deb8c804888f066e477bd4c",
+      "datasets/io.py": "d5f16d9cdf332fb1773b4d6981ecb063246a65b767697ad79a9cc5787934ab4c",
+      "evaluation/segmentation.py": "8d39320e03732577d7e635df9c07eeff5d6ebfdddafead06f7de4b8c35c566c0",
+      "evaluation/statistics.py": "f34a31208c2904a6db2a1cb0b4776d0f91c2c01ccbca21f2f4ca5ff5beb7fc9a",
+      "evaluation/davis2017/metrics.py": "34316a55ac58d4d4a3e191d9d5650cf93d6562c63627398c7d3391c79cc77424",
+      "external/sam2/sam2/sam2_video_predictor.py": "912555920a77f72ded07839efa33fcceecc79f3523abbec783f0be46ee2c55c2",
+      "external/sam2/sam2/modeling/sam2_base.py": "69a46b44e8625f509791352bd09beaafe589cd7d872721384e63d37f9fdc6e41",
+      "external/sam2/sam2/configs/sam2.1/sam2.1_hiera_t.yaml": "f932eac1c6241e910031b2f000a81cd9f8a8d4896e2277ab5ffb721f378b188d",
+      "external/MemSAM/models/segment_anything_memsam/modeling/mem_modules.py": "71a959a61f544da2ca945bdfccb880d66e5e355da4c48f351230422a59b70dd9"
+    }
+  },
   "method": {
     "prior_source": "MemSAM CVPR 2024 public ForegroundReinforcingModule, pinned at external/MemSAM commit 36f1b988f14b518a6346d2edb1267340387e646c.",
     "adaptation": "Reuse the author's Conv3x3 and Conv1x1 feature path. Concatenate the memory-encoder input feature and a soft mask cue; predict a residual added to the feature before the unchanged SAM2 memory encoder. The Conv1x1 is zero initialized so the writer is an exact identity before training. Do not reproduce MemSAM's final mask-times-channel-softmax output.",
@@ -66,26 +97,59 @@
     "memsam_source_sha256": "71a959a61f544da2ca945bdfccb880d66e5e355da4c48f351230422a59b70dd9",
     "trainable_parameters": "Only the added MemSAM-derived writer convolutions; same count and initialization between the two writer arms.",
     "optimizer_and_loss": "Reuse the Run174 AdamW, learning rate, weight decay, gradient clipping, truncated-BPTT, autoregressive Dice/BCE-style mask loss and object-presence loss unless a separate amendment is committed before the gate.",
-    "duration": "Match the Run174 clip plan, updates, validation epochs and seed across both writer arms; do not extend training or tune seeds based on validation/test outcomes."
+    "duration": "Match the Run174 clip plan, updates, validation epochs and seed across both writer arms; do not extend training or tune seeds based on validation/test outcomes.",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "sigmoid_scale_for_mem_enc": 20.0,
+    "sigmoid_bias_for_mem_enc": -10.0
   },
   "engineering_gate": {
     "required_before_training": [
       "Pinned MemSAM source and clean repository identity verified.",
       "On real PolypGen frames, zero-initialized writer reproduces native decoder logits, memory values, memory positions and pointers exactly.",
-      "For the exact mask tensor entering SAM2 MemoryEncoder, recover p using that model instance\u2019s configured sigmoid scale and bias; verify the recovered map is finite and within [0,1] up to floating-point tolerance. Preserve and hash the original affine-transformed mask unchanged.",
+      "For the exact mask tensor entering SAM2 MemoryEncoder, recover p using that model instance’s configured sigmoid scale and bias; verify the recovered map is finite and within [0,1] up to floating-point tolerance. Preserve and hash the original affine-transformed mask unchanged.",
       "Native memory-attention trace confirms all four layers and unchanged spatial/pointer counts and positional encodings.",
       "Persistent multi-object ID fixture confirms per-object memory writer calls remain isolated and ordered.",
       "Real-clip training produces finite, nonzero gradients only in the added writer; frozen SAM2 parameter hashes remain unchanged.",
       "Save/resume of writer, optimizer and RNG on a real clip reproduces the next update and receipts exactly."
     ],
-    "failure": "Fail closed; diagnose only the failed invariant, create a new attempt/protocol amendment when implementation changes, and do not launch efficacy evaluation until the complete gate passes."
+    "failure": "Fail closed; diagnose only the failed invariant, create a new attempt/protocol amendment when implementation changes, and do not launch efficacy evaluation until the complete gate passes.",
+    "sequences": [
+      "seq2",
+      "seq3"
+    ],
+    "trajectory_scope": "Full post-prompt forward propagation for every frame in both sequences, including the prompt-frame memory write.",
+    "gradient_resume_clip": "Plan entry 0 from the exact Run174 480-clip plan; execute the full 8-frame clip (7 post-prompt frames), save writer/optimizer/RNG, restore, replay, and require exact next-update and receipt equality.",
+    "multi_object_fixture": "On the first annotated seq2 frame, split the object mask into two nonempty masks with persistent IDs 7 and 42; check zero-writer identity, object-order invariance, and isolated single-object parity over 3 real frames. Mark this as an engineering fixture, not natural multi-object efficacy."
   },
   "training": {
     "seed": 20261107,
     "clips": "Exactly match Run174: 12 epochs, 480 eight-frame clips and 960 optimizer updates per trained arm; four clips per train sequence per epoch; same deterministic clip plan and ordering across arms.",
-    "optimizer": "AdamW, learning rate 0.0001, weight decay 0.001, gradient norm clip 3.0; four-frame truncated BPTT; CPU FP32.",
+    "optimizer": {
+      "name": "AdamW",
+      "learning_rate": 0.0001,
+      "weight_decay": 0.001,
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "eps": 1e-08,
+      "gradient_clip_norm": 3.0
+    },
     "loss": "Use the Run174 autoregressive present-frame BCE/Dice-style loss plus object-presence loss. Predicted masks feed memory; GT is loss-only after the prompt.",
-    "validation": "Evaluate epochs 3, 6, 9 and 12 on seq13-15. Select highest equal-sequence present-frame Dice; ties choose earliest epoch. Release seq16-23 only if the selected soft-mask writer exceeds both native and mask-neutral writer by at least +0.005 mean Dice on validation, wins on at least 2/3 validation sequences against each, and increases GT-empty false-alarm rate by no more than 0.02 absolute versus native. Otherwise stop without test inference. No test outputs may be generated until both arms' training and selection are complete."
+    "validation": "Evaluate epochs 3, 6, 9 and 12 on seq13-15. Select highest equal-sequence present-frame Dice; ties choose earliest epoch. Release seq16-23 only if the selected soft-mask writer exceeds both native and mask-neutral writer by at least +0.005 mean Dice on validation, wins on at least 2/3 validation sequences against each, and increases GT-empty false-alarm rate by no more than 0.02 absolute versus native. Otherwise stop without test inference. No test outputs may be generated until both arms' training and selection are complete.",
+    "epochs": 12,
+    "clips_per_sequence_per_epoch": 4,
+    "clip_length": 8,
+    "validation_epochs": [
+      3,
+      6,
+      9,
+      12
+    ],
+    "truncated_bptt_frames": 4,
+    "checkpoint_every_clips": 1,
+    "schedule_source": "Reconstruct and compare exact 480-entry plan to Run174 setup.json before starting; same sampler seeds, clip order and frame indices."
   },
   "evaluation": {
     "primary": "Equal-sequence mean post-prompt present-frame Dice on seq16-23; paired contrasts soft_mask_writer-native_sam2 and soft_mask_writer-mask_neutral_writer.",
@@ -112,6 +176,19 @@
     "date": "2026-11-07",
     "reason": "Integration review found that SAM2.1 passes affine-transformed sigmoid masks (scale=20, bias=-10) to MemoryEncoder, not values in [0,1]. V1 described the writer cue as the tensor entering MemoryEncoder and the initial implementation incorrectly treated that tensor as probabilities.",
     "correction": "Recover p=(memory_encoder_mask - sigmoid_bias_for_mem_enc)/sigmoid_scale_for_mem_enc from the exact native mask input. Use p as the writer cue, with area averaging at writer resolution; pass the original affine-transformed mask unchanged to SAM2 MemoryEncoder. Validate range within floating-point tolerance and log both tensors and scale/bias.",
-    "execution_status": "No real-frame gate, training, or efficacy evaluation has run under v1 or v2. V2 supersedes v1 before real-frame work."
+    "execution_status": "No real-frame gate, training, or efficacy evaluation has run under v1 or v2. V2 supersedes v1 before real-frame work. The v2 runner must first verify the Run174 hold and the exact frozen clip plan.",
+    "runner_schedule_freeze": "Before real-frame work, freeze SAM2.1 Tiny config, 256-channel MemSAM-derived writer (128 hidden channels, 3x3 Conv), AdamW 1e-4/0.001, gradient clip 3, 12 epochs, four clips per train sequence per epoch, 8-frame clips, four-frame truncated BPTT, validation epochs 3/6/9/12, and per-clip resume checkpoints. The exact clip plan must match Run174."
+  },
+  "source_manifest_amendment": {
+    "date": "2026-11-08",
+    "reason": "The runner's initial source preflight required every dependency to be committed in Git, but its frozen dependency set includes existing untracked helpers and external checkout files. That check would fail before the gate and would tempt staging unrelated working-tree content.",
+    "correction": "Commit this protocol with SHA-256 values for the exact source_inventory. Verify the working bytes against the committed manifest and archive those bytes to the Drive source snapshot. Keep the method, data, split, schedule, and pass criteria unchanged.",
+    "execution_status": "Applied before any real-frame gate or efficacy run."
+  },
+  "writer": {
+    "channels": 256,
+    "mid_channels": 128,
+    "kernel": 3,
+    "trainable_parameter_count": "Computed from the pinned upstream module and verified in setup; same for both writer arms."
   }
 }
