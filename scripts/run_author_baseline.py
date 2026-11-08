@@ -85,7 +85,7 @@ def build_author_predictor(args, repo):
     else:
         from sam2.build_sam import build_sam2_video_predictor
 
-        config = (
+        config = getattr(args, 'model_config', None) or (
             "configs/samurai/sam2.1_hiera_b+.yaml"
             if args.method == "samurai"
             else MODEL_CONFIG

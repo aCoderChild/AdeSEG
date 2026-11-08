@@ -28,3 +28,9 @@
 [submodule "external/CFBI"]
 	path = external/CFBI
 	url = https://github.com/z-x-yang/CFBI.git
+[submodule "external/MAVOS"]
+	path = external/MAVOS
+	url = https://github.com/Amshaker/MAVOS.git
+[submodule "external/SupContrast"]
+	path = external/SupContrast
+	url = https://github.com/HobbitLong/SupContrast.git

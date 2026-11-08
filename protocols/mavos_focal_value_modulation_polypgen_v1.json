@@ -1,0 +1,159 @@
+{
+  "name": "MAVOS-inspired focal context modulation of SAM2 spatial memory values",
+  "version": 1,
+  "status": "candidate frozen for engineering gate; efficacy not authorized",
+  "research_scope": "Exploratory PolypGen study. This cohort informed previous analyses, and sequence-level independence from patients is unverified.",
+  "prior_work": {
+    "paper": "https://openaccess.thecvf.com/content/WACV2025/html/Shaker_Efficient_Video_Object_Segmentation_via_Modulated_Cross-Attention_Memory.html",
+    "official_repository": "https://github.com/Amshaker/MAVOS",
+    "repository_revision": "e30876fbd248ebf91c7fff6b9606a70235f38944",
+    "license": "BSD-3-Clause",
+    "source_file": "external/MAVOS/networks/layers/externel_utils.py",
+    "source_sha256": "6de6dac385e993c5f146e3332b94fa4d19e1646a132bbf4b78b1e6f619f55e43",
+    "adaptation_boundary": "Reuse MAVOS's gated depthwise focal levels and global-context modulation equations only. Do not claim to reproduce MAVOS, its dynamic memory, its DeAOT training, or its benchmark scores."
+  },
+  "hypothesis": "A learned local/global context residual on every spatial memory value token may improve SAM2's object mask decoding while preserving its native query-key matching and retaining all frames and tokens.",
+  "method": {
+    "insertion": "In each of SAM2's four memory cross-attention layers, adapt the raw memory value input immediately before the frozen native v_proj.",
+    "operation": "For each concatenated 64x64 spatial frame block independently, apply MAVOS\u2019s context projection; sequentially apply its gated depthwise focal convolutions with kernels 3 and 5; pool global context from the final focal representation; and project the aggregate as a residual added to the original token feature. Initialize the final projection to zero for native identity before training. The integration follows SAM2 MemoryAttention.batch_first: transpose native [batch,tokens,channels] values into the adapter\u2019s token-first grid view and transpose back before v_proj. If a read contains only object-pointer tokens and no spatial frame, pass it through unchanged.",
+    "unchanged": [
+      "pretrained SAM2 parameters",
+      "query and key projections",
+      "RoPE and temporal positional encoding",
+      "native attention probability calculation",
+      "all spatial memory tokens and frames",
+      "object-pointer values and positions",
+      "memory writes, image encoder, and mask decoder"
+    ],
+    "trainable": "Only four focal residual modules; SAM2 remains frozen and in evaluation mode.",
+    "region_labels": "None. This tests token-context modulation, not predicted foreground/background/boundary categories.",
+    "frames_and_tokens": "No frame selection, token deletion, thresholding, or confidence gating. The spatial sequence is parsed as complete 4096-token frame blocks followed by SAM2's pointer-token tail; malformed layouts fail closed."
+  },
+  "model": {
+    "family": "Official SAM2.1 Hiera Tiny",
+    "checkpoint": "outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "memory_grid": [
+      64,
+      64
+    ],
+    "memory_channels": 64,
+    "attention_layers": 4,
+    "device": "CPU FP32"
+  },
+  "conditions": {
+    "C0": "Native pretrained SAM2.",
+    "C1": "Focal value residual with true within-frame spatial neighborhoods.",
+    "C2": "Capacity- and training-matched focal residual. Construct P as torch.randperm(4096, generator=torch.Generator().manual_seed(20261107)); apply P independently to each frame/object grid before focal processing and apply P inverse before the native value projection. This preserves token positions and global context while disrupting local neighborhood structure."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "train_sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12"
+    ],
+    "validation_sequences": [
+      "seq13",
+      "seq14",
+      "seq15"
+    ],
+    "test_sequences": [
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded_sequences": {
+      "seq1": "No positive prompt frame under the existing protocol.",
+      "seq7": "No positive prompt frame under the existing protocol."
+    },
+    "prompt": "First labeled frame; score only post-prompt frames.",
+    "unit": "Sequence. Patient-to-sequence mapping is not verified; do not claim patient-independent inference.",
+    "test_status": "Previously examined PolypGen sequences make all PolypGen efficacy results exploratory, including seq16-seq23. External confirmation is required for generalization claims."
+  },
+  "training": {
+    "device": "CPU FP32 for the first study, matching the verified author-baseline pipeline; do not switch devices mid-attempt.",
+    "seed": 20261107,
+    "epochs": 12,
+    "clips_per_train_sequence_per_epoch": 4,
+    "clip_length": 8,
+    "truncated_bptt_frames": 4,
+    "schedule": "Use the same deterministic 480-clip plan and clip order for C1 and C2. Reconstruct it from the frozen plan and save the exact indices before training.",
+    "optimizer": {
+      "name": "AdamW",
+      "learning_rate": 0.0001,
+      "weight_decay": 0.001,
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "eps": 1e-08,
+      "gradient_clip_norm": 3.0
+    },
+    "loss": "Autoregressive present-frame mask BCE/Dice-style loss plus object-presence loss, matching the existing Run174 clip-training path. Ground truth is loss-only after the prompt; predictions feed memory.",
+    "validation_epochs": [
+      3,
+      6,
+      9,
+      12
+    ],
+    "checkpointing": "Save optimizer, scheduler if any, RNG states, completed clip receipts, and module state atomically after every clip. Resume must verify all frozen hashes and reproduce the next sampled clip."
+  },
+  "engineering_gate": {
+    "must_pass_before_training_or_efficacy": [
+      "Synthetic tests: exact identity at zero residual, finite nonzero adapter gradients, unchanged pointer tail, valid frame-block reshape, and fixed permutation/inverse round-trip.",
+      "Real-frame seq2 and seq3 gate: zero-initialized C1 and C2 reproduce native SAM2 masks and stored-memory receipts bit-for-bit on every frame.",
+      "Verify actual per-frame spatial memory alignment and native spatial plus temporal positional encodings; ensure pointer values and positional encodings remain byte-identical.",
+      "Verify all four memory cross-attention layers execute and each receives finite nonzero adapter gradients, while no pretrained SAM2 parameter gets a gradient or changes hash.",
+      "Verify a trained one-update adapter changes propagation output, produces finite masks, and safely saves/resumes to the exact next-step output.",
+      "Verify persistent multi-object IDs on a real multi-object VOS clip before making a multi-object support claim; PolypGen alone cannot establish this.",
+      "Honor SAM2 batch_first layout, including the initial pointer-only read; pointer-only inputs must pass through bit-identically."
+    ],
+    "gate_is_not_efficacy": true
+  },
+  "evaluation": {
+    "validation_selection": "Select the earliest checkpoint with the highest equal-sequence present-frame Dice over seq13-seq15.",
+    "release_rule": "Run the PolypGen test split only if selected C1 exceeds both C0 and C2 by at least 0.01 equal-sequence mean present Dice, wins on at least 2/3 validation sequences against each, and raises the pooled GT-empty false-alarm rate by no more than 0.02 absolute versus C0. Otherwise stop without test inference.",
+    "primary": "Equal-sequence mean present-frame Dice.",
+    "secondary": [
+      "per-sequence present-frame Dice and IoU",
+      "Boundary F",
+      "GT-empty false-alarm rate",
+      "missed-object and re-detection events",
+      "per-frame and per-sequence inference time",
+      "measured memory and attention compute",
+      "sequence bootstrap intervals",
+      "paired sequence-level tests with Holm correction",
+      "leave-one-sequence-out sensitivity"
+    ],
+    "native_baseline_reuse": "Reuse existing native per-frame receipts only after checkpoint, config, prompt, frame coverage, and prediction hashes match this setup. Otherwise regenerate native once before the adapter efficacy run.",
+    "external_confirmation": "If the PolypGen screen passes, evaluate on an available, licensed DAVIS multi-object split using its official metric implementation and persistent object IDs. Previously inspected DAVIS sequences are exploratory. Do not report SA-V without authorized data access."
+  },
+  "provenance": {
+    "output_root": "outputs/experiment/mavos_focal_value_modulation_polypgen_v1",
+    "required_artifacts": [
+      "protocol.json",
+      "source_snapshot.zip and per-file hashes",
+      "setup.json and frozen clip schedule",
+      "real-frame engineering-gate receipts",
+      "per-clip training and resume receipts",
+      "per-sequence mask/metric summaries",
+      "completion.json and concise results report"
+    ],
+    "launch_status": "Not launched. Do not start the efficacy run until the real-frame gate passes and the protocol/source snapshot is committed."
+  }
+}
