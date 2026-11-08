@@ -1,0 +1,58 @@
+{
+  "name": "token_conditioned_key_adapter_runner_amendment_2026-11-09",
+  "date": "2026-11-09",
+  "parent_protocol": "protocols/token_conditioned_key_adapter_polypgen_v1.json",
+  "scope": "Implementation clarification and integrity corrections before the efficacy run; no method, split, optimizer, schedule, metric, or release threshold changes.",
+  "runner": {
+    "training_path": "Use modeling.complementary_memory.training.reader_clip_loss for autoregressive post-prompt training. Each four-frame update consumes frozen image features, predicts each frame from the current memory bank, uses ground truth only for post-forward loss, and writes the arm's own predicted memory outputs.",
+    "chunk_size": "Four frames, parsed from the frozen protocol's schedule statement; fail closed if the statement changes.",
+    "training_targets_and_updates": "Derive target and update counts from the frozen train manifest sequences, first-labeled-frame prompt, and four-frame chunking. Store those counts in setup.json. Do not inspect test frame or mask records before the validation release decision.",
+    "native_reference": "Generate one fresh native SAM2 validation reference using the exact checkpoint, configuration, manifest frames, prompts, and propagation implementation in this run.",
+    "validation": "Evaluate the one fixed post-training checkpoint on the frozen seq13-seq15 validation split. Open test sequence frame/mask records only after the predeclared release screen passes.",
+    "statistics": "Report equal-sequence means, paired sequence bootstrap intervals, paired Wilcoxon tests with Holm correction, sequence win/tie/loss counts, and leave-one-sequence-out mean Dice deltas."
+  },
+  "verified_schedule_counts": {
+    "cross_check": "Candidate counts recomputed from the frozen manifest match the completed MAVOS pilot's per-sequence training receipts.",
+    "post_prompt_targets": 1035,
+    "four_frame_optimizer_updates": 263,
+    "per_sequence": {
+      "seq2": {"post_prompt_targets": 59, "updates": 15},
+      "seq3": {"post_prompt_targets": 14, "updates": 4},
+      "seq4": {"post_prompt_targets": 47, "updates": 12},
+      "seq5": {"post_prompt_targets": 249, "updates": 63},
+      "seq6": {"post_prompt_targets": 66, "updates": 17},
+      "seq8": {"post_prompt_targets": 72, "updates": 18},
+      "seq9": {"post_prompt_targets": 47, "updates": 12},
+      "seq10": {"post_prompt_targets": 7, "updates": 2},
+      "seq11": {"post_prompt_targets": 225, "updates": 57},
+      "seq12": {"post_prompt_targets": 249, "updates": 63}
+    }
+  },
+  "integrity_corrections": [
+    {
+      "issue": "The prior engineering gate writes its full result to completion.json and its source identity to setup.json; it does not write results.json.",
+      "resolution": "Validate the completion and setup receipts, all embedded protocol/checkpoint/manifest/revision identities, and matching hashes for shared implementation sources. Hash completion.json into the efficacy setup as the gate-result receipt."
+    },
+    {
+      "issue": "The initial cohort runner loaded test-split frame records before validation passed.",
+      "resolution": "Load only dev records during training and validation. Load the declared test records after the validation release screen passes."
+    },
+    {
+      "issue": "Cached evaluation summaries were not fully recomputed from integrity-checked prediction masks and frame rows.",
+      "resolution": "Recompute presence, false-alarm labels, per-frame segmentation/boundary metrics, propagation summaries, and sequence aggregates from the saved masks and source annotations before accepting a cache."
+    },
+    {
+      "issue": "The frozen analysis plan requires outlier sensitivity reporting.",
+      "resolution": "Add leave-one-sequence-out mean Dice deltas to the machine-readable and Markdown summaries."
+    }
+  ],
+  "unchanged": [
+    "Token-conditioned key residual candidate and capacity-matched global-gate control",
+    "SAM2 checkpoint, frozen weights, insertion point, and trainable parameter allowlist",
+    "Train/validation/test split and first-labeled-frame prompt",
+    "One-pass four-frame autoregressive training schedule and optimizer",
+    "Validation-only release threshold and test-set lock",
+    "Primary/secondary metrics"
+  ],
+  "efficacy_run_authorized_by_this_amendment": false
+}
