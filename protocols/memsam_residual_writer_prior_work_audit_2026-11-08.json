@@ -1,0 +1,61 @@
+{
+  "id": "memsam_residual_writer_prior_work_audit_2026-11-08",
+  "date": "2026-11-08",
+  "status": "completed before frozen efficacy training/validation",
+  "candidate_protocol": "protocols/memsam_residual_memory_writer_v2.json",
+  "candidate_protocol_sha256": "8c07d0816e19e2cc60dac758ead632cdb72eb7d7c5fcd99c14a7bd6c23b78c6b",
+  "code_commit": "debc8c0886e9cd44fdd5313daf4abb45c9fabab5",
+  "closest_project_evidence": [
+    {
+      "run": "174",
+      "finding": "The iterative regional reader was negative on its exploratory PolypGen seq16-23 evaluation.",
+      "scope_difference": "Read-side regional correction; not a soft-mask-conditioned write residual."
+    },
+    {
+      "study": "fixed-history token utility diagnostic",
+      "finding": "Mean Dice change from equal-tile removals was +0.000455; 95% sequence-bootstrap interval [-0.000071, +0.001384].",
+      "scope_difference": "Read-only deletion intervention; does not test this writer."
+    },
+    {
+      "candidate": "XMem-style token affinity",
+      "finding": "Stopped after exact full-grid training replay diverged; no Dice result.",
+      "scope_difference": "Learned read-side affinity bias; distinct from the present writer."
+    }
+  ],
+  "literature": [
+    {
+      "work": "MemSAM: Taming Segment Anything Model for Echocardiography Video Segmentation, CVPR 2024",
+      "paper": "https://openaccess.thecvf.com/content/CVPR2024/papers/Deng_MemSAM_Taming_Segment_Anything_Model_for_Echocardiography_Video_Segmentation_CVPR_2024_paper.pdf",
+      "official_code": "https://github.com/dengxl0520/MemSAM",
+      "pinned_commit": "36f1b988f14b518a6346d2edb1267340387e646c",
+      "overlap": "Predicted-mask-conditioned memory reinforcement before a memory update, using a downsampled mask concatenated with features and Conv3x3/Conv1x1 processing.",
+      "difference": "This adaptation adds a zero-initialized residual to features entering SAM2's unchanged native MemoryEncoder; it does not transfer MemSAM weights or reproduce its final mask-gated working-memory value."
+    },
+    {
+      "work": "Recurrent Dynamic Embedding for Video Object Segmentation, CVPR 2022",
+      "paper": "https://openaccess.thecvf.com/content/CVPR2022/papers/Li_Recurrent_Dynamic_Embedding_for_Video_Object_Segmentation_CVPR_2022_paper.pdf",
+      "official_code": "https://github.com/Limingxing00/RDE-VOS-CVPR2022",
+      "overlap": "Addresses error from imperfect predicted masks and memory embeddings.",
+      "difference": "Uses embedding self-correction with mask-consistency supervision; the current candidate does not use that loss or replace the memory bank."
+    },
+    {
+      "work": "SAM 2: Segment Anything in Images and Videos",
+      "official_code": "https://github.com/facebookresearch/sam2",
+      "overlap": "SAM2 already transforms predicted mask probabilities and supplies them to its MemoryEncoder.",
+      "risk": "The added soft-mask cue may be redundant or amplify prediction errors."
+    }
+  ],
+  "method_claim_boundary": "Mask-conditioned memory writing is established prior art. This study evaluates a specific residual-write adaptation to SAM2, not a claim to invent mask-conditioned memory or prove semantic purity of token vectors.",
+  "frozen_comparison": [
+    "native SAM2",
+    "soft-mask-conditioned residual writer",
+    "same-capacity mask-neutral writer with constant 0.5 cue"
+  ],
+  "gate_record": {
+    "path": "protocols/memsam_residual_writer_gate_results_2026-11-08.json",
+    "attempt": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_04/",
+    "results_sha256": "7fd3306a4d3cdfcb2d11e05bdcc2670e4fc25e50286eeee86ef21cc3314d4654",
+    "scope": "Engineering only; no efficacy training or Dice result."
+  },
+  "decision": "Proceed with the already-frozen v2 training and validation schedule only. Treat PolypGen as exploratory because its sequences have informed earlier development. Do not open seq16-23 test inference unless the committed validation release rule passes. No method, split, seed, or criterion change is authorized by this audit."
+}

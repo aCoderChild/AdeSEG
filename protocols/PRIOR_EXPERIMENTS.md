@@ -1,5 +1,49 @@
 # Internal experiment audit — 2026-11-07
 
+## 2026-11-08 addendum: MemSAM-derived soft-mask writer
+
+This audit was recorded before the frozen training/validation run in
+`memsam_residual_memory_writer_v2`. The Run170 audit below remains unchanged;
+this addendum records the later candidate review.
+
+- **Closest completed evidence:** Run174's iterative regional reader was
+  negative on its exploratory seq16–23 evaluation. The fixed-history deletion
+  diagnostic had mean ΔDice +0.000455 with a 95% sequence-bootstrap interval
+  [−0.000071, +0.001384]. Neither tested this memory-write insertion point.
+- **Direct literature overlap:** MemSAM (CVPR 2024) uses a predicted-mask-
+  conditioned Memory Reinforcement module before memory update: it downsamples
+  the probability mask, concatenates it with image features, applies Conv3×3
+  and Conv1×1, then gates a feature by the mask and inserts it into working
+  memory. Its official code is pinned in the frozen protocol. Therefore
+  mask-conditioned memory writing is established prior art; the present
+  candidate is an adaptation to SAM2's native memory-encoder input, not a claim
+  to invent that broad idea.
+- **Related but distinct:** RDE-VOS (CVPR 2022) trains a mask-consistency
+  self-correction objective so embeddings encoded from perturbed masks approach
+  embeddings encoded from ground-truth masks. The current writer does not use
+  this objective or replace SAM2's memory bank.
+- **Native overlap and risk:** SAM2 already converts its predicted mask into a
+  probability map and supplies the transformed mask to its MemoryEncoder.
+  The added soft-mask cue may therefore be redundant or may amplify mask errors.
+- **Specific testable difference:** the candidate adds a zero-initialized
+  Conv3×3/Conv1×1 residual conditioned on the predicted soft mask to the feature
+  entering the unchanged SAM2 MemoryEncoder. The matched writer has identical
+  capacity and training but receives a constant 0.5 cue. All original SAM2
+  weights, the native memory encoder, reads, pointers, decoder, frame schedule
+  and token counts remain fixed.
+- **Gate evidence:** attempt04 passed exact zero-writer parity on seq2/seq3,
+  four-layer attention checks, finite real-clip writer gradients, exact
+  save/resume, and a synthetic two-ID isolation fixture. This does not establish
+  natural multi-object efficacy or a Dice gain. Receipt:
+  `memsam_residual_writer_gate_results_2026-11-08.json`.
+- **Decision and limits:** proceed only with the already-frozen v2
+  train/validation schedule and its native plus capacity-matched control.
+  PolypGen sequences informed earlier development, so the result is
+  exploratory; it cannot establish external or patient-independent
+  generalization. The frozen validation release rule must pass before seq16–23
+  test inference. Do not change the method based on validation or test
+  outcomes.
+
 Prepared **after Run170**, from saved protocols, implementation code and Drive
 results. This records the predecessors that must be reviewed before another
 model change or experiment. It does not retrospectively preregister earlier work.

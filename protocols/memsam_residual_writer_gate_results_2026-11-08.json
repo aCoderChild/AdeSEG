@@ -1,0 +1,27 @@
+{
+  "id": "memsam_residual_writer_gate_results_2026-11-08",
+  "date": "2026-11-08",
+  "status": "passed_engineering_gate_only; no efficacy result",
+  "protocol": "protocols/memsam_residual_memory_writer_v2.json",
+  "protocol_sha256": "8c07d0816e19e2cc60dac758ead632cdb72eb7d7c5fcd99c14a7bd6c23b78c6b",
+  "commit": "debc8c08",
+  "drive_output": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_04/",
+  "completion_sha256": "614882ab7376a612685f640b3271dfc5add9518701a9bd1067eae59bdb5c3e6f",
+  "results_sha256": "7fd3306a4d3cdfcb2d11e05bdcc2670e4fc25e50286eeee86ef21cc3314d4654",
+  "checks": {
+    "seq2_native_vs_zero_writer_bit_identical": true,
+    "seq2_frames_including_prompt": 60,
+    "seq2_native_memory_reads": 59,
+    "seq3_native_vs_zero_writer_bit_identical": true,
+    "seq3_frames_including_prompt": 15,
+    "seq3_native_memory_reads": 14,
+    "all_four_attention_layers_verified": true,
+    "real_clip_finite_nonzero_writer_gradients": true,
+    "sam2_weights_unchanged": true,
+    "real_clip_save_resume_replay_exact": true,
+    "synthetic_multi_object_order_invariance": true,
+    "synthetic_multi_object_single_object_isolation": true
+  },
+  "scope": "Implementation gate only. The multi-object test split one real seq2 prompt mask into synthetic IDs 7 and 42. A single seq9 training clip was used for gradient and resume verification. No full training, validation release, test inference, or Dice efficacy comparison was run.",
+  "storage_note": "Files were written to the mounted Google Drive path. The connected Drive search did not return this folder, so cloud-side synchronization is not independently confirmed."
+}
