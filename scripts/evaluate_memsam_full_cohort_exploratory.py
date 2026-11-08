@@ -33,6 +33,11 @@ from scripts.run_complementary_memory_pilot import activate_author_repo, input_h
 AMENDMENT_REL = Path(
     "protocols/memsam_residual_memory_writer_v2_full_cohort_amendment_2026-11-08.json"
 )
+NATIVE_REUSE_AMENDMENT_REL = Path(
+    "protocols/memsam_residual_memory_writer_v2_full_cohort_native_reuse_amendment_2026-11-08.json"
+)
+NATIVE_BASELINE_REL = Path("outputs/experiment/155_region_constrained_tome_polypgen_v1/full")
+NATIVE_RESULTS_REL = Path("outputs/experiment/143_official_native_feature_audit_v1/full/native_results.json")
 MANIFEST_REL = "data/polypgen_sequence.jsonl"
 SEQUENCES = [
     "seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10",
@@ -40,6 +45,7 @@ SEQUENCES = [
     "seq18", "seq19", "seq20", "seq21",
 ]
 CONDITIONS = ("native_sam2", "mask_neutral_writer", "soft_mask_writer")
+FRESH_CONDITIONS = ("mask_neutral_writer", "soft_mask_writer")
 
 
 def atomic_json(path: Path, value) -> None:
@@ -184,6 +190,195 @@ def paired_contrasts(summaries: dict, sequence_names: list[str], seed: int) -> d
     return contrasts
 
 
+def load_native_baseline(drive_root: Path, core: dict, amendment: dict,
+                         sequence_names: list[str], current_inputs: dict,
+                         videos: dict) -> tuple[dict, dict]:
+    reference = amendment["native_baseline"]
+    run_dir = drive_root / NATIVE_BASELINE_REL
+    native_results_path = drive_root / NATIVE_RESULTS_REL
+    setup_path = run_dir / "setup.json"
+    protocol_path = run_dir / "protocol.json"
+    summary_path = run_dir / "summary.json"
+    completion_path = run_dir / "completion.json"
+    artifacts = {
+        "run155_setup": setup_path,
+        "run155_protocol": protocol_path,
+        "run155_summary": summary_path,
+        "run155_completion": completion_path,
+        "run143_native_results": native_results_path,
+    }
+    expected_hashes = {
+        "run155_setup": reference["setup_sha256"],
+        "run155_protocol": reference["protocol_sha256"],
+        "run155_summary": reference["summary_sha256"],
+        "run155_completion": reference["completion_sha256"],
+        "run143_native_results": reference["native_results_sha256"],
+    }
+    for name, path in artifacts.items():
+        require(path.is_file(), f"Native baseline artifact missing: {path}")
+        require(digest(path) == expected_hashes[name],
+                f"Native baseline artifact hash mismatch: {name}")
+
+    native_setup = json.loads(setup_path.read_text())
+    native_protocol = json.loads(protocol_path.read_text())
+    native_summary = json.loads(summary_path.read_text())
+    completion = json.loads(completion_path.read_text())
+    native_results = json.loads(native_results_path.read_text())
+    model = native_protocol["model"]
+    native_scope = native_protocol.get("scope", {})
+    require(completion.get("passed") is True,
+            "Existing native baseline did not complete successfully")
+    require(native_setup.get("native_results_sha256") == digest(native_results_path)
+            == reference["native_results_sha256_pinned_by_run155_setup"],
+            "Run155 does not pin the supplied Run143 native result file")
+    require(native_setup.get("checkpoint_sha256") == core["checkpoint_sha256"]
+            == reference["checkpoint_sha256"], "Native checkpoint differs")
+    require(native_setup.get("manifest_sha256") == core["manifest_sha256"]
+            == reference["manifest_sha256"], "Native dataset manifest differs")
+    require(native_setup.get("sam2_revision") == core["sam2_revision"]
+            == reference["sam2_revision"], "Native SAM2 source revision differs")
+    require(model.get("configuration") == reference["model_config"]
+            and native_setup.get("device") == reference["device"]
+            and native_setup.get("dtype") == reference["dtype"],
+            "Native model configuration or execution dtype differs")
+    require(set(sequence_names).issubset(native_scope.get("sequences", []))
+            and native_setup.get("conditions", []).count("native") == 1,
+            "Native source protocol does not cover the requested native condition")
+    require(native_results.get("checkpoint_sha256") == core["checkpoint_sha256"],
+            "Native frame evidence is for a different checkpoint")
+    require(set(sequence_names).issubset(native_setup.get("sequences", []))
+            and set(sequence_names).issubset(completion.get("sequences", []))
+            and set(sequence_names).issubset(native_summary.get("per_sequence", {}))
+            and set(sequence_names).issubset(native_results.get("sequences", {})),
+            "Existing native baseline does not cover the requested cohort")
+
+    normalized, sequence_evidence = {}, {}
+    for name in sequence_names:
+        row = native_summary["per_sequence"][name]["native"]
+        metrics = native_results["sequences"][name]
+        source = reference["sequence_evidence"][name]
+        receipt_path = drive_root / source["native_receipt_path"]
+        frames_path = drive_root / source["native_frame_evidence_path"]
+        require(receipt_path.is_file() and frames_path.is_file(),
+                f"Native frame receipt missing for {name}")
+        require(digest(receipt_path) == source["native_receipt_sha256"],
+                f"Native receipt hash mismatch for {name}")
+        require(digest(frames_path) == source["native_frame_evidence_sha256"],
+                f"Native frame evidence hash mismatch for {name}")
+        receipt = json.loads(receipt_path.read_text())
+        frames = json.loads(frames_path.read_text())
+        prompt = current_inputs[name]["prompt"]
+        require(receipt.get("checkpoint_sha256") == core["checkpoint_sha256"]
+                and receipt.get("manifest_sha256") == core["manifest_sha256"]
+                and receipt.get("model_config") == reference["model_config"]
+                and receipt.get("sequence") == name and receipt.get("object_id") == 1,
+                f"Native sequence receipt setup mismatch for {name}")
+        require(receipt.get("prompt") == prompt
+                and receipt.get("num_frames") == len(videos[name])
+                and len(frames) == metrics["targets"]
+                and len(frames) == len(receipt.get("predictions", []))
+                and [item["frame"] for item in frames]
+                    == list(range(prompt + 1, len(videos[name]))),
+                f"Native frame coverage or prompt differs for {name}")
+        prediction_hashes = {item["frame"]: item["sha256"]
+                             for item in receipt["predictions"]}
+        require(all(prediction_hashes.get(item["frame"]) == item["prediction_sha256"]
+                    for item in frames),
+                f"Native per-frame prediction hashes differ for {name}")
+        positive = [item for item in frames if item["present"]]
+        empty = [item for item in frames if not item["present"]]
+        require(len(positive) == metrics["present_targets"] == row["present_targets"]
+                and len(empty) == metrics["gt_empty_targets"] == row["gt_empty_targets"]
+                and metrics["return_count"] == row["return_count"]
+                and metrics["undetected_returns"] == row["undetected_returns"],
+                f"Native frame counts or propagation summaries differ for {name}")
+        recomputed = {
+            "present_dice": float(sum(item["scores"]["dice"] for item in positive) / len(positive)),
+            "present_iou": float(sum(item["scores"]["iou"] for item in positive) / len(positive)),
+            "present_boundary_f": float(sum(item["scores"]["boundary_f"] for item in positive) / len(positive)),
+            "gt_empty_false_alarm_count": sum(bool(item["absent_fp"]) for item in empty),
+        }
+        expected_metrics = {
+            "present_dice": metrics["present_dice"],
+            "present_iou": metrics["iou"],
+            "present_boundary_f": metrics["boundary_f"],
+            "gt_empty_false_alarm_count": metrics["gt_empty_false_alarm_count"],
+        }
+        for key, actual in recomputed.items():
+            expected = expected_metrics[key]
+            require(actual == expected or (
+                isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                and math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-12)
+            ), f"Native frame evidence does not reproduce {name}/{key}")
+        for key, value in (("present_dice", row["present_dice"]),
+                           ("present_iou", row["present_iou"]),
+                           ("present_boundary_f", row["present_boundary_f"]),
+                           ("gt_empty_false_alarm_count", row["gt_empty_false_alarms"])):
+            actual = recomputed[key]
+            require(actual == value or (
+                isinstance(actual, (int, float)) and isinstance(value, (int, float))
+                and math.isclose(actual, value, rel_tol=0.0, abs_tol=1e-12)
+            ), f"Run155 native summary differs from verified frame evidence: {name}/{key}")
+        require(row.get("complete") is True
+                and row.get("parameter_digest") == reference["parameter_digest"],
+                f"Native sequence completion or parameter digest mismatch: {name}")
+
+        returns = metrics.get("returns", [])
+        detected_delays = [item["delay_sampled_frames"] for item in returns
+                           if item.get("detected") and item.get("delay_sampled_frames") is not None]
+        wall_seconds = row.get("wall_seconds")
+        normalized[name] = {
+            "sequence": name, "condition": "native_reused",
+            "prompt_frame": prompt, "target_frames": len(frames),
+            "present_frames": len(positive), "gt_empty_frames": len(empty),
+            "present_dice": recomputed["present_dice"],
+            "all_frame_dice": float(sum(item["scores"]["dice"] for item in frames) / len(frames)),
+            "present_iou": recomputed["present_iou"],
+            "present_boundary_f": recomputed["present_boundary_f"],
+            "gt_empty_false_alarm_count": recomputed["gt_empty_false_alarm_count"],
+            "gt_empty_false_alarm_rate": (recomputed["gt_empty_false_alarm_count"] / len(empty)
+                                           if empty else None),
+            "propagation": {
+                "return_count": metrics["return_count"],
+                "undetected_returns": metrics["undetected_returns"],
+                "missed_return_rate": (metrics["undetected_returns"] / metrics["return_count"]
+                                       if metrics["return_count"] else None),
+                "mean_detected_return_delay_sampled_frames": (
+                    float(sum(detected_delays) / len(detected_delays)) if detected_delays else None
+                ),
+            },
+            "elapsed_seconds": wall_seconds,
+            "fps": len(frames) / wall_seconds if wall_seconds else None,
+            "writer_state_sha256": "native",
+            "setup_core_sha256": row.get("setup_sha256"),
+            "native_attention_reads": None,
+            "source_receipt_sha256": digest(receipt_path),
+            "source_frame_evidence_sha256": digest(frames_path),
+        }
+        sequence_evidence[name] = {
+            "native_receipt_sha256": digest(receipt_path),
+            "native_frame_evidence_sha256": digest(frames_path),
+            "prompt_frame": prompt,
+            "target_frames": len(frames),
+            "parameter_digest": row["parameter_digest"],
+        }
+
+    provenance = {
+        "source_run": str(run_dir),
+        "native_results_path": str(native_results_path),
+        "setup_sha256": digest(setup_path),
+        "protocol_sha256": digest(protocol_path),
+        "summary_sha256": digest(summary_path),
+        "completion_sha256": digest(completion_path),
+        "native_results_sha256": digest(native_results_path),
+        "native_results_sha256_pinned_by_run155": native_setup["native_results_sha256"],
+        "sequence_evidence": sequence_evidence,
+        "overlap_evaluator_parity": amendment["native_baseline"]["cross_evaluator_overlap_check"],
+        "native_inference_repeated": False,
+    }
+    return normalized, provenance
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--attempt-dir", type=Path, required=True)
@@ -200,13 +395,24 @@ def main() -> None:
 
     amendment_path = ROOT / AMENDMENT_REL
     drive_amendment = output / "protocol.json"
-    require(amendment_path.is_file() and drive_amendment.is_file(),
-            "The versioned amendment and its Drive copy must exist before inference")
+    native_amendment_path = ROOT / NATIVE_REUSE_AMENDMENT_REL
+    drive_native_amendment = output / "native_reuse_amendment.json"
+    require(amendment_path.is_file() and drive_amendment.is_file()
+            and native_amendment_path.is_file() and drive_native_amendment.is_file(),
+            "Both versioned amendments and their Drive copies must exist before inference")
     require(amendment_path.read_bytes() == drive_amendment.read_bytes(),
             "Drive amendment differs from the versioned protocol")
+    require(native_amendment_path.read_bytes() == drive_native_amendment.read_bytes(),
+            "Drive native-reuse amendment differs from the versioned protocol")
     amendment = json.loads(amendment_path.read_text())
+    native_amendment = json.loads(native_amendment_path.read_text())
     require(SEQUENCES == amendment["scope"]["sequence_ids"] and len(SEQUENCES) == 19,
             "Sequence list differs from the frozen amendment")
+    require(native_amendment["supersedes"]["sha256"] == digest(amendment_path),
+            "Native-reuse amendment does not supersede the frozen full-cohort protocol")
+    require(SEQUENCES == native_amendment["scope"]["sequence_ids"]
+            and native_amendment["fresh_inference_conditions"] == list(FRESH_CONDITIONS),
+            "Native-reuse amendment sequence scope or inference arms differ")
 
     setup_path = attempt / "setup.json"
     setup = json.loads(setup_path.read_text())
@@ -238,12 +444,17 @@ def main() -> None:
                       for frame in frames)
         require(present > 0, f"No post-prompt positive GT frame for {name}")
         gt_presence[name] = {"positive_frames": present, "target_frames": len(frames)}
+    native_summaries, native_provenance = load_native_baseline(
+        drive, core, native_amendment, SEQUENCES, current_inputs, videos
+    )
 
     seed = protocol["training"]["seed"]
     writers = {}
     checkpoint_info = {"native_sam2": {
         "checkpoint_sha256": core["checkpoint_sha256"],
         "parent_setup_core_sha256": core_hash,
+        "baseline_reused": True,
+        "baseline_native_results_sha256": native_provenance["native_results_sha256"],
     }}
     for arm in ("mask_neutral_writer", "soft_mask_writer"):
         writers[arm], checkpoint_info[arm] = completed_writer(
@@ -263,6 +474,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     eval_setup = {
         "amendment_sha256": digest(amendment_path),
+        "native_reuse_amendment_sha256": digest(native_amendment_path),
         "attempt_setup_sha256": digest(setup_path),
         "parent_core_sha256": core_hash,
         "evaluation_script_sha256": digest(Path(__file__)),
@@ -283,6 +495,7 @@ def main() -> None:
         "sequences": SEQUENCES,
         "conditions": CONDITIONS,
         "selected_checkpoints": checkpoint_info,
+        "native_baseline_provenance": native_provenance,
         "split_membership": split_map,
         "interpretation": amendment["interpretation_limit"],
     }
@@ -295,14 +508,20 @@ def main() -> None:
                 "Resume setup differs from the frozen exploratory evaluation")
     else:
         existing = {path.name for path in output.iterdir()}
-        require(existing <= {"protocol.json"},
+        require(existing <= {"protocol.json", "native_reuse_amendment.json", "run_status.json"},
                 "Existing exploratory outputs require --resume")
         atomic_json(receipt_path, {"eval_setup": eval_setup, "eval_setup_hash": eval_setup_hash,
                                    "created_at_utc": datetime.now(timezone.utc).isoformat()})
 
     run_status = output / "run_status.json"
     summaries = {condition: {} for condition in CONDITIONS}
-    for condition in CONDITIONS:
+    summaries["native_sam2"] = native_summaries
+    atomic_json(output / "native_baseline_reused.json", {
+        "source": native_provenance,
+        "per_sequence": native_summaries,
+        "native_inference_repeated": False,
+    })
+    for condition in FRESH_CONDITIONS:
         for index, name in enumerate(SEQUENCES, 1):
             atomic_json(run_status, {
                 "status": "running", "condition": condition, "sequence": name,
@@ -311,11 +530,8 @@ def main() -> None:
                 "eval_setup_hash": eval_setup_hash,
             })
             model = study.init_model(checkpoint, repo)
-            if condition == "native_sam2":
-                writer, mode = None, None
-            else:
-                writer = writers[condition]
-                mode = "generic" if condition == "mask_neutral_writer" else "regional"
+            writer = writers[condition]
+            mode = "generic" if condition == "mask_neutral_writer" else "regional"
             summaries[condition][name] = study.evaluate_sequence(
                 model, videos[name], output / condition, name, writer, mode,
                 setup_hash=eval_setup_hash,
@@ -339,6 +555,8 @@ def main() -> None:
         "sequence_count": len(SEQUENCES),
         "split_stratified_descriptives": split_descriptives(summaries, SEQUENCES, split_map),
         "checkpoint_info": checkpoint_info,
+        "native_baseline_provenance": native_provenance,
+        "native_inference_repeated": False,
         "eval_setup_hash": eval_setup_hash,
         "no_checkpoint_selection_or_tuning_on_this_cohort": True,
     })
@@ -349,6 +567,7 @@ def main() -> None:
         "eval_setup_hash": eval_setup_hash,
         "sequence_count": len(SEQUENCES),
         "conditions": CONDITIONS,
+        "fresh_inference_conditions": FRESH_CONDITIONS,
         "completed_at_utc": datetime.now(timezone.utc).isoformat(),
         "interpretation": amendment["interpretation_limit"],
     })

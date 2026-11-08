@@ -1,0 +1,333 @@
+{
+  "comparison": "Use all three logical conditions on the identical 19 sequences. Reuse native baseline metrics after integrity verification; run both writer conditions through the current attempt_05 evaluator. Verify metric parity between reused native results and attempt_05 native replay on seq13\u201315 before interpreting comparisons; float aggregation tolerance is 1e-12.",
+  "conditions": {
+    "mask_neutral_writer": "Fresh inference using the completed best checkpoint selected only on the parent validation split.",
+    "native_sam2": "Reuse existing native scores and frame-level evidence. Do not run SAM2 natively again. Verify all source hashes and per-frame prediction hashes before using it.",
+    "soft_mask_writer": "Fresh inference using the completed best checkpoint selected only on the parent validation split."
+  },
+  "date": "2026-11-08",
+  "fresh_inference_conditions": [
+    "mask_neutral_writer",
+    "soft_mask_writer"
+  ],
+  "id": "memsam_residual_memory_writer_v2_full_cohort_native_reuse_amendment_2026-11-08",
+  "interpretation_limit": "Exploratory descriptive analysis only. The cohort mixes 10 training sequences, 3 validation sequences, and 6 parent-test sequences; it is not held-out or independent confirmation.",
+  "launch_condition": "Wait until both writer arms finish and selected-checkpoint validation replay matches their receipts. Then verify native baseline setup, result, receipt, and frame evidence hashes, and record all source hashes in the Drive setup receipt before the first writer inference.",
+  "native_baseline": {
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "completion_sha256": "1ee1c3afef72240b83333728c54f6796b7fc43da9003946aaf2e200495a2d046",
+    "cross_evaluator_overlap_check": {
+      "seq13": {
+        "false_alarm_count": 42,
+        "present_boundary_f": 0.6735995973049151,
+        "present_dice": 0.7698888869289984,
+        "present_iou": 0.7205993102843293,
+        "reference_false_alarm_count": 42,
+        "reference_present_boundary_f": 0.6735995973049151,
+        "reference_present_dice": 0.7698888869289984,
+        "reference_present_iou": 0.720599310284329,
+        "reference_target_frames": 242,
+        "target_frames": 242,
+        "writer_run_native_summary_path": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_05/validation/native/seq13/summary.json",
+        "writer_run_native_summary_sha256": "d345fb011fb293fa1f4ea45e5838d108c3a091c5b82cff481cedb9d1a7ab18e7"
+      },
+      "seq14": {
+        "false_alarm_count": 32,
+        "present_boundary_f": 0.6412420668362796,
+        "present_dice": 0.8399417059817745,
+        "present_iou": 0.754181670792969,
+        "reference_false_alarm_count": 32,
+        "reference_present_boundary_f": 0.6412420668362797,
+        "reference_present_dice": 0.8399417059817743,
+        "reference_present_iou": 0.754181670792969,
+        "reference_target_frames": 248,
+        "target_frames": 248,
+        "writer_run_native_summary_path": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_05/validation/native/seq14/summary.json",
+        "writer_run_native_summary_sha256": "0a6993c83f2fd5f27fe82463dc1df71dda481523dcbfc423e639568f289103de"
+      },
+      "seq15": {
+        "false_alarm_count": 0,
+        "present_boundary_f": 0.845836252434513,
+        "present_dice": 0.9045798174828275,
+        "present_iou": 0.8541304688093656,
+        "reference_false_alarm_count": 0,
+        "reference_present_boundary_f": 0.8458362524345128,
+        "reference_present_dice": 0.9045798174828275,
+        "reference_present_iou": 0.8541304688093656,
+        "reference_target_frames": 115,
+        "target_frames": 115,
+        "writer_run_native_summary_path": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_05/validation/native/seq15/summary.json",
+        "writer_run_native_summary_sha256": "c35b6c0bff098867218781408fd274f81279235bc26fec4a2c22a4e75570ab37"
+      }
+    },
+    "device": "cpu",
+    "dtype": "float32",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "native_results_path": "outputs/experiment/143_official_native_feature_audit_v1/full/native_results.json",
+    "native_results_sha256": "0ccb0d2d5b8d85b9d1e08082de141ebe2d68f78927e32543a644d333d25d32ed",
+    "native_results_sha256_pinned_by_run155_setup": "0ccb0d2d5b8d85b9d1e08082de141ebe2d68f78927e32543a644d333d25d32ed",
+    "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+    "protocol_sha256": "d87732869546c8dd9f94a41fb4046624fabab7e83688025553772fdf278bd0d1",
+    "run143_source_directory": "outputs/experiment/143_official_native_feature_audit_v1/full/",
+    "run155_directory": "outputs/experiment/155_region_constrained_tome_polypgen_v1/full/",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "sequence_evidence": {
+      "seq10": {
+        "frame_count": 25,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq10/frames.json",
+        "native_frame_evidence_sha256": "986dfcaf03b4ae7faf5fa3e5d5bbdea2985336faa05f5e68ace5036465158e18",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq10/receipt.json",
+        "native_receipt_sha256": "f8202e6d5b6352d5415e418a72f8488903ab7873b8498ee999c5e05364f2bb51",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 17,
+        "target_count": 7
+      },
+      "seq11": {
+        "frame_count": 228,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq11/frames.json",
+        "native_frame_evidence_sha256": "2236510147e0e41b6854473530cf51e7e77b4cfd620f50620318a4cc5d2c7b41",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq11/receipt.json",
+        "native_receipt_sha256": "85d3e9be3ac72121f6ac88677790cd18449173475da0f1c95105e25cc72fdd5c",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 2,
+        "target_count": 225
+      },
+      "seq12": {
+        "frame_count": 250,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq12/frames.json",
+        "native_frame_evidence_sha256": "d9d711eb8ffa852f600babca97c5f6f884c95ad7d876fb51b1f457153ac6b98e",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq12/receipt.json",
+        "native_receipt_sha256": "53057919f40b39fc0d440b38395d1a15ef6f5d1b7fda1bd6805fdf5880c77cf3",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 249
+      },
+      "seq13": {
+        "frame_count": 250,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/gate/observed/seq13/frames.json",
+        "native_frame_evidence_sha256": "6afded6dc4bef627df6e76dcc284fd2ed536d18cfec26daf46cd588fee1532c5",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/gate/observed/seq13/receipt.json",
+        "native_receipt_sha256": "1a70fb99f10307efcd7e5e190631f0cba9ac657ef8d7823ae19edf45d5bd9cdb",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 7,
+        "target_count": 242
+      },
+      "seq14": {
+        "frame_count": 249,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq14/frames.json",
+        "native_frame_evidence_sha256": "493928136482a2db975aa76ce999f09e4d18c78c793b8eac799adfcd0823aa80",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq14/receipt.json",
+        "native_receipt_sha256": "c7a612ab5284407605ac2868ccce8f6db637d6a87a183aa3bfd9242da997a9e2",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 248
+      },
+      "seq15": {
+        "frame_count": 116,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq15/frames.json",
+        "native_frame_evidence_sha256": "878df2f32b297e2fb258ff7f32c8cd6d42142d19ebc9cdd5f1b6ed00139e3440",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq15/receipt.json",
+        "native_receipt_sha256": "4ad26874a4ec240f168aeb64a32305c67213df59d6546a3495e5d16ccba69275",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 115
+      },
+      "seq16": {
+        "frame_count": 40,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq16/frames.json",
+        "native_frame_evidence_sha256": "55e037feace6af0d2e5ece4f32c4df942c618957f5bea1ee25b81b3abaa542ea",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq16/receipt.json",
+        "native_receipt_sha256": "b389bfe6a4ee1b29e42e4047b1e3f44c438ff9d0b7b5f15754a469ee7094e92b",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 6,
+        "target_count": 33
+      },
+      "seq17": {
+        "frame_count": 63,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq17/frames.json",
+        "native_frame_evidence_sha256": "c252ed959fb4978c2d6346ff18d593e6327557eaabbcea1b9da01ce882dbc73d",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq17/receipt.json",
+        "native_receipt_sha256": "be0821cfdc96550b709081d06042db3b1b21b4771f5e015aab1f0d409df0bc71",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 16,
+        "target_count": 46
+      },
+      "seq18": {
+        "frame_count": 63,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq18/frames.json",
+        "native_frame_evidence_sha256": "ce11ffb3284492360fcaa9cfd6a5aa7441a1035c382becb5f8c881524745c1d2",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq18/receipt.json",
+        "native_receipt_sha256": "88b55be3d1a5a9df67e3f781f48e8ec064223e64bbe71744de4e706a67193ead",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 62
+      },
+      "seq19": {
+        "frame_count": 56,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq19/frames.json",
+        "native_frame_evidence_sha256": "61dd00dc3264a01d40778daa0560a1e12680882e31960d1a34717794d82cca45",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq19/receipt.json",
+        "native_receipt_sha256": "7591b0b9579c058916558646b5603617a7269b6c9bb3d7b0cdd178d01c2ed35c",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 55
+      },
+      "seq2": {
+        "frame_count": 63,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/gate/observed/seq2/frames.json",
+        "native_frame_evidence_sha256": "03ae366eaa8f6131dc85c9c9f77ce90038418df8ab1f9f1460d7cb7ddeaa3255",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/gate/observed/seq2/receipt.json",
+        "native_receipt_sha256": "457deed1aa7b83850475cc4eadafb06926d8ac73e45822806d3e0898d133ac8e",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 3,
+        "target_count": 59
+      },
+      "seq20": {
+        "frame_count": 52,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq20/frames.json",
+        "native_frame_evidence_sha256": "ef51b1e85e1f01a1fa89396dcc9ea70721b23ac863b4728328cf597b70815251",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq20/receipt.json",
+        "native_receipt_sha256": "329be39a606bcec6b91df9e3777c0683fc56d1adc0a3830739e1f9bb5065b666",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 16,
+        "target_count": 35
+      },
+      "seq21": {
+        "frame_count": 56,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq21/frames.json",
+        "native_frame_evidence_sha256": "baf3cbef0887cd3f4c2bed4f897f6dc06ad8b7240dd004679a450e81518b6392",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq21/receipt.json",
+        "native_receipt_sha256": "f9fc9cdb7e86d5c90bddde70319a60a546e4c6fb3ad332ef68442c86e86b11f0",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 8,
+        "target_count": 47
+      },
+      "seq3": {
+        "frame_count": 15,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq3/frames.json",
+        "native_frame_evidence_sha256": "5eee533f36babeeea3c5da477598ea437b10b09c91ea57cfd3706bdb61fe0b68",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq3/receipt.json",
+        "native_receipt_sha256": "c899f976cc7bcf54f139407d2022c630a91427d8bbca12384341705a2a4d65ac",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 14
+      },
+      "seq4": {
+        "frame_count": 48,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq4/frames.json",
+        "native_frame_evidence_sha256": "beff483f158bbf82ffba362c7d96fd4287e38f5fc17c788713c40bb03e9c85fa",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq4/receipt.json",
+        "native_receipt_sha256": "5d302b34c394a3c0a56cabcf26db1d86fa74e673e9bff0afbc8bc03ca241bf1f",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 47
+      },
+      "seq5": {
+        "frame_count": 250,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq5/frames.json",
+        "native_frame_evidence_sha256": "8d1ce10795e9d423f466ef46c896d3961d68a9da71db33407ab3cb77116cb763",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq5/receipt.json",
+        "native_receipt_sha256": "91855eb51d86f946bdf36464339ada6ffafa19f516af82b2266f4560e2368f7a",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 249
+      },
+      "seq6": {
+        "frame_count": 91,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq6/frames.json",
+        "native_frame_evidence_sha256": "a1cd14f94b2691f93d035de3e7f166c003341a3b9c608329c5f98749532b8137",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq6/receipt.json",
+        "native_receipt_sha256": "da253a7c8de6ffa32290cb2072958ff4033e22345d966b8cb02f060f3b37b8dc",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 24,
+        "target_count": 66
+      },
+      "seq8": {
+        "frame_count": 73,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq8/frames.json",
+        "native_frame_evidence_sha256": "909fda2457a30ed307f0dbdec3a957246eb9a9dfbd9949ff162572f53503c400",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq8/receipt.json",
+        "native_receipt_sha256": "72ecbe8b187d6e764f286768aeb24e04cd1aba819471563fc641825c1b938b73",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 0,
+        "target_count": 72
+      },
+      "seq9": {
+        "frame_count": 51,
+        "native_frame_evidence_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq9/frames.json",
+        "native_frame_evidence_sha256": "db254be56215d9723a45b2b654b2a29e2c8c957b0bfa0680375991c421b9c751",
+        "native_receipt_path": "outputs/experiment/143_official_native_feature_audit_v1/full/seq9/receipt.json",
+        "native_receipt_sha256": "f296a1b91f04579ebac55b87c83c61a589d84e0b6245e0941b0c61abf7583aea",
+        "parameter_digest": "4023243720469280594a7322d5ae0ab466fe52c97d69beb1825d63d8ad9b71e6",
+        "prompt_frame": 3,
+        "target_count": 47
+      }
+    },
+    "setup_sha256": "40bce7e69a78b73fbe455ffc6ac4206f4a4366e36c80598c707b3dfad1386e55",
+    "summary_sha256": "2a7893590001c1b4c5d58884e0ad7cb64e6d7188358e8c1da3fac0cbc17dc395"
+  },
+  "output": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_05/full_cohort_seq2_21_exploratory/",
+  "scope": {
+    "excluded": [
+      "seq1",
+      "seq7"
+    ],
+    "parent_split_membership": {
+      "original_test": [
+        "seq16",
+        "seq17",
+        "seq18",
+        "seq19",
+        "seq20",
+        "seq21"
+      ],
+      "training": [
+        "seq2",
+        "seq3",
+        "seq4",
+        "seq5",
+        "seq6",
+        "seq8",
+        "seq9",
+        "seq10",
+        "seq11",
+        "seq12"
+      ],
+      "validation": [
+        "seq13",
+        "seq14",
+        "seq15"
+      ]
+    },
+    "sequence_count": 19,
+    "sequence_ids": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15",
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21"
+    ]
+  },
+  "status": "Frozen before any inference for the added cohort; supersedes the prior full-cohort amendment only on native-baseline execution.",
+  "supersedes": {
+    "changed_rule": "Native SAM2 is sourced from the integrity-checked existing Run155/Run143 baseline. Only the two writer conditions are newly inferred.",
+    "protocol": "protocols/memsam_residual_memory_writer_v2_full_cohort_amendment_2026-11-08.json",
+    "sha256": "aecf9a5dfc21965a6905c3a9412434bec33919de1f4e4906dcdea04ffe243a91"
+  },
+  "user_clarification": "Reuse existing default native SAM2 results; do not rerun native SAM2."
+}
