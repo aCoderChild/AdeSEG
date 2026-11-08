@@ -1,0 +1,27 @@
+{
+  "id": "memsam_residual_writer_multi_object_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective engineering-only correction; efficacy remains unrun",
+  "parent_protocol": "protocols/memsam_residual_memory_writer_v2.json",
+  "parent_protocol_sha256": "1eb4b77ab08158096fa15904df1a6c11bb9c6d7dab6d3561b1d615c5d1983525",
+  "failed_attempt": {
+    "drive_output": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_03/",
+    "failure_receipt": "failure.json",
+    "failure_receipt_sha256": "fdef443b7f262383446f9ec304f4aabd61fb92227b6ee1133e6d34c4ad644e0d",
+    "verified_before_failure": [
+      "Native and zero-initialized writer prediction and stored-memory hashes matched bit-for-bit on seq2 and seq3.",
+      "The real-clip gradient and exact save/resume check completed.",
+      "The native half of the synthetic two-object, three-frame fixture completed."
+    ],
+    "observed": "The multi-object helper passed only the writer subsection to writer_init, which expects the full protocol object. The failure happened before the zero-writer multi-object comparison; no efficacy training or evaluation ran."
+  },
+  "correction": {
+    "only_change": "Pass the already-loaded frozen protocol into multi_object_gate and use it to initialize the zero writer.",
+    "method_changed": false,
+    "data_or_split_changed": false,
+    "training_schedule_or_optimizer_changed": false,
+    "efficacy_criteria_changed": false
+  },
+  "next_attempt": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_04/",
+  "scope": "Rerun the complete frozen seq2/seq3 engineering gate only. No full training or efficacy evaluation is authorized by this amendment."
+}

@@ -173,6 +173,7 @@ def source_inventory():
     return [
         PROTOCOL_REL, "protocols/memsam_residual_writer_engineering_amendment_2026-11-08.json",
         "protocols/memsam_residual_writer_training_observer_amendment_2026-11-08.json",
+        "protocols/memsam_residual_writer_multi_object_amendment_2026-11-08.json",
         MANIFEST_REL, "scripts/run_memsam_residual_writer.py",
         "modeling/memsam_memory_writer.py", "tests/test_memsam_memory_writer.py",
         "tests/test_run_memsam_residual_writer.py",
@@ -487,7 +488,7 @@ def multi_object_rollout(checkpoint, repo, frames, output, order, masks, writer=
             "memory_writer_calls": writer_records, "model_parameter_sha256": model_hash}
 
 
-def multi_object_gate(args, repo, frames, output, seed):
+def multi_object_gate(args, repo, frames, output, protocol, seed):
     prompt = prompt_index(frames, {"initialization": "first_labeled_frame"})
     mask = torch.from_numpy((load_label_mask(frames[prompt].mask_path, [1]) == 1).copy())
     coordinates = mask.nonzero()
@@ -498,7 +499,7 @@ def multi_object_gate(args, repo, frames, output, seed):
     require(left.any() and right.any(), "Cannot split seq2 prompt into two objects")
     masks = {7: left, 42: right}
     native = multi_object_rollout(args.checkpoint, repo, frames, output, [7, 42], masks)
-    zero = writer_init(seed, json.loads((ROOT / PROTOCOL_REL).read_text()).get("writer", {}))
+    zero = writer_init(seed, protocol)
     adapted = multi_object_rollout(args.checkpoint, repo, frames, output, [7, 42], masks, zero)
     reversed_order = multi_object_rollout(args.checkpoint, repo, frames, output, [42, 7], masks, zero)
     singletons = {
@@ -657,7 +658,7 @@ def engineering_gate(args, videos, out, protocol, repo):
     gc.collect()
 
     status(out, "multi_object_id_gate", sequence="seq2")
-    multi_object = multi_object_gate(args, repo, videos["seq2"], gate_dir,
+    multi_object = multi_object_gate(args, repo, videos["seq2"], gate_dir, protocol,
                                      protocol["training"]["seed"])
 
     results = {
