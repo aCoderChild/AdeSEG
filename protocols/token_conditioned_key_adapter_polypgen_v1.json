@@ -66,13 +66,21 @@
     "checkpointing": "Atomic adapter, optimizer, RNG, schedule cursor, memory bank, per-sequence receipt, and source/protocol hashes after each four-frame update. Resume must verify hashes and exact next-update replay."
   },
   "engineering_gate": {
-    "must_pass_before_training_or_efficacy": [
+    "settings": {
+      "polypgen_sequences": ["seq2", "seq3"],
+      "polypgen_clip_length": 5,
+      "davis_multi_object_sequence": "bike-packing",
+      "davis_clip_length": 5,
+      "seed": 20261109,
+      "device": "CPU FP32"
+    },
+    "must_pass_before_full_training_or_efficacy": [
       "Zero-initialized adapter reproduces native outputs bit-for-bit on fixed real PolypGen seq2/seq3 clips.",
       "Trace all four native memory-attention layers and verify actual spatial-key counts, 4096-token frame blocks, and positional/temporal key encoding alignment.",
       "All spatial frames and tokens remain present; values and pointer tokens are bit-identical to native inputs.",
       "Finite adapter gradients; verify the initially active zero-initialized up-projection receives gradients and gate/down-projection receive gradients after it moves from zero.",
       "All SAM2 pretrained parameters remain unchanged; checkpoint hash and trainable parameter allowlist are verified.",
-      "Persistent two-object IDs remain isolated in a real multi-object DAVIS clip; confirm each object's adapter gate sees only its own pointer/memory bank.",
+      "Persistent IDs 1 and 2 remain isolated in DAVIS 2017 bike-packing frames 0-4; the gate receives the corresponding per-object pointer/memory bank.",
       "Exact fresh-start versus save/resume replay, including RNG and optimizer state."
     ],
     "gate_is_not_efficacy": true
