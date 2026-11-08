@@ -23,6 +23,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from datasets.io import load_label_mask
 from datasets.video import load_manifest
 from scripts import run_memsam_residual_writer as study
 from scripts.memory_token_io import digest
@@ -229,6 +230,14 @@ def main() -> None:
     for name in SEQUENCES:
         require(core["inputs"].get(name) == current_inputs[name],
                 f"Video or mask inputs changed for {name}")
+    gt_presence = {}
+    for name in SEQUENCES:
+        prompt = current_inputs[name]["prompt"]
+        frames = videos[name][prompt + 1:]
+        present = sum(bool((load_label_mask(frame.mask_path, [1]) == 1).any())
+                      for frame in frames)
+        require(present > 0, f"No post-prompt positive GT frame for {name}")
+        gt_presence[name] = {"positive_frames": present, "target_frames": len(frames)}
 
     seed = protocol["training"]["seed"]
     writers = {}
@@ -270,6 +279,7 @@ def main() -> None:
         "sam2_checkpoint_sha256": core["checkpoint_sha256"],
         "sam2_revision": revision,
         "input_hashes": current_inputs,
+        "post_prompt_ground_truth_presence": gt_presence,
         "sequences": SEQUENCES,
         "conditions": CONDITIONS,
         "selected_checkpoints": checkpoint_info,
