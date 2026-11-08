@@ -1,0 +1,32 @@
+{
+  "name": "token_conditioned_key_adapter_engineering_gate_amendment_2026-11-09",
+  "protocol": "protocols/token_conditioned_key_adapter_polypgen_v1.json",
+  "date": "2026-11-09",
+  "scope": "Engineering-gate clarification only; the candidate method, data split, training schedule, validation release rule, and efficacy metrics are unchanged.",
+  "corrections": [
+    {
+      "issue": "The gate implementation required a source revision that was not recorded in the protocol.",
+      "resolution": "Pin the official SAM2 source revision to 2b90b9f5ceec907a1c18123530e92e794ad901a4."
+    },
+    {
+      "issue": "The original gate checked native replay in the training-step path but did not require full autoregressive inference parity at zero adapter initialization.",
+      "resolution": "Require exact tensor equality for native and zero-adapter full propagation outputs on the frozen seq2 and seq3 clips."
+    },
+    {
+      "issue": "The verifier required a nonzero learned-key-change receipt that the adapter did not emit.",
+      "resolution": "Record per-read key residual L1 and nonzero-element counts, and require zero values at initialization and finite nonzero values after adapter updates."
+    },
+    {
+      "issue": "Resume replay compared optimizer-state keys but not optimizer values or post-update RNG state.",
+      "resolution": "Compare the complete optimizer state and post-update RNG tensor for exact resumed-update replay."
+    }
+  ],
+  "unchanged": [
+    "Model design and trainable parameter set",
+    "PolypGen train, validation, test, and excluded sequences",
+    "Training schedule and optimizer",
+    "Validation release rule and efficacy endpoints",
+    "No test inference before the frozen validation rule passes"
+  ],
+  "efficacy_run_authorized_by_this_amendment": false
+}

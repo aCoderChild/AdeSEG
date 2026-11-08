@@ -33,6 +33,7 @@
     "checkpoint": "outputs/experiment/assets/sam2.1_hiera_tiny.pt",
     "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
     "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
     "memory_grid": [64, 64],
     "memory_channels": 64,
     "attention_layers": 4,
@@ -75,7 +76,7 @@
       "device": "CPU FP32"
     },
     "must_pass_before_full_training_or_efficacy": [
-      "Zero-initialized adapter reproduces native outputs bit-for-bit on fixed real PolypGen seq2/seq3 clips.",
+      "Zero-initialized adapter reproduces native training-step and full-propagation outputs bit-for-bit on fixed real PolypGen seq2/seq3 clips.",
       "Trace all four native memory-attention layers and verify actual spatial-key counts, 4096-token frame blocks, and positional/temporal key encoding alignment.",
       "All spatial frames and tokens remain present; values and pointer tokens are bit-identical to native inputs.",
       "Finite adapter gradients; verify the initially active zero-initialized up-projection receives gradients and gate/down-projection receive gradients after it moves from zero.",
@@ -104,7 +105,8 @@
   },
   "provenance": {
     "output_root": "outputs/experiment/token_conditioned_key_adapter_polypgen_v1/",
-    "status": "No implementation gate or efficacy run has started. This file freezes the candidate study design before code integration; engineering failures require a dated amendment before any efficacy launch.",
+    "status": "Candidate efficacy design remains frozen. Engineering gate implementation is clarified by the dated amendment; no efficacy run has started.",
+    "engineering_amendment": "protocols/token_conditioned_key_adapter_engineering_gate_amendment_2026-11-09.json",
     "required_artifacts": ["source snapshot", "protocol hash", "engineering gate receipts", "per-update and per-sequence logs", "checkpoints", "results.md", "results.json", "completion.json"]
   }
 }
