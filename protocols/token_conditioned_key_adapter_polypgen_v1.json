@@ -1,0 +1,102 @@
+{
+  "name": "token_conditioned_memory_key_adapter_polypgen_v1",
+  "version": 1,
+  "status": "candidate_protocol_frozen_engineering_gate_pending",
+  "research_scope": "Exploratory PolypGen study of token-local memory-key adaptation in frozen SAM2; not independent confirmation because this cohort has informed earlier analyses.",
+  "prior_work": {
+    "primary_reference": "Robust Promptable Video Object Segmentation, CVPR 2026 (MoGA)",
+    "paper": "https://arxiv.org/abs/2605.12006",
+    "official_repository": "https://github.com/sohyun-l/RobustPVOS",
+    "repository_revision": "db1d65dc4c689671b91d7fe938f2c9090d2fd58f",
+    "source_file": "external/RobustPVOS/sam2/modeling/moga.py",
+    "source_sha256": "010f56e25cabe55e3a0ceb8cec0b152611c6bf7142a231da98653def3273c5a7",
+    "license": "Apache-2.0",
+    "adaptation_boundary": "Reuse MoGA's gated low-rank residual design as the implementation reference. MoGA gates rank components from object pointers and adapts self-attention Q/K plus memory-attention Q. This candidate instead makes the gate depend on each spatial memory key token and applies the residual to the key input only; it is a new local adaptation, not a reproduction of MoGA."
+  },
+  "hypothesis": "A learned residual conditioned on each stored spatial key and its object's pointer context can alter which individual memory keys SAM2 attends to, while retaining every frame, spatial token, value, and native attention/decoder weight. It may improve PolypGen Dice over both native SAM2 and a capacity-matched globally gated key adapter. This is unproven; prior Q/K and regional low-rank pilots make a meaningful gain uncertain.",
+  "method": {
+    "insertion": "Before the native memory cross-attention key projection in each of SAM2's four memory-attention layers.",
+    "operation": "For each spatial memory key input x, form a rank-r residual B(sigmoid(g([x,p])) * A(x)), where p is the same object's pointer summary. Initialize B to zero. Add the residual to the unpositioned spatial key content; preserve SAM2's positional/temporal encoding exactly by adding the residual to the native key input after reading the content from the unpositioned value input.",
+    "rank": 16,
+    "gate": "Continuous sigmoid rank gates; no hard rank threshold, token deletion, frame selection, or region labels.",
+    "unchanged": "All values, object-pointer keys, frame schedules, memory writes, SAM2 pretrained parameters, image encoder, decoder, and native attention projections. Positional encodings remain unchanged.",
+    "trainable": "The token-conditioned key residual and its gate network in each of four memory-attention layers only.",
+    "supervision": "Existing autoregressive segmentation and object-presence losses; no post-forward contrastive objective in this candidate."
+  },
+  "conditions": {
+    "C0": "Native SAM2. Reuse the existing native reference only after exact model, checkpoint, prompt, frame, and receipt-hash validation.",
+    "C1": "Token-conditioned memory-key residual described above.",
+    "C2": "Capacity-matched control with the same A/B factors and gate network, but gate input uses a spatially pooled memory summary plus the object's pointer and the resulting rank gate is broadcast to all spatial keys. This isolates per-token gate information from a generic key adapter."
+  },
+  "model": {
+    "family": "Official SAM2.1 Hiera Tiny",
+    "checkpoint": "outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "memory_grid": [64, 64],
+    "memory_channels": 64,
+    "attention_layers": 4,
+    "device": "CPU FP32"
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "train_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12"],
+    "validation_sequences": ["seq13", "seq14", "seq15"],
+    "test_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded_sequences": {
+      "seq1": "No positive prompt frame under the existing protocol.",
+      "seq7": "No positive prompt frame under the existing protocol."
+    },
+    "prompt": "First labeled frame; score only post-prompt frames.",
+    "unit": "Sequence; patient-to-sequence independence is unverified.",
+    "cohort_status": "Exploratory only. All PolypGen data informed prior work; do not call the test subset untouched or patient-independent."
+  },
+  "training": {
+    "seed": 20261108,
+    "schedule": "One chronological autoregressive pass through the ten frozen training sequences; use the same target count, four-frame chunking, truncated-BPTT schedule, initialization pairing, and sequence resets as the completed MAVOS contrastive pilot. One pass is an exploratory pilot, not convergence evidence.",
+    "optimizer": {
+      "name": "AdamW",
+      "learning_rate": 0.0001,
+      "weight_decay": 0.001,
+      "betas": [0.9, 0.999],
+      "eps": 1e-08,
+      "gradient_clip_norm": 3.0
+    },
+    "checkpointing": "Atomic adapter, optimizer, RNG, schedule cursor, memory bank, per-sequence receipt, and source/protocol hashes after each four-frame update. Resume must verify hashes and exact next-update replay."
+  },
+  "engineering_gate": {
+    "must_pass_before_training_or_efficacy": [
+      "Zero-initialized adapter reproduces native outputs bit-for-bit on fixed real PolypGen seq2/seq3 clips.",
+      "Trace all four native memory-attention layers and verify actual spatial-key counts, 4096-token frame blocks, and positional/temporal key encoding alignment.",
+      "All spatial frames and tokens remain present; values and pointer tokens are bit-identical to native inputs.",
+      "Finite adapter gradients; verify the initially active zero-initialized up-projection receives gradients and gate/down-projection receive gradients after it moves from zero.",
+      "All SAM2 pretrained parameters remain unchanged; checkpoint hash and trainable parameter allowlist are verified.",
+      "Persistent two-object IDs remain isolated in a real multi-object DAVIS clip; confirm each object's adapter gate sees only its own pointer/memory bank.",
+      "Exact fresh-start versus save/resume replay, including RNG and optimizer state."
+    ],
+    "gate_is_not_efficacy": true
+  },
+  "evaluation": {
+    "validation_selection": "One checkpoint after the fixed one-pass schedule; no epoch or hyperparameter selection on validation.",
+    "release_rule": "Run PolypGen test sequences only if C1 exceeds both C0 and C2 by at least 0.01 equal-sequence present Dice on seq13-15, wins at least 2/3 sequences against each, and raises equal-sequence GT-empty false-alarm rate by no more than 0.02 absolute versus C0. Otherwise stop; this is a screening rule, not statistical evidence.",
+    "primary": "Equal-sequence mean present-frame Dice; report C1-C0 and C1-C2.",
+    "secondary": [
+      "per-sequence present Dice and IoU",
+      "Boundary F",
+      "GT-empty false-alarm rate",
+      "missed-object and re-detection events",
+      "per-sequence elapsed time and FPS",
+      "paired sequence bootstrap intervals",
+      "paired Wilcoxon with Holm correction",
+      "leave-one-sequence-out sensitivity"
+    ],
+    "secondary_dataset": "If the PolypGen release screen passes, run full DAVIS 2017 validation with official J&F and persistent object IDs as an exploratory transfer check. DAVIS was used in prior ToMe analyses, so it is not an untouched benchmark for this project. SA-V is unavailable and will not be claimed.",
+    "native_baseline_reuse": "Reuse native receipts only after exact checkpoint/config/prompt/frame/receipt-hash matching; otherwise generate the baseline once before adapter efficacy evaluation."
+  },
+  "provenance": {
+    "output_root": "outputs/experiment/token_conditioned_key_adapter_polypgen_v1/",
+    "status": "No implementation gate or efficacy run has started. This file freezes the candidate study design before code integration; engineering failures require a dated amendment before any efficacy launch.",
+    "required_artifacts": ["source snapshot", "protocol hash", "engineering gate receipts", "per-update and per-sequence logs", "checkpoints", "results.md", "results.json", "completion.json"]
+  }
+}
