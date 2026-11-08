@@ -1,0 +1,22 @@
+{
+  "id": "memsam_residual_writer_training_observer_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective engineering-only correction; no training or efficacy result",
+  "parent_protocol": "protocols/memsam_residual_memory_writer_v2.json",
+  "parent_protocol_sha256": "a6871dfaedf087cc337c58f4f7a8b60e5ec8632941ae1c8a3f13742c52baa466",
+  "failed_attempt": {
+    "drive_output": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_02/",
+    "failure_receipt": "failure.json",
+    "failure_receipt_sha256": "ac6e1435e12c0d8700c7dfcdeafdd1b2552add95b7b6a5745645971a679dc4ba",
+    "observed": "Native and zero-initialized writer rollouts completed on seq2 and seq3 with identical prediction hashes and stored-memory hashes. The real-clip training gate then stopped before its first optimizer update because the read-only trace observer tried to identify a differentiable cloned bank by object identity in the persistent inference state."
+  },
+  "correction": {
+    "only_change": "Run the trace-only observer without an inference-state ownership lookup during differentiable training. The observer still inspects the actual cloned bank passed through the four native attention layers and does not alter the read.",
+    "method_changed": false,
+    "data_or_split_changed": false,
+    "training_schedule_or_optimizer_changed": false,
+    "efficacy_criteria_changed": false
+  },
+  "next_attempt": "outputs/experiment/memsam_residual_memory_writer_v2/attempt_03/",
+  "scope": "Rerun the complete frozen seq2/seq3 engineering gate only. No training or efficacy evaluation is authorized by this amendment."
+}

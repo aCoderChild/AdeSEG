@@ -172,6 +172,7 @@ def training_plan(videos, protocol):
 def source_inventory():
     return [
         PROTOCOL_REL, "protocols/memsam_residual_writer_engineering_amendment_2026-11-08.json",
+        "protocols/memsam_residual_writer_training_observer_amendment_2026-11-08.json",
         MANIFEST_REL, "scripts/run_memsam_residual_writer.py",
         "modeling/memsam_memory_writer.py", "tests/test_memsam_memory_writer.py",
         "tests/test_run_memsam_residual_writer.py",
@@ -550,8 +551,10 @@ def train_one_clip(model, writer, mode, optimizer, frames, name, output, seed, t
                         "mask_inputs": None, "point_inputs": None,
                     })
                 optimizer.zero_grad(set_to_none=True)
+                # The differentiable bank is a clone, so trace ownership
+                # cannot be inferred by identity from the persistent state.
                 observer = NativeComplementaryRead(
-                    model, None, "regional", inference_state=state, trace_only=True
+                    model, None, "regional", trace_only=True
                 )
                 with observer:
                     loss, bank, frame_writes = reader_clip_loss(model, samples, bank)
