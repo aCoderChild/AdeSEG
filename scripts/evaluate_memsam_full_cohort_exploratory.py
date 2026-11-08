@@ -363,6 +363,29 @@ def load_native_baseline(drive_root: Path, core: dict, amendment: dict,
             "parameter_digest": row["parameter_digest"],
         }
 
+    overlap_parity = {}
+    for name, evidence in reference["cross_evaluator_overlap_check"].items():
+        replay_path = drive_root / evidence["writer_run_native_summary_path"]
+        require(replay_path.is_file()
+                and digest(replay_path) == evidence["writer_run_native_summary_sha256"],
+                f"Current-attempt native replay receipt changed for {name}")
+        replay = json.loads(replay_path.read_text())
+        baseline = normalized[name]
+        for key in ("present_dice", "present_iou", "present_boundary_f"):
+            require(math.isclose(replay[key], baseline[key], rel_tol=0.0, abs_tol=1e-12),
+                    f"Current-attempt native replay differs from cached baseline: {name}/{key}")
+        require(replay["gt_empty_false_alarm_count"] == baseline["gt_empty_false_alarm_count"]
+                and replay["target_frames"] == baseline["target_frames"]
+                and replay["original_sam2_parameter_sha256"] == reference["parameter_digest"],
+                f"Current-attempt native replay identity differs for {name}")
+        overlap_parity[name] = {
+            "summary_sha256": digest(replay_path),
+            "present_dice": replay["present_dice"],
+            "present_iou": replay["present_iou"],
+            "present_boundary_f": replay["present_boundary_f"],
+            "target_frames": replay["target_frames"],
+        }
+
     provenance = {
         "source_run": str(run_dir),
         "native_results_path": str(native_results_path),
@@ -373,7 +396,7 @@ def load_native_baseline(drive_root: Path, core: dict, amendment: dict,
         "native_results_sha256": digest(native_results_path),
         "native_results_sha256_pinned_by_run155": native_setup["native_results_sha256"],
         "sequence_evidence": sequence_evidence,
-        "overlap_evaluator_parity": amendment["native_baseline"]["cross_evaluator_overlap_check"],
+        "overlap_evaluator_parity": overlap_parity,
         "native_inference_repeated": False,
     }
     return normalized, provenance
