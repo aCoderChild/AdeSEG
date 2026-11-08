@@ -1,0 +1,38 @@
+{
+  "id": "memsam_residual_memory_writer_v2_full_cohort_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "Frozen before any inference for this added cohort analysis; exploratory only.",
+  "reason": "The user requested a sequence-matched comparison on PolypGen seq1–seq21 excluding seq1 and seq7, so that current memory-writer conditions can be compared with native SAM2 over the same cohort.",
+  "scope": {
+    "sequence_ids": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21"],
+    "sequence_count": 19,
+    "excluded": ["seq1", "seq7"],
+    "split_membership_from_parent_protocol": {
+      "training": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12"],
+      "validation": ["seq13", "seq14", "seq15"],
+      "original_test": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21"]
+    }
+  },
+  "interpretation_limit": "This cohort mixes training, validation, and six sequences from the parent protocol's test split. Because sequences 2–15 informed training or checkpoint selection, and seq16–21 are included in this post-hoc extension, the aggregate is descriptive and exploratory, not a held-out or independent confirmation. Do not claim generalization or publishability from this analysis alone.",
+  "conditions": {
+    "native_sam2": "Fresh SAM2.1 Tiny propagation using the checkpoint, prompt convention, sequence inputs, post-processing, and evaluation code pinned by attempt_05.",
+    "mask_neutral_writer": "The completed attempt_05 capacity/training-matched neutral writer, using its best checkpoint selected only on the parent protocol's seq13–15 validation set.",
+    "soft_mask_writer": "The completed attempt_05 soft-mask-conditioned writer, using its best checkpoint selected only on the parent protocol's seq13–15 validation set. Do not evaluate until its training and checkpoint integrity are complete."
+  },
+  "controls": [
+    "Run all three conditions freshly through the same evaluator and exact 19 sequences; do not substitute historical scores from a different checkpoint, prompt rule, resolution, or protocol.",
+    "Initialize a fresh predictor for every condition-sequence pair to avoid state leakage.",
+    "Do not alter training, select checkpoints, tune thresholds, or change the method based on any output from this cohort evaluation.",
+    "Keep the parent protocol's validation-gate result and its original test-split result record distinct. This amendment authorizes only a descriptive full-cohort analysis; it does not retroactively turn the mixed cohort into a confirmatory test."
+  ],
+  "metrics": [
+    "Per-sequence post-prompt present-frame Dice, IoU, and boundary F.",
+    "False-alarm count and rate on GT-empty frames.",
+    "Re-detection after annotated absence, using the existing propagation summary definition.",
+    "Per-sequence evaluation time and FPS.",
+    "Equal-sequence means, paired differences against native SAM2 and the matched control, sequence-bootstrap intervals, paired tests with Holm adjustment, and leave-one-sequence-out sensitivity."
+  ],
+  "stratification": "Report the overall 19-sequence descriptive mean and separate summaries for parent training, validation, and original-test subsets. Clearly label the training and validation subsets as seen data.",
+  "output": "Google Drive outputs/experiment/memsam_residual_memory_writer_v2/attempt_05/full_cohort_seq2_21_exploratory/",
+  "launch_condition": "Wait until both writer arms have completed and their best-checkpoint hashes are recorded. Freeze their hashes and the actual evaluation script hash in the Drive setup receipt before the first full-cohort inference."
+}
