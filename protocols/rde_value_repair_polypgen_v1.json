@@ -1,0 +1,54 @@
+{
+  "name": "RDE-inspired spatial memory-value repair in frozen SAM2",
+  "version": 1,
+  "status": "Engineering-only design; full efficacy protocol must be frozen separately before training/evaluation",
+  "motivation": "Completed fixed TRAIN-only oracle headroom: mask-only mean +0.143509 Dice on 9 eligible sequences, CI [+0.014277,+0.309267], Holm p=.078125; not a learned result or proof of novelty.",
+  "prior_work": {
+    "paper": "https://openaccess.thecvf.com/content/CVPR2022/html/Li_Recurrent_Dynamic_Embedding_for_Video_Object_Segmentation_CVPR_2022_paper.html",
+    "official_repository": "https://github.com/Limingxing00/RDE-VOS-CVPR2022",
+    "revision": "548a889395e2370c07962692e01e3abf8f518153",
+    "source": "model/model.py::KLDivLoss",
+    "source_sha256": "8db3ca2d57a020840c9d8209a7dc00be4bf1f6f90e288c5ed32631f7bed49d25",
+    "hyperparameters": "Author defaults: temperature=1, KL coefficient=10, mean reduction retained unchanged. Pin Torch version because the upstream reduction has a future-change warning.",
+    "adaptation": "Only channel KL consistency is reused. SAM2 GT source mask values are training teachers. No RDE memory fusion, learned RDE weights or benchmark scores transferred."
+  },
+  "architecture": {
+    "module": "One shared author SAM2 MLP(64,128,64,2), ReLU, zero-initialized final linear layer, residual on unpositioned spatial values before frozen v_proj in all four layers. 16,576 trainable parameters.",
+    "reuse": "SAM2 sam2/modeling/sam2_utils.py::MLP unchanged, except zero initialization of final layer in wrapper",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "sam2_mlp_source_sha256": "e35bbf13bc2e544a0272cd3f9539af38a752676ac3cd744be31cd8220afee804",
+    "shared": "Same 64-channel bank representation enters each layer, so use one repair function; no claim that four independent heads are needed.",
+    "preserved": [
+      "all pretrained SAM2 weights",
+      "native keys and positions",
+      "all spatial frames/tokens",
+      "all conditioning/prompt values",
+      "object-pointer values",
+      "native memory writing and decoder"
+    ],
+    "inference": "Only native token feature vectors enter the MLP; no GT, region category, confidence gate, threshold-based selection or frame selection. Learned changes may alter later-layer queries and future masks; do not claim unchanged attention maps."
+  },
+  "proposed_comparison": {
+    "C0": "Native SAM2",
+    "C1": "Identical value MLP trained with segmentation/object-presence losses only",
+    "C2": "Same MLP, initialization, samples, optimizer and training budget plus pinned RDE channel KL to GT-mask source values retaining native source presence",
+    "data": "Keep existing TRAIN seq2-6,8-12; validation seq13-15; historical test seq16-23 is previously analysed and not independent confirmation. No validation/test access during engineering. Full schedule/stopping rules remain to be finalized and frozen before efficacy."
+  },
+  "engineering": {
+    "fixtures": [
+      "PolypGen seq2, seq3 fixed 9-frame prefixes, query8 full 28672 spatial keys",
+      "DAVIS bike-packing persistent indexed IDs 1 and 2, order/isolation checks before efficacy"
+    ],
+    "required": [
+      "native zero-residual bitwise parity",
+      "all four layers and full memory spans",
+      "conditioning frame/pointer preservation after nonzero training",
+      "finite adapter gradients, unchanged SAM2 weights",
+      "upstream loss numerical agreement and detached teacher",
+      "exact optimizer/RNG/bank save-resume replay including fresh process",
+      "persistent multi-object identity and isolation"
+    ],
+    "scope": "Bounded tests are engineering only; no efficacy result or deployment claim."
+  },
+  "outputs": "Google Drive outputs/experiment/rde_value_repair_polypgen_v1/"
+}
