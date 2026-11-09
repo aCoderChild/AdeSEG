@@ -1,0 +1,35 @@
+{
+  "name": "Current-source single-thread memory-capacity and persistent-ID verification",
+  "scope": "Engineering only; no cohort efficacy, validation selection or test release",
+  "reason": "The completed uninterrupted/fresh-resume gate covered at most 16384 spatial keys and cached single-object reads. Verify the remaining native 28672-key capacity and persistent multi-object ownership.",
+  "runtime": "CPU FP32, torch threads=1, deterministic algorithms; unchanged SAM2.1 Hiera-Tiny checkpoint and existing adapters",
+  "polypgen": {
+    "sequences": ["seq2", "seq3"],
+    "frames": "First labelled prompt plus next eight manifest frames, fixed before launch",
+    "conditions": ["native", "zero token", "zero global", "TRAIN-diagnostic token", "TRAIN-diagnostic global"],
+    "gradient_check": "Reuse existing autoregressive update helper for two updates per arm on the final frame, with the previous native predicted bank. This tests the full 28672-key backward path without retaining nine-frame BPTT graphs.",
+    "training_targets": "Only final-frame GT in the original TRAIN sequences, used by loss after forward"
+  },
+  "davis": {
+    "video": "bike-packing",
+    "frames": "First nine 480p frames",
+    "ids": [1, 2],
+    "prompt": "Indexed mask on frame0 only; no later annotations opened",
+    "conditions": ["native joint", "zero token joint", "zero global joint", "trained token joint", "trained global joint"],
+    "isolation": "For each trained arm compare joint raw per-object bank/predictions against reversed prompt insertion and against each ID run in isolation. Require native non-overlap coupling disabled, as in the pinned default.",
+    "not_efficacy": "No J/F/Dice evaluation or cohort inference"
+  },
+  "adapter_source": "Frozen reference final states from key_adapter_optimization_validity_v1/process_resume_check_v1; independently audited uninterrupted/resume equality",
+  "must_pass": [
+    "Zero-adapter logits and all five stored memory fields match native hashes exactly",
+    "Each object/frame reaches layers0,1,2,3; IDs and target frames explicitly observed",
+    "Frames7 and8 use exactly 28672 spatial keys; pointers remain separate and unchanged",
+    "Memory values and spatial/temporal key position alignment remain native",
+    "Nonzero adapter remains finite with unchanged SAM2 weights",
+    "Full-capacity backward gives finite nonzero gradients in all four layers",
+    "Joint/reversed/isolated per-object raw outputs match exactly for both trained arms",
+    "Source, pretrained checkpoint, adapter checkpoints, input files and runtime are hash-bound"
+  ],
+  "stop": "Stop at first integrity failure, retain artifacts, no tolerance relaxation. This gate never authorizes efficacy or reopens the failed pilot's test split.",
+  "reuse": ["Existing SAM2 prepare and native propagation", "Existing DAVIS indexed-mask reader", "Existing NativeTokenConditionedKeyAdapter", "Existing evaluate/update/AdamW helpers", "Existing four-layer trace checks and nested tensor digests"]
+}
