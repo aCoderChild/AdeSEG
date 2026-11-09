@@ -1,0 +1,47 @@
+{
+  "name": "Autoregressive RDE value-repair source-association and resume gate",
+  "version": 1,
+  "scope": "Engineering TRAIN fixtures only, no efficacy scoring or full training authorization",
+  "fixtures": {
+    "sequences": [
+      "seq2",
+      "seq3"
+    ],
+    "prefix_frames": 11,
+    "native_warmup_through": 7,
+    "training_frames": [
+      8,
+      9,
+      10
+    ],
+    "object_id": 1,
+    "seed": 20261109
+  },
+  "updates": {
+    "arms": {
+      "segmentation_only": 0,
+      "segmentation_plus_consistency": 10
+    },
+    "initialization": "Identical shared MLP zero residual",
+    "optimizer": {
+      "name": "AdamW",
+      "lr": 0.0001,
+      "weight_decay": 0.001,
+      "gradient_clip_norm": 3
+    },
+    "tbptt": 1,
+    "teacher": "After each student forward, exactly re-encode its own predicted native source with the actual captured high-resolution input. Encode that same source with GT mask and native source-presence logit as a detached target for future loss. Keep target cache separate from predicted bank; prune only by native next-read schedule."
+  },
+  "must_pass": [
+    "First query native/zero memory output hash exact",
+    "All four native layers, alignment and positional checks",
+    "Causal teacher frames and exact object ID/source memory/score association",
+    "Student bank uses only its own predicted writes; teacher encoding cannot change it",
+    "Changing teacher targets cannot change the same student prediction/write before optimization",
+    "Prompt and pointer values unchanged",
+    "Frozen SAM2 unchanged and adapter gradients finite",
+    "After step8 atomically checkpoint bank, detached teacher cache, adapter, optimizer and RNG; steps9/10 replay exactly",
+    "Fresh-process replay of the same two updates before efficacy"
+  ],
+  "outputs": "Drive outputs/experiment/rde_value_repair_polypgen_v1/"
+}
