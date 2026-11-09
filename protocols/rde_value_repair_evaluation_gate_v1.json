@@ -1,0 +1,11 @@
+{
+  "name": "Transactional evaluation and inference-only value-repair gate",
+  "version": 1,
+  "scope": "TRAIN-only engineering; no validation/test candidate outcomes",
+  "sequences": ["seq2", "seq3"],
+  "frames_from_first_prompt": 5,
+  "conditions": ["native", "zero_residual", "nonzero_fixture_adapter"],
+  "checkpoint": "Completed uninterrupted executor engineering fixture, consistency arm; never use this fixture checkpoint for efficacy",
+  "checks": ["Native and zero-residual raw-logit hashes identical under the same evaluator hash convention", "Native and zero predicted masks bit-identical", "Nonzero fixture adapter actually affects inference", "All four layer/value reads, spatial budgets, object IDs, positions and pointer tails audited", "All saved masks independently rescored; cache checksum/metric/setup corruption fails", "Inference artifact contains only adapter weights and training identity, no teacher cache", "Cache reuse produces identical verified summaries", "Original SAM2 parameters remain unchanged"],
+  "limits": "This verifies evaluation glue on fixed short TRAIN clips. Full-capacity raw-read and multi-object identity checks are supplied by separate completed gates. It does not establish a Dice improvement."
+}
