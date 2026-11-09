@@ -1,7 +1,7 @@
 import json
 import pytest
 from scripts.memory_token_io import digest
-from scripts.queue_rde_value_validation import check_training_process,ready_training
+from scripts.queue_rde_value_validation import check_training_process,ready_training,check_cross_pipeline
 
 
 def test_missing_or_reused_pid_cannot_launch_validation(tmp_path):
@@ -34,3 +34,19 @@ def test_only_complete_arms_with_matching_final_files_can_release(tmp_path):
     with pytest.raises(RuntimeError,match='checkpoint'):ready_training(tmp_path,sha)
     complete(tmp_path,{'engineering':True,'arms':arms})
     with pytest.raises(RuntimeError,match='Engineering'):ready_training(tmp_path,sha)
+
+
+def test_cross_pipeline_proof_must_match_sources_and_native_reference(tmp_path,monkeypatch):
+    import scripts.queue_rde_value_validation as queue
+    monkeypatch.setattr(queue,'gate_sources',lambda:{'current':'source'})
+    native=tmp_path/'native';native.mkdir();(native/'results.json').write_text('{}')
+    gate=tmp_path/'gate';gate.mkdir()
+    def write(result):
+        (gate/'results.json').write_text(json.dumps(result))
+        (gate/'completion.json').write_text(json.dumps({'passed':True,'results_sha256':digest(gate/'results.json')}))
+    result={'cross_pipeline_parity_passed':True,'sources':{'current':'source'},'matched_native_results_sha256':digest(native/'results.json')}
+    write(result);assert check_cross_pipeline(gate,native)==digest(gate/'results.json')
+    write({**result,'sources':{}})
+    with pytest.raises(RuntimeError,match='stale'):check_cross_pipeline(gate,native)
+    write({**result,'matched_native_results_sha256':'wrong'})
+    with pytest.raises(RuntimeError,match='another native'):check_cross_pipeline(gate,native)

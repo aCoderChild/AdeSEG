@@ -19,6 +19,7 @@ from scripts.mavos_value_utils import atomic_json
 from scripts.queue_davis_region_vs_temporal_selection import process_command,run_stage,update_status
 from scripts.run_rde_value_training import verify_receipt
 from scripts.run_token_conditioned_key_adapter import _guard_sources
+from scripts.verify_rde_cross_pipeline import gate_sources
 
 
 def check_training_process(command,training_root):
@@ -39,20 +40,30 @@ def ready_training(training_root,identity_sha):
             raise RuntimeError('Completed training arm/checkpoint differs')
 
 
+def check_cross_pipeline(gate,native_reference):
+    result,sha=verify_receipt(gate)
+    if not result.get('cross_pipeline_parity_passed') or result['sources']!=gate_sources():
+        raise RuntimeError('Cross-pipeline parity gate is missing or stale')
+    if result['matched_native_results_sha256']!=digest(native_reference/'results.json'):
+        raise RuntimeError('Cross-pipeline gate used another native reference')
+    return sha
+
+
 def run(args,ownership):
     out=validate_output(args.output_dir);out.mkdir(parents=True,exist_ok=False)
     ownership['created']=True
     with (out/'writer.lock').open('a+') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        sources=evaluation_sources()
+        sources=gate_sources()
         sources[str(Path(__file__).relative_to(ROOT))]=digest(Path(__file__))
         for name in ['scripts/queue_davis_region_vs_temporal_selection.py']:
             sources[name]=digest(ROOT/name)
         identity_sha=digest(args.training_root/'identity.json')
+        cross_sha=check_cross_pipeline(args.cross_pipeline_gate,args.native_reference)
         gate,_=verify_receipt(args.evaluation_gate)
         if not gate.get('evaluation_safety_passed') or gate['evaluation_sources']!=evaluation_sources():
             raise RuntimeError('Evaluation safety receipt is missing or stale')
-        atomic_json(out/'identity.json',{'sources':sources,'training_identity_sha256':identity_sha,'training_pid':args.training_pid,
+        atomic_json(out/'identity.json',{'sources':sources,'training_identity_sha256':identity_sha,'training_pid':args.training_pid,'cross_pipeline_results_sha256':cross_sha,
             'training_root':str(args.training_root),'validation_output':str(out/'validation')})
         for name in sources:
             target=out/'source'/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes((ROOT/name).read_bytes())
@@ -63,6 +74,7 @@ def run(args,ownership):
             update_status(path,status,state='waiting_for_fixed_training',training_pid=args.training_pid)
             time.sleep(30)
         _guard_sources(sources);ready_training(args.training_root,identity_sha)
+        if check_cross_pipeline(args.cross_pipeline_gate,args.native_reference)!=cross_sha:raise RuntimeError('Cross-pipeline proof changed')
         command=[sys.executable,str(ROOT/'scripts/evaluate_rde_value_repair.py'),'--training-root',str(args.training_root),
             '--native-reference',str(args.native_reference),'--evaluation-gate',str(args.evaluation_gate),'--output-dir',str(out/'validation')]
         code=run_stage(command,out/'validation.log',path,status,'fixed_validation',out/'validation/progress.json')
@@ -74,7 +86,7 @@ def run(args,ownership):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
-    for name in ['training-root','native-reference','evaluation-gate','output-dir']:p.add_argument('--'+name,type=Path,required=True)
+    for name in ['training-root','native-reference','evaluation-gate','cross-pipeline-gate','output-dir']:p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--training-pid',type=int,required=True);a=p.parse_args();ownership={}
     try:run(a,ownership)
     except Exception as e:

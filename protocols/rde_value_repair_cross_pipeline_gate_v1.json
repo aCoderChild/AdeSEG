@@ -1,0 +1,10 @@
+{
+  "scope": "TRAIN-only comparison of the actual C0 collector and adapter evaluation paths; no candidate validation or test outcomes",
+  "sequences": ["seq2", "seq3"],
+  "frames_from_first_prompt": 11,
+  "keep_pre_prompt_manifest_frames": true,
+  "conditions": ["native_collector", "adapter_runner_native", "adapter_runner_zero"],
+  "must_pass": ["Identical common-format raw-logit hashes including prompt", "Identical saved mask pixels and per-frame Dice/IoU/boundary/false-alarm records", "Same four-layer native frame/key/pointer/position traces", "Exercise the full native 28672 spatial-key capacity in each sequence", "Frozen SAM2 parameters and source hashes unchanged"],
+  "runtime": "Same frozen CPU FP32 / Torch2.12.0 / one intra-op thread as the active training and matched C0 reference",
+  "interpretation": "This closes evaluation-path comparability; no segmentation efficacy or convergence claim"
+}
