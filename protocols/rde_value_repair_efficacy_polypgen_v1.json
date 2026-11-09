@@ -1,0 +1,147 @@
+{
+  "name": "RDE-inspired value consistency versus matched segmentation-only adapter",
+  "version": 1,
+  "status": "Prospective exploratory protocol; do not start efficacy before full runner safety gate and audited native reference pass",
+  "architecture_reference": "protocols/rde_value_repair_polypgen_v1.json",
+  "autoregressive_gate_reference": "protocols/rde_value_repair_autoregressive_gate_v1.json",
+  "research_claim": "Can training a shared token-value residual toward same-source GT-mask memory values improve frozen SAM2 segmentation over native and an identical segmentation-only residual? This is not full RDE-VOS reproduction or a novelty claim.",
+  "prior_audit": {
+    "oracle": "mask_memory_value_headroom_v1/train_diagnostic_attempt_01",
+    "oracle_result_sha256": "51d89fca4537a7c459b74ec64c7e48394689884d77748e7431f24a48aae85bbf",
+    "interpretation": "Positive TRAIN oracle headroom, not learned efficacy. Prior SupCon/MemSAM interventions did not establish a robust deployment gain."
+  },
+  "model": {
+    "family": "Official SAM2.1 Hiera Tiny",
+    "checkpoint": "outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "memory_grid": [
+      64,
+      64
+    ],
+    "memory_channels": 64,
+    "attention_layers": 4,
+    "device": "CPU FP32"
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "train_sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12"
+    ],
+    "validation_sequences": [
+      "seq13",
+      "seq14",
+      "seq15"
+    ],
+    "historical_test_sequences": [
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "exclusions": [
+      "seq1",
+      "seq7"
+    ],
+    "initialization": "Same first-labelled-frame GT mask prompt and chronological sampling as current native manifest; evaluate every postprompt frame.",
+    "independence": "PolypGen cohort, validation and historical test have informed earlier work. Treat all PolypGen outcomes as exploratory development; do not claim untouched confirmation or verified patient independence."
+  },
+  "conditions": {
+    "C0": "Native frozen SAM2; reuse compatible existing baseline after per-mask rescore and provenance verification",
+    "C1": "Shared 64\u2192128\u219264 author SAM2 MLP zero residual on nonconditioning spatial V before all four v_proj layers; segmentation/object-presence loss only",
+    "C2": "Identical MLP/initialization/data/optimizer/budget plus official RDE channel KL to detached same-source GT-mask V retaining native source object score, coefficient10/temperature1"
+  },
+  "training": {
+    "primary_seed": 20261109,
+    "conditional_replication_seeds": [
+      20261110,
+      20261111
+    ],
+    "epochs": 3,
+    "sequence_order": "Numerical order as train_sequences, repeated unchanged each epoch; reset to first GT prompt at every sequence and epoch",
+    "optimizer": {
+      "name": "AdamW",
+      "lr": 0.0001,
+      "weight_decay": 0.001,
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "eps": 1e-08,
+      "gradient_clip_norm": 3
+    },
+    "scheduler": null,
+    "tbptt_frames": 1,
+    "segmentation_loss": "Reuse reader_clip_loss: pre-presence-gating selected mask supervision plus author SAM2 object-presence loss, with identical weights in both arms.",
+    "consistency_loss": "Unchanged pinned RDE KLDivLoss mean over channel distributions; mean of four layer losses, temperature1, coefficient10. No additional normalization or lambda search.",
+    "own_memory": "Each arm propagates its own predictions and native BF16 writes. No postprompt GT mask/teacher value enters prediction or its bank. GT teachers are generated after each student forward, kept separately, and aligned by past frame/object ID/native value/native score hashes.",
+    "teacher_compute_control": "Generate and validate the same teacher targets in C1 as in C2; coefficient exactly0 for C1. No teacher at inference.",
+    "first_read": "A conditioning-only read has no repairable values and no optimizer step. It still creates a detached target for the next source; this is a structural graph case, not confidence selection.",
+    "evaluation_checkpoint": "Fixed final epoch3 only; no best-epoch selection, early stopping on outcomes, seed selection or hyperparameter tuning. Intermediate training logs are optimization diagnostics only.",
+    "device": "CPU FP32, native persistent memory BF16, one intra-op thread, deterministic algorithms",
+    "torch_version": "2.12.0",
+    "augmentation": "None; no random crops, shuffled frames, GT prompt refreshes, confidence gates or token deletion.",
+    "checkpoint": "Atomic adapter/optimizer/Torch+Python+NumPy RNG, sequence+epoch+frame cursor, predicted bank, detached target cache, input/source hashes and immutable per-frame receipt. Exclusive writer lock. Resume must match full runner engineering gate."
+  },
+  "validation_screen": {
+    "when": "After fixed3 epochs for primary seed, full seq13-15 rollouts for both arms; do not change config afterward.",
+    "pass_all": [
+      "C2 equal-sequence present Dice - C0 >=0.01",
+      "C2 equal-sequence present Dice - C1 >=0.005",
+      "C2 wins at least2/3 validation sequences against C0 and at least2/3 against C1",
+      "C2 equal-sequence GT-empty false-alarm rate - C0 <=0.02 absolute"
+    ],
+    "if_fail": "Stop this frozen candidate; no replication seed search or historical test rollout. Analyse TRAIN/validation failures without tuning on test.",
+    "if_pass": "Run both additional seeds with the same fixed schedule, report all seeds without choosing best; compare mean-seed validation effects with the same Dice/false-alarm conditions before historical test/transfer release. Replication failures must be reported."
+  },
+  "evaluation": {
+    "primary": [
+      "C2-C0 sequence-level present Dice",
+      "C2-C1 sequence-level present Dice"
+    ],
+    "metrics": [
+      "present Dice/IoU",
+      "Boundary F",
+      "GT-empty false alarms",
+      "return events and frames to overlap, missed events retained",
+      "inference time/FPS, peak memory and actual key/value token counts",
+      "sequence bootstrap95% intervals",
+      "paired Wilcoxon/Holm",
+      "wins/ties/losses",
+      "leave-one-sequence-out and largest-outlier sensitivity"
+    ],
+    "historical_test_release": "Only after primary and mean-seed validation screens pass. Evaluate the fixed final checkpoints of all three seeds on seq16-23; label exploratory historical test, not independent confirmation. Do not use these outcomes to choose modules, losses, seeds or checkpoints.",
+    "secondary": "Conditional full DAVIS2017 validation using official persistent indexed IDs and equal-object J/F/J&F. Existing compatible native baseline may be reused after provenance and saved-mask audit. DAVIS has been used for engineering/development here, so do not claim untouched external confirmation. A genuinely independent public dataset remains required for a strong publication claim. SA-V is unavailable.",
+    "native_reference_runtime": "Existing native validation used2 CPU threads; current engineering/training uses1. Saved-mask metrics may be audited, but no runtime equivalence is assumed. Before candidate efficacy, reproduce native validation once with the frozen one-thread runtime and compare every saved mask with the prior reference; retain the matched one-thread C0 even if old masks differ.",
+    "seed_aggregation": "Average scores across the three predetermined seeds within each sequence, then give sequences equal weight. Report every seed separately; do not count seed\u00d7sequence rows as independent observations."
+  },
+  "engineering_before_efficacy": [
+    "Completed bound native/identity parity, full 28672 capacity, all4 layers, prompt/pointer and positions, shared MLP gradients",
+    "Natural multi-object ID insertion-order and isolated-object equality with nonzero fixture",
+    "Own-rollout teacher association and no-GT-bank leakage; conditioning-only startup",
+    "Fresh-process own-rollout full bank/teacher/optimizer/RNG exact replay",
+    "Full runner cursor, checkpoint, exclusive lock, source/input hash and evaluation-cache corruption tests; real-frame interruption/resume gate"
+  ],
+  "stopping": "Any integrity failure stops immediately; no fallback to loose tolerances, skipped cases or outcomes-based amendments. Preserve attempts. A screen pass motivates evaluation only, not a guaranteed Dice gain or publishability.",
+  "outputs": "Google Drive outputs/experiment/rde_value_repair_polypgen_v1/efficacy_v1/",
+  "limitations": [
+    "A token-only MLP has no extra object-pointer input. Identical native values for two lost objects cannot be mapped to distinct object-specific GT values by this module; multi-object identity isolation does not prove recovery from that ambiguity. Do not claim universal denoising or change the architecture after seeing test outcomes.",
+    "The unchanged RDE mean-reduced channel KL has scale/shift ambiguities and its weight was not calibrated for SAM2. The fixed segmentation-only comparison determines whether this auxiliary target adds value.",
+    "Historical PolypGen test and previously used DAVIS do not establish independent confirmation."
+  ]
+}
