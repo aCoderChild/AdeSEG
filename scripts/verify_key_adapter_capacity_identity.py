@@ -185,6 +185,7 @@ def run(args):
             for path in (frame.image_path, frame.mask_path):
                 results['input_file_hashes'][str(path)] = digest(path)
         native = propagate(model, frames, out)
+        row['native'] = native
         item = final_frame_fixture(model, frames, out)
         for mode in ('token', 'global'):
             _guard_sources(sources)
@@ -215,6 +216,7 @@ def run(args):
     if model.non_overlap_masks or model.non_overlap_masks_for_mem_enc:
         raise RuntimeError('Isolation check requires native non-overlap coupling disabled')
     native = propagate(model, images, out, ids=(1, 2), indexed_mask=labels)
+    results['davis']['native'] = native
     results['davis']['files'] = {'images': [digest(x) for x in images], 'frame0_mask': digest(masks[0])}
     for path in [*images, masks[0]]:
         results['input_file_hashes'][str(path)] = digest(path)
