@@ -14,7 +14,7 @@ from datasets.io import load_label_mask
 from datasets.video import load_manifest
 from modeling.complementary_memory.training import capture_current_features, clone_tensors
 from modeling.native_memory_layout import selected_memory_frames
-from scripts.mask_memory_teacher import same_frame_teachers
+from scripts.mask_memory_teacher import capture_native_mask_inputs, same_frame_teachers
 from scripts.mavos_value_utils import activate_author_repo, atomic_json, prepare
 from scripts.memory_token_io import digest, prompt_index, validate_output
 from scripts.prepare_mask_memory_headroom import DESIGN
@@ -38,7 +38,9 @@ def run(out, plan_path):
     sources = _source_hashes()
     for path in ('scripts/verify_mask_memory_teacher.py', 'scripts/mask_memory_teacher.py',
                  'modeling/native_memory_layout.py', 'modeling/memory_value_oracle.py',
-                 'modeling/mavos_focal_value_modulation.py', 'protocols/mask_memory_value_headroom_v1.json'):
+                 'modeling/mavos_focal_value_modulation.py', 'protocols/mask_memory_value_headroom_v1.json',
+                 'tests/test_memory_value_oracle.py', 'tests/test_mavos_focal_value_modulation.py',
+                 'tests/test_mask_memory_headroom_plan.py', 'scripts/prepare_mask_memory_headroom.py'):
         sources[path] = digest(ROOT / path)
     identity = {'case_plan_sha256': digest(plan_path), 'sources': sources,
                 'checkpoint_sha256': digest(CHECKPOINT_DEFAULT), 'threads': 1,
@@ -75,12 +77,16 @@ def run(out, plan_path):
             state, prompt = prepare(model, frames, Path(temporary))
             if prompt != 0:
                 raise RuntimeError('Gate prompt changed')
-            with torch.inference_mode():
+            captured_masks = {}
+            with capture_native_mask_inputs(model) as capture, torch.inference_mode():
                 iterator = model.propagate_in_video(state, start_frame_idx=0)
                 try:
                     for frame, ids, _ in iterator:
                         if ids != [1]:
                             raise RuntimeError('Unexpected source fixture owner')
+                        if capture['count'] != frame + 1:
+                            raise RuntimeError('Native encoder call/frame association changed')
+                        captured_masks[frame] = clone_tensors(capture['latest'])
                 finally:
                     iterator.close()
             bank = state['output_dict_per_obj'][0]
@@ -96,7 +102,7 @@ def run(out, plan_path):
                 stored = clone_tensors(bank['non_cond_frame_outputs'][source])
                 features = capture_current_features(model, state, source)
                 gt = torch.from_numpy((load_label_mask(frames[source].mask_path, [1]) == 1).copy())[None, None]
-                teacher = same_frame_teachers(model, features, stored, gt)
+                teacher = same_frame_teachers(model, features, stored, gt, captured_masks[source])
                 rows.append({'local_source_frame': source, 'manifest_source_frame': frames[source].frame_index,
                     'span': span, 'image_sha256': digest(frames[source].image_path),
                     'mask_sha256': digest(frames[source].mask_path),

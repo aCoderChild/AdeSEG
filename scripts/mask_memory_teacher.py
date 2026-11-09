@@ -3,13 +3,46 @@
 No synthetic neural encoder or encoder-weight change. GT is permitted only in
 this labelled TRAIN diagnostic, never a normal inference memory write.
 """
+from contextlib import contextmanager
+import inspect
+
 import torch
 import torch.nn.functional as F
 
 from scripts.run_token_conditioned_key_adapter import _tree_digest
 
 
-def same_frame_teachers(model, features, stored, ground_truth):
+@contextmanager
+def capture_native_mask_inputs(model):
+    """Observe exact native high-res logits without changing encoder arguments.
+
+    Keep only the latest call; the trajectory owner may retain a bounded ring
+    of selected past frames. Avoid a full-video high-resolution tensor cache.
+    """
+    original = model._encode_new_memory
+    signature = inspect.signature(original)
+    capture = {'count': 0, 'latest': None}
+
+    def observed(*args, **kwargs):
+        bound = signature.bind(*args, **kwargs)
+        bound.apply_defaults()
+        high = bound.arguments['pred_masks_high_res'].detach().clone()
+        score = bound.arguments['object_score_logits'].detach().clone()
+        output = original(*args, **kwargs)
+        capture['count'] += 1
+        capture['latest'] = {'high_res': high, 'score': score,
+            'is_mask_from_pts': bool(bound.arguments['is_mask_from_pts']),
+            'stored_memory_sha256': _tree_digest(output[0].to(torch.bfloat16))}
+        return output
+
+    model._encode_new_memory = observed
+    try:
+        yield capture
+    finally:
+        model._encode_new_memory = original
+
+
+def same_frame_teachers(model, features, stored, ground_truth, native_capture):
     if model.training or any(p.requires_grad for p in model.parameters()):
         raise RuntimeError('Oracle encoding requires frozen eval SAM2')
     if ground_truth.ndim != 4 or ground_truth.shape[:2] != (1, 1):
@@ -18,10 +51,16 @@ def same_frame_teachers(model, features, stored, ground_truth):
         raise ValueError('GT must be binary; do not infer a region threshold')
     vision, sizes = features['vision'], features['sizes']
     with torch.no_grad():
-        # Match _forward_sam_heads' native low-to-high interpolation. Fail
-        # closed if re-encoding this prediction cannot reproduce stored memory.
-        predicted_high = F.interpolate(stored['pred_masks'].float(),
-            size=(model.image_size, model.image_size), mode='bilinear', align_corners=False)
+        # Native upsampling/selection can differ at the bit level from
+        # reconstructing a selected low-res mask. Use the author's actual
+        # encoder input, with source association verified against stored memory.
+        if native_capture['is_mask_from_pts']:
+            raise RuntimeError('Only unprompted predicted sources may be repaired')
+        if native_capture['stored_memory_sha256'] != _tree_digest(stored['maskmem_features']):
+            raise RuntimeError('Captured native high-res input belongs to another source memory')
+        if _tree_digest(native_capture['score']) != _tree_digest(stored['object_score_logits']):
+            raise RuntimeError('Captured source object score differs from stored score')
+        predicted_high = native_capture['high_res']
         native, native_pos = model._encode_new_memory(vision, sizes, predicted_high,
             stored['object_score_logits'], is_mask_from_pts=False)
         native = native.to(dtype=stored['maskmem_features'].dtype)

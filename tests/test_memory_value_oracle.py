@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from modeling.memory_value_oracle import FixedSpatialValues
+from scripts.mask_memory_teacher import capture_native_mask_inputs
 
 
 def test_identity_returns_native_tensor_and_has_no_trainable_parameters():
@@ -44,3 +45,24 @@ def test_partial_grid_and_nonfinite_teacher_fail():
     bad = torch.full((16, 1, 8), float('nan'))
     with pytest.raises(ValueError):
         FixedSpatialValues(torch.zeros_like(bad), bad, (4, 4))
+
+
+def test_native_capture_keeps_exact_arguments_and_restores_method_on_error():
+    class Encoder:
+        def _encode_new_memory(self, pred_masks_high_res, object_score_logits, is_mask_from_pts):
+            return pred_masks_high_res + object_score_logits, [torch.zeros_like(pred_masks_high_res)]
+
+    model = Encoder()
+    original = model._encode_new_memory
+    high = torch.randn(1, 1, 4, 4)
+    score = torch.tensor([[.5]])
+    expected = original(high, score, False)
+    with pytest.raises(RuntimeError):
+        with capture_native_mask_inputs(model) as capture:
+            actual = model._encode_new_memory(high, score, False)
+            assert capture['count'] == 1
+            assert torch.equal(capture['latest']['high_res'], high)
+            assert capture['latest']['high_res'].data_ptr() != high.data_ptr()
+            assert torch.equal(actual[0], expected[0])
+            raise RuntimeError('interrupt fixture')
+    assert model._encode_new_memory == original

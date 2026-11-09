@@ -1,6 +1,6 @@
 {
   "name": "GT-mask memory-value repair headroom in frozen official SAM2",
-  "version": 2,
+  "version": 3,
   "pre_inference_amendment": "The first length-only plan had27 cases and excluded seq10 because it required target8. Native SAM2 already reaches prompt+6 recent frames at target7. Before any diagnostic CNN inference/outcome, correct the minimum to7 to include eligible seq10. Preserve the original case-plan artifact. No outcome-based selection or stop-rule change.",
   "scope": "TRAIN-only oracle diagnostic; no learned method, validation selection or deployable efficacy claim",
   "seed": 20261109,
@@ -26,7 +26,8 @@
     "mask_and_presence": "Same oracle values but also use GT source presence under the author's mask-input score convention; diagnostic secondary arm"
   },
   "held_fixed": ["Native spatial keys and attention projections", "query image/features", "conditioning prompt memory", "spatial/temporal positions and RoPE", "object-pointer keys/values", "frame schedule", "SAM2 parameters", "native bank and all subsequent native predictions"],
-  "native_encoding_gate": "Re-encode each selected predicted-mask source from its stored low-res mask and native score with the author's own memory encoder. Require bitwise equality to its stored bfloat16 memory and positions before using a GT teacher. No approximation or tolerance fallback.",
+  "native_encoding_amendment": "Before any oracle query scoring, encoder_gate_attempt_01 failed native reconstruction. Native trace found selected-low-res re-upsampling differed from the actual native high-res mask by at most3.814697e-6 and changed18 stored bfloat16 values; captured actual inputs reproduced native memory exactly. Capture the actual high-res encoder input instead. Cases, oracle arms and decision rules are unchanged; keep the failed attempt and trace. No tolerance relaxation.",
+  "native_encoding_gate": "Capture the actual native high-res encoder input and score during the source trajectory; verify call/frame association and the returned stored-memory hash. Re-encode with those exact inputs using the author's own memory encoder. Require bitwise equality to stored bfloat16 memory and positions before using a GT teacher. Do not reconstruct the high-res input from selected low-res masks or use an approximation/tolerance fallback.",
   "engineering_gate": {
     "videos": ["seq2", "seq3"],
     "target": "Local frame8 only, using full seven-frame memory",
