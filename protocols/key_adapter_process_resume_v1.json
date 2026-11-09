@@ -1,0 +1,35 @@
+{
+  "name": "Single-thread uninterrupted versus fresh-process key-adapter continuation",
+  "scope": "Engineering and TRAIN-only optimization diagnostic; never efficacy",
+  "motivation": "Two fresh-process single-thread continuations matched exactly; equality to uninterrupted training and parity after switching arms remain unverified.",
+  "data": {
+    "sequences": ["seq2", "seq3"],
+    "clip": "First labelled prompt plus next four manifest frames; only original protocol TRAIN sequences",
+    "validation_access": false,
+    "test_access": false
+  },
+  "runtime": {"device": "cpu", "threads": 1, "deterministic_algorithms": true},
+  "schedule": {
+    "arms": ["token", "global"],
+    "updates_per_arm": 32,
+    "alternate_sequences": true,
+    "evaluations": [0, 8, 16, 24, 32],
+    "checkpoint_after_update_and_evaluation": 16,
+    "fresh_process_resume_updates": [17, 32]
+  },
+  "training": "Reuse original frozen pilot initialization, AdamW, gradient clipping, segmentation/presence loss, four-frame autoregressive update and native predicted memory writes. No architecture, loss, label, hyperparameter or data-split change.",
+  "checks": [
+    "Native-video and cached-feature replay match bitwise for both clips before each arm and after training",
+    "Zero adapter matches native across every tracked memory field and all four frames; do not relax parity",
+    "Input features, prompt banks and SAM2 weights remain unchanged",
+    "Every update has finite nonzero adapter gradients and native layer/pointer/value/position invariants",
+    "Same source, checkpoint, protocol, input values and runtime in uninterrupted and fresh-resume processes",
+    "Resume evaluation at step16 and subsequent loss/gradient/read/write records match uninterrupted reference exactly",
+    "Final heads, optimizer and RNG match uninterrupted reference exactly",
+    "Final fixed-clip evaluation bank hashes and losses match exactly"
+  ],
+  "stop": "Stop at first failed integrity check, retain differences and artifacts. No efficacy/test authorization even if this diagnostic passes.",
+  "optimization_signal": "Descriptive TRAIN check only: final equal-clip loss falls at least 1%, neither clip worsens more than 2%. Both matched arms must complete before interpreting this comparison.",
+  "prior_evidence": "key_adapter_optimization_validity_v1/single_thread_replica_comparison.json; original two-thread fixed-training failure remains preserved",
+  "reuse": ["Official pretrained SAM2", "MoGA-derived existing adapter", "existing diagnose_key_adapter_optimization.evaluate/update", "existing trace_key_adapter_parity.forward/compare_banks", "native PyTorch AdamW/state_dict/RNG APIs"]
+}
