@@ -6,6 +6,7 @@ confidence gate. This is a SAM2 adaptation, not the full RDE-VOS model.
 """
 import ast
 from contextlib import contextmanager
+from functools import wraps
 import inspect
 from pathlib import Path
 import subprocess
@@ -108,6 +109,7 @@ def bind_native_reads(model, adapter):
     original = model._prepare_memory_conditioned_features
     signature = inspect.signature(original)
 
+    @wraps(original)
     def observed(*args, **kwargs):
         bound = signature.bind(*args, **kwargs)
         bound.apply_defaults()

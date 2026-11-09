@@ -1,7 +1,7 @@
 from pathlib import Path
 import torch
 import pytest
-from modeling.rde_value_repair import MemoryValueRepair, author_consistency_loss, value_consistency
+from modeling.rde_value_repair import MemoryValueRepair, author_consistency_loss, value_consistency, bind_native_reads
 
 RDE = Path('/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/references/RDE-VOS-CVPR2022')
 
@@ -43,3 +43,18 @@ def test_author_kl_exact_channel_axis_and_teacher_detach():
     actual.backward()
     assert t.grad is None and torch.equal(s.grad[:4],torch.zeros_like(s.grad[:4]))
     assert s.grad[4:].abs().sum()>0
+
+
+def test_native_signature_survives_wrapping_for_existing_observers():
+    import inspect
+    class Model:
+        def _prepare_memory_conditioned_features(self, frame_idx, is_init_cond_frame, output_dict=None, num_frames=9):
+            return frame_idx
+    model=Model();m=adapter();original=model._prepare_memory_conditioned_features
+    with bind_native_reads(model,m):
+        signature=inspect.signature(model._prepare_memory_conditioned_features)
+        assert signature==inspect.signature(original)
+        bound=signature.bind(frame_idx=0,is_init_cond_frame=True)
+        assert bound.arguments['is_init_cond_frame'] is True
+        assert model._prepare_memory_conditioned_features(frame_idx=0,is_init_cond_frame=True)==0
+    assert model._prepare_memory_conditioned_features==original
