@@ -108,6 +108,20 @@ class _FakeModel(nn.Module):
         self.memory_attention.batch_first = batch_first
 
 
+def test_native_value_hook_accepts_fixed_reference_buffers_without_parameters():
+    from modeling.memory_value_oracle import FixedSpatialValues
+
+    model = _FakeModel().requires_grad_(False)
+    spatial = torch.randn(16, 1, 8)
+    memory = torch.cat((spatial, torch.randn(2, 1, 8)))
+    adapters = [FixedSpatialValues(spatial, spatial + 1, (4, 4)) for _ in range(4)]
+    with MAVOSMemoryValueModulation(model, adapters, record_value_receipts=True) as integration:
+        for layer in model.memory_attention.layers:
+            layer.cross_attn_image(q=memory, k=memory, v=memory, num_k_exclude_rope=2)
+    assert len(integration.value_calls) == 4
+    assert all(v['pointer_tail_bit_identical'] for v in integration.value_calls)
+
+
 def test_attention_hooks_keep_pointer_tail_and_match_identity_start():
     model = _FakeModel()
     for parameter in model.parameters():

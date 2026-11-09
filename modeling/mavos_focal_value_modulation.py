@@ -30,6 +30,34 @@ def _tensor_sha256(value: Tensor) -> str:
     return hasher.hexdigest()
 
 
+def _activation_change_statistics(raw: Tensor, adapted: Tensor) -> dict[str, float | int]:
+    """Summarize a frame block's actual pre-v_proj value-token change."""
+    if raw.shape != adapted.shape or raw.ndim != 3:
+        raise ValueError("raw and adapted memory blocks must share [tokens,batch,channels]")
+    raw_flat = raw.detach().float().reshape(-1, raw.shape[-1])
+    adapted_flat = adapted.detach().float().reshape_as(raw_flat)
+    delta = adapted_flat - raw_flat
+    raw_norm = raw_flat.norm(dim=-1)
+    delta_norm = delta.norm(dim=-1)
+    relative = delta_norm / raw_norm.clamp_min(1e-12)
+    cosine = torch.nn.functional.cosine_similarity(
+        raw_flat, adapted_flat, dim=-1, eps=1e-12
+    )
+    if not all(torch.isfinite(x).all() for x in (raw_flat, adapted_flat, relative, cosine)):
+        raise RuntimeError("Nonfinite raw/adapted memory-value activation statistic")
+    quantiles = torch.quantile(relative, relative.new_tensor((0.5, 0.95)))
+    return {
+        "token_count": int(raw_flat.shape[0]),
+        "raw_rms": float(raw_flat.square().mean().sqrt()),
+        "delta_rms": float(delta.square().mean().sqrt()),
+        "relative_l2_mean": float(relative.mean()),
+        "relative_l2_median": float(quantiles[0]),
+        "relative_l2_p95": float(quantiles[1]),
+        "cosine_mean": float(cosine.mean()),
+        "changed_token_fraction": float((delta_norm > 0).float().mean()),
+    }
+
+
 class MAVOSFocalValueResidual(nn.Module):
     """Add a learned local/global focal residual to each memory token.
 
@@ -180,12 +208,15 @@ class MAVOSMemoryValueModulation:
         *,
         record_value_receipts: bool = False,
         capture_adapted_values: bool = False,
+        record_modulation_stats: bool = False,
     ):
         self.model = model
         self.adapters = tuple(adapters)
         self.record_value_receipts = bool(record_value_receipts)
         self.capture_adapted_values = bool(capture_adapted_values)
+        self.record_modulation_stats = bool(record_modulation_stats)
         self.value_calls: list[dict] = []
+        self.modulation_stats: list[dict] = []
         # Training-only live tensors, consumed by the auxiliary objective
         # immediately after each model.track_step. Never serialized or used at
         # inference. Values are stored in SAM2's sequence-first layout.
@@ -219,6 +250,26 @@ class MAVOSMemoryValueModulation:
             adapted_sequence_first = self.adapters[index](
                 memory_sequence_first, pointer_tokens=pointers
             )
+            if self.record_modulation_stats:
+                frame_tokens = (
+                    self.adapters[index].grid_shape[0]
+                    * self.adapters[index].grid_shape[1]
+                )
+                spatial_tokens = memory_sequence_first.shape[0] - pointers
+                if spatial_tokens % frame_tokens:
+                    raise RuntimeError("Cannot align value statistics to complete memory frames")
+                for frame_block in range(spatial_tokens // frame_tokens):
+                    start = frame_block * frame_tokens
+                    stop = start + frame_tokens
+                    stats = _activation_change_statistics(
+                        memory_sequence_first[start:stop],
+                        adapted_sequence_first[start:stop],
+                    )
+                    self.modulation_stats.append({
+                        "layer": index,
+                        "frame_block": frame_block,
+                        **stats,
+                    })
             if self.capture_adapted_values:
                 self.adapted_values.append({
                     "layer": index,
@@ -259,6 +310,7 @@ class MAVOSMemoryValueModulation:
         # chunk's autograd tensors leak into a later chunk.
         self.adapted_values.clear()
         self.value_calls.clear()
+        self.modulation_stats.clear()
         self.context.clear()
         memory_attention = getattr(self.model, "memory_attention", None)
         layers = getattr(memory_attention, "layers", None)
@@ -277,7 +329,9 @@ class MAVOSMemoryValueModulation:
             grid_tokens = self.adapters[index].grid_shape[0] * self.adapters[index].grid_shape[1]
             if attention.freqs_cis.shape[0] != grid_tokens:
                 raise RuntimeError("Adapter grid differs from SAM2 rotary spatial grid")
-            adapter_devices = {parameter.device for parameter in self.adapters[index].parameters()}
+            adapter_devices = {tensor.device for tensor in (
+                *self.adapters[index].parameters(), *self.adapters[index].buffers()
+            )}
             if adapter_devices != {attention.v_proj.weight.device}:
                 raise RuntimeError("Move each adapter to its SAM2 attention device before installation")
             attentions.append(attention)

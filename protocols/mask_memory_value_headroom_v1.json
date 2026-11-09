@@ -1,0 +1,44 @@
+{
+  "name": "GT-mask memory-value repair headroom in frozen official SAM2",
+  "scope": "TRAIN-only oracle diagnostic; no learned method, validation selection or deployable efficacy claim",
+  "seed": 20261109,
+  "prior_work": {
+    "official_repository": "https://github.com/Limingxing00/RDE-VOS-CVPR2022",
+    "revision": "548a889395e2370c07962692e01e3abf8f518153",
+    "idea": "The published code compares values encoded from a perturbed mask (ref_v) with values encoded from GT (v_2), using channel-wise KL. This diagnostic does not train that loss or reproduce the full RDE architecture.",
+    "project_difference": "MemSAM v2 changed features before memory encoding without consistency supervision; MAVOS contrastive values used FG/BG SupCon without GT-memory targets. Run142 used GT BOX prompts with MedSAM2, not this value-only intervention."
+  },
+  "data": {
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12"],
+    "prompt": "First labelled frame; native propagation thereafter",
+    "targets": "For N frames after reindexing the first labelled prompt to0, select sorted unique targets 8+floor((N-1-8)*i/2), i=0,1,2. If N<9 report skipped-too-short. Selection never uses model outcomes or target-mask contents.",
+    "trajectory": "One fixed native trajectory per video; interventions are read-only query replays. Never write oracle predictions into the native bank.",
+    "validation_access": false,
+    "test_access": false,
+    "status": "Exploratory; PolypGen informed previous development. Sequence independence does not establish patient independence."
+  },
+  "arms": {
+    "native": "Native query replay with its unchanged predicted bank",
+    "identity_values": "Same pre-v_proj value integration, replacing spatial values by identical native values",
+    "mask_only": "For every selected NON-conditioning memory frame, re-encode the same source image features with its GT mask and its native object score; replace only that frame's unpositioned spatial values in all four reads",
+    "mask_and_presence": "Same oracle values but also use GT source presence under the author's mask-input score convention; diagnostic secondary arm"
+  },
+  "held_fixed": ["Native spatial keys and attention projections", "query image/features", "conditioning prompt memory", "spatial/temporal positions and RoPE", "object-pointer keys/values", "frame schedule", "SAM2 parameters", "native bank and all subsequent native predictions"],
+  "native_encoding_gate": "Re-encode each selected predicted-mask source from its stored low-res mask and native score with the author's own memory encoder. Require bitwise equality to its stored bfloat16 memory and positions before using a GT teacher. No approximation or tolerance fallback.",
+  "engineering_gate": {
+    "videos": ["seq2", "seq3"],
+    "target": "Local frame8 only, using full seven-frame memory",
+    "checks": ["native replay matches propagation", "identity value wrapper matches native bitwise", "all four layers and selected spans match", "pre-k_proj key inputs unchanged for every oracle arm", "pointer values unchanged", "GT teacher affects values only", "native bank/source hashes unchanged", "native replay after oracle equals before", "model parameter hash unchanged"],
+    "full_diagnostic_requires_matching_gate_receipt": true
+  },
+  "metrics": ["Present-frame Dice and IoU", "Boundary F", "GT-empty false alarms", "native/oracle object scores", "source-mask quality and token-vector changes", "per-sequence effects", "wall time and peak RSS"],
+  "analysis": "Sequence is the unit; mean target scores within each sequence, then equal-sequence mean. Report both predeclared oracle-minus-native contrasts, sequence bootstrap95% intervals (10000 draws), Wilcoxon/Holm, wins/ties/losses and leave-one-sequence-out sensitivity. Report all planned cases, skips and empty-target denominators.",
+  "decision": {
+    "primary": "mask_only minus native on present targets",
+    "consider_future_training_only_if": "At least8 sequences have present targets; equal-sequence Dice gain>=0.01; bootstrap lower bound>0; wins>=60% of eligible sequences; every leave-one-sequence-out mean remains positive; no additional false alarms on sampled GT-empty targets. If no empty target exists, mark false-alarm assessment unavailable and require it in any later pilot.",
+    "secondary_not_fallback": "A gain only in mask_and_presence does not pass the mask-only repair hypothesis. Interpret source-presence and mask effects separately.",
+    "stop": "Any integrity failure stops before full diagnostic. Failed primary headroom stops this defined mask-only value-repair candidate; do not train it to seek a positive result.",
+    "limit": "This is not a global oracle upper bound, a learned selector, a cohort efficacy result, proof of convergence or a publication claim. Passing can motivate a separately frozen learned comparison only; it does not reopen the old pilot test."
+  },
+  "reuse": ["Pinned native SAM2 memory encoder and supplied-mask convention", "Existing native_memory_layout frame spans", "Existing MAVOS pre-v_proj integration", "Existing NativeComplementaryRead alignment observer", "Existing evaluation/statistics and safe-resume helpers"]
+}
