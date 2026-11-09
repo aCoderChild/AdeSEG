@@ -1,0 +1,13 @@
+{
+  "name": "Full value-repair executor interruption and cursor gate",
+  "version": 1,
+  "scope": "Engineering only; not efficacy or full-training convergence",
+  "sequences": ["seq2", "seq3"],
+  "frames_from_first_prompt": 5,
+  "epochs": 1,
+  "seed": 20261109,
+  "interruption": "Stop with expected exit75 after third immutable frame receipt but before publishing that checkpoint; restart a fresh process from the committed prior slot and require exact orphan replay.",
+  "arms": ["segmentation_only", "segmentation_plus_consistency"],
+  "must_pass": ["Complete uninterrupted reference", "Controlled interruption leaves one orphan receipt", "Fresh-process restart reproduces all scientific frame receipts and final complete optimizer/RNG/adapter state", "Both arms share initialization", "No source/teacher/state drift", "Sequence cursor reaches the terminal schedule", "Exclusive lock, corrupt checkpoint, journal and cursor unit checks"],
+  "coverage_limit": "This fixed two-video one-epoch real-frame fixture verifies the same executor. Full-capacity attention and teacher association are separately verified by the 28,672-token and autoregressive query8-10 gates. Three-epoch cursor transitions are additionally unit tested. Full-cohort safety remains checked per frame during the actual run."
+}
