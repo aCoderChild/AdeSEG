@@ -16,9 +16,9 @@ DESIGN = ROOT / 'protocols/mask_memory_value_headroom_v1.json'
 
 
 def target_indices(length):
-    if length < 9:
+    if length < 8:
         return []
-    return sorted({8 + (length - 9) * i // 2 for i in range(3)})
+    return sorted({7 + (length - 8) * i // 2 for i in range(3)})
 
 
 def run(out):
@@ -41,7 +41,7 @@ def run(out):
         targets = target_indices(len(frames))
         sequences[name] = {'prompt_manifest_offset': start, 'prompt_source_frame': original[start].frame_index,
             'post_prompt_reindexed_length': len(frames), 'target_indices': targets,
-            'skip_reason': None if targets else 'too_short_for_eight_past_frames'}
+            'skip_reason': None if targets else 'too_short_for_prompt_plus_six_recent_frames'}
         for target in targets:
             cases.append({'id': f'{name}_t{target}', 'sequence': name, 'target_local_frame': target,
                 'target_source_frame': frames[target].frame_index,

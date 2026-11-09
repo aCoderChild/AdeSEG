@@ -1,5 +1,7 @@
 {
   "name": "GT-mask memory-value repair headroom in frozen official SAM2",
+  "version": 2,
+  "pre_inference_amendment": "The first length-only plan had27 cases and excluded seq10 because it required target8. Native SAM2 already reaches prompt+6 recent frames at target7. Before any diagnostic CNN inference/outcome, correct the minimum to7 to include eligible seq10. Preserve the original case-plan artifact. No outcome-based selection or stop-rule change.",
   "scope": "TRAIN-only oracle diagnostic; no learned method, validation selection or deployable efficacy claim",
   "seed": 20261109,
   "prior_work": {
@@ -11,7 +13,7 @@
   "data": {
     "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12"],
     "prompt": "First labelled frame; native propagation thereafter",
-    "targets": "For N frames after reindexing the first labelled prompt to0, select sorted unique targets 8+floor((N-1-8)*i/2), i=0,1,2. If N<9 report skipped-too-short. Selection never uses model outcomes or target-mask contents.",
+    "targets": "For N frames after reindexing the first labelled prompt to0, select sorted unique targets 7+floor((N-1-7)*i/2), i=0,1,2. If N<8 report skipped-too-short. Native full capacity is first available at target7. Selection never uses model outcomes or target-mask contents.",
     "trajectory": "One fixed native trajectory per video; interventions are read-only query replays. Never write oracle predictions into the native bank.",
     "validation_access": false,
     "test_access": false,
