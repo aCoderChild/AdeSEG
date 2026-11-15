@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts import bounded_crossfit_shared_worker_3fold_v1 as worker
 from scripts.bounded_crossfit_supervision_3fold_v1 import assert_supervised
-from scripts.channel_value_fixed_read_v1 import model_for, require_environment_flags
+from scripts.channel_value_fixed_read_v1 import model_for
 from scripts.crossfit_observer_capture_shared_v1 import BASE, DATA, phase_artifact, validate_plan
 from scripts.crossfit_training_contract_v1 import restore_view_mask
 from scripts.memory_token_io import digest
@@ -26,7 +26,6 @@ from scripts.preflight_bounded_crossfit_training_v1 import read_bound_json, requ
 from scripts.preflight_warm_crossfit_training_v1 import ARMS
 from scripts.source_group_label_guard_v1 import install_mask_open_guard
 from scripts.train_multilevel_refiner_seq4_empty_v2 import to_video
-from scripts.train_region_mixed_loss_v1 import environment_identity
 from scripts.warm_crossfit_fold_training_v1 import inputs
 from scripts.bounded_crossfit_fold_3fold_v1 import fold_definition
 
@@ -142,9 +141,7 @@ def main():
     require(current == authorization and digest(args.authorization) == authorization_sha, 'Authorization changed')
     registry, registry_sha = read_bound_json(Path(authorization['registry_path']) / 'registry.json')
     require(registry_sha == authorization['registry_sha256'], 'Mixed registry changed')
-    require_environment_flags(); require(torch.backends.mps.is_available(), 'MPS unavailable')
-    require(environment_identity() == registry['environment'], 'Runtime environment differs from capture')
-    torch.use_deterministic_algorithms(True); torch.set_num_threads(2)
+    worker.prepare_mps_training_environment(registry['environment'])
     predict(args.batch, args.fold, args.arm, authorization, registry, output, guard)
     print(json.dumps({'passed': True, 'fold': args.fold, 'arm': args.arm, 'output': str(output)}))
 

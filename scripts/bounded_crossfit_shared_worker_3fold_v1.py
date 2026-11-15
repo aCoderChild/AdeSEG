@@ -69,6 +69,15 @@ def path_under_drive(path):
     return path
 
 
+def prepare_mps_training_environment(expected_identity):
+    """Enable deterministic MPS execution before validating its identity."""
+    require_environment_flags()
+    require(torch.backends.mps.is_available(), 'MPS unavailable')
+    torch.use_deterministic_algorithms(True)
+    torch.set_num_threads(2)
+    require(environment_identity() == expected_identity, 'Runtime environment differs from capture')
+
+
 def check_probe(probe_path, audit_path, registry, registry_sha, verification_sha, preflight_sha, identity):
     """Check frozen probe/audit evidence; this performs no model inference."""
     probe_path = path_under_drive(probe_path)
@@ -203,9 +212,7 @@ def train_fold(authorization, fold, output, *, batch_root=None, cache_mib=1024):
     require(registry_sha == authorization['registry_sha256'], 'Registry changed')
     output = Path(output).resolve()
     require(output.is_relative_to(BASE.resolve(strict=True)) and not output.exists(), 'Invalid output')
-    require_environment_flags(); require(torch.backends.mps.is_available(), 'MPS unavailable')
-    require(environment_identity() == registry['environment'], 'Runtime environment differs from capture')
-    torch.use_deterministic_algorithms(True); torch.set_num_threads(2)
+    prepare_mps_training_environment(registry['environment'])
     rows = {(x['sequence'], x['frame']): x for x in registry['samples']}
     require(len(rows) == 357, 'Mixed sample coverage differs')
     train_groups, _, _, order = fold_definition(registry, fold, rows)
