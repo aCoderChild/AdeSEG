@@ -22,3 +22,5 @@ Replace both paths in the command above to apply a different patch. The SASVi
 adaptation is in `sasvi_confirmation.patch`; the Efficient-SAM2 adaptation is
 documented in [efficient-sam2-device.md](efficient-sam2-device.md). A patch
 must not be applied twice: `git apply --check` fails when it is already applied.
+`sam2-local-comments.patch` records the comments-only local SAM2 changes; it
+does not change model execution.

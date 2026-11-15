@@ -1,0 +1,22 @@
+diff --git a/sam2/modeling/backbones/image_encoder.py b/sam2/modeling/backbones/image_encoder.py
+index 37e9266..dbf871a 100644
+--- a/sam2/modeling/backbones/image_encoder.py
++++ b/sam2/modeling/backbones/image_encoder.py
+@@ -99,6 +99,8 @@ class FpnNeck(nn.Module):
+             fpn_top_down_levels = range(len(self.convs))
+         self.fpn_top_down_levels = list(fpn_top_down_levels)
+ 
++# need learning
++# feature fusion: levels 2 and 3
+     def forward(self, xs: List[torch.Tensor]):
+ 
+         out = [None] * len(self.convs)
+@@ -110,7 +112,7 @@ class FpnNeck(nn.Module):
+         # forward in top-down order (from low to high resolution)
+         n = len(self.convs) - 1
+         for i in range(n, -1, -1):
+-            x = xs[i]
++            x = xs[i] # select stage's feature map
+             lateral_features = self.convs[n - i](x)
+             if i in self.fpn_top_down_levels and prev_features is not None:
+                 top_down_features = F.interpolate(
