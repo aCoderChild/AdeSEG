@@ -1,0 +1,39 @@
+{
+  "id": "xmem_token_affinity_gate_verifier_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective verifier correction; no efficacy training authorized",
+  "scope": "Engineering-gate code and receipt validation only.",
+  "audit_findings": [
+    {
+      "artifact": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_20261108/failure.json",
+      "failure": "The post-update verifier required query hashes to remain unchanged at every attention layer.",
+      "cause": "An adapted earlier layer is expected to change the feature passed as the query to later layers. The invariant was over-broad.",
+      "correction": "Require the initial query to match at layer 0 and require stored keys, values, positions, and pointers to remain unchanged at every layer. Keep exact full-model parity as a separate zero-strength check."
+    },
+    {
+      "finding": "The verifier used an unimported tempfile module and checked captured sample count against the raw optional CLI argument.",
+      "correction": "Import tempfile and compare against the resolved clip length frozen by the protocol."
+    },
+    {
+      "finding": "The verifier constructed all required completion booleans as true after reaching the end of main.",
+      "correction": "Derive each required check from recorded parity, layer, geometry, gradient, bank, initialization, prediction-write, resume, and persistent-ID assertions; reject missing or false checks."
+    },
+    {
+      "finding": "The gate receipt did not bind the exact efficacy amendment and all current runner sources, so a later changed schedule or implementation could be paired with an older gate.",
+      "correction": "Bind the efficacy-amendment hash, manifest, SAM2 revision, environment, and runner source inventory in the gate setup and compare them with the planned training run before accepting the receipt."
+    },
+    {
+      "artifact": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_verifierfix_20261108/failure.json",
+      "finding": "The synthetic multi-object fixture treated NumPy's nonzero() coordinate tuple as a PyTorch tensor.",
+      "correction": "Use NumPy argwhere/median to split the visible prompt mask and validate the two nonempty synthetic object regions before propagation."
+    }
+  ],
+  "validation": {
+    "required": [
+      "Focused adapter, training-path, runner, verifier, receipt, and provenance tests pass.",
+      "The corrected seq2/seq3 gate runs in a new Drive output directory and derives all required checks from observed assertions.",
+      "The training runner rejects the previous partial receipt and any receipt whose frozen amendment, data, environment, SAM2 revision, or shared source hashes differ."
+    ],
+    "limitation": "Passing this engineering gate establishes implementation integrity on fixed short clips only. It does not establish a Dice gain or natural multi-object efficacy."
+  }
+}

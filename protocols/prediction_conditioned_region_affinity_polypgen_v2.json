@@ -1,0 +1,160 @@
+{
+  "name": "Prediction-conditioned regional memory affinity",
+  "status": "Prospective implementation repair of Run 125; method, folds, seed, training schedule and outcome screen retained.",
+  "motivation": "Test whether SAM2's own first-pass mask can guide a second dense memory read so region-specific memory use improves segmentation without selecting frames or dropping tokens.",
+  "prior_work": {
+    "HODOR": {
+      "paper": "Differentiable Soft-Masked Attention",
+      "paper_url": "https://arxiv.org/abs/2206.00182",
+      "repository": "https://github.com/Ali2500/HODOR",
+      "revision": "45da7329e32c8c6e52658f5aeebe625c1fefddef",
+      "reuse": "Use the official finite additive logit penalty for a continuous query-key affinity. HODOR's architecture is not transplanted."
+    },
+    "Cutie": {
+      "paper": "Putting the Object Back into Video Object Segmentation",
+      "paper_url": "https://openaccess.thecvf.com/content/CVPR2024/html/Cheng_Putting_the_Object_Back_into_Video_Object_Segmentation_CVPR_2024_paper.html",
+      "repository": "https://github.com/hkchengrex/Cutie",
+      "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+      "reuse": "Use its object-conditioned query/read motivation. Cutie's hard foreground/background attention itself is not used."
+    },
+    "SAM2": {
+      "repository": "https://github.com/facebookresearch/sam2",
+      "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+      "reuse": "Keep the author's track_step, memory-frame selection, memory attention layers, decoder and memory writer; wrap track_step to perform the second read and write the final output once."
+    }
+  },
+  "method": {
+    "memory_roles": "For each selected stored frame, derive soft background, foreground and mixed-cell memberships from that frame's own stored 256x256 predicted-mask logits on the native 64x64 memory grid. Use the exact SAM2 frame order and preserve each frame's temporal position.",
+    "query_roles": "Derive continuous query memberships from SAM2's current native first-pass 256x256 mask logits. No ground truth or hard threshold is used to assign roles at inference.",
+    "second_read": "On the second pass, add per-layer, per-role learned bounded bias -alpha[r] * query_role[r] * (1 - memory_role[r]) to spatial memory attention logits. Object-pointer key bias is exactly zero. The final second-pass decoder output is written to memory once.",
+    "learned_parameters": "Twelve scalar parameters: three role strengths for each of SAM2's four memory-attention layers, initialized at zero and bounded to [-2, 2] attention-logit units.",
+    "global_control": "Use the same first-pass query roles and learned parameters, but broadcast each stored frame's mean role memberships to every spatial key in that frame. This preserves per-frame role proportions and temporal changes while removing within-frame token location.",
+    "compute_control": "A native two-pass read/decode on the engineering gate. It must reproduce one-pass predictions and writes bit-for-bit. Regional and global arms both use the same two-pass compute path.",
+    "unchanged": [
+      "SAM2 image encoder",
+      "SAM2 memory encoder",
+      "native frame schedule",
+      "all selected spatial keys",
+      "all object-pointer keys",
+      "native temporal positional encodings",
+      "decoder architecture"
+    ],
+    "training_loss": "BCE plus the pinned SAM2 Dice function on the selected second-pass decoder mask before object-presence suppression, only for GT-present frames; native object-presence loss on all frames. This is an adapted objective, not the full SAM2 trainer (which uses focal, Dice and IoU terms)."
+  },
+  "engineering_gate": {
+    "sequence": "seq5",
+    "clip_length": 3,
+    "device": "cpu",
+    "requirements": [
+      "Zero-strength two-pass masks, object scores, pointers and memory writes are bit-identical to native one-pass SAM2.",
+      "The second read observes all four native memory-attention layers in order.",
+      "The role-map token count matches the selected spatial memory keys; pointer tokens receive zero bias and remain present.",
+      "A one-update segmentation-loss step yields finite nonzero gradients and finite bounded parameter updates in regional and global arms.",
+      "Post-update regional/global propagation returns finite masks and leaves the frozen SAM2 weights unchanged.",
+      "Independent explicit-softmax tests verify attention values and scale gradients at zero and nonzero weights.",
+      "At zero weights, upstream Q/K/V gradients equal native attention once, rather than twice.",
+      "Tagged-memory tests match region spans to actual author-selected spatial keys, including pointer separation.",
+      "GT-present, predicted-absent examples retain nonzero mask-shape gradients through the selected second-pass decoder output; memory still stores native presence-suppressed outputs."
+    ]
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15",
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded": {
+      "seq1": "No positive first-frame prompt mask",
+      "seq7": "No positive first-frame prompt mask"
+    },
+    "scope": "Exploratory: PolypGen has informed prior method development; patient-to-sequence independence is unverified."
+  },
+  "model": {
+    "config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "native_reference": "outputs/experiment/118_simvos_region_prototypes_polypgen_cv_v1"
+  },
+  "training": {
+    "folds": [
+      [
+        "seq2",
+        "seq5",
+        "seq8",
+        "seq11",
+        "seq14",
+        "seq18",
+        "seq21"
+      ],
+      [
+        "seq3",
+        "seq6",
+        "seq9",
+        "seq12",
+        "seq15",
+        "seq19",
+        "seq22"
+      ],
+      [
+        "seq4",
+        "seq10",
+        "seq13",
+        "seq16",
+        "seq17",
+        "seq20",
+        "seq23"
+      ]
+    ],
+    "clip_length": 5,
+    "epochs": 10,
+    "clips_per_training_sequence_per_epoch": 1,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "max_gradient_norm": 1.0,
+    "seed": 20261118,
+    "frozen": [
+      "SAM2 weights",
+      "native frame schedule"
+    ]
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice, 21 out-of-fold sequences.",
+    "secondary": [
+      "per-sequence Dice",
+      "IoU",
+      "Boundary F",
+      "false-alarm frames on empty-GT frames",
+      "runtime"
+    ],
+    "success_screen": "Regional must exceed both native and globalized-role means by at least 0.01 Dice, improve at least 14/21 sequences against both, and add no GT-empty false alarms against either.",
+    "patient_independence_verified": false,
+    "interpretation": "A failed screen is retained and reported; no thresholds, folds, seeds, or parameters may be changed based on PolypGen evaluation outcomes."
+  },
+  "implementation_amendment": {
+    "date": "2026-11-03",
+    "reason": "The zero-strength exact-forward expression duplicated Q/K/V gradients. A new independent regression test failed before the fix and passes after routing backward only through the biased attention computation. The new training loop also used presence-suppressed output masks for supervision, losing the mask-shape gradient on predicted-absent, GT-present frames.",
+    "supersedes": "Run 125 training is affected and was stopped during fold-1 evaluation; its partial outputs are retained and excluded from efficacy evidence.",
+    "repair": "Reuse modeling.region_mass_attention.native_identity; retain exact native forward and one computed backward path. Reuse decoder_training_mask/select_decoder_mask/present_mask_loss for second-pass raw decoder masks; preserve native outputs for inference and memory.",
+    "outcomes_used_for_design_change": false,
+    "unchanged_design": "Same region memberships, 12 scalars, bounds, optimizer, learning rate, clip length, folds, seed, inference path, metrics and success screen. Mask supervision is corrected as disclosed."
+  }
+}

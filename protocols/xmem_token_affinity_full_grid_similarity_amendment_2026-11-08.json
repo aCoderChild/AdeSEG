@@ -1,0 +1,27 @@
+{
+  "id": "xmem_token_affinity_full_grid_similarity_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective bounded engineering correction; efficacy remains blocked",
+  "parent_amendment": "protocols/xmem_token_affinity_corrected_source_gate_amendment_2026-11-08.json",
+  "parent_amendment_sha256": "985fb7eaf1ad68625606157db6a0ec38eea298aff27083df97e70b30188bf703",
+  "parent_result": "protocols/xmem_token_affinity_corrected_source_gate_results_2026-11-08.json",
+  "parent_result_sha256": "9eec371efff20fed9dc8bd99dc520b005474d8eecc3f3e517545e5c33dc1a17c",
+  "motivation": "Applying the shared scalar once made the bounded repeatability-only replay pass, but the complete gate still found a per-parameter mismatch in memory_projection.shrinkage_proj.weight on seq9's second update. The score equation was still evaluated as separate query-chunk graphs, causing shared projection gradients to accumulate from multiple branches.",
+  "change": {
+    "only_change": "Evaluate the unchanged XMem anisotropic-L2 score once over the full query grid, apply xmem_strength once, and slice the resulting bias for the existing query-chunked native SDPA calls.",
+    "unchanged": [
+      "XMem key, selection, and shrinkage projections and initialization",
+      "XMem anisotropic-L2 equation and dense per-token affinity semantics",
+      "SAM2 pretrained weights, native SDPA, pointers, positional encoding, and memory writes",
+      "loss, optimizer, schedule, data, clips, device, dtype, and exact pass criterion"
+    ],
+    "resource_check": "The repeatability run must record peak process memory; stop on OOM rather than reducing history, changing the clip, or silently restoring chunked score evaluation."
+  },
+  "verification": {
+    "first": "Compare full-grid scores with concatenated query-chunk scores on a deterministic tensor fixture within 1e-6 absolute and relative tolerance.",
+    "second": "Repeat the same two frozen CPU training clips from two clean starts, requiring exact equality of per-update receipts/losses and final adapter, optimizer, RNG, and frozen SAM2 weights.",
+    "pass": "Both checks pass. Then freeze a source-bound amendment and rerun the complete seq2/seq3 engineering gate before considering efficacy.",
+    "failure": "Stop this candidate. Keep efficacy blocked; do not relax exact replay or continue adding ad hoc numerical changes."
+  },
+  "interpretation_limit": "This is a training-graph implementation correction for the same mathematical affinity, not an efficacy test or evidence of improved Dice."
+}

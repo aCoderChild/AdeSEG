@@ -1,0 +1,58 @@
+{
+  "name": "CFBI regional nearest-neighbour evidence for SAM2 memory reads",
+  "status": "frozen candidate; engineering gate required before cohort run",
+  "prior_method": {
+    "paper": "Collaborative Video Object Segmentation by Foreground-Background Integration",
+    "paper_url": "https://arxiv.org/abs/2003.08333",
+    "repository": "https://github.com/z-x-yang/CFBI",
+    "revision": "91fc6a31b1752a8a9110b3ed480e05656f756691",
+    "license": "BSD-3-Clause",
+    "reused_code": "The pinned author global_matching implementation and its unchanged pairwise-distance / nearest-neighbour helpers are loaded from external/CFBI/networks/layers/matching.py."
+  },
+  "hypothesis": "Native SAM2 already attends to all stored memory. CFBI-style class-conditioned nearest-neighbour evidence may help the read distinguish useful foreground, boundary and background matches without selecting or dropping frames.",
+  "method": {
+    "query": "SAM2 q_proj(query) before rotary encoding, pooled from 64x64 to 16x16.",
+    "memory": "SAM2 k_proj(memory content) before rotary encoding; object-pointer tokens are excluded from the auxiliary matcher and remain in native attention.",
+    "regions": "Per-frame predicted-mask labels on the stored memory's 64x64 token grid. Within each 4x4 pooling cell, features are averaged separately for every region present. This preserves foreground, mixed-boundary and background evidence in a coarse local grid.",
+    "matching": "Call pinned CFBI global_matching over every stored memory frame and every region-specific pooled key. It returns three 16x16 nearest-neighbour distance maps, one per region. Missing regions receive neutral zero evidence.",
+    "integration": "A zero-initialized 1x1 projection maps the three evidence maps to a bounded residual added to each native cross-attention output. The native attention computation, stored memory, frame schedule, pointers, image encoder, memory encoder and decoder remain unchanged.",
+    "frame_policy": "Use SAM2's unchanged native frame schedule; do not select, reject or classify memory frames."
+  },
+  "engineering_gate": {
+    "sequence": "seq5",
+    "required": [
+      "zero-projection replay is bit-identical to native masks, scores, writes and cache state",
+      "all four memory-attention layers receive finite regional evidence",
+      "all spatial memory tokens are accounted for and pointer tokens remain unchanged",
+      "CFBI source revision is verified and its global matcher matches a direct author-function call",
+      "after one update, all four projections receive finite nonzero gradients and full clip propagation completes",
+      "no SAM2 parameter receives gradients"
+    ]
+  },
+  "training": {
+    "folds": [
+      ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21"],
+      ["seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22"],
+      ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"]
+    ],
+    "clip_length": 5,
+    "epochs": 10,
+    "clips_per_training_sequence_per_epoch": 1,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "gradient_norm": 1.0,
+    "seed": 20261109,
+    "loss": "Existing autoregressive SAM2 decoder mask Dice/BCE plus object-presence loss on each sampled clip.",
+    "frozen": ["SAM2 image encoder", "SAM2 memory encoder", "SAM2 decoder", "native frame schedule"]
+  },
+  "evaluation": {
+    "cohort": "All 21 promptable PolypGen sequences; seq1 and seq7 excluded because they have no positive first-frame prompt mask.",
+    "design": "Three sequence-grouped folds. The same sequences have informed earlier development, so results are exploratory and not independent confirmation.",
+    "primary": "Equal-sequence mean present-frame Dice on out-of-fold full propagation.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "GT-empty false alarms", "missed-return events", "attention evidence by layer", "inference runtime"],
+    "meaningful_screen": "At least +0.01 equal-sequence mean Dice, positive delta on at least 14/21 sequences, and no increase in pooled GT-empty false alarms.",
+    "patient_independence": "Unverified"
+  },
+  "decision": "If the engineering gate fails, do not launch the cohort run. If the frozen screen fails, report the negative result without tuning on these sequences."
+}

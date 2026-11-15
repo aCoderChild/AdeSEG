@@ -1,0 +1,15 @@
+{
+  "status": "post-hoc exploratory diagnostic",
+  "sequence": "seq13",
+  "target_frame": 66,
+  "question": "Do spatial memory or object pointers from the regional trajectory affect the return prediction when the other component is held fixed?",
+  "conditions": [
+    "native spatial memory and native pointers",
+    "regional spatial memory and regional pointers",
+    "native spatial memory and regional pointers",
+    "regional spatial memory and native pointers"
+  ],
+  "rule": "Use an identity gate and the same target image features for all four reads. Match stored frame IDs and preserve the prompt. Keep masks paired with the spatial features that they label; exchange object pointers only. Do not write or propagate mixed memories.",
+  "verification": "Require exact reproduction of the native and regional prediction histories and bit-identical replay of each unmixed reference. Confirm matching frame IDs, four attention layers, pointer counts, target image features and unchanged source banks. Stop on mismatch.",
+  "report": "Record object score, predicted mask, Dice and Boundary F for each condition. These are coupled counterfactuals on one outcome-selected frame; they do not prove a deployable improvement or uniquely attribute the failure."
+}

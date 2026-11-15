@@ -1,0 +1,56 @@
+{
+  "id": "xmem_token_affinity_failure_diagnostics_gate_2026-11-08",
+  "date": "2026-11-08",
+  "status": "passed_engineering_gate_only",
+  "scope": "Verify updated failure receipt and tensor-level memory mismatch diagnostics. Not an efficacy run.",
+  "command": "python scripts/verify_xmem_token_affinity.py --checkpoint <pinned sam2.1_hiera_tiny.pt> --output-dir <Drive>/outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_failure_logging_20261108 --sequences seq2 seq3 --length 3 --device cpu",
+  "gate_output_drive": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_failure_logging_20261108/",
+  "gate_setup_sha256": "faad6b8ba9245a8ba1e0772f874b896f2a3a4cd7b95f662ac636c1686279c932",
+  "source_snapshot_sha256": "fa96f88206007b14bcf8691b84f18faa83dd67c4482e1106879ec09f6cd19318",
+  "results_sha256": "90a33fa32b2523078a27dfe7b2dcedf5f9ef4880350e7323e52db90c34279bc2",
+  "source_count": 37,
+  "checks": {
+    "native_zero_strength_parity": true,
+    "four_layer_reads": true,
+    "memory_and_pointer_geometry_unchanged": true,
+    "pretrained_sam2_weights_unchanged": true,
+    "adapter_only_finite_gradients": true,
+    "native_bank_integrity": true,
+    "deterministic_initialization": true,
+    "own_prediction_memory_writes": true,
+    "adapter_optimizer_rng_resume_equivalence": true,
+    "persistent_multi_object_id_isolation": true
+  },
+  "plan_validation": {
+    "status": "plan_verified_no_training",
+    "training_clips": 480,
+    "plan_sha256": "02165c3b18234d13f78117b8b763d604746a58e7694cda18bf593f4e71e1bc49"
+  },
+  "current_runner_receipt_validation": {
+    "passed": true,
+    "core_sha256": "383e6f2b09aa849f3d300105a29551eb098df81e695ea541620a57120ef9ac16"
+  },
+  "repository_tests": {
+    "command": "python -m pytest -q",
+    "passed": 696,
+    "failed": 0,
+    "warnings": 29
+  },
+  "observed_prior_failure": {
+    "run": "outputs/experiment/xmem_token_affinity_polypgen_v1/full_20261108/",
+    "completed_clips": 1,
+    "planned_clips": 480,
+    "message": "Stored-mask order differs from actual native memory",
+    "status": "unexplained; not reproduced by targeted replay",
+    "metrics_available": false
+  },
+  "targeted_reproduction": {
+    "checkpoint_replay_clip2": "passed",
+    "sequential_clip1_clip2": "completed under an incomplete state comparison",
+    "adapter_optimizer_rng_after_clip1_matched_saved_receipt": false,
+    "receipt_drive_path": "outputs/experiment/xmem_token_affinity_polypgen_v1/full_20261108/diagnostics/sequential_clip1_clip2/diagnostic.json",
+    "receipt_sha256": "8c12bd11de684122009eb77d0a39100e9ccc3535bc5f841c15a057271468da22",
+    "correction": "The earlier diagnostic's optimizer check compared state-entry counts only, and its RNG check covered torch CPU only. A later strict fresh clip-1 comparison found adapter=false, optimizer tensor state=false (optimizer.state.18.exp_avg differed), and complete Python/NumPy/PyTorch RNG=false. Scalar clip losses matched, but that does not establish state equivalence. The prior run did not preserve initial Python/NumPy RNG states, so the saved checkpoint is not an independent fresh-start reference."
+  },
+  "decision": "Do not resume the partial efficacy attempt or treat it as a result. This gate record predates the strict RNG/state audit and does not clear the candidate. A dated RNG amendment adds a repeated full two-clip prefix gate; any later efficacy run requires a new source-bound gate and a fresh output directory. Full-cohort training was not launched."
+}

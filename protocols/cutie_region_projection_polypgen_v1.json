@@ -1,0 +1,51 @@
+{
+  "name": "Cutie regional summaries with zero-projection SAM2 residuals",
+  "status": "Exploratory follow-up to experiment 91; no shuffled arm",
+  "amendment": "The preceding Cutie-summary branch used one scalar residual scale per layer; all four trained scales remained close to zero. This prospective follow-up moves zero initialization to a layer-specific output projection so the first update can change the adapter projection while preserving exact native identity before training.",
+  "method": {
+    "regions": "Predicted-mask grid labels: background=0, foreground=1, mixed boundary=2, using the frozen project assignment protocol.",
+    "summary_source": "Pinned Cutie ObjectSummarizer and pretrained per-region summaries, unchanged from experiment 91.",
+    "read_source": "Pinned Cutie pretrained CrossAttention, initialized from cutie-base-mega.pth.",
+    "integration": "One zero-initialized 256-by-256 output projection per SAM2 memory-attention layer maps the Cutie regional cross-attention message into the native SAM2 residual stream. The previous scalar scale is frozen and unused. Native SAM2 reads, all memory keys and values, pointers, memory writes, image encoder, and decoder remain in place.",
+    "history": "Summaries are formed from all spatial memory frames present in SAM2's native bank; no frame is selected or discarded.",
+    "controls": "Native SAM2 reference only. No shuffled condition, per user direction."
+  },
+  "prior_work": {
+    "repository": "https://github.com/hkchengrex/Cutie",
+    "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+    "Cutie_modules": ["ObjectSummarizer", "CrossAttention"],
+    "adapter_initialization_reference": "ControlNet zero-initialized connection pattern; used only for the identity-preserving output projection, not as a segmentation or memory method.",
+    "ControlNet_repository": "https://github.com/lllyasviel/ControlNet"
+  },
+  "model": {
+    "sam2_configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "memory_feature_width": 256,
+    "prototype_count": "up to 8 per region per stored frame",
+    "sam2_modules_frozen": ["image encoder", "memory encoder", "native memory attention", "mask decoder"],
+    "trainable": "Cutie cross-attention readers, learned region-type embeddings, and per-layer zero-initialized output projections",
+    "initialization": "Output projections are exactly zero, so the regional residual is exactly zero before optimization."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "evaluation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive prompt frame", "seq7": "No positive prompt frame"},
+    "clip_length": 5,
+    "epochs": 5,
+    "seed": 20261106,
+    "scope": "Exploratory only: PolypGen has already informed prior candidate design and evaluation; sequence-to-patient independence is unverified."
+  },
+  "training": {
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "loss": "Mean author-compatible decoder mask loss plus object-presence loss across sampled five-frame clips.",
+    "selection": "No hyperparameter tuning on evaluation sequences. Same update count and optimizer scale as experiment 91 to isolate the output-connection change."
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice on seq16-seq23 against the exact archived native SAM2 trajectory.",
+    "exploratory_meaningful_screen": "At least +0.01 equal-sequence Dice, improvement on at least 6/8 sequences, and no increase in pooled false alarms on GT-empty frames.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false alarms", "missed-return events", "inference wall time"],
+    "interpretation": "These sequences are previously examined. Any positive outcome is a candidate signal only and requires confirmation on an untouched external dataset and a pre-specified second training seed."
+  }
+}

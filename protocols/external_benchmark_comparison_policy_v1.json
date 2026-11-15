@@ -1,0 +1,21 @@
+{
+  "status": "Comparison policy; no external accuracy run launched",
+  "user_preference": "Use verified published benchmark numbers; reproduce missing evaluations rather than rerunning all third-party baselines.",
+  "published_rows": "Record source, table, version, backbone, split, metric and memory interval; separate published and local measurements. A missing value does not prove no publication exists.",
+  "reuse": "Do not automatically rerun SAMURAI, SAM2Long, Efficient-SAM2 or Lean-SAM2 where the required evaluation is published. Prefer compatible released predictions for missing Dice or sequence statistics.",
+  "new_measurements": [
+    "Our regional adapter and parameter-matched global control need new evaluation.",
+    "A native reference is missing if compatible predictions or Dice/sequence statistics are unavailable for our exact checkpoint and protocol.",
+    "Run a third-party method only for an actually missing comparison after documenting searched sources and the intended setup."
+  ],
+  "engineering": "Retain native replay, mask/bank alignment, multi-object isolation, source/checkpoint checks and evaluator tests; these are not duplicate full-cohort reproduction.",
+  "statistics": "J&F is not Dice. Aggregate mean IoU/J&F cannot provide mean Dice or paired sequence tests and confidence intervals.",
+  "checkpoint": "Recent PolypGen MedSAM2_latest.pt results cannot inherit standard SAM2 published scores.",
+  "sources": [
+    "https://github.com/Mark12Ding/SAM2Long",
+    "https://github.com/facebookresearch/sam2",
+    "https://arxiv.org/html/2602.08224",
+    "https://arxiv.org/html/2607.19811",
+    "https://openreview.net/pdf/407b3abdb82eba58bb391e9799acb5d12b09bd7b.pdf"
+  ]
+}

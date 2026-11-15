@@ -19,7 +19,7 @@ from datasets.video import load_manifest, stage_frames
 from evaluation.davis2017.metrics import db_eval_boundary
 from evaluation.segmentation import calculate_scores
 from modeling.cfbi_region_gate import NativeCFBIGate, RegionGate
-from modeling.cfbi_training import capture_training_read, replay_training_read
+from modeling.cfbi_training import capture_training_read, object_presence_loss, replay_training_read
 from modeling.regional_refinement import refinement_loss
 from scripts.bank_integrity import fingerprint
 from scripts.false_alarm_statistics import propagation_summary
@@ -113,7 +113,7 @@ def training_capture(args, name, frames, repo):
     return rows
 
 
-def train(args, samples, repo, mode, schedule):
+def train(args, samples, repo, mode, schedule, *, presence_weight=0.0):
     model = build_author_predictor(args, repo)
     torch.manual_seed(20261031)
     gate = RegionGate().train()
@@ -124,10 +124,16 @@ def train(args, samples, repo, mode, schedule):
         sample = load(row['path'], row['sha256'])
         before = fingerprint(sample['output_dict'])['sha256']
         optimizer.zero_grad()
-        prediction, trace = replay_training_read(model, gate, sample, mode, row['sequence'])
+        if presence_weight:
+            prediction, object_score, trace = replay_training_read(
+                model, gate, sample, mode, row['sequence'], return_object_score=True)
+        else:
+            prediction, trace = replay_training_read(model, gate, sample, mode, row['sequence'])
         if step == 0 and not torch.equal(prediction.detach(), sample['native_logits']):
             raise RuntimeError(f'{mode} zero-gate replay mismatch')
         loss = refinement_loss(prediction, sample['target'])
+        if presence_weight:
+            loss = loss + presence_weight * object_presence_loss(object_score, sample['target'])
         if not torch.isfinite(loss):
             raise RuntimeError('Nonfinite training loss')
         loss.backward()
@@ -147,7 +153,7 @@ def train(args, samples, repo, mode, schedule):
     folder = args.output_dir / mode
     folder.mkdir()
     save_tensor(gate.state_dict(), folder / 'head.pt')
-    write(folder / 'training.json', {'schedule': schedule.tolist(), 'losses': losses, 'gradient_l1': gradients,
+    write(folder / 'training.json', {'schedule': schedule.tolist(), 'losses': losses, 'gradient_l1': gradients, 'presence_weight': presence_weight,
                                      'checkpoint_sha256': digest(folder / 'head.pt')})
     del model
     gc.collect()

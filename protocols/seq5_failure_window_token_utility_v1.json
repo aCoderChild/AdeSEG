@@ -1,0 +1,60 @@
+{
+  "id": "seq5_failure_window_token_utility_v1",
+  "status": "frozen_exploratory_diagnostic",
+  "research_question": "At two preidentified Seq5 disappearance frames, does any spatial memory tile in the actual native six-map bank have a conditional effect on raw localization or the visible SAM2 output?",
+  "scope": "Post-hoc fixed-bank mechanism diagnostic only. It cannot establish a deployable selector, full-video efficacy, or a cohort effect.",
+  "model": {
+    "checkpoint_drive_relative_path": "outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "sam2_source": "external/sam2_diagnostic_reference",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "device": "cpu",
+    "dtype": "native project inference dtype; deterministic two-thread replay"
+  },
+  "targets": {
+    "sequence": "seq5",
+    "manifest_indices": [157, 184],
+    "selection_reason": "Preidentified native prolonged-loss frames; exploratory and outcome-informed, not an evaluation sample.",
+    "ground_truth_use": "Used only for post-hoc score calculation; never used by SAM2 or to choose an intervention."
+  },
+  "intervention": {
+    "reuse": "Existing modeling.within_frame_token_utility.WithinFrameTokenRead and its original-coordinate sparse gather path.",
+    "source_frames": "At each target, enumerate every actual native intermediate spatial-memory source between the conditioning prompt and latest map; exclude both protected endpoints.",
+    "groups": "Sixteen disjoint 16x16 tiles on each 64x64 source grid; remove one tile from one source only, jointly across all four memory-attention layers.",
+    "arms": "One exact native/no-op replay plus all 16 single-tile removals for every eligible source frame.",
+    "fixed": [
+      "SAM2 pretrained weights and decoder",
+    "native chronological frame schedule and memory writes through the later target (frame 184); the diagnostic stops propagation there because later frames cannot affect these fixed target-time banks",
+      "dense current-frame queries and original spatial/temporal coordinates",
+      "all other source frames, conditioning/latest maps and pointer tokens",
+      "native object-presence handling"
+    ],
+    "writeback": "Forbidden; every counterfactual reads a cloned captured native target state."
+  },
+  "measurements": [
+    "post-presence visible mask Dice, IoU, Boundary F, foreground area and output hash",
+    "pre-presence raw decoder mask Dice, IoU, Boundary F, foreground area and output hash",
+    "object-presence logit",
+    "actual per-layer source IDs, token counts, kept-index hashes, pointer preservation and native-bank fingerprints"
+  ],
+  "interpretation": {
+    "tile_utility": "Native Dice minus Dice after removing a tile; positive means this removal hurts that target conditional on the remaining bank. Negative means removal helps.",
+    "limitations": [
+      "Tiles are 256-token groups, not individual vectors or semantic labels.",
+      "Removal changes attention normalization and all effects are conditional on the rest of the bank.",
+      "Choosing the best tile after seeing GT is an oracle description, not an inference-time rule.",
+      "Only two selected targets from one sequence are measured; no statistical or generalization claim is permitted."
+    ],
+    "continuation": "Do not implement a SAM2 modification or launch a cohort run from these outcomes alone. Any new selector must be frozen using inference-available inputs and independently validated on untouched videos."
+  },
+  "integrity_requirements": [
+    "Native/no-op outputs and object scores match the saved full-video native reference exactly at both targets.",
+    "All eligible source frames are enumerated in native order; no source substitution is allowed.",
+    "Each intervention removes exactly 256 spatial keys from exactly one source in each of four layers.",
+    "Pointers, all captured input tensors, the cloned target-time native memory-bank prefix, and the SAM2 parameter digest remain unchanged. Later growth of the live bank during chronological propagation is expected.",
+    "Two fresh-process executions produce identical intervention records and masks.",
+    "All artifacts, source hashes, commands and receipts are written to the mounted Google Drive output directory."
+  ]
+}

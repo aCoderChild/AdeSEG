@@ -1,0 +1,89 @@
+{
+  "name": "Seq5 fixed-prompt-anchor ToMe diagnostic",
+  "status": "authorized_for_single_seq5_development_diagnostic_after_passed_gates; no cohort-efficacy claim",
+  "purpose": "Test whether using the initial prompted-object pointer when pairing spatial memory keys changes prolonged object-presence failures, while retaining SAM2's native presence and decoder behavior.",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "sequence": "seq5",
+    "role": "post-hoc development diagnostic only; Seq5 informed this candidate",
+    "prompt": "Use the existing first-frame prompt unchanged",
+    "frames": "Full ordered propagation over all 249 post-prompt targets"
+  },
+  "conditions": [
+    "native_sam2",
+    "same-frame-pointer-conditioned_tome",
+    "fixed-prompt-pointer-conditioned_tome",
+    "generic_local_tome_matched_to_prompt-anchor"
+  ],
+  "method": {
+    "implementation": "modeling/prompt_anchor_tome.py::NativePromptAnchorToMe",
+    "mechanism": "Within each frozen SAM2 memory-attention layer, compare spatial keys with the initial prompt pointer's keys after both pass through the same frozen K projection and SAM2 positional transform. Add this cosine cue to the existing local ToMe matching metric. Keep the pinned ToMe bipartite matcher and mass-weighted K/V aggregation.",
+    "quota_control": "Use the prompt-anchor arm's per-frame, per-layer, per-window merge counts unchanged for same-frame-pointer and generic controls. Verify exact matched counts before interpreting outcomes.",
+    "unchanged": [
+      "all 249 source frames and the native memory schedule",
+      "SAM2 parameters, memory writes, native attention projections, decoder and object-presence rule",
+      "prompt initialization and frame order",
+      "ToMe window size and merge rate",
+      "pointer K/V tail"
+    ],
+    "forbidden": [
+      "presence-score thresholds or bypass",
+      "frame selection",
+      "target ground-truth access during inference or matching",
+      "per-frame tuning",
+      "changing merge quotas after observing Seq5 results"
+    ]
+  },
+  "report": {
+    "primary": [
+      "object-presence logits on GT-present zero-Dice intervals",
+      "returned-mask Dice on all GT-present targets",
+      "false alarms on all GT-empty targets"
+    ],
+    "secondary": [
+      "return detections and delay",
+      "boundary F and IoU",
+      "runtime and exact merge counts"
+    ],
+    "interpretation_limit": "Seq5 is development data. Even if the prompt-anchor arm improves Seq5, this is a mechanism diagnostic only and cannot establish cohort efficacy or generalization. A new candidate requires a separately frozen multi-sequence protocol and untouched confirmation."
+  },
+  "preconditions": {
+    "active_full_cohort": "PID 50946 must exit with a completion receipt; all 21 sequences must pass integrity audit before any diagnostic inference",
+    "engineering_gate": "Require gate v2 completion plus an independent replay receipt at prompt_anchor_seq5_diagnostic/gate_v2/independent_replay.json.",
+    "source_integrity": "verify pinned SAM2, ToMe, model, runner, checkpoint, manifest and archived-native hashes before inference",
+    "failure_policy": "Any failed precondition, parity check, budget check, or frame alignment check stops the diagnostic; no retry or silent protocol change.",
+    "runner_gate": "Use only a fresh Drive output directory; runner fails closed unless the frozen protocol is amended and hash updated after all gates pass.",
+    "full_cohort_audit": "Require an independently generated all-21-sequence PASS receipt at full_attempt01/audits/final_full_cohort_integrity_audit.json."
+  },
+  "output": "Google Drive AdeSEG/outputs/experiment/pointer_conditioned_tome_polypgen_v1/full_attempt01/prompt_anchor_seq5_diagnostic_v1/",
+  "execution": {
+    "device": "CPU FP32",
+    "seed": 20261113,
+    "launch_authorized": true,
+    "reason": "Full cohort completed and all 21 sequence integrity audits passed; prompt-anchor seq2/seq3 engineering gate passed in two independent processes with byte-identical outputs.",
+    "runner": "scripts/run_seq5_prompt_anchor_diagnostic.py"
+  },
+  "runner_integration": "scripts/run_seq5_prompt_anchor_diagnostic.py (preconditioned; not yet eligible to run until active cohort and gate pass)",
+  "source_hashes": {
+    "external/ToMe/tome/merge.py": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e",
+    "modeling/native_memory_layout.py": "0507cba29143a91f4f87ae1a4dac009b64049195dcdf9542eea197417d2df35f",
+    "modeling/pointer_conditioned_tome.py": "d9746e2000ebd3830dea5c5dcbec8336e75785d3c730bc9fc1f5f5b3d716718b",
+    "modeling/prompt_anchor_tome.py": "9ba74e589aef387967ab8c45c1d6c2a50bc446b33537d9595769b46f67521450",
+    "modeling/region_constrained_tome.py": "e65102e20662246f135e87fce549730974542feb7169cca42bd7acc2b2764ea4",
+    "modeling/token_diagnostic_replay.py": "c77c3e1aeefd1a5c4804ec9e452d4441251c02ab6fca69ed7ff765fb38eb7d2b",
+    "scripts/bank_integrity.py": "5fd5664110cde769979678b97c7e19efea70a1c41c1344b40c5f87b3d37dd333",
+    "scripts/memory_token_io.py": "6203ab7f441cf0dca082db7053099fe7908142ba25d873deadaccb6d3f4e8df4",
+    "scripts/run_author_baseline.py": "6d45eb32fe7a52763509b27af638a3ffb22e887b1f9725083ca75f0c8ed72b56",
+    "scripts/run_cfbi_region_pilot.py": "a5f5920064d9784bcf13bbfd328e2305c24d3d85be78c55e37fb7aca11d44410",
+    "scripts/run_pointer_conditioned_tome_full.py": "c394759a47907c1f900fa466a77fa4c3e3716eea6585c5dfd4c7ba053b803a6f",
+    "scripts/run_region_constrained_tome_gate.py": "9f6b87f4757a00511f7fbb8ce3024a5a4c1558de338b7f7f2c7adaf88ab3e318",
+    "scripts/run_regional_refinement.py": "8ab6c191b571d01d7166d6ed2ddc0f5d761b589dcb3e3c1fa4d78c7ec91e5904",
+    "scripts/run_seq5_prompt_anchor_diagnostic.py": "9eaa499dc072e5770b44ce96106134154d68aaac1d35c476d36e6fbd77ce0516",
+    "scripts/verify_prompt_anchor_tome.py": "546a7345d5036f653d3df56109cdb941f850e20de50acb4514a53185eaf39806"
+  },
+  "input_hashes": {
+    "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/native_results.json": "0ccb0d2d5b8d85b9d1e08082de141ebe2d68f78927e32543a644d333d25d32ed",
+    "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/assets/sam2.1_hiera_tiny.pt": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "/Users/maianhpham/Documents/AdeSEG/data/polypgen_sequence.jsonl": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f"
+  }
+}

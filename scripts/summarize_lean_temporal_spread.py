@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Summarize the four independently scored temporal-spread runs."""
+import argparse,json,sys
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
+from scripts.memory_token_io import digest,validate_output
+p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();read=lambda p:json.loads(p.read_text());rows={}
+for seq in ('seq8','seq11','seq20','seq23'):
+ audit=a.root/f'{seq}_audit_attempt01';d=read(audit/'results.json');done=read(audit/'completion.json');v=read(a.root/f'{seq}_audit_verification_attempt01'/'verification.json');run=read(a.root/f'{seq}_verification_attempt01'/'verification.json')
+ if not all(x['passed'] for x in (done,v,run)) or d['sequence']!=seq or v['sequence']!=seq or done['results_sha256']!=digest(audit/'results.json') or v['audit_sha256']!=done['results_sha256'] or v['verifier_sha256']!=digest(ROOT/'scripts/verify_lean_temporal_spread_audit.py') or done['runner_sha256']!=digest(ROOT/'scripts/audit_lean_temporal_spread.py') or run['verifier_sha256']!=digest(ROOT/'scripts/verify_lean_temporal_spread_run.py'):raise ValueError('Audit source or verification changed')
+ rows[seq]={'recent':d['summary']['recent'],'spread':d['summary']['spread'],'reads':run['read_count'],'matched_spatial':run['same_spatial_key_count_reads'],'matched_pointers':run['same_pointer_key_count_reads'],'nonrecent_admissions':run['nonrecent_admissions'],'admissions':run['admissions'],'max_age':run['max_retained_age'],'audit_sha256':digest(audit/'results.json')}
+repeat=read(a.root/'seq23_repeat_verification_attempt01'/'verification.json')
+if not repeat['passed'] or not repeat['all_masks_equal'] or repeat['source_sha256']!=digest(ROOT/'scripts/verify_seq23_temporal_spread_repeat.py'):raise ValueError('Sequence 23 repeat changed')
+out=validate_output(a.output);out.mkdir(parents=True,exist_ok=False);data={'scope':'Previously inspected priority videos; matched automatic initialization and nominal token budget. Seq23 excludes the inset. GT-prompt native/Lean references have different prompts and are not matched controls.','sequences':rows,'seq23_repeat_sha256':digest(a.root/'seq23_repeat_verification_attempt01'/'verification.json'),'runner_sha256':digest(Path(__file__))}
+(out/'results.json').write_text(json.dumps(data,indent=2)+'\n');lines=['# Temporal spread versus recent window: four priority sequences','',data['scope'],'','| Sequence | Recent Dice | Spread Dice | Empty FAs: recent / spread | Equal spatial / pointer read counts | Nonrecent admissions | Maximum age |','| --- | ---: | ---: | ---: | ---: | ---: | ---: |']
+for seq,x in rows.items():
+ r=x['recent'];s=x['spread'];lines.append(f"| {seq} | {r['matched_present_dice']:.6f} | {s['matched_present_dice']:.6f} | {r['false_alarms']} / {s['false_alarms']} ({r['empty_count']}) | {x['matched_spatial']}/{x['reads']} / {x['matched_pointers']}/{x['reads']} | {x['nonrecent_admissions']}/{x['admissions']} | {x['max_age']} |")
+lines+=['','Dice uses historical matched-present target frames; false alarms cover all labeled-empty frames. A time-spread strategy chooses whole retained entries and is not an estimate of token utility. Both arms use the same automatic prompt and nominal represented-feature budget, but past memory contents and predictions vary together. Memory older than six frames uses the oldest learned temporal slot. The budget does not measure total RAM or latency. These selected sequences are not an independent generalization test.','']
+(out/'report.md').write_text('\n'.join(lines));(out/'completion.json').write_text(json.dumps({'passed':True,'results_sha256':digest(out/'results.json'),'report_sha256':digest(out/'report.md')},indent=2)+'\n');print('\n'.join(lines))

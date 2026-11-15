@@ -1,0 +1,13 @@
+{
+  "scope": "Exploratory PolypGen pilot; both training and validation sequences informed prior experiments. No held-out or patient independence claim.",
+  "training_sequences": ["seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq14", "seq15"],
+  "validation_sequences": ["seq2", "seq3", "seq13", "seq17"],
+  "clip_length": 5,
+  "epochs": 2,
+  "seed": 20261101,
+  "learning_rate": 0.00001,
+  "method": "Keep SAM2's native memory and learn residual regional readouts. For each clip, prompt the first frame with its ground truth mask; encode subsequent predictions, with loss on the four post-prompt frames. Sample with the pinned SAM2 RandomUniformSampler. All heads use identical clips and separately initialized optimizers.",
+  "controls": ["native", "regional", "shuffled", "generic"],
+  "evaluation": "Full autonomous propagation and equal-sequence present-frame Dice; also record boundary F, false alarms and return episodes. The four-sequence comparison is exploratory and cannot establish a reliable improvement.",
+  "rationale": "Broader clip sampling and a smaller learning rate are exploratory responses to the severe order sensitivity of training on three pairs; they do not isolate the source of instability."
+}

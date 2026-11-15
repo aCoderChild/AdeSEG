@@ -1,0 +1,47 @@
+{
+  "name": "Query-conditioned regional memory readout",
+  "status": "Exploratory PolypGen pilot; freeze before launch",
+  "motivation": "The prior learned global region-mass bias and pooled region-query adapters did not improve the primary metric. This candidate lets each current spatial query choose among native SDPA reads over predicted foreground, mixed-boundary and background memory keys.",
+  "method": "At each of SAM2's four memory-attention layers, compute native attention log-mass separately for the stored predicted-mask foreground, mixed-boundary and background keys. A learned per-head linear gate maps each current unrotated projected SAM2 query to three bounded regional log-mass biases. Redistribute regional spatial attention mass by those biases, retaining every key; keep object-pointer attention logits and values in the native path without regional labels. Do not change image encoding, memory writing, decoder or frame schedule.",
+  "inspiration_and_code": {
+    "cfbi_paper": "https://arxiv.org/abs/2003.08333",
+    "cfbi_repository": "https://github.com/z-x-yang/CFBI",
+    "cutie_paper": "https://arxiv.org/abs/2310.12982",
+    "cutie_repository": "https://github.com/hkchengrex/Cutie",
+    "sam2_repository": "https://github.com/facebookresearch/sam2",
+    "adaptation": "The papers motivate query-dependent foreground/background memory use. The implementation reuses the pinned SAM2 SDPA path and this project's predicted-mask region assignment; the per-query three-region gate is an explicit project adaptation, not a verbatim implementation from those repositories."
+  },
+  "model": {
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "configuration": "sam2.1_hiera_t",
+    "trainable_parameters_per_arm": 3072,
+    "maximum_region_log_bias": "ln(2), applied as ln(2) * tanh(query_gate_score)",
+    "query_gate": "For each layer and attention head, a trainable linear map from normalized pre-RoPE projected query features to three regional log-mass biases."
+  },
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "evaluation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive-mask frames", "seq7": "No positive-mask frames"},
+    "clip_length": 5,
+    "clips_per_training_sequence_per_epoch": 1,
+    "epochs": 5,
+    "seed": 20261104,
+    "scope": "Sequence-disjoint within PolypGen but exploratory only: the full dataset and seq16-23 have already informed previous work; patient-to-sequence independence is unverified."
+  },
+  "training": {
+    "arms": ["regional", "shuffled"],
+    "optimizer": "Adam",
+    "learning_rate": 0.01,
+    "loss": "Mean post-prompt decoder mask loss plus object-presence loss over each sampled clip; train the query gates and residual scales only.",
+    "control": "Shuffled permutes the three predicted-region labels within each stored memory frame, preserving per-frame token counts; train with the same clips, schedule and parameterization."
+  },
+  "evaluation": {
+    "conditions": ["native SAM2", "region-aware", "shuffled-region control"],
+    "primary": "Equal-sequence mean present-frame Dice over seq16-23.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false alarms on empty-GT frames", "return-event detection", "memory key and pointer counts", "inference wall time"],
+    "positive_pilot_criterion": "Regional must exceed both native and shuffled mean Dice by at least 0.01, exceed native on at least 6/8 sequences, and add no false alarms. One seed is a screening result only."
+  },
+  "decision": "Run the real-clip engineering gate first. If it passes, run this frozen sequence-split pilot once. Report a negative result if the fixed criterion is not met; do not tune against seq16-23."
+}

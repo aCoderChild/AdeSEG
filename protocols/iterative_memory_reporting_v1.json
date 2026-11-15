@@ -1,0 +1,47 @@
+{
+  "id": "iterative_memory_reporting_v1",
+  "created": "2026-11-07",
+  "status": "Pre-registered supplementary analysis, frozen before Run174 test evaluation or inspection of test scores.",
+  "purpose": "Complete the frozen Run174 reporting of sequence-level metrics, re-detection, compute and outlier influence without changing training, checkpoint selection, inference, or the continuation rule.",
+  "amendment_note": "The Run174 protocol already required outlier influence and re-detection reporting. Code review found that the runner retained per-sequence propagation events but did not aggregate those items or compute leave-one-sequence-out influence. This separately frozen summarizer fills that reporting gap. At freeze time the process was training the single_regional control; no validation/test efficacy scores had been inspected.",
+  "inputs": {
+    "results": "Google Drive outputs/experiment/174_iterative_memory_reader_v1/attempt_01/results.json",
+    "experiment_protocol": "protocols/iterative_memory_pilot_v1.json",
+    "scope": "Use only completed full-propagation results for the frozen test sequences seq16-seq23. Do not infer or fill missing values."
+  },
+  "analysis": {
+    "unit": "sequence; each sequence has equal weight for sequence-level means and paired contrasts",
+    "per_arm_metrics": [
+      "present_dice",
+      "present_iou",
+      "present_boundary_f",
+      "all_frame_dice",
+      "false_alarm_count_and_rate_on_GT_empty_frames",
+      "re_detections_and_sampled_frame_delay",
+      "elapsed_propagation_time_and_FPS",
+      "added_reader_parameter_count"
+    ],
+    "paired_present_dice_contrasts": [
+      "iterative_regional minus native",
+      "iterative_regional minus iterative_generic",
+      "iterative_regional minus single_regional"
+    ],
+    "uncertainty": "10,000 sequence bootstrap resamples using seed 20261107; paired two-sided Wilcoxon tests over sequences with Holm correction across the three frozen contrasts.",
+    "outlier_sensitivity": "For each frozen contrast, report the full-cohort mean and every leave-one-sequence-out mean, range, sign retention, and maximum absolute change from the full-cohort mean. No sequence may be removed from the primary result.",
+    "redetection": "Use the already-saved per-sequence propagation event records. Report total returns, detected and censored/undetected returns, plus median and mean delay among detected returns. Delays are sampled manifest frames; do not convert to seconds or treat censored returns as detected.",
+    "compute": "Report per-sequence elapsed propagation time and FPS, total elapsed propagation time, aggregate FPS, and protocol-stated added reader parameters. Timing covers the recorded propagation loop and is not a full deployment benchmark.",
+    "false_alarms": "Report total false masks over GT-empty frames, the pooled rate, the macro mean of per-sequence rates, denominators, and per-sequence rates.",
+    "missingness": "Report sequence denominators and missing metric sequences explicitly. Never replace undefined scores with zero or silently drop sequences.",
+    "human_readable_table": "Include one row per sequence and arm with present Dice, boundary F, false-alarm count and GT-empty denominator, re-detection events and delay, and FPS. The JSON also retains per-sequence IoU and other metrics."
+  },
+  "decision_rule": "The continuation decision remains exactly the one in iterative_memory_pilot_v1.json. This supplementary analysis adds no tuning, new success threshold, or post-hoc sequence exclusion.",
+  "implementation": {
+    "script": "scripts/summarize_iterative_memory_pilot.py",
+    "script_sha256": "3853c8cea6f0db9bf1cd9531cc84873442e6c8d99e03c8298c35348551a85d8e",
+    "test": "tests/test_summarize_iterative_memory_pilot.py",
+    "test_sha256": "f8beb4c5cafa517efa707d37cf91e027fc2a95dd8a9caeee4d89229d21c3f50e",
+    "reused_statistics": "evaluation.statistics.sequence_bootstrap_interval, paired_wilcoxon, and holm_adjust",
+    "no_inference": true
+  },
+  "output": "Google Drive outputs/experiment/174_iterative_memory_reader_v1/attempt_01/posthoc/analysis.json and analysis.md"
+}

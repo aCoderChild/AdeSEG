@@ -1,0 +1,91 @@
+{
+  "name": "Predicted-region multiplicative value gate",
+  "status": "Exploratory PolypGen sequence-split pilot",
+  "motivation": "The preceding additive value-role pilot changed many frame logits but had negligible Dice effect. This candidate tests a distinct mechanism grounded in RMNet: mask-defined regions multiplicatively modulate memory values. The modulation is content-preserving at initialization and bounded so it cannot erase tokens.",
+  "method": "For each of SAM2's four memory-attention layers, learn a per-channel multiplicative gain for each predicted foreground, mixed-boundary, or background value token. Initialize gains at 1 and bound them to [0.75, 1.25]. Keep queries, keys, attention probabilities, pointers, all tokens, memory writes, encoder, decoder, and frame schedule unchanged.",
+  "prior_work": {
+    "RMNet_paper": "https://openaccess.thecvf.com/content/CVPR2021/papers/Xie_Efficient_Regional_Memory_Network_for_Video_Object_Segmentation_CVPR_2021_paper.pdf",
+    "RMNet_code": "https://github.com/hzxie/RMNet",
+    "RMNet_revision": "ed0f323b57803c0893f061dc8cfcf0b81e368492",
+    "RMNet_license": "MIT",
+    "adaptation": "RMNet computes a mask-derived regional map and multiplies both memory keys and values by it. This SAM2 adaptation uses predicted-mask region assignments to learn bounded channel-wise multiplicative gains on spatial values only; it retains every SAM2 token and pointer and leaves native keys and attention scores unchanged.",
+    "MMN_paper": "https://www.mdpi.com/2227-7390/12/6/863",
+    "MMN_code_status": "No official public repository was located during this survey; no MMN implementation is claimed."
+  },
+  "model": {
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "trainable_parameters": 3072,
+    "initialization": "Gain logits are zero, giving multiplicative gain exactly 1 and bit-identical native attention.",
+    "maximum_relative_gain_change": 0.25
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15"
+    ],
+    "evaluation_sequences": [
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded": {
+      "seq1": "No positive prompt frame",
+      "seq7": "No positive prompt frame"
+    },
+    "clip_length": 5,
+    "clips_per_training_sequence_per_epoch": 1,
+    "epochs": 5,
+    "seed": 20261104,
+    "scope": "Exploratory only: PolypGen informed earlier analyses and candidate design; patient-to-sequence independence is unverified."
+  },
+  "training": {
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "loss": "Mean author-compatible post-prompt decoder BCE plus Dice mask loss and object-presence loss across sampled clips.",
+    "frozen": [
+      "image encoder",
+      "SAM2 decoder",
+      "memory encoder",
+      "attention queries and keys",
+      "native attention probabilities",
+      "object pointers"
+    ],
+    "conditions": [
+      "native SAM2",
+      "regional multiplicative value gate"
+    ],
+    "shuffled_condition": "Omitted at user request."
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice over seq16-seq23.",
+    "success_screen": "At least +0.01 equal-sequence Dice over native, higher Dice on at least 6/8 sequences, and no increase in pooled false alarms on GT-empty frames.",
+    "secondary": [
+      "per-sequence Dice",
+      "IoU",
+      "Boundary F",
+      "empty-frame false alarms",
+      "missed return events",
+      "inference wall time",
+      "memory-token and pointer counts"
+    ],
+    "interpretation": "One seed is a screening experiment, not reliable confirmation. A positive result requires a second pre-specified seed and an untouched external dataset before a general performance claim."
+  }
+}

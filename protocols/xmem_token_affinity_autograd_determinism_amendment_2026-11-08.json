@@ -1,0 +1,37 @@
+{
+  "id": "xmem_token_affinity_autograd_determinism_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective engineering correction; efficacy remains stopped",
+  "parent_method_protocol": "protocols/xmem_token_affinity_polypgen_v1.json",
+  "parent_efficacy_amendment": "protocols/xmem_token_affinity_efficacy_amendment_2026-11-08.json",
+  "parent_rng_amendment": "protocols/xmem_token_affinity_rng_amendment_2026-11-08.json",
+  "parent_hashes": {
+    "method_protocol_sha256": "1085423ff0fb8317ec9fc60c1fee7dc2334d948d05d0c5d1facbb3b57af423a9",
+    "efficacy_amendment_sha256": "5b8889225ec9ce81438de01caa16c1ef16dd19e383c687d3745619829fff44b6",
+    "rng_amendment_sha256": "9b27c961ee3f447002e2a8a522c4aa2b0fe23c3c1543f783dc91bd83598c2990"
+  },
+  "diagnostic_evidence": {
+    "gate_setup_sha256": "650e112cc08394fd41c4e3876460b021fcf7f46ad0c38afe585e8b46d4035ae8",
+    "repeatability_receipt_sha256": "ef39a471ee02b7075d0905c9b0ec2f0e52c9d61b803ca672a4547ad0f3192925",
+    "failure_receipt_sha256": "c362c88a42b05dd10b907282562861c61e56ffcdc745d183f8a94803194d6173",
+    "observation": "The frame-broadcast arm started twice with identical adapter, optimizer, and full RNG state. Across the two frozen clips, the first reported difference was a 1.27e-5 gradient-L1 reduction; later loss differed by 5.96e-8 and final scalar adapter strength by 5.82e-10. RNG and pretrained weights remained identical/unchanged.",
+    "hypothesis": "Concurrent CPU autograd accumulation or reduction scheduling may be causing tiny floating-point differences. This is not yet established as the cause."
+  },
+  "change": {
+    "only_change": "Disable CPU autograd engine multithreading during loss.backward() with torch.autograd.set_multithreading_enabled(False).",
+    "unchanged": [
+      "model architecture and initialization",
+      "dataset, sequence roles, clips, and frame order",
+      "optimizer, learning rate, weight decay, losses, and update schedule",
+      "intra-op thread count, device, dtype, and deterministic-algorithm setting",
+      "efficacy metrics and stopping rule"
+    ],
+    "reason": "Execution scheduling only; the change is intended to make the already-frozen CPU training path exactly repeatable, not to alter the method or improve efficacy."
+  },
+  "required_checks": {
+    "scope": "Repeat the exact two-row frozen clip prefix twice from fresh starts for the frame-broadcast arm, then both arms if the isolated control passes.",
+    "pass": "Exact equality of initial adapter, optimizer, and full RNG; per-update receipts and losses; final adapter and optimizer tensor state; and full RNG. No tolerance relaxation is allowed.",
+    "failure": "Keep the full efficacy run stopped and diagnose the remaining first differing value. Do not alter thresholds or comparisons."
+  },
+  "interpretation": "This amendment resolves only a deterministic-training engineering condition if its exact replay check passes. It is not a research result and does not authorize efficacy training unless the complete real-checkpoint gate passes."
+}

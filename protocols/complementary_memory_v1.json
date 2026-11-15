@@ -1,0 +1,49 @@
+{
+  "name": "Complementary memory evidence with frozen SAM2",
+  "created": "2026-11-06",
+  "status": "engineering only; efficacy not authorized by a passing gate",
+  "goal": "Test whether explicitly learning complementary object and surrounding-context evidence from stored memory tokens improves full-propagation segmentation beyond native SAM2 and a parameter/training-matched generic reader, with all original weights and native frame selection fixed. Meaningful improvement is an empirical objective, not a guaranteed output.",
+  "hypothesis": "Regional organization adds useful predictive information beyond generic learned summarization and the object pointers already present in SAM2.",
+  "constraints": ["original SAM2 weights frozen", "native object pointers retained", "native memory frames and reads retained", "no confidence thresholds or hard attention gates", "no token deletion", "no GT after the prompt during evaluation", "Drive-only outputs", "no efficacy search based on test results"],
+  "model": {
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "repository": "external/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "precision": "CPU FP32 native computations; retain native predictor's bfloat16 bank storage",
+    "postprocessing": false
+  },
+  "prior_work": {
+    "repository": "https://github.com/hkchengrex/Cutie",
+    "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+    "reused_unchanged": ["ObjectSummarizer", "_weighted_pooling", "CrossAttention"],
+    "paper": "https://arxiv.org/abs/2310.12982",
+    "conceptual_support": "https://arxiv.org/abs/2003.08333",
+    "checkpoint_transfer": "None. New modules are initialized for SAM2's feature distribution, then trained; original SAM2 weights remain frozen.",
+    "distinction": "Earlier Cutie modules froze the author summarizer on hard three-region masks and added projected-value readers inside four attention layers. This candidate trains soft object/context pooling on raw stored 64-channel memory and adds one residual after the complete native four-layer read. This is a related, bounded follow-up, not an entirely new family or a reproduction of Cutie."
+  },
+  "architecture": {
+    "source": "Each native-selected frame's own stored pred_masks and maskmem_features; verify raw memory and spatial/temporal positions against actual native concatenation on every read.",
+    "probabilities": "sigmoid of stored 256x256 logits then area average to actual memory grid; these are positional cues, not exact memory-encoder mask inputs or semantically pure features",
+    "pooling": "Unmodified Cutie learned sigmoid weights times soft p or (1-p); two summaries for object and two for context per frame. No categorical boundary assignment. Zero-area summaries retained as zero; denominator floor 1e-6 is numerical protection.",
+    "positions": "Pool native spatial+temporal positional tensors with exactly the same upstream weights; project pooled 64-channel positions to 256. Do not invent new temporal slots or alter native positions.",
+    "read": "Single upstream CrossAttention with 256 channels and 8 heads after native memory_attention; zero-initialized 256x256 output projection adds a residual to native output.",
+    "generic": "Identical modules, parameter count, initialization and summary budget. Replace external mask cue with constant 0.5; learned pooling still uses the same mask-conditioned SAM2 memory vectors. Generic therefore means no additional explicit regional cue, not mask-independent features.",
+    "engineering_dimensions": "Four summaries and eight heads are fixed implementation choices, not literature-established optima. Do not sweep them after results.",
+    "multi_object": "Independent native object banks and probability maps; shared adapter weights, never pool across IDs. A split-prompt fixture tests isolation, not natural multi-object accuracy."
+  },
+  "seed": 20261106,
+  "data": {"manifest": "data/polypgen_sequence.jsonl", "status": "PolypGen and previously examined DAVIS validation are exploratory; patient independence unverified"},
+  "verification": {
+    "sequences": ["seq2", "seq3"],
+    "checks": ["unit test agreement with unchanged upstream soft pooling", "full sequence zero-residual logits and stored memory/pointers bit identical to native for both arms", "all four native layers observed", "actual spatial/frame/position alignment on every read", "two autoregressive optimizer steps per arm with finite nonzero output, pooling and reader gradients", "no original gradients or parameter changes", "reference banks unchanged", "finite active short propagation", "two-ID parity and registration-order independence", "single-object versus joint-object isolation", "source and checkpoint receipts before verification"]
+  },
+  "next_stage": {
+    "required_before_efficacy": ["bounded mask-only, feature-only and combined diagnostic using fixed sequence-separated splits and GT only for supervision/scoring", "review whether features add usable evidence on stored-mask error positions", "freeze training split, schedule, seed, loss, evaluation, practical effect size and stopping rule before any efficacy run"],
+    "pilot_conditions": ["native", "matched generic reader", "regional reader"],
+    "primary": "Equal-sequence present-frame Dice under full propagation; paired sequence uncertainty and per-sequence results",
+    "secondary": ["false alarms with denominators", "Boundary F", "IoU", "return detection", "runtime", "DAVIS official J&F when evaluated"],
+    "interpretation": "Native-only improvement supports adaptation. Regional contribution requires improvement over the matched generic reader. No gain is reported from engineering loss or short-clip overfitting.",
+    "stop": "If regional utility is absent or the reader fails the frozen pilot criteria, stop this candidate; preserve negative evidence and do not tune repeatedly on evaluation sequences."
+  }
+}

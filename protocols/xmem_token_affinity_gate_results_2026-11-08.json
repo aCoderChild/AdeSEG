@@ -1,0 +1,36 @@
+{
+  "id": "xmem_token_affinity_gate_results_2026-11-08",
+  "date": "2026-11-08",
+  "status": "partial engineering pass; protocol incomplete",
+  "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_probe_seedfix_20261108/",
+  "artifacts": {
+    "setup_sha256": "6f74570d9f1f571d2c10f45351db0adff29b283937629af00d6fe6824c2b9d3b",
+    "completion_sha256": "61f352c8339f14d2776d926f1de1bf03b9632faa2430c5ee00755f226eacf546",
+    "source_snapshot_sha256": "02d634eff815291ff45beaccaeda528743c26cd955273f8acadc13542cc2a822",
+    "review_status_sha256": "af1c4a49cd28be01f64b8bccc8bd64d0036dcb4b3c4b3a8c588126336fe174e2",
+    "setup_matches_completion": true,
+    "snapshot_source_hashes_verified": "20/20"
+  },
+  "fixed_inputs": {
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "device": "cpu",
+    "sequences": {
+      "seq2": {"manifest_frames": [19, 20, 21], "adapter_seed": 20261110},
+      "seq3": {"manifest_frames": [7, 8, 9], "adapter_seed": 20261111}
+    }
+  },
+  "checks_that_passed": [
+    "Zero-strength predictions replayed bit-identically to native SAM2 for both post-prompt reads in each sequence.",
+    "All four memory-attention layers were visited on every read.",
+    "Spatial keys, positional keys, values, pointer keys/values, key counts, saved native memory banks, and pretrained SAM2 parameters stayed unchanged.",
+    "All 36 added parameter tensors received finite nonzero gradients after one real-feature update in each sequence.",
+    "The adapter seed was applied deterministically and recorded per sequence."
+  ],
+  "remaining_before_efficacy": [
+    "The frozen protocol requires adapter, optimizer, and RNG save/resume equivalence; this probe did not perform it.",
+    "A protocol-complete training/resume runner and matched frame-broadcast control are not implemented.",
+    "No efficacy training or full-cohort propagation has run for this candidate."
+  ],
+  "interpretation": "The adapter integration is supported as an engineering component on the fixed single-object clips, not as a complete experiment pipeline or a Dice-improving method. Do not launch efficacy training until the remaining implementation and gates pass."
+}

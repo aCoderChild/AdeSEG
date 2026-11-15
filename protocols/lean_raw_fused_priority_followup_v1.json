@@ -1,0 +1,10 @@
+{
+  "purpose": "Extend existing matched-key raw-two versus fused-read engineering control to difficult sequences 8 and 20. Seq11 and no-inset seq23 have already completed the same comparison.",
+  "cohort": [
+    "seq8",
+    "seq20"
+  ],
+  "scope": "Both automatic arms reuse the exact archived prompt and indexed-RoPE image pipeline. The raw-two arm uses a fixed 16,384 represented-spatial-feature budget, author insurance reserve, and the two newest raw read entries. The fused-window control uses the same storage and the author's fused-skeleton-plus-newest read. Both use checkpoint and author worktree identities pinned by previously repeated engineering gates. No later redetection, new confidence gate, threshold, or labels at inference.",
+  "comparison": "The existing runner freezes each full-video prediction before separately reading labels for that run\u2019s recorded metrics. Complete both full videos before conducting the comparative audit; labels never enter model inputs or memory selection. Independently confirm all input and prompt identities, spatial and object-pointer attention key counts on each corresponding read, output fingerprints, represented-token budgets and gate provenance. Compare both arms to already archived automatic indexed baseline and raw-window outputs using existing fixed matched-target present-frame Dice and all-empty false alarms. GT-prompt native/Lean are unequal-prompt context only. Report every sequence, absolute scores and runtime limits. Retain all logs, receipts and masks in Drive.",
+  "interpretation": "Both sequences and intervention were previously inspected, so results are exploratory; propagated history and its feedback differ between arms. Equal key count does not imply equal memory content, source age or causal isolation of fusion. Do not claim more frames are stored or generalization."
+}

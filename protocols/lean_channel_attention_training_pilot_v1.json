@@ -1,0 +1,27 @@
+{
+  "scope": "Engineering and feasibility pilot only. Train the existing author-CBAM channel gate on automatically prompted, frozen SAM2 early-FPN features captured from the exact Lean raw-window pipeline. This does not claim independent-patient generalization or a clinical result.",
+  "groups": {
+    "train": [
+      "seq2",
+      "seq3",
+      "seq4"
+    ],
+    "validation": [
+      "seq9",
+      "seq10"
+    ],
+    "protected_priority": [
+      "seq8",
+      "seq11",
+      "seq20",
+      "seq23"
+    ]
+  },
+  "split_caution": "The sequence manifest lacks verified patient IDs. Whole-sequence separation and exact-image hash collision checks are required, but do not establish patient independence. All PolypGen data were previously inspected; outcomes remain exploratory.",
+  "selection": "Five deterministic source frames per sequence, evenly spaced between first automatic prompt plus one and the final frame, deduplicated before inference. Frame selection uses no mask labels. For engineering gate use seq3 only, never call it validation. Capture source FPN features and prompt-derived region prototypes without extra image or memory model calls; compare observer-only seq3 trajectory with the raw-window gate exactly.",
+  "representations": "Use 32-channel post-conv_s0 stage-0 FPN in CPU FP32. Preserve the full 256x256 feature grid: the existing inference first normalizes weighted vectors and only then area-pools the score to 64x64, which is not equivalent to pooling features first. Record foreground and background prototypes computed from the original automatic initial prompt; do not obtain them from later labels. Hash model, bypass, code, input images, prompt and explicit feature-pipeline identity. Training labels are opened only after each video\u2019s complete feature and prediction capture and are area-resized to 64x64 for supervision.",
+  "candidate": "Use the repository's author ChannelGate adapter with [foreground, negative background] descriptors to produce channel weights, then the same contrast cosine used by current diagnostics. Fixed sigmoid-logit scale and class-balanced soft binary cross entropy are an exploratory surrogate objective, not direct video Dice. Train only on selected train-sequence frames. Choose all training settings and epoch count before inspecting validation. Save checkpoint with full data, source, runtime and optimization provenance.",
+  "controls": "Use no-training unweighted FPN and RGB contrast; train a matching-capacity descriptor-independent author gate and a descriptor-shuffled author gate under the identical optimizer, sequence frames, labels, epochs and initialization budget. The shuffled control must disrupt region-to-channel relationships without changing feature labels. Usage-only and distributed controls are evaluated later on identical captured memory reads. Training labels never enter model inference.",
+  "evaluation": "Report validation per-video ranking and segmentation surrogate metrics, including labeled-empty behavior, plus weights, seed and all source hashes. Do not tune to validation or priority sequences. A pilot validation result alone does not authorize full-video propagation; an independently verified fixed-read token-utility comparison on held-out priority cases is required first. Do not claim patient-independent performance.",
+  "constraints": "No new redetection, confidence gate, inference threshold or untrained gate in inference. Original first automatic prompt and preprocessing remain unchanged; on seq23 exclude inset before both detector and video encoder. All outputs are on the specified Google Drive."
+}

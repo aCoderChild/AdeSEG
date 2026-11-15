@@ -3,6 +3,7 @@
 import ast
 from pathlib import Path
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -76,30 +77,43 @@ def test_chunked_author_measurement_preserves_output_and_denominator(device):
 def test_native_rope_projection_and_pointer_exclusion_are_preserved(monkeypatch):
     native = Path(__file__).resolve().parents[1] / "external/MedSAM2"
     monkeypatch.syspath_prepend(str(native))
-    from sam2.modeling.sam.transformer import RoPEAttention
+    # Several pinned author repositories export the same top-level ``sam2``
+    # package. ``sys.path`` alone cannot select MedSAM2 once another test has
+    # imported a different repository's package into ``sys.modules``.
+    cached = {name: module for name, module in sys.modules.items()
+              if name == "sam2" or name.startswith("sam2.")}
+    for name in cached:
+        del sys.modules[name]
+    try:
+        from sam2.modeling.sam.transformer import RoPEAttention
 
-    attention = RoPEAttention(
-        embedding_dim=8, num_heads=1, kv_in_dim=4, feat_sizes=(2, 2), rope_k_repeat=True
-    ).eval()
-    q, k, v = torch.randn(1, 4, 8), torch.randn(1, 10, 4), torch.randn(1, 10, 4)
-    with torch.no_grad():
-        baseline = attention(q, k, v, num_k_exclude_rope=2)
-        observer = RegionAttentionObserver(
-            SimpleNamespace(training=False), None, chunk_size=2
-        )
-        observer.labels = torch.tensor([0, 1, 2, 0, 1, 2, 0, 0, -1, -1])
-        observer.units = []
-        original = attention._attention
-        monkeypatch.setattr(
-            attention,
-            "_attention",
-            lambda q, k, v, attn_mask=None: observer._observe(
-                original, 0, q, k, v, attn_mask
-            ),
-        )
-        measured = attention(q, k, v, num_k_exclude_rope=2)
-    assert torch.equal(baseline, measured)
-    assert observer.rows[0]["pointer_tokens"] == 2
+        attention = RoPEAttention(
+            embedding_dim=8, num_heads=1, kv_in_dim=4, feat_sizes=(2, 2), rope_k_repeat=True
+        ).eval()
+        q, k, v = torch.randn(1, 4, 8), torch.randn(1, 10, 4), torch.randn(1, 10, 4)
+        with torch.no_grad():
+            baseline = attention(q, k, v, num_k_exclude_rope=2)
+            observer = RegionAttentionObserver(
+                SimpleNamespace(training=False), None, chunk_size=2
+            )
+            observer.labels = torch.tensor([0, 1, 2, 0, 1, 2, 0, 0, -1, -1])
+            observer.units = []
+            original = attention._attention
+            monkeypatch.setattr(
+                attention,
+                "_attention",
+                lambda q, k, v, attn_mask=None: observer._observe(
+                    original, 0, q, k, v, attn_mask
+                ),
+            )
+            measured = attention(q, k, v, num_k_exclude_rope=2)
+        assert torch.equal(baseline, measured)
+        assert observer.rows[0]["pointer_tokens"] == 2
+    finally:
+        for name in tuple(sys.modules):
+            if name == "sam2" or name.startswith("sam2."):
+                del sys.modules[name]
+        sys.modules.update(cached)
 
 
 def test_observer_restores_native_methods_on_failure():

@@ -1,0 +1,11 @@
+{
+  "status": "exploratory design; implementation and execution pending",
+  "base_protocol": "protocols/regional_readout_pair_training_pilot.json",
+  "question": "How sensitive is the paired regional readout to pair ordering and shuffled-label assignments?",
+  "replicates": [20261101, 20261102],
+  "pair_schedule": "For each replicate, use a seeded permutation of all three training pairs in each of eight epochs. Use the same 24 pair indices for regional, shuffled and generic conditions, and record them before training.",
+  "shuffled_control": "Derive a deterministic permutation from replicate seed, sequence and memory-frame index; preserve region counts and use the same definition in training and inference. Regional and generic modes do not shuffle.",
+  "evaluation": "Use the same validation sequences, prompts, checkpoint and metrics as the base pilot. Compare per-sequence present Dice, false alarms and returns against the verified native reference, and report every replicate rather than selecting the best.",
+  "verification": "Before evaluation verify seed reproducibility, changes between seeds, count-preserving permutations, identical training schedules across conditions, native zero-head equivalence, all four attention layers, frozen backbone and finite gradients.",
+  "limitations": "The three training pairs and all validation sequences were selected after earlier outcomes. These replicates measure sensitivity to specified random choices, not external generalization or patient independence."
+}

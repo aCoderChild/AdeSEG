@@ -1,0 +1,51 @@
+{
+  "name": "Position-consistent joint K/V ToMe matching engineering gate",
+  "status": "engineering only; no efficacy inference authorized",
+  "created": "2026-11-12",
+  "question": "Can the existing position-consistent fixed-budget ToMe path use both native projected keys and values for matching, without changing its memory budget, temporal schedule, SAM2 weights, or native pre-compression behavior?",
+  "rationale": "Memory-attention keys determine where a query reads, while values carry the retrieved content. Key-only matching can therefore pair tokens with similar attention affinity but different segmentation content. Concatenating separately normalized K and V descriptors gives each role equal metric weight. This is a mechanistic hypothesis, not a literature-established Dice improvement.",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "sequence": "seq3",
+    "targets": "All post-prompt frames; the clip must exercise compression after more than six non-conditioning history maps.",
+    "evidence_class": "Real-clip engineering gate only. No efficacy or Dice claim.",
+    "cohort_status": "Previously analyzed development data; not an untouched confirmation set."
+  },
+  "frozen_conditions": {
+    "control": "Position-consistent ToMe using only each layer's head-averaged, unrotated native projected-key metric.",
+    "candidate": "Same position-consistent ToMe, but form the similarity metric by concatenating separately L2-normalized, head-averaged native K and V descriptors. The pinned ToMe matcher normalizes the concatenated metric before matching.",
+    "position": "Both conditions use the ToMe destination token's representative spatial coordinate for SAM2 RoPE and copy its position embedding.",
+    "matching_and_aggregation": "Reuse the pinned official ToMe bipartite soft matcher and mass-weighted means. All merges remain within frame and local 4x4 windows.",
+    "history": "Same conditioning frame and same selected prior frame IDs, up to ten non-conditioning maps; no quality-based frame selection or confidence gates.",
+    "budget": "Keep the dense 4096-token conditioning map and exactly 24576 non-conditioning spatial tokens after saturation; preserve the same per-frame and per-window quotas in both conditions.",
+    "sam2": "Freeze all pretrained weights and retain native image features, memory writes, queries, decoder, object score, pointer behavior, and SAM2 temporal embeddings. Reuse the oldest native age slot for ages 7-10, then restore native state.",
+    "training": "None."
+  },
+  "required_checks": [
+    "Use the archived native checkpoint, configuration, manifest, prompt, runtime and frame inputs.",
+    "Before compression begins, match the archived native prediction and stored-state hashes exactly.",
+    "Exercise all four native SAM2 memory-attention layers on every target and verify the same 10-map quota plan in both conditions.",
+    "Verify finite K/V descriptors and outputs, source-token mass conservation, unchanged pointer inputs, correct K/V-position alignment, and unchanged SAM2 parameters.",
+    "Verify extended temporal-position state is restored after each run.",
+    "Run two fresh-process replays per condition and require matching frame, output, attention trace, quota and cluster-provenance hashes.",
+    "Confirm the K-only control and K/V candidate use identical per-frame and per-window token budgets."
+  ],
+  "stop_rule": "Any parity, integrity, budget or replay failure blocks efficacy work. Fix only a demonstrated implementation error and repeat this gate. Passing this gate authorizes a separately frozen efficacy design; it does not show that Dice improves.",
+  "artifacts": "Google Drive: outputs/experiment/position_consistent_kv_tome_v1/engineering_gate/",
+  "references": [
+    {
+      "title": "Token Merging: Your ViT But Faster",
+      "venue": "ICLR 2023",
+      "url": "https://arxiv.org/abs/2210.09461",
+      "supports": "Reusing bipartite similarity-based token matching and mass-weighted merging; not joint K/V matching for SAM2 or a Dice improvement."
+    },
+    {
+      "title": "SAM 2: Segment Anything in Images and Videos",
+      "venue": "ICLR 2025",
+      "url": "https://arxiv.org/abs/2408.00714",
+      "supports": "The frozen memory-attention architecture whose K/V projections and positional handling this gate exercises."
+    }
+  ],
+  "source_protocol": "position_consistent_long_history_tome_gate_v2.json",
+  "amendment": "This gate adds a controlled matching-metric candidate after the existing position-consistent candidate passed its engineering gate. It changes the similarity descriptor only; no efficacy claim is authorized."
+}

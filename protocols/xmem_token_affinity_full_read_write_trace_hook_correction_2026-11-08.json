@@ -1,0 +1,33 @@
+{
+  "id": "xmem_token_affinity_full_read_write_trace_hook_correction_2026-11-08",
+  "date": "2026-11-08",
+  "status": "bounded diagnostic instrumentation correction; efficacy remains blocked",
+  "parent_amendment": "protocols/xmem_token_affinity_full_read_write_trace_amendment_2026-11-08.json",
+  "parent_amendment_sha256": "d665841f0a7f0afb3b0c1dd243c501c49f30c06e5fae68559fc55a85aec4d283",
+  "failed_attempt": {
+    "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_rng_token_affinity_full_read_write_trace_20261108_01/",
+    "failure_json_sha256": "18ead8366e76202ba5d29f5d468b6a5f65aca4eba0ba13adc32cec1711f34b48",
+    "observation": "The observer monkeypatched model.track_step but did not record the expected seven returned writes for an eight-frame clip. The failure occurred in the verifier count check after clip training; it is an instrumentation failure and provides no method repeatability or Dice result."
+  },
+  "change": {
+    "only_change": "Remove the model.track_step monkeypatch. Add an optional read-only observer callback at the existing xmem_clip_loss call site immediately after native track_step returns, and use it only in the bounded verifier to hash returned prediction and memory-write tensors.",
+    "recorded_fields": [
+      "frame index",
+      "predicted low-resolution mask",
+      "encoded memory feature and positional feature",
+      "object pointer",
+      "object score when present"
+    ],
+    "scope": "Repeat the same two frozen token-affinity training clips from two fresh starts, with the same two updates per clip, all four attention-layer traces, original exact-repeatability criterion, and no efficacy metrics."
+  },
+  "unchanged": [
+    "XMem-derived anisotropic-L2 affinity equation and learned projections",
+    "SAM2 pretrained weights, memory writes, optimizer, loss, data, clips, and update schedule",
+    "all four memory-attention-layer traces",
+    "exact repeatability criterion",
+    "no-full-run authorization rule"
+  ],
+  "pass": "The observer records exactly one returned write for every post-prompt track_step call; the diagnostic then reports the first differing attention/read/write/gradient boundary. Exact replay remains required to clear the training repeatability gate.",
+  "failure": "Keep efficacy training blocked. Preserve the receipts and report the observed boundary; do not relax exact equality or change the candidate method.",
+  "scope_limit": "This is instrumentation repair only. It cannot establish a Dice improvement or authorize full-cohort training/evaluation."
+}

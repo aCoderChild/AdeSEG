@@ -1,0 +1,28 @@
+{
+  "id": "signed_memory_feature_attribution_design_v1",
+  "status": "engineering_only_not_authorized_for_efficacy",
+  "question": "Can signed input-times-gradient provide a faithful local sensitivity measurement of spatial memory content for a documented native decoder scalar? It is not token-removal utility or a foreground label.",
+  "source": "Pinned official Captum 0.8.0 InputXGradient; existing native SAM2 capture/replay helpers.",
+  "input": "Only spatial memory features [B,N,64] before positional addition. Native pointer tail and all position tensors remain fixed and excluded from attribution.",
+  "targets": [
+    "raw object-presence logit",
+    "mean raw selected-mask logits on fixed native-positive support, only when nonempty; otherwise explicit unavailable"
+  ],
+  "baseline": "Exact stored memory features; frozen native weights and original complete video timing. No post-prompt GT input.",
+  "primitive_checks": [
+    "Captum result agrees with exact linear FP64 derivatives including negative effects",
+    "Batch/spatial/channel dimensions preserved",
+    "Pointers remain unchanged and have no attribution entries",
+    "No source-memory mutation",
+    "Empty fixed native mask support is reported without substituting a target"
+  ],
+  "next_gate": "Fresh native seq2/seq3 captures at prompt+4; verify raw native replay and finite gradients, source IDs, four-layer coverage, unchanged parameters/banks/pointers. Compare signed summed feature attribution against symmetric finite differences for fixed tiles0,5,10,15 at steps0.05 and0.01; report numerical error without tuning steps or treating a flat response as success. Independent-process replay required.",
+  "restrictions": [
+    "No learned module, selection policy, mask-derived foreground claim or full efficacy run",
+    "Zero-feature perturbation retains positional encodings and denominator entries: it is NOT deletion",
+    "Positive contribution to confidence may reinforce a wrong prediction; does not prove Dice utility",
+    "Do not revive the failed coarse-tile selector or Run173 probe under a new name"
+  ],
+  "decision": "Only after reliable local sensitivity measurement, freeze a separate test of relation to segmentation utility. No gradient-to-Dice causal claim or efficacy authorization from engineering parity.",
+  "captum_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/signed_feature_attribution_review_20261113/upstream"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "xmem_token_affinity_gate_status_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "applies_to": "XMem token-affinity engineering gate reporting and deterministic initialization",
+  "status": "pre-efficacy audit correction",
+  "audit_finding": {
+    "successful_attempt": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_identity_check_20261108/",
+    "completion_sha256": "f22440c26222e0e555f055cb243821d3af4250f419757c60b3347d5e5a645d39",
+    "source_snapshot_verified": "All 19 archived source files matched the hashes in setup.json; the setup digest matched completion.json.",
+    "scope_passed": "Bit-identical zero-strength replay on fixed seq2/seq3 reads; all four attention layers; unchanged key/value and pointer inputs; finite adapter gradients; frozen SAM2 parameters and memory banks.",
+    "scope_not_passed": "The receipt said passed=true, but the frozen protocol separately requires an adapter/optimizer/RNG save-resume equivalence check. The verifier did not perform that check. Treat the successful attempt as a partial engineering pass, not a complete gate."
+  },
+  "corrections_before_any_efficacy_run": {
+    "deterministic_initialization": "The frozen seed was used for clip sampling but not explicitly for the randomly initialized affinity projections. The gate now applies a deterministic per-sequence adapter seed derived from the frozen seed and sequence number, records it in setup.json and completion.json, and has a regression test.",
+    "frozen_model_mode": "The adapter-training setup now calls model.eval() after freezing parameters, so SAM2 dropout remains disabled while gradients update only the adapter. This does not disable autograd.",
+    "receipt_language": "The gate receipt now reports status=partial_engineering_pass, protocol_complete=false, and lists the missing save/resume check. The existing passed field means only the checks implemented by the verifier passed."
+  },
+  "next_required_checks": [
+    "Rerun the short seq2/seq3 engineering probe with a new Drive output folder after the deterministic-initialization and frozen-mode corrections.",
+    "Implement and verify adapter, optimizer, and RNG save-resume equivalence using the actual training path.",
+    "Implement the training runner, matched frame-broadcast control, split/receipt validation, and atomic resume before any efficacy run.",
+    "Pass the complete code and real-checkpoint engineering gate before launching efficacy training."
+  ],
+  "scope": "No efficacy training or full-propagation experiment is authorized by this amendment. The method, frozen clips, checkpoint, data, and scientific success rule are unchanged."
+}

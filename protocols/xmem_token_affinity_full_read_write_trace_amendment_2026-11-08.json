@@ -1,0 +1,38 @@
+{
+  "id": "xmem_token_affinity_full_read_write_trace_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "bounded engineering diagnostic only; efficacy remains blocked",
+  "parent_amendment": "protocols/xmem_token_affinity_layer0_integration_trace_amendment_2026-11-08.json",
+  "parent_amendment_sha256": "152636c7b33dddcd9e4e2da35db532f7f7214d4fa4fd3a4793208b31b1388f94",
+  "parent_result": "protocols/xmem_token_affinity_layer0_integration_trace_results_2026-11-08.json",
+  "parent_result_sha256": "b8ae17a5a0856d041f15fe74be00f0281872689b7748b3b5022f1b73d5cd4365",
+  "motivation": "The layer-0 trace found matching first-call forward values but a different incoming output gradient on seq2, followed by different autoregressive memory k/v at later calls. On seq9, layer-0 receipts matched while the first named scalar gradient difference was in layer 1. Trace all four read boundaries and post-frame writes to locate the earliest divergence.",
+  "scope": {
+    "arm": "token_affinity only",
+    "fresh_starts": 2,
+    "training_clips": "The same frozen seq9 and seq2 training-plan clips used by prior repeatability diagnostics.",
+    "record": [
+      "q/k/v and effective affinity inputs at each of SAM2's four memory cross-attention layers",
+      "object-pointer tail length and xmem_strength before each call",
+      "each layer's output and incoming output gradient",
+      "post-frame predicted mask logits, encoded memory feature, memory positional feature, object pointer, and object score hashes"
+    ],
+    "storage": "Hashes, shapes, dtypes, and scalar gradient summaries only. No activations, masks, or predictions are written to disk.",
+    "training_updates": "Keep the same two frozen-prefix optimizer updates per clip, solely to reproduce the engineering failure.",
+    "metrics_computed": [],
+    "full_cohort_training_or_inference": false
+  },
+  "change": {
+    "only_change": "Extend read-only verification hooks to all four cross-attention modules and wrap track_step only to hash its returned memory-write/prediction tensors. Hooks preserve tensors, gradients, and outputs.",
+    "unchanged": [
+      "XMem affinity equation and architecture",
+      "SAM2 pretrained weights and model behavior",
+      "data, clips, optimizer, loss, and update schedule",
+      "exact repeatability criteria",
+      "efficacy protocol and authorization guard"
+    ]
+  },
+  "pass": "This trace does not clear the repeatability gate; it identifies the earliest differing boundary. A strict gate still requires exact repeatability of the existing frozen receipts.",
+  "failure": "Keep efficacy training blocked. Use the first differing layer, output gradient, or memory write to select one bounded follow-up; do not change the method or relax equality.",
+  "scope_limit": "Engineering diagnostics only; no Dice, validation, test, full-cohort, or efficacy result. Passing does not authorize the full run without a new complete source-bound gate."
+}

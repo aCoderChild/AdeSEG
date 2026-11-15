@@ -1,0 +1,7 @@
+{
+  "purpose": "Retrospective negative-point-only follow-up after the two-point pilot showed few positive extrema in the labeled polyp.",
+  "cases": "Same seven sequence-11 targets and temporally derived points from seq11_temporal_refinement_v1. Gate cases are targets 51 and 172.",
+  "method": "Reuse the exact automatic mask-derived box and negative point for each foreground, foreground-minus-background, RGB contrast and fixed-random arm; discard the corresponding positive point. Native SAM2 image decoder only, single mask, no new threshold, confidence gating, detection, ground truth input, or video propagation. Recompute the previous box-only masks exactly.",
+  "validation": "Two independent gates must have identical receipts and output masks. The pilot must reproduce both gate results and the previously stored box-only masks. Check model parameter integrity and every source and artifact hash; labels are read only in separate retrospective evaluation.",
+  "limitations": "This hypothesis was selected after examining point-label membership on the same seven cases. It is not independent testing. Fixed-frame image-decoder refinement does not establish a causal or full-video improvement."
+}

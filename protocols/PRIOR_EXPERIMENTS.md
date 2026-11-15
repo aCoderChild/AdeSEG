@@ -88,7 +88,7 @@ completed corrected runs. Source/result hashes are recorded in the Drive audit.
 | 127 | Prediction-conditioned soft regional affinity during a second dense memory read | Completed corrected 21-sequence CV: **+0.002970** versus native, **+0.002801** versus globalized roles; uncertainty includes zero and screen failed. Do not substitute superseded gradient-bug attempts for this record. |
 | 139 | Region-conditioned low-rank transforms trained with native histories | Completed 21-sequence CV: **+0.003556** versus native, **+0.000204** versus global control; meaningful-gain screen failed. |
 | 150/163 | Learned regional memory prompts, followed by case diagnosis | Intentionally stopped after 14 regional validation sequences because the frozen win requirement became unreachable. No completed full-CV mean. Replay on seq8/seq14 associated failures with collapsed prediction-derived region maps. Auxiliary prompt-norm statistics with incorrect grouping are invalid. |
-| 155 | Merge similar tokens only within the same predicted region/local window | 21-sequence propagation: **+0.024483** versus native, CI [−0.001366, +0.071965], wins 10/21. Removing seq8 from the arithmetic leaves **+0.002031**. Screen failed. See the source-version limitation below. |
+| 155 | Merge similar tokens only within the same predicted region/local window | 21-sequence propagation: **+0.024483** versus native, CI [−0.001366, +0.071965], wins 10/21. Removing seq8 from the arithmetic leaves **+0.002031**. Screen failed; source hash has since been recovered, but the efficacy result remains fragile. |
 | 158 | Use continuous foreground/background occupancy together with feature similarity for ToMe matching | 21-sequence propagation: **−0.003773** versus native, **−0.003622** versus generic merging; screen failed. Soft occupancy plus feature similarity is already tested at this insertion point. |
 | 167/168 | Cutie-derived object/context summaries and an additive readout correction; then fixed-history replay | Eight-sequence propagation: **+0.005054** versus native. Fixed-native replay: **+0.000898**. Neither establishes meaningful improvement. |
 | 169 | Add foreground/context contrastive supervision to that same reader | Eight-sequence propagation: **+0.003964** versus native, **−0.001090** versus the same reader without contrastive loss. One chronological training pass; convergence was not established. |
@@ -118,16 +118,19 @@ parity verification from a diagnostic with prespecified, representative failure
 cases. This is a design lesson for future work, not a reason to rewrite Run170's
 completed stopping rule or extend it after seeing its result.
 
-## Source-version limitation
+## Run155 source provenance follow-up
 
-Run155's gate and full-run setup record method hash
+Run155's full-run setup records method-module SHA-256
 `780426d00e9b6acad4ca4f90cdd6e5c4c0d10b19473aac05edc1c37daab05ffc`.
-The current `modeling/region_constrained_tome.py` differs. The inspected gate/full
-folders contain metadata and outputs, but no matching source snapshot was found;
-the file also has no committed source history in this checkout. Recover that
-exact source version before claiming an exact rerun from the current tree.
-Run158's current soft-mask module matches its recorded hash. Recorded result
-receipt hashes checked for Runs127/169/170 match their result files.
+The exact 15,199-byte source was recovered from unreachable Git blob
+`4c3c75b2b3d518b8a49c343361a189e7b28dc6f3` and its SHA-256 matches the setup
+receipt. A preserved copy and recovery manifest are under Drive
+`outputs/experiment/155_region_constrained_tome_polypgen_v1/source_audit_20261109/recovered_source/`.
+This resolves the source-version gap; it does not change the Run155 result:
+its confidence interval includes zero, the adjusted tests are not significant,
+and its mean gain is strongly sensitive to seq8. Run158's current soft-mask
+module matches its recorded hash. Recorded result receipt hashes checked for
+Runs127/169/170 match their result files.
 
 ## Required review before the next implementation or launch
 

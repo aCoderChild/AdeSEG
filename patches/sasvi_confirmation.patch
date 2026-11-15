@@ -1,0 +1,70 @@
+diff --git a/src/sam2/eval_sasvi.py b/src/sam2/eval_sasvi.py
+index 1b89c93..9299b8f 100644
+--- a/src/sam2/eval_sasvi.py
++++ b/src/sam2/eval_sasvi.py
+@@ -160,11 +160,13 @@ def get_points_from_mask(mask, label_ids=None, num_points=20):
+     for label in label_ids:
+         binary_mask = mask[label]
+         # Get the prompt
+-        try:
+-            points = kmeans_sampling(torch.tensor(np.argwhere(binary_mask)), num_points)
++        coords = np.argwhere(binary_mask)
++        if len(coords) > 0:
++            # Small masks may have fewer pixels than the requested clusters.
++            points = kmeans_sampling(torch.tensor(coords), min(num_points, len(coords)))
+             points = points.cpu().numpy().tolist()
+             points = [[y, x] for x, y in points]
+-        except:
++        else:
+             points = []
+         prompt_points = {label: points}
+     return prompt_points
+@@ -696,6 +698,11 @@ def sasvi_inference(
+                     #TODO: Can define this as parameter and be more dynamic
+                     # also ignoring labels that appear in one frame but not in next 3 frames
+                     new_obj_label = list(set(current_label) - set(old_label))
++                    # Require the complete three-frame confirmation window.
++                    # A truncated slice at the end otherwise accepts an
++                    # unconfirmed detection (including on the final frame).
++                    if len(unique_lable_n) < 4:
++                        new_obj_label = []
+                     unique_lable_n = unique_lable_n[1:4]
+                     for unique_l in unique_lable_n:
+                         new_obj_label = list(set(new_obj_label) & set(unique_l))
+@@ -1003,4 +1010,4 @@ def main():
+     )
+ 
+ if __name__ == "__main__":
+-    main()
+\ No newline at end of file
++    main()
+diff --git a/src/sam2/sam2/sam2_video_predictor.py b/src/sam2/sam2/sam2_video_predictor.py
+index c7e01cc..4e61152 100644
+--- a/src/sam2/sam2/sam2_video_predictor.py
++++ b/src/sam2/sam2/sam2_video_predictor.py
+@@ -885,7 +885,9 @@ class SAM2VideoPredictor(SAM2Base):
+         if backbone_out is None:
+             # Cache miss -- we will run inference on a single image
+             device = inference_state["device"]
+-            image = inference_state["images"][frame_idx].to(device).float().unsqueeze(0)
++            # JPEG loading yields float64; MPS cannot receive float64 tensors.
++            # Convert before transfer (equivalent on CPU) to keep FP32 inference.
++            image = inference_state["images"][frame_idx].float().to(device).unsqueeze(0)
+             backbone_out = self.forward_image(image)
+             # Cache the most recent frame's feature (for repeated interactions with
+             # a frame; we can use an LRU cache for more frames in the future).
+diff --git a/src/sam2/sam2/utils/misc.py b/src/sam2/sam2/utils/misc.py
+index 47bd88b..ec44b3d 100644
+--- a/src/sam2/sam2/utils/misc.py
++++ b/src/sam2/sam2/utils/misc.py
+@@ -245,7 +245,9 @@ def load_video_frames_from_jpg_images(
+         for p in os.listdir(jpg_folder)
+         if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
+     ]
+-    frame_names.sort(key=lambda p: int(os.path.splitext(p)[0][5:]))
++    # Match eval_sasvi.py's numeric ordering for zero-padded PolypGen frames.
++    # Dropping the first five digits aliases 000000, 000010, 000020, etc.
++    frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
+     #TODO: Need to handle this better
+     # bcs maskrcnn prediction didnt have it for last frame 
+     # frame_names = frame_names[:-1]

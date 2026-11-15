@@ -1,0 +1,10 @@
+{
+  "status": "post-hoc exploratory development; not independent validation",
+  "question": "Can query-dependent regional memory readouts improve autonomous SAM2 Dice compared with native and matched context controls?",
+  "training_sequences": ["seq4", "seq5", "seq9"],
+  "validation_sequences": ["seq2", "seq3", "seq13", "seq17"],
+  "training": "Frozen SAM2; four zero-initialized query-dependent residual mixers; independently train regional, shuffled and generic controls. Reuse the 14 saved native-memory reads, including the two outcome-selected seq4 misses, and the exact 24-step schedule from the presence-supervised pilot. Use the existing mask loss plus the pinned SAM2 presence loss, Adam learning rate 0.001 and seed 20261031.",
+  "comparison": "Compare autonomous full propagation against archived native SAM2 and independently trained shuffled and generic arms. Use equal-sequence present-frame Dice, per-sequence Dice, false alarms, boundary F and return episodes. Report all arms and failures; no selection based on individual outcomes.",
+  "gates": "Before training or full propagation, require native identity on a complete sequence, a nonzero trained-residual propagation check, finite gradients through all layers for every mode, pointer and memory integrity checks, source and input hashes, and passing relevant tests.",
+  "limitations": "The data, missed frames and validation sequences were selected after inspecting prior outcomes. One seed and four sequences cannot establish patient independence, statistical significance or reliable external generalization. Frozen native-history snapshot training is not propagation-aware. The residual and its regional mixing are an adaptation, not the original CFBI implementation."
+}

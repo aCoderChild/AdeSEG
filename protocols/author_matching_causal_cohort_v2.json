@@ -1,0 +1,126 @@
+{
+  "checkpoint": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "name": "Canonical-timing broader fixed-native-history ToMe/ATC diagnostic",
+  "sequences": [
+    "seq2",
+    "seq3",
+    "seq4",
+    "seq5",
+    "seq6",
+    "seq8",
+    "seq9",
+    "seq10",
+    "seq11",
+    "seq12",
+    "seq13",
+    "seq14",
+    "seq15",
+    "seq16",
+    "seq17",
+    "seq18",
+    "seq19",
+    "seq20",
+    "seq21",
+    "seq22",
+    "seq23"
+  ],
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "status": "Frozen exploratory protocol amended for canonical native timing before broad inference",
+  "device": "cpu",
+  "dtype": "float32",
+  "gt_policy": "Initial prompt is permitted; subsequent masks only evaluated after diagnostic maps are constructed",
+  "source_files": [
+    "scripts/run_author_matching_diagnostic.py",
+    "modeling/author_token_matching.py",
+    "modeling/region_constrained_tome.py",
+    "modeling/token_diagnostic_replay.py",
+    "modeling/prediction_conditioned_affinity.py",
+    "external/ATC/SSLBackbone_setup/token_reduc/merge.py",
+    "external/ToMe/tome/merge.py",
+    "scripts/run_author_baseline.py",
+    "scripts/run_cfbi_region_pilot.py",
+    "scripts/run_cached_author_matching_diagnostic.py",
+    "scripts/freeze_author_matching_causal_plan.py",
+    "evaluation/causal_memory_schedule.py",
+    "modeling/native_history_cache.py",
+    "modeling/native_history_training.py",
+    "modeling/cfbi_training.py",
+    "scripts/bank_integrity.py",
+    "scripts/memory_token_io.py",
+    "scripts/run_soft_role_affinity_cv.py",
+    "datasets/io.py",
+    "datasets/video.py",
+    "modeling/soft_role_affinity.py"
+  ],
+  "sam2_repository": "external/sam2_diagnostic_reference",
+  "conditions": [
+    "tome_regional",
+    "tome_global",
+    "atc_regional",
+    "atc_global"
+  ],
+  "matching_space": "Native projected post-RoPE memory keys, averaged over heads, using existing Run155 insertion point",
+  "atc_revision": "227c94b584df323b94dd79e8ddbb88b1587eeb8e",
+  "atc_linkage": "average",
+  "budget": "Per native source-frame 4x4 window, sum floor(region_count/2); shared by all four conditions",
+  "history": "All conditions replay the identical fixed native memory. Interventions are not written back.",
+  "primary": "Equal-sequence mean present-target Dice on frozen diagnostic targets; not an unbiased full-video Dice estimate",
+  "limitations": [
+    "Exploratory diagnostic, not full-video efficacy or confirmation",
+    "No confidence-threshold search or frame selection",
+    "No claim of exact reproduction of published ATC architecture or scores",
+    "Run155-compatible read insertion but a new source-controlled diagnostic, not the archived Run155 run"
+  ],
+  "promotion": "Do not launch full-cohort efficacy based solely on these selected targets. Review mechanism, replay invariants and broader identification diagnostics first.",
+  "native_cache_completion": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/completion.json",
+  "id_gate": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/matching_ids_gate01/completion.json",
+  "matching_replay_gate": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/matching_canonical_fresh_process_receipt.json",
+  "matching_reference": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/matching_canonical04",
+  "cache_gate_sequences": [
+    "seq2",
+    "seq3"
+  ],
+  "cache_gate_offsets": [
+    1,
+    4,
+    8
+  ],
+  "target_schedule": "Uniform post-prompt 10/30/50/70/90% offsets plus each GT-present/empty episode midpoint and first three available frames of every absent-to-present transition. Deduplicate; freeze before inference. Ground-truth strata only define diagnostic coverage, not memory selection.",
+  "secondary": [
+    "Boundary F",
+    "GT-empty false alarm counts/rate",
+    "overlap in fixed first-three-frame return windows",
+    "per-sequence/stratum effects",
+    "treatment replay runtime",
+    "leave-seq8-out sensitivity"
+  ],
+  "candidate_screen": {
+    "eligible_candidates": [
+      "atc_regional",
+      "atc_global"
+    ],
+    "comparators": {
+      "atc_regional": [
+        "native",
+        "tome_regional",
+        "atc_global"
+      ],
+      "atc_global": [
+        "native",
+        "tome_global"
+      ]
+    },
+    "native_practical_delta": 0.01,
+    "matched_control_practical_delta": 0.005,
+    "minimum_sequence_wins_vs_native": 14,
+    "statistics": "Paired equal-sequence bootstrap 95% CI (10000 resamples, seed20261111), two-sided Wilcoxon with Holm correction across five listed contrasts; require positive CI lower bounds and adjusted p<0.05 on all contrasts required for that candidate.",
+    "safety": "No extra pooled false alarms on sampled GT-empty targets; no lower return-window overlap count than native.",
+    "decision": "Passing only makes a distinct ATC candidate eligible for a newly frozen full-propagation study; failure stops that candidate. Do not reopen failed Run155/position-consistent full-propagation runs based on selected-target means."
+  },
+  "data_limits": "Repeatedly analysed PolypGen cohort; sequence-level grouping does not establish patient independence. Existing DAVIS val only supplies engineering fixture; no independent confirmation here.",
+  "timing_amendment": "Keep original video length for all native and intervention reads. Bound execution only. Previous six-target prefix results use different object-pointer time normalization and are not the canonical reference."
+}

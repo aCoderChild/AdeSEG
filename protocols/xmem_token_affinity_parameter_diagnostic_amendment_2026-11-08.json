@@ -1,0 +1,31 @@
+{
+  "id": "xmem_token_affinity_parameter_diagnostic_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "engineering diagnostic only; efficacy remains blocked",
+  "parent_amendment": "protocols/xmem_token_affinity_reduction_determinism_amendment_2026-11-08.json",
+  "parent_amendment_sha256": "d51b25b05462769cf86d377d830af8e297e743f98ba7c1d12ec9d6f7408cfdb6",
+  "latest_failure": {
+    "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_rng_token_affinity_diagnostic_20261108_02/",
+    "setup_sha256": "0dec7c40b50921352de52a5ada69b752545a9c723c776623557746486b7038d4",
+    "progress_sha256": "b06c278f933c4c4517229ebeff5b2a56fab6952e94691c8033e59b9f197e7f89",
+    "failure_sha256": "a3277c735a001d792968ce7f92db086fd28e156bc1bfd446d0dbc8d73d188935",
+    "observation": "The two independently initialized token-affinity repeats had identical adapter, optimizer, and complete RNG states at start. Full RNG and pretrained weights remained identical/unchanged. Per-chunk aggregate gradient hashes differed in the second seq9 chunk and first seq2 chunk; final adapter and optimizer tensors differed by small amounts. Intra-op threads were one during backward and gradient reductions, then restored to two. The frame-broadcast arm had separately passed an exact short repeatability diagnostic under the prior autograd amendment, but that does not clear token affinity or the full gate.",
+    "interpretation": "The failure is specific to the token-affinity training path under the tested pinned CPU runtime. The saved receipt does not identify which adapter parameter first differs, so its cause is unresolved. It is an engineering reproducibility failure, not a segmentation result."
+  },
+  "change": {
+    "only_change": "When the bounded fresh-start diagnostic records gradients, hash each named trainable parameter gradient separately rather than hashing all adapter gradients as one aggregate. Restore the prior PyTorch intra-op thread count after backward instead of hard-coding two threads.",
+    "unchanged": [
+      "model architecture and affinity equation",
+      "adapter initialization, optimizer, losses, and training schedule",
+      "data, clip IDs, frame order, and predicted memory writes",
+      "exact repeatability criteria",
+      "full efficacy authorization guard"
+    ]
+  },
+  "required_next_check": {
+    "scope": "Repeat only the same two frozen training clips twice for the token-affinity arm in a new diagnostic output directory, recording per-parameter gradient hashes. Do not run the frame-control arm again unless needed to isolate an observed discrepancy.",
+    "pass": "Exact initial/final adapter, optimizer, RNG, clip receipts, losses, and each named gradient hash match across the independent repeats.",
+    "failure": "Keep efficacy training blocked. Identify the first differing parameter and inspect only its producing operation. Do not relax exact equality or modify the efficacy method based on these diagnostics."
+  },
+  "scope_limit": "This instrumentation only makes the existing failure localizable. It does not repair or clear it, prove efficacy, or authorize training. A fresh source-bound complete engineering gate is still required before any training or test evaluation."
+}

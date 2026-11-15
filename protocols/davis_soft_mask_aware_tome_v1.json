@@ -1,7 +1,21 @@
 {
   "name": "Frozen soft mask-aware local ToMe on DAVIS 2017 validation",
   "created": "2026-11-05",
-  "status": "Prospectively amended and frozen 2026-11-05 before any DAVIS validation inference; train engineering gate must pass.",
+  "status": "Method and evaluation protocol frozen 2026-11-05 before DAVIS validation inference; implementation-only retry amendment recorded after the first gate aborted before model inference. The train engineering gate must pass.",
+  "amendment_history": [
+    {
+      "date": "2026-11-05",
+      "timing": "Before the queued DAVIS train gate or validation inference; the output root contained only queue metadata and no predictions.",
+      "change": "Enable SAM2 non-overlapping object outputs for the native and both ToMe arms, matching the official DAVIS VOS runner used for indexed masks.",
+      "reason": "Code review found the official VOS scripts explicitly set model.non_overlap_masks=true for packed/indexed multi-object masks, while the local DAVIS runner had retained the predictor default. Leaving the settings different could change both emitted label maps and the model outputs used by memory. No score had been inspected, so this fixes a comparability issue prospectively."
+    },
+    {
+      "date": "2026-11-05",
+      "timing": "After the first train-gate attempt aborted during model construction, before any DAVIS frame inference; the failed receipt and log are preserved under Run 159.",
+      "change": "Explicitly set evaluation mode and disable parameter gradients after calling the official SAM2 predictor builder.",
+      "reason": "The pinned upstream builder enters eval mode but leaves requires_grad enabled. The runner's invariant check treated this default flag as evidence of trainable parameters and stopped before loading/processing the gate video. The amendment changes no parameter values, mask policy, ToMe settings, prompts, data or metrics; it only enforces the already-frozen inference protocol."
+    }
+  ],
   "scope": {
     "dataset": "DAVIS 2017 semi-supervised validation, 480p",
     "videos": 30,
@@ -16,7 +30,8 @@
     "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
     "checkpoint": "Google Drive outputs/experiment/assets/sam2.1_hiera_tiny.pt",
     "precision": "CPU FP32",
-    "parameters_frozen": true
+    "parameters_frozen": true,
+    "indexed_mask_output_override": "++model.non_overlap_masks=true; matches the official SAM2 VOS runner for DAVIS packed labels"
   },
   "conditions": [
     {
@@ -39,7 +54,7 @@
     "regional_specificity_control": "soft_mask_aware_tome versus generic_local_tome at the same per-window merge budget",
     "interpretation_if_only_beats_native": "Supports the combined token-merging intervention, but does not establish that region information caused the gain unless it also beats matched generic ToMe.",
     "interpretation_if_beats_both": "Supports predicted-mask regional information as a useful token-utilization cue under the tested fixed schedule and key budget.",
-    "not_established_here": "Published SAMURAI or SAM2Long scores are not matched controls and cannot establish superiority or non-inferiority. Such a claim requires running their released methods under the same DAVIS split, prompt, compatible backbone/checkpoint, and evaluator."
+    "not_established_here": "Published SAMURAI or SAM2Long scores are not matched controls and cannot establish superiority or non-inferiority. A direct competitiveness claim requires a separate same-setup run of their released methods."
   },
   "method": {
     "read_location": "Native SAM2 memory SDPA after native key/value projection and rotary position encoding.",
@@ -52,6 +67,7 @@
       "all pretrained parameters",
       "native score-to-mask rule"
     ],
+    "indexed_mask_output_policy": "non_overlap_masks=true for native and both ToMe arms, matching official author VOS tools for DAVIS packed labels",
     "merge": "Use the frozen PolypGen protocol values: 4x4 spatial windows, 8 merges per 16 keys, role_weight 0.5, and attention log(cluster_size) mass correction.",
     "window_size": 4,
     "merges_per_window": 8,
@@ -85,6 +101,7 @@
       "Both persistent IDs receive only their own frame-0 writer-mask occupancy, matched by the exact SAM2 preflight resize.",
       "Frame-1 propagation returns both original object IDs, finite logits, and unchanged output geometry.",
       "Both ToMe conditions invoke all four native memory-attention layers once per object at frame 1.",
+      "All three local SAM2 arms enable non_overlap_masks=true for indexed DAVIS labels.",
       "Generic and mask-aware conditions use the same per-object, per-layer, per-frame, per-window key budget.",
       "Spatial token mass is conserved; pointer keys and values are unchanged; SAM2 parameter digest is unchanged.",
       "All predictions, receipts, and evaluator outputs are written beneath Google Drive outputs/experiment."
@@ -101,7 +118,7 @@
     "paired_inference": "Two-sided Wilcoxon signed-rank tests and 95% percentile bootstrap intervals over video-level J&F differences; 10,000 resamples, seed 20261105; Holm correction across the two primary local contrasts.",
     "dice": "If reported, compute separately from framewise binary masks and label it supplementary. Do not equate Dice with DAVIS J&F or compare it directly with PolypGen Dice.",
     "official_evaluator_revision": "ac7c43fca936f9722837b7fbd337d284ba37004b",
-    "comparison_policy": "The local controlled contrasts are soft-mask-aware ToMe versus native SAM2 and matched generic ToMe. Published DAVIS scores for SAMURAI, SAM2Long, Efficient-SAM2 and other methods are descriptive context only because checkpoints, backbones, training sets and inference implementations differ. Do not claim superiority or non-inferiority to frame/path-selection methods from these scores. A direct competitiveness claim requires a separate same-setup run of their released methods.",
+    "comparison_policy": "The local controlled contrasts are soft-mask-aware ToMe versus native SAM2 and matched generic ToMe. Published DAVIS scores for SAMURAI, SAM2Long, Efficient-SAM2 and other methods are descriptive context only because checkpoints, backbones, training sets and inference implementations differ. A separate same-setup author-code comparison is required for a direct competitiveness claim.",
     "official_frame_policy": "The pinned official semi-supervised evaluator removes frame 0 and the final frame from scoring (frames 1 through N-2 are scored). This behavior is verified in davis2017/evaluation.py and applies to every local condition.",
     "aggregation": "Report the official global score (equal-weight mean across object-level temporal means) and per-object J/F. For primary paired inference, first average per-object J, F and J&F within each video, then treat the 30 videos equally.",
     "raw_precision": "Use DAVISEvaluation.evaluate from the pinned official evaluator API; retain full precision in JSON/CSV. Do not read cached 3-decimal CSVs for statistical tests.",

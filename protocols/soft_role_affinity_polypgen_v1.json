@@ -1,0 +1,73 @@
+{
+  "name": "Soft query-to-memory region affinity",
+  "status": "frozen before full evaluation; amended engineering gate passed; full CV pending",
+  "motivation": "Earlier RegionContrast Q/K training changed generic projections but did not use region roles during inference. This experiment makes token roles affect the dense memory read directly while retaining every native frame, spatial key and pointer.",
+  "prior_work": {
+    "HODOR_soft_masked_attention": {
+      "paper": "Differentiable Soft-Masked Attention",
+      "paper_url": "https://arxiv.org/abs/2206.00182",
+      "repository": "https://github.com/Ali2500/HODOR",
+      "revision": "45da7329e32c8c6e52658f5aeebe625c1fefddef",
+      "reused_logic": "The finite additive attention-logit penalty for continuous mask mismatch. This adaptation provides three token-role memberships and predicts a soft role distribution for every current query token; it does not copy HODOR's architecture."
+    },
+    "Cutie": {
+      "paper": "Putting the Object Back into Video Object Segmentation",
+      "paper_url": "https://openaccess.thecvf.com/content/CVPR2024/html/Cheng_Putting_the_Object_Back_Into_Video_Object_Segmentation_CVPR_2024_paper.html",
+      "repository": "https://github.com/hkchengrex/Cutie",
+      "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+      "evidence": "Cutie's ablation reports lower J&F when foreground/background masked attention is removed on its VOS benchmarks. Its implementation uses hard masks; this experiment keeps the role prior continuous instead."
+    }
+  },
+  "method": {
+    "memory_roles": "For each memory frame, use that frame's own stored 256x256 SAM2 predicted-mask logits. Convert sigmoid probabilities into 64x64 foreground, background and mixed-cell memberships: boundary=4*within-cell variance, foreground=(1-boundary)*mean, background=(1-boundary)*(1-mean). All three memberships sum to one. No ground truth enters inference.",
+    "query_roles": "A lightweight per-layer classifier predicts a soft three-role distribution from the current projected attention queries. During training only, supervise these distributions against soft mixed-cell roles from the current ground-truth mask. Inference uses only current image features.",
+    "attention": "Run three dense attention reads. For each role branch, add HODOR-style finite per-key bias -alpha*(1-membership) to all spatial memory keys and zero bias to object pointers; alpha is learned, zero initialized and bounded by 8. Mix the three reads with the current query's predicted role probabilities. At zero alpha, return the original native read exactly while retaining gradients. No key or query is removed or hard gated.",
+    "global_control": "Train the same query-role and bias modules, but replace each memory token's membership with the bank-wide mean membership. This preserves the global role proportions and pointer interaction while removing token-position-specific region matching.",
+    "loss": "Existing autoregressive SAM2 mask Dice/BCE and object-presence losses, plus per-layer inverse-frequency weighted soft-role cross entropy at weight 0.1. Compute each role's frequency from that training frame's soft GT role map; weight by reciprocal frequency and normalize by total active weighted mass.",
+    "unchanged": ["native frame schedule", "all spatial memory keys", "all object-pointer keys", "memory writes", "image encoder", "memory encoder", "mask decoder"]
+  },
+  "amendment_before_full_evaluation": {
+    "date": "2026-11-03",
+    "change": "Balance the auxiliary query-role loss by inverse per-frame role frequency.",
+    "basis": "The real seq5 engineering gate showed mean predicted-memory role memberships near 0.974 background, 0.023 foreground and 0.002 boundary. The exact four training targets were similarly imbalanced (background 0.974-0.982, foreground 0.016-0.023, boundary 0.0027-0.0034). An unweighted role loss would train a mostly-background query classifier.",
+    "scope": "Engineering-gate role frequency only; no full-cohort attention or segmentation result had been inspected.",
+    "decision": "Require a fresh engineering gate against this amended protocol before any cohort run."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "scope": "Exploratory only. PolypGen has informed earlier method development; patient-to-sequence independence is unverified."
+  },
+  "model": {
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "native_baseline": "outputs/experiment/118_simvos_region_prototypes_polypgen_cv_v1"
+  },
+  "training": {
+    "folds": [
+      ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21"],
+      ["seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22"],
+      ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"]
+    ],
+    "clip_length": 5,
+    "epochs": 10,
+    "clips_per_training_sequence_per_epoch": 1,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "max_gradient_norm": 1.0,
+    "seed": 20261110,
+    "role_loss_weight": 0.1,
+    "max_attention_bias": 8.0,
+    "frozen": ["SAM2 parameters", "native frame schedule"]
+  },
+  "evaluation": {
+    "design": "Three fixed sequence-grouped out-of-fold evaluations of regional and globalized role modes, paired with the checkpoint-matched native references archived in run 118.",
+    "primary": "Equal-sequence mean present-frame Dice.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "GT-empty false alarms", "missed-return events", "runtime"],
+    "success_screen": "Against native and the globalized-role control: at least +0.01 mean Dice, positive delta on at least 14/21 sequences, and no increase in pooled GT-empty false alarms.",
+    "decision": "Run the full cohort only after the real-data gate passes. If the frozen screen fails, report it without tuning on PolypGen.",
+    "patient_independence_verified": false
+  }
+}

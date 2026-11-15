@@ -1,0 +1,92 @@
+{
+  "name": "Predicted-region joint key/value memory modulation",
+  "status": "Exploratory PolypGen sequence-split pilot",
+  "motivation": "RMNet computes a mask-derived regional map and multiplies both memory keys and values. The prior two SAM2 value-only pilots had negligible Dice impact. This candidate moves bounded region gains to the SAM2 memory stream before its separate key/value projections, changing both content keys and values while leaving added positional encoding, pointers, token count and frame schedule intact.",
+  "method": "For each of SAM2's four memory-attention layers, learn per-channel multiplicative gains for foreground, mixed-boundary and background memory vectors before key/value projection. Initialize gains at 1 and bound them to [0.75, 1.25]. Apply only to spatial memory; preserve pointer vectors and positional encodings. Keep all tokens and all other SAM2 modules unchanged.",
+  "prior_work": {
+    "RMNet_paper": "https://openaccess.thecvf.com/content/CVPR2021/papers/Xie_Efficient_Regional_Memory_Network_for_Video_Object_Segmentation_CVPR_2021_paper.pdf",
+    "RMNet_code": "https://github.com/hzxie/RMNet",
+    "RMNet_revision": "ed0f323b57803c0893f061dc8cfcf0b81e368492",
+    "RMNet_license": "MIT",
+    "adaptation": "RMNet computes a predicted-mask regional map and multiplies projected memory keys and values. This SAM2 adaptation applies predicted-region gains to the unprojected memory content before SAM2 separately adds positional encoding to K and projects K and V. This allows region-specific content modulation in both paths while preserving positional terms, all tokens and pointer tokens; it does not import RMNet optical-flow tracking or its architecture.",
+    "MMN_paper": "https://www.mdpi.com/2227-7390/12/6/863",
+    "MMN_code_status": "No official public repository was located during this survey; no MMN implementation is claimed."
+  },
+  "model": {
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "trainable_parameters": 768,
+    "memory_channels": 64,
+    "initialization": "Gain logits are zero; gain is exactly 1, so memory and native K/V inputs are unchanged.",
+    "maximum_relative_gain_change": 0.25
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15"
+    ],
+    "evaluation_sequences": [
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded": {
+      "seq1": "No positive prompt frame",
+      "seq7": "No positive prompt frame"
+    },
+    "clip_length": 5,
+    "clips_per_training_sequence_per_epoch": 1,
+    "epochs": 5,
+    "seed": 20261104,
+    "scope": "Exploratory only: PolypGen informed earlier analyses and candidate design; patient-to-sequence independence is unverified."
+  },
+  "training": {
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "loss": "Mean author-compatible post-prompt decoder BCE plus Dice mask loss and object-presence loss across sampled clips.",
+    "frozen": [
+      "image encoder",
+      "SAM2 decoder",
+      "memory encoder",
+      "attention queries and keys",
+      "native attention probabilities",
+      "object pointers"
+    ],
+    "conditions": [
+      "native SAM2",
+      "regional joint key/value modulation"
+    ],
+    "shuffled_condition": "Omitted at user request."
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice over seq16-seq23.",
+    "success_screen": "At least +0.01 equal-sequence Dice over native, higher Dice on at least 6/8 sequences, and no increase in pooled false alarms on GT-empty frames.",
+    "secondary": [
+      "per-sequence Dice",
+      "IoU",
+      "Boundary F",
+      "empty-frame false alarms",
+      "missed return events",
+      "inference wall time",
+      "memory-token and pointer counts"
+    ],
+    "interpretation": "One seed is a screening experiment, not reliable confirmation. A positive result requires a second pre-specified seed and an untouched external dataset before a general performance claim."
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "status": "exploratory; selected after earlier pilot outcomes and frame 17/18 replays",
+  "question": "How do trained regional, shuffled and generic readouts affect a fixed native memory read at the temporal midpoint of each pilot validation sequence?",
+  "selection": "For each of seq2, seq3, seq13 and seq17, select floor(number of frames / 2) as a zero-based frame index, without selecting on Dice or target presence. The prompt is the first labeled frame, which need not be frame zero.",
+  "frames": {"seq2": 31, "seq3": 7, "seq13": 125, "seq17": 31},
+  "checks": "Require archived native prediction, low-resolution mask, bank and cache hashes through the target; bit-identical zero-residual replay; four attention layers and unchanged bank. Use the pilot's checkpoint and independently trained heads.",
+  "analysis": "Report each arm's low-resolution Dice and object score and target presence. These four frames are a diagnostic, not a representative performance estimate, and are not independent confirmation. Compare with autonomous trajectories only where the frame and metric are matched."
+}

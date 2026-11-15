@@ -1,0 +1,88 @@
+{
+  "name": "Fixed-budget wider-history ToMe for SAM2 memory attention",
+  "status": "engineering gate required; no full-cohort efficacy run authorized by this protocol",
+  "created": "2026-11-12",
+  "question": "At SAM2's native saturated spatial-key budget, does reading up to 12 past frames with per-frame local ToMe improve full-video segmentation over the native six-frame reader, and does soft region-aware matching help beyond generic ToMe?",
+  "prior_work": {
+    "paper": "Token Merging: Your ViT but Faster, ICLR 2023",
+    "paper_url": "https://arxiv.org/abs/2210.09461",
+    "official_repository": "https://github.com/facebookresearch/ToMe",
+    "repository_revision": "af95e4b1befa172dadccd8c81e223b10090f9579",
+    "reused_functions": ["bipartite_soft_matching", "merge_wavg"]
+  },
+  "hypothesis": "A fixed total memory-attention token budget can cover a longer temporal history by merging locally redundant tokens within each frame. Soft predicted-region similarity may reduce harmful merging across object, background, and boundary-related locations, without selecting frames by quality.",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "engineering_gate": ["seq2", "seq3"],
+    "independence_note": "Sequence-level patient independence has not been verified; PolypGen results are exploratory."
+  },
+  "model": {
+    "repository": "external/sam2_diagnostic_reference",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "frozen": true,
+    "modified_weights": false
+  },
+  "method": {
+    "terminology": "This expands the fixed memory-attention read history; it does not increase persistent per-video bank storage.",
+    "native_capacity": {
+      "spatial_grid_per_frame": "64x64 = 4096 tokens",
+      "conditioning_maps": 1,
+      "nonconditioning_maps": 6,
+      "saturated_spatial_budget": 28672,
+      "object_pointers": "excluded from the spatial budget and copied unchanged"
+    },
+    "candidate_capacity": {
+      "conditioning_map_tokens": 4096,
+      "maximum_nonconditioning_maps": 12,
+      "nonconditioning_spatial_budget": 24576,
+      "quota_rule": "For 1..6 available nonconditioning maps, retain each full 4096-token map. For 7..12 maps, divide 24576 evenly across maps; assign remainder tokens to the most recent maps. The conditioning map stays dense.",
+      "maximum_total_spatial_tokens": 28672
+    },
+    "frame_schedule": "Use SAM2's fixed nearest-history schedule, extended to 12 maps. Do not rank or reject frames by quality, confidence, or prediction outcome.",
+    "temporal_position": "Preserve native age slots for ages 1..6; repeat the native oldest slot for ages 7..12. Keep each frame as a separate span. This is a coarse old-history encoding, not distinct age encoding beyond six frames.",
+    "read_location": "At the SDPA boundary, after native K/V projection and spatial RoPE. Preserve native image features, memory writes, decoder, object pointers, and all pretrained SAM2 weights.",
+    "matching": {
+      "source": "Pinned upstream ToMe bipartite soft matching and weighted merge.",
+      "locality": "Non-overlapping 4x4 token windows within each individual frame; never merge tokens across frames.",
+      "generic_control": "Feature-cosine ToMe matching.",
+      "regional_condition": "Normalize the mean-head projected-key metric and the predicted soft foreground/background/boundary-role vector; concatenate each scaled by 1/sqrt(2), giving a fixed equal contribution to cosine similarity. This is an explicit exploratory design choice, not a literature-established optimum.",
+      "budget_matching": "Generic and region-aware arms use the same formula-derived per-frame quota and same per-window merge count, independent of role assignments."
+    },
+    "attention_mass": "Use ToMe weighted means for post-RoPE K/V and additive log(cluster mass) in SDPA logits; pointers have mass one. This is approximate for distinct K/V vectors.",
+    "arms": ["native SAM2 six-map dense reader", "generic ToMe up-to-12-map fixed-budget reader", "soft-region-aware ToMe up-to-12-map fixed-budget reader"],
+    "training": "None. All SAM2 weights are frozen; no learned parameters are added.",
+    "forbidden": ["quality-based frame selection", "confidence gating", "prediction thresholding", "cross-frame token merging", "decoder or memory-attention weight updates"]
+  },
+  "engineering_gate": {
+    "before_full_cohort": true,
+    "checks": [
+      "Fresh SAM2 replay matches the archived native prediction and stored-memory hashes through every read with at most six available nonconditioning maps.",
+      "At later reads, at most 12 nonconditioning frames are present and the conditioning map remains dense.",
+      "With 7..12 nonconditioning maps, the total spatial key count is exactly 28672 for both candidate arms; pointers are unchanged and additional.",
+      "Generic and regional controls have identical quotas for every source frame and every 4x4 window at every attention layer.",
+      "All four native memory-attention layers are intercepted once per target; outputs and memory state remain finite; parameters and temporal-slot table are restored exactly.",
+      "ToMe source revision and digest match the pinned upstream checkout.",
+      "Synthetic identical-key/value SDPA output is conserved under the cluster-mass correction."
+    ]
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice over complete post-prompt videos for all 21 eligible sequences.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false-alarm rate on GT-empty frames", "return/reappearance coverage", "available history frames", "spatial keys per read", "memory-attention and end-to-end wall time"],
+    "planned_contrasts": ["regional fixed-budget wider history vs native", "regional fixed-budget wider history vs generic fixed-budget wider history"],
+    "statistics": "Paired sequence bootstrap 95% intervals and paired sequence-level tests, with Holm correction for the two planned contrasts.",
+    "meaningful_screen": "At least +0.01 equal-sequence Dice versus native and positive versus matched generic; at least 14/21 sequence wins versus native; positive 95% lower bounds and Holm-adjusted p<0.05 for both contrasts; no increase in pooled GT-empty false alarms.",
+    "decision": "Do not run the cohort until the real-frame engineering gate passes. If the gate passes, run the three-arm cohort once under this frozen protocol."
+  },
+  "limitations": [
+    "The experiment changes which fixed-schedule past maps are read, so any gain would support longer-history coverage under a fixed attention budget, not ToMe in isolation; native and generic controls separate these effects.",
+    "The region labels are predicted spatial roles, not proof of semantic purity of feature vectors.",
+    "Averaging different post-RoPE keys is approximate even with mass correction.",
+    "SAM2 does not provide distinct learned temporal slots beyond six history positions; repeating the oldest slot is an explicit limitation.",
+    "This design is a hypothesis and does not guarantee a Dice improvement."
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "status": "Post-hoc exploratory follow-up to whole and single-block cross-trajectory swaps; not independent hypothesis validation.",
+  "scope": "Previously inspected sequence 23 frames 8,20,35,48,51; sequence 3 frames 8,12 for engineering checks.",
+  "arms": "In each direction, exchange each pair of first [4096,7168), middle [7168,8192), last [8192,12288) spatial key and position ranges, leaving the third range, condition, query, decoder image features and recipient pointers unchanged. Also replay each no-op. Compare with the verified, frozen prior single-block and whole-memory results.",
+  "verification": "Require matching capture and checkpoint identities, identical source prompt, query and condition, fixed key counts, donor positions and values for both slices, recipient positions and values for all other keys and pointers, original no-op attention/decoder/masks, correct indexed rotary geometry, independent sequence 3 repeat and independent sequence 23 repeat, frozen outputs before label scoring, independent score and change-count calculation.",
+  "limits": "Index-matched slices across trajectories do not necessarily have identical source semantics or temporal ages. Interventions are local and selected after observing the original swaps. Do not attribute interaction to fusion, history length, an online policy or generalization. No later redetection or new gate/threshold."
+}

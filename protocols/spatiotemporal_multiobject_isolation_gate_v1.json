@@ -1,0 +1,46 @@
+{
+  "name": "Spatiotemporal value exchange object-bank isolation engineering gate",
+  "status": "frozen_for_engineering_only",
+  "sequence": "seq6",
+  "start_frame": 24,
+  "frame_count": 5,
+  "fixture": "Split the initial real polyp mask spatially into synthetic IDs 7 and 42. Alter only ID42 prompt for counterfactual. This is not a dataset with two anatomical objects.",
+  "required_checks": [
+    "native/noop parity for both object banks",
+    "object7 predictions and bank unchanged when object42 prompt changes",
+    "object42 output changes under perturbation",
+    "four attention layers per object/target and observed cross-frame groups for both IDs",
+    "SAM2 parameter digest unchanged"
+  ],
+  "base_protocol": "protocols/spatiotemporal_tome_value_exchange_cohort_v1.json",
+  "base_protocol_sha256": "a8c8c06aaad4999f1c233e48a575e6e2cbc5c02b670ed423620954ca7384706b",
+  "durable_main_gate_receipt": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/spatiotemporal_tome_value_exchange_v1/durable_main_real_gate_v1/comparison.json",
+  "durable_main_gate_sha256": "21ca39a037306b4b8161a245ee654f5b564f3bc6eb1510c9706d69d388dc031d",
+  "source_hashes": {
+    "scripts/verify_spatiotemporal_multiobject.py": "10efe7e3ff88c0f600a348e1903a8b2bc6f73d2138b35961ca5d985e9e7c28f8",
+    "scripts/bank_integrity.py": "5fd5664110cde769979678b97c7e19efea70a1c41c1344b40c5f87b3d37dd333"
+  },
+  "frame_hashes": [
+    {
+      "image_sha256": "f33baed79272a01db2084fbda8d02a54c7917a6f2011c4544560b907ce6e16d5",
+      "mask_sha256": "52ebef8ebcb80cc99a050fe9ed49133d7a36f9e060509ef70d87c6e1970081de"
+    },
+    {
+      "image_sha256": "2c196b750bbbd95da23f84df42c9666b72e41dd7f437dadffb454f8c63aeb990",
+      "mask_sha256": "a5d5021f31c8539bf8f379ef2f76e226d2ec4529ced3babc0b993ac2dc7c0686"
+    },
+    {
+      "image_sha256": "743268f70b823bcdb9424ff65d28cdcb6ef98ed4782ba69a9fc329ab335aa69b",
+      "mask_sha256": "1f83da3770e87bbc2f7a3bb3408859e6f112c4a4c09b07d294faf89c334c1b76"
+    },
+    {
+      "image_sha256": "5439eac15b1943c4bf577cbef0b2dc924c966b4530f0fb6c0a9749fc9ecbc81c",
+      "mask_sha256": "d93225f0d7690347ffd13fa022372bf8a65c95148f4b70bbdf239234652d883d"
+    },
+    {
+      "image_sha256": "38ebed4879a2a2b2eb3908acf39e0c543c6a4e0a54b14a173ca5eff746b2863d",
+      "mask_sha256": "73ca45801e785ac803bfec78d04897483944307db99e373df1ee3dda403012dd"
+    }
+  ],
+  "output_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/spatiotemporal_tome_value_exchange_v1/spatiotemporal_multiobject_gate_v1"
+}

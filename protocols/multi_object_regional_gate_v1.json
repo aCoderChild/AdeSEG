@@ -1,0 +1,24 @@
+{
+  "status": "Prospective multi-instance engineering gate; no accuracy claim",
+  "author": "https://github.com/facebookresearch/sam2",
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "reuse": "Keep native add_new_mask, persistent ID mapping, per-object banks, propagate_in_video, decoder and memory writer unchanged. The adapter shares weights but computes memberships separately for each object.",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "sequence": "seq5",
+  "seed": 20261118,
+  "clip_length": 3,
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "object_ids": [7, 42],
+  "fixture": "Real PolypGen frames with controlled two-instance prompts: divide each existing polyp mask at the prompted mask's median foreground x-coordinate. This is an engineering fixture, not genuine annotated multi-object data or a Dice benchmark.",
+  "cache_amendment": "Before accuracy experiments: initial native comparisons exposed equal positional values but different strides on first versus cached PositionEmbeddingSine calls. Clear only the author's deterministic position-encoding cache before each new state, so all comparisons start cold. Retain exact values AND layout checks; no hash fields are ignored. Failed diagnostics are retained in gate v1/v2 folders.",
+  "training": {"updates": 2, "rank": 4, "learning_rate": 0.0001, "weight_decay": 0.01},
+  "checks": [
+    "Zero-adapter masks, object scores, pointers, spatial memory and positional encodings equal native for both instances.",
+    "Both instances retain nonconsecutive IDs, distinct banks, and four-layer reads.",
+    "Per-object native and nonzero-adapter trajectories are unchanged by reversing registration order or tracking the other object separately.",
+    "Adding the second object after propagation begins preserves native behavior and does not retroactively add it to earlier output records.",
+    "Joint equal-instance training loss reproduces native at initialization and trains shared adapter weights through both independent banks.",
+    "Both regional and per-instance global control pass; frozen backbone hash remains unchanged."
+  ],
+  "interpretation": "Object-relative background includes pixels outside the target instance, potentially another target. Regions identify predicted positions, not semantically pure features. Preserve native overlap handling; do not union instances. Real multi-object data and benchmark evaluator checks remain required."
+}

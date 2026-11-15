@@ -1,0 +1,84 @@
+{
+  "name": "Ten-map temporal allocation and matching comparison for SAM2 memory ToMe",
+  "status": "engineering gate required; full-cohort efficacy inference has not started",
+  "created": "2026-11-12",
+  "question": "With the same ten selected history maps and the same native total spatial K/V budget, does preserving more spatial tokens in recent maps improve full-video segmentation, and does predicted-region-aware ToMe matching help beyond generic ToMe?",
+  "prior_evidence": {
+    "source": "Completed wider_history_fixed_budget_v1 full-video run and read-only seq6/seq8 trajectory audit",
+    "observation": "The native, generic and regional predictions match through six history maps. After compression begins, ToMe improves seq8 reappearance but increases GT-empty false alarms, while seq6 degrades. Generic and regional ToMe are nearly identical.",
+    "limitation": "History length, per-map spatial density and reuse of the oldest temporal slot changed together in the 12-map run. The seq6/seq8 audit was post-hoc; this candidate is exploratory on the already analyzed PolypGen cohort."
+  },
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No valid positive prompt", "seq7": "No valid positive prompt"},
+    "evidence_class": "Exploratory mechanism comparison only; this cohort has informed candidate design and cannot serve as untouched confirmation."
+  },
+  "fixed_design": {
+    "sam2": "Use the same pinned SAM2.1 Hiera-T checkpoint, frame schedule, prompt, memory writes, dense current-frame queries, decoder and object pointers as the completed wider-history run.",
+    "history": "Use the same nearest-history frame IDs, capped at ten non-conditioning maps in all four treatment arms. Never choose maps by quality, confidence, loss or predicted outcome.",
+    "budget": "Keep one dense conditioning map at 4096 tokens and the saturated non-conditioning budget at exactly 24576 tokens; total spatial K/V budget is 28672, with pointers additional and unchanged.",
+    "temporal_position": "Keep native age embeddings for ages 1..6 and repeat the native oldest non-conditioning age slot for ages 7..10. All arms use the same treatment. This does not encode exact age beyond six.",
+    "merge": "Reuse the pinned upstream ToMe bipartite soft matching and mass-weighted merge. Merge within each frame's existing 4x4 windows only, after native K/V projection and RoPE; never merge across frames. Keep the same additive log-mass attention correction.",
+    "weights": "No training. Freeze all pretrained SAM2 parameters and leave image encoder, memory writer, current queries, decoder and bank contents unchanged by the read intervention."
+  },
+  "factorial_conditions": [
+    {
+      "name": "uniform_generic",
+      "matching": "Generic projected-key similarity",
+      "allocation": "For N<=6 maps, retain all tokens. For 7<=N<=10, distribute 24576 tokens evenly across the N maps; assign integer remainder tokens to the most recent maps."
+    },
+    {
+      "name": "uniform_regional",
+      "matching": "Same projected-key similarity augmented by the same stored predicted soft foreground/background/boundary-role metric used in the prior wider-history study",
+      "allocation": "Identical per-map and per-window token quotas to uniform_generic."
+    },
+    {
+      "name": "recent_dense_generic",
+      "matching": "Generic projected-key similarity",
+      "allocation": "For N<=6 maps, retain all tokens. For 7<=N<=10, assign 2048 tokens to each of the oldest N-6 maps; distribute the remaining budget (24576 - 2048*(N-6)) evenly across the six most recent maps, giving remainder tokens to the newest maps."
+    },
+    {
+      "name": "recent_dense_regional",
+      "matching": "Same region-augmented metric as uniform_regional",
+      "allocation": "Identical per-map and per-window token quotas to recent_dense_generic."
+    }
+  ],
+  "planned_interpretation": {
+    "allocation_effect": "Compare recent_dense_generic with uniform_generic while holding the ten-map frame set, merge operator, total budget and SAM2 behavior fixed.",
+    "region_effect": "Compare regional with generic matching within each allocation while holding every frame/window quota fixed.",
+    "interaction": "Check whether the region-matching effect changes under recency-weighted versus uniform spatial density. Treat this as exploratory, not a confirmatory significance claim.",
+    "planned_statistical_contrasts": [
+      "recent_dense_regional minus native",
+      "recent_dense_regional minus recent_dense_generic",
+      "recent_dense_generic minus uniform_generic",
+      "recent_dense_regional minus uniform_regional",
+      "uniform_regional minus uniform_generic"
+    ],
+    "multiple_testing": "Paired sequence-level Wilcoxon tests and sequence-bootstrap 95% intervals; Holm correction across these five fixed contrasts. Report every contrast, including negative results.",
+    "historical_context": "The archived native six-map and generic/regional twelve-map results are contextual references, not matched primary contrasts for this ten-map study."
+  },
+  "engineering_gate": {
+    "required_before_full_video": true,
+    "checks": [
+      "Exact fresh-process native replay through reads with at most six history maps.",
+      "For every treatment, verify selected source-frame IDs match across four arms at each target and age positions are identical.",
+      "Verify every per-frame and 4x4-window quota, exact 28672 spatial-token saturation when N>6, and mass conservation including unchanged pointers.",
+      "Verify ToMe source hashes, finite attention outputs, unchanged SAM2 parameters, unchanged memory writes, restoration of temporal-slot state and independent-process replay.",
+      "Verify uniform and recent-dense quota rules with unit cases for every N from 1 through 10, including the 2048-token local merge limit."
+    ]
+  },
+  "evaluation": {
+    "primary_metrics": ["Equal-sequence mean present-frame Dice over complete post-prompt videos", "Per-sequence Dice", "Paired sequence effects and uncertainty"],
+    "secondary_metrics": ["IoU", "Boundary F", "GT-empty false alarms with denominators", "Reappearance coverage", "Runtime", "Dice with seq8 excluded"],
+    "analysis": "Report all four arms and fixed archived references. Since this candidate was chosen after inspecting the same cohort, present paired intervals and tests descriptively; do not call them confirmatory or use the cohort to tune a follow-up variant.",
+    "stop_rule": "Do not proceed to another PolypGen variant after this comparison. Regardless of outcome, require untouched-data evaluation before claiming a reliable or generalizable method."
+  },
+  "not_included": {
+    "aggregation": "Do not add channel-wise max pooling; only mass-weighted ToMe aggregation is used, so the temporal allocation and regional matching effects remain interpretable.",
+    "matching": "Do not relaunch ATC or PiToMe; their frozen continuation screens failed.",
+    "region_identification": "Do not add Grad-CAM, TokenCut, k-means or pointer-centred grouping to this experiment. Existing probes do not provide a reliable segmentation benefit and would create additional factors.",
+    "other": "No thresholds, confidence gates, frame-quality selection, cross-frame merging, learned parameters or test-set-based tuning."
+  }
+}

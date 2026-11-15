@@ -1,0 +1,11 @@
+{
+  "scope": "Exploratory automatic-mask matched native SAM2.1 on previously inspected seq11, seq20 and seq23; not historical ground-truth-prompt results or independent validation.",
+  "sequences": ["seq11", "seq20", "seq23"],
+  "checkpoint_sha256": "a2345aede8715ab1d5d31b4a509fb160c5a4af1970f199d9054ccfb746c004c5",
+  "author_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "source": "Clean external/sam2_diagnostic_reference checkout, matching pinned official revision; no author source edits.",
+  "prompt": "Exact frozen automatic mask, original prompt frame and sequence 23 fixed viewport shared with the same-device SAMURAI and project Lean comparisons. Start predictor locally at frame zero after rebasing; pre-prompt frames are saved as empty. No detector or labels at inference.",
+  "device": "MPS FP32, deterministic algorithms, seed 20261021, MPS fallback and fast math disabled. The scoped blocking pointer-position transfer is applied to avoid an observed MPS temporary-buffer race; CPU uses author source unmodified.",
+  "engineering": "Two fresh MPS runs and one CPU run on at least ten post-prompt frames with identical prompt/source/state; require repeat mask disagreement no more than 0.01% of frame pixels and report CPU/MPS differences. This numerical tolerance is an engineering check, not an inference threshold. Full output must be frozen before labels are opened.",
+  "limitations": "A short gate is not full-video reliability, patient independence is unknown, and native architecture/budgets differ from Lean and SAMURAI."
+}

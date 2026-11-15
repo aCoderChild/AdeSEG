@@ -1,50 +1,21 @@
-# Scripts
+# Experiment scripts
 
-| File | Purpose |
-|---|---|
-| `run_author_sparse_experiment.py` | Isolated SAMURAI then SAM2Long: complete identity/regional replay gates, then paired native/regional full cohorts; preserve native eligibility/pointers/branches; stops on any mismatch |
-| `analyze_posthoc_regions.py` | No-inference equivalence, exact false-alarm transitions, query/layer attention and size report; explicit remote artifact provenance supported |
-| `backup_experiment_outputs.py` | Second Drive snapshot with per-file SHA256 verification; does not claim cloud upload or independent account/device backup |
-| `run_stale_foreground.py` | Protected, committed-source CPU full propagation using author predictors and a causal foreground-only read mask; four-condition correctness gate before three full conditions |
-| `false_alarm_statistics.py` | Sampled-frame absence/return metrics and six fixed paired sequence comparisons; explicit censoring |
-| `audit_relapse_opportunities.py` | No-inference native-mask opportunity counts from verified preserved author archives; not exact score-trigger coverage |
-| `audit_memory_token_regions.py` | Native memory grouping, reference/predicted overlays, coverage and width sensitivity |
-| `audit_region_definitions.py` | CPU native-mask audit: seq2/seq3 replay gate, then all-sequence assignment/contour statistics with matching `--validation-dir`; author-code comparators and read-only primary attention |
-| `region_definition_statistics.py` | Contour coverage, fixed size-bin assignment and descriptive aggregation; not a region selector |
-| `run_token_attention.py` | Native read-only FP32 per-key/query-region capture; committed source gate and fresh-model replay |
-| `token_attention_statistics.py` | Footprint precision and fixed sequence-pooled/log-median summaries, size and outcome strata |
-| `queue_token_attention.py` | Gate then full attention; fails closed and stops before unregistered exclusions |
-| `run_contiguous_exclusions.py` | Committed CPU FP32 one-target exclusions, six definitions, exact replay/bank/layout checks and rigid shape-matched controls |
-| `contiguous_exclusion_statistics.py` | Sequence-level excess loss, fixed strata, bootstrap intervals and Holm18 inference |
-| `queue_contiguous_exclusions.py` | Integrity/delivery gate then complete cohort, without effect-dependent stopping |
-| `diagnose_contiguous_exclusions.py` | Isolated/history replay of failed seq12 target; separates replay equality from buffer equality; diagnostic evidence, not a full-cohort result |
-| `diagnose_bank_integrity.py` | Per-call tensor/structure/address trace at a failed target; distinguishes changed bytes from alias-sensitive digest disagreement |
-| `bank_integrity.py` | Exact per-path raw-byte/layout/structure fingerprints; aliases recorded separately |
-| `relabel_region_trimaps.py` | Offline amended kernels 15/21/29 from completed saved-logit sequences; isolated author adapter, counts/coverage/GT/size statistics, no inference or attention |
-| `measure_region_attention.py` | Verify all saved overlays; observe native attention mass and spatial enrichment using Efficient-SAM2 author attention |
-| `run_region_exclusions.py` | Native one-frame regional key exclusions with three per-memory-frame count-matched random controls; no memory writeback |
-| `run_author_baseline.py` | Isolated official SAM2/SAM2Long/SAMURAI/Lean predictors; exact-replay preflight and signature-gated full inference |
-| `run_author_baseline_batch.py` | Complete seq2/seq3 validation of authors and fixed regional/zero/shuffled controls, then serial full runs and paired comparison; stops on failed checks/uploads |
-| `calibrate_native_enrichment.py` | Read-only official CPU SAM2 attention calibration; existing author-attention observer, exact baseline predictions and complete replay checks |
-| `measure_author_regions.py` | Read-only SAMURAI/SAM2Long regional attention; author candidate alignment, exact native prediction parity and replay-gated full inference |
-| `queue_author_region_measurements.py` | Serial author measurement validation/full runs, existing-job dependency, per-layer/sequence comparison and confirmed W&B uploads |
-| `run_enrichment_readout.py` | Native SDPA with frozen all-cohort proportional/inverse/random weights; strict source/recipe/runtime checks |
-| `queue_enrichment_readout.py` | Validates calibration, estimates ratios on all eligible sequences, validates three readouts, then full evaluations and paired statistics |
-| `run_efficient_smr.py` | Official SMR-only with dense encoder; device-allocation patch, observed key reduction, dense-encoder parity and signature-gated replay/full inference |
-| `memory_token_io.py` | Shared native rollout capture, hashing, output checks and overlays |
-| `build_polypgen_manifest.py` | Numerically ordered original PolypGen manifest |
-| `build_polypgen_kaggle_manifest.py` | Kaggle mirror manifest with chronology safeguards |
-| `verify_wandb_connection.py` | Credential/project preflight |
+The current fixed-read workflow uses the following source-bound entry points:
 
-The entry points support `python scripts/<file>.py --help`;
-`memory_token_io.py` is an internal helper, not a CLI.
-Use `audit_memory_token_regions.py --all-sequences` for complete all-frame
-assignment validation. No frame sampling or classifier training is used.
-Unpromptable/pre-prompt frames receive reference-only labels, with no fake
-memory vectors. See the methods for coverage, storage and exactness checks.
-Only the native-memory workflows are active. Old study runners, detector
-comparators, image-feature training and notebook orchestration were removed.
+1. [Capture handoff](verify_cache_release_crossfit_handoff_v1.py) reconstructs
+   the audited warm feature captures without opening labels.
+2. [Three-fold preflight](preflight_cache_release_crossfit_training_3fold_v1.py)
+   and [registry](build_cache_release_crossfit_registry_3fold_v1.py) bind the
+   357-read grid and patient-grouped schedule.
+3. [Three-fold study](run_bounded_crossfit_shared_study_3fold_v1.py) supervises
+   registry verification, an MPS probe and its audit, training, 18 held-out
+   prediction sets, and frozen verification and scoring.
 
-See [methods](../docs/REGION_TOKENS.md) and
-[retained results](../docs/REGION_TOKENS_RESULTS.md). Outputs, caches and
-credentials do not belong in this folder.
+Use each command's `--help` and the
+[three-fold protocol](../protocols/BOUNDED_CROSSFIT_FIXED_READ_3FOLD_V1.md)
+for its required evidence and paths. Running the same study twice is not a
+substitute for checking the existing progress report. All results go to the
+configured Drive experiment directory.
+
+The directory also retains source-bound utilities from prior comparisons.
+Their names do not imply they are active components of the current method.

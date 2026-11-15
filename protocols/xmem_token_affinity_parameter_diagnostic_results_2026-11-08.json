@@ -1,0 +1,76 @@
+{
+  "id": "xmem_token_affinity_parameter_diagnostic_results_2026-11-08",
+  "date": "2026-11-08",
+  "type": "bounded engineering repeatability diagnostic",
+  "status": "failed; efficacy remains blocked",
+  "protocol": "protocols/xmem_token_affinity_parameter_diagnostic_amendment_2026-11-08.json",
+  "protocol_sha256": "1155b11b0dac729d9d5c31e422b1decc89c14a071ef05221cb5bf26d7aaf9dd0",
+  "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_rng_token_affinity_parameter_diagnostic_20261108_01/",
+  "artifacts": {
+    "setup.json": "c9f0db76637882817ec129adea4f74bde79ea5e5d16c0dacea8bbdd2b3e83e17",
+    "source_snapshot.zip": "643f4ce64bec8747fa14e40ebe36aec72065716d1beba9a759094b8718197296",
+    "fresh_start_repeatability_progress.json": "6420719b7fed48632bf8b6b49e1083c84c387516caa37330dc5154b0cc4a07f3",
+    "failure.json": "4046935b8192ce21cf1efdacd1f98801d262addbcfd41dfa66157d8990702eab"
+  },
+  "scope": {
+    "arm": "token_affinity",
+    "repetitions": 2,
+    "device": "cpu",
+    "real_checkpoint_gate_sequences": ["seq2", "seq3"],
+    "training_sequences_in_replay_order": ["seq9", "seq2"],
+    "training_clip_selection": "The repeatability-only runner replays the same two frozen training-plan clips; these are distinct from the seq2/seq3 real-checkpoint gate clips.",
+    "clip_source_frame_indices": {
+      "seq9": [18, 19, 20, 21, 22, 23, 24, 25],
+      "seq2": [19, 20, 21, 22, 23, 24, 25, 26]
+    },
+    "updates_per_clip": 2,
+    "predicted_memory_writes_per_clip": 7,
+    "metrics_computed": [],
+    "full_cohort_training_or_inference": false
+  },
+  "observations": {
+    "initial_adapter_optimizer_and_full_rng_match": true,
+    "pretrained_sam2_unchanged": true,
+    "final_full_rng_match": true,
+    "clip_plan_read_counts_and_memory_write_counts_match": true,
+    "losses_match_exactly": false,
+    "first_differing_gradient": "memory_attention.layers.0.cross_attn_image.xmem_strength",
+    "gradient_difference_locations": [
+      "seq9 chunk 2",
+      "seq2 chunk 1"
+    ],
+    "final_adapter_parameter_difference": {
+      "parameter": "memory_attention.layers.0.cross_attn_image.xmem_strength",
+      "max_absolute_difference": 7.275957614183426e-10
+    },
+    "final_optimizer_state_difference": {
+      "state": "optimizer.state.0.exp_avg",
+      "max_absolute_difference": 9.760260581970215e-7
+    },
+    "losses": {
+      "repeat_1": {
+        "seq9": [0.09347166121006012, 0.06413189321756363],
+        "seq2": [0.6773797869682312, 0.6555533409118652]
+      },
+      "repeat_2": {
+        "seq9": [0.09347166121006012, 0.06413189321756363],
+        "seq2": [0.6773797273635864, 0.65555340051651]
+      }
+    }
+  },
+  "operation_level_probes": {
+    "scalar_sdpa_path": {
+      "setup": "Two fresh CPU repeats of bias = fixed_score * zero_initialized_scalar, scaled_dot_product_attention, and the straight-through native identity; one intra-op thread and deterministic algorithms enabled.",
+      "query_shape": [1, 2, 8, 16],
+      "key_value_shape": [1, 2, 32, 16],
+      "output_loss_and_scalar_gradient_exact": true
+    },
+    "single_adapter_layer": {
+      "setup": "Two fresh CPU repeats of the XMemTokenAffinityRoPEAttention implementation with fixed synthetic feature tensors; 64 query tokens, 128 memory tokens, 2 heads, 8-dimensional affinity keys; one intra-op thread and deterministic algorithms enabled.",
+      "output_and_all_17_parameter_gradients_exact": true,
+      "xmem_strength_gradient": 0.1112866997718811
+    }
+  },
+  "interpretation": "The exact real-clip repeatability gate fails. Per-parameter receipts localize the first observed discrepancy to the layer-0 scalar xmem_strength gradient. The small parameter delta and matching plans do not excuse failure under the frozen exact criterion. Isolated synthetic tests of the scalar-SDPA path and a single adapter layer were exactly repeatable, so they found no defect in those bounded operations; they do not identify the source of the mismatch in the full SAM2 training integration. This is an engineering finding, not a Dice result.",
+  "decision": "Do not run efficacy training or full-cohort inference. The exact real-clip integration failure remains unresolved; any further diagnostic must be bounded and target intermediate activations/gradients around the layer-0 adapter without changing the frozen method. Keep the earlier stored-mask/native-memory alignment assertion separately unresolved. Do not relax equality or change the efficacy method to obtain a pass."
+}

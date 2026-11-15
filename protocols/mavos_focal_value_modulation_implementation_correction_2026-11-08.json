@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-08",
+  "type": "pre-gate implementation-fidelity correction",
+  "candidate": "mavos_focal_value_modulation_polypgen_v1",
+  "issue": "The initial adapter implementation applied each focal convolution independently to the context projection and computed global context from the unprocessed projection. The pinned official MAVOS JointFocalAttention implementation applies focal levels sequentially and computes global context from the final focal representation. A subsequent real-frame engineering-gate attempt then exposed that SAM2 MemoryAttention is batch-first, while the adapter expected token-first, and that initial pointer-only reads are valid.",
+  "change": "Correct the adapter to chain each focal level and pool global context from the final level. Correct the real-frame verifier indentation so it compiles and executes the adapted multi-object rollout. Add a unit check against the sequential equations. The integration now consults MemoryAttention.batch_first, transposes to the adapter layout, and returns all-pointer reads unchanged. A new hook-level test covers batch-first pointer-only inputs.",
+  "scope": "Engineering candidate only. No real-frame gate, training, validation efficacy, or test inference was run for this candidate before the correction.",
+  "upstream": {
+    "repository": "https://github.com/Amshaker/MAVOS",
+    "revision": "e30876fbd248ebf91c7fff6b9606a70235f38944",
+    "file": "external/MAVOS/networks/layers/externel_utils.py",
+    "class": "JointFocalAttention"
+  },
+  "verification": {
+    "command": "PYTHONPATH=. python -m pytest -q tests/test_mavos_focal_value_modulation.py",
+    "result": "8 passed (after added batch-first and pointer-only integration coverage); syntax and Drive snapshot checks pending refresh",
+    "syntax": "py_compile passed for adapter, verifier, and tests",
+    "diff_check": "git diff --check passed"
+  },
+  "efficacy_authorization": "still blocked pending real-frame engineering gate",
+  "gate_attempt_01": "Failed before any efficacy run on the first adapted propagation read because of the layout/pointer-only handling bug; preserved at outputs/experiment/mavos_focal_value_modulation_polypgen_v1/attempt_01_engineering_gate_cpu/failure.json."
+}

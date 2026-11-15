@@ -1,0 +1,78 @@
+{
+  "name": "Prompt-anchored ToMe diagnostic on PolypGen seq5",
+  "status": "design frozen; helper and real-frame gate implemented; both await execution after the active cohort run",
+  "purpose": "Mechanism diagnostic for whether a fixed prompt object pointer is a more useful token-matching reference than the current source frame's pointer during prolonged SAM2 presence failures.",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "sequence": "seq5",
+    "role": "post-hoc development diagnostic only; not an efficacy cohort or independent confirmation",
+    "prompt": "Use the sequence's original frame-0 prompt unchanged.",
+    "frames": "Propagate all 249 post-prompt targets in order; no hand-picked target frames."
+  },
+  "method": {
+    "implementation": "modeling/prompt_anchor_tome.py",
+    "implementation_sha256": "bf33d38cd9e9079b8134cfb2271f2db0707e033b3dec3ddaa8f9bec065c7dbb6",
+    "unit_test_sha256": "508837a73c92307b9fc034b545c696d728ee9e78db74874f6e25a1b3a956186e",
+    "matching": "For every stored spatial memory token, compute cosine affinity to the object pointer from the earliest fixed conditioning frame; append this scalar to the existing normalized mean-head post-RoPE key matching metric.",
+    "merge": "Reuse the pinned ToMe bipartite matcher, weighted K/V merge, and log cluster-mass attention bias from modeling/pointer_conditioned_tome.py.",
+    "controls": [
+      "frozen native SAM2",
+      "same-frame pointer-conditioned ToMe",
+      "merge-budget-matched generic local ToMe"
+    ],
+    "unchanged": [
+      "SAM2 parameters",
+      "native memory writes",
+      "native attention weights",
+      "all selected frames",
+      "per-window merge quotas",
+      "pointer K/V tail",
+      "object-presence handling",
+      "decoder",
+      "prompt and evaluation frame order"
+    ],
+    "forbidden": [
+      "thresholds",
+      "presence bypass",
+      "frame selection",
+      "evaluation-mask input",
+      "per-frame tuning",
+      "quota changes"
+    ]
+  },
+  "verification": {
+    "synthetic_unit_tests": "tests/test_prompt_anchor_tome.py",
+    "required_real_frame_gate_before_seq5_replay": [
+      "exact no-merge parity",
+      "fixed prompt-pointer identity across source frames",
+      "finite/aligned affinities",
+      "four attention-layer coverage",
+      "matched generic per-window quotas",
+      "unchanged SAM2 parameter digest",
+      "pointer-tail preservation",
+      "temporal-state restoration",
+      "no evaluation-mask access by matching code"
+    ],
+    "stop_on_any_gate_failure": true,
+    "real_frame_gate_protocol": "protocols/prompt_anchor_tome_gate_v1.json",
+    "real_frame_gate_sha256": "d2a711c0b83ff1595d1c93cf353c010b0d37f1c1d65d945adf4194ac04da94c5",
+    "runner_integration_status": "not built; the gate script only performs bounded engineering replay"
+  },
+  "report": {
+    "primary_diagnostic": "per-frame object-score logit and unsuppressed/suppressed mask behavior on all frames, with GT used only after inference for offline analysis",
+    "secondary": [
+      "present-frame Dice",
+      "false alarms on empty frames",
+      "return detection and delay",
+      "token merge assignments",
+      "runtime"
+    ],
+    "claim_limit": "Any improvement on seq5 is exploratory because this sequence informed the method. It cannot support a cohort or generalization claim. No full-cohort rerun is authorized by this protocol."
+  },
+  "execution": {
+    "blocked_until": "PID 50946 full-cohort pointer-conditioned ToMe run is complete and its frozen results are audited",
+    "output": "Google Drive AdeSEG/outputs/experiment/pointer_conditioned_tome_polypgen_v1/full_attempt01/prompt_anchor_seq5_diagnostic/",
+    "device": "CPU FP32",
+    "seed": 20261113
+  }
+}

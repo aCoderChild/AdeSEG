@@ -1,0 +1,98 @@
+{
+  "name": "Frozen Run 155 region-constrained ToMe transfer check on DAVIS 2017",
+  "created": "2026-11-06",
+  "status": "Prospective for this DAVIS run: protocol frozen before its two-object engineering gate and validation inference. A pre-gate clarification below corrects the frame-zero prompt check after archived predictions showed that decoded output is not pixel-identical to the supplied prompt.",
+  "pre_gate_amendment": {
+    "date": "2026-11-06",
+    "inference_started_at_amendment": false,
+    "reason": "The archived native decoder output on the prompt frame differs from the indexed prompt mask at some pixels, as expected after native mask resizing and mask decoding. Requiring the predicted output to reproduce the prompt bit-for-bit would be an invalid test of prompt integrity.",
+    "change": "Verify instead that SAM2's stored frame-zero mask_inputs_per_obj tensor is bit-identical to the source object mask after the pinned add_new_mask bilinear-antialiased resize and >=0.5 conversion. For DAVIS validation, also require each candidate's frame-zero logits and indexed PNG hashes to match the archived native SAM2 run exactly.",
+    "observed_archive_check": {
+      "video": "bike-packing",
+      "input_size": [480, 910],
+      "prompt_output_pixel_disagreements": 1966,
+      "valid_pixels": 436800,
+      "interpretation": "This is not a prompt-input mismatch; do not require decoder output to equal the prompt mask."
+    }
+  },
+  "engineering_gate_retry_amendment": {
+    "date": "2026-11-06",
+    "reason": "The first gate attempt completed fresh-native and exact-hook identity propagation, then the region-constrained arm stopped at its first target memory read because the audit receipt omitted the selected temporal slot (t_pos).",
+    "observed_scope": "No region-constrained target-frame prediction was produced, no generic control ran, and DAVIS validation inference did not start.",
+    "change": "Record t_pos in the existing ToMe window audit and require it in matched-budget signatures. This is audit metadata only; the merge method, region roles, merge budget, controls, checkpoint, and evaluation plan are unchanged.",
+    "failed_attempt_drive_folder": "outputs/experiment/164_davis17_region_constrained_tome_v1_gate_attempt1_incomplete/"
+  },
+  "prior_exposure": "DAVIS validation has already been used for a different soft mask-aware ToMe variant (Run 161). This run tests the frozen hard region-constrained Run 155 method; it is exploratory transfer evidence, not an untouched benchmark confirmation.",
+  "question": "Does Run 155's predicted-region-constrained local memory-token merging improve official DAVIS 2017 semi-supervised segmentation quality over native SAM2 and a same-budget region-agnostic merge?",
+  "hypothesis": "At a matched memory-token budget, constraining local ToMe matches to the same predicted positional role may improve segmentation over both native dense memory and generic local ToMe, without changing frame selection or SAM2 weights.",
+  "method_source": {
+    "run": "155_region_constrained_tome_polypgen_v1",
+    "module": "modeling/region_constrained_tome.py",
+    "upstream": "https://github.com/facebookresearch/ToMe",
+    "upstream_revision": "af95e4b1befa172dadccd8c81e223b10090f9579",
+    "upstream_source_sha256": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e",
+    "method": "Use the existing continuous mask roles from each stored predicted 256x256 mask. Within each 4x4 spatial-token window, apply the pinned ToMe matching and weighted K/V merge separately to each role assigned by argmax; merge floor(role_count/2) pairs, subject to the upstream limit. Apply the existing log-cluster-mass attention bias. Leave pointers unchanged.",
+    "unchanged": ["SAM2 checkpoint and weights", "memory writes", "frame schedule", "temporal positions", "decoder", "object-pointer tokens", "prompt protocol"],
+    "forbidden": ["frame selection", "confidence gating", "prediction thresholding for method decisions", "training or changing original SAM2 weights", "tuning after validation outcomes"]
+  },
+  "model": {
+    "repository": "external/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint_drive_path": "outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "device_precision": "CPU, FP32; two PyTorch CPU threads; frozen evaluation-mode model",
+    "inference_overrides": ["apply_postprocessing=false", "model.non_overlap_masks=true"]
+  },
+  "dataset": {
+    "name": "DAVIS 2017 semi-supervised",
+    "resolution": "480p",
+    "validation_videos": 30,
+    "validation_objects": 61,
+    "validation_input_frames": 1999,
+    "prompt": "All persistent object IDs from the indexed ground-truth mask of frame 0; no later labels are read by inference.",
+    "official_evaluator_revision": "ac7c43fca936f9722837b7fbd337d284ba37004b",
+    "official_metrics": ["J region similarity", "F contour accuracy", "J&F mean"],
+    "statistical_unit": "Video. Average object scores within each video before paired analysis.",
+    "interpretation": "Natural-scene VOS transfer only; does not establish medical-video performance. Published numbers are context and are not treated as paired comparisons."
+  },
+  "conditions": {
+    "native": "Reuse only the native arm from Run 161 after validating checkpoint, configuration, DAVIS inventory, evaluator, frame coverage, and every saved per-video completion receipt and prediction hash.",
+    "region_constrained_tome": "Run 155's existing method unchanged, routed through each persistent object's own SAM2 bank.",
+    "generic_local_tome": "Use pinned upstream ToMe matching without region constraints. Match Run 155's merge count for every target frame, object ID, selected memory frame, layer, and local window."
+  },
+  "engineering_gate": {
+    "split": "train",
+    "video": "bmx-bumps",
+    "object_ids": [1, 2],
+    "frames": 90,
+    "runs": ["fresh native", "hooked exact pass-through", "region-constrained ToMe", "matched generic ToMe"],
+    "checks": [
+      "Fresh native and hooked pass-through prediction logits, indexed PNGs, and per-object stored prediction/memory hashes are identical on every frame.",
+      "SAM2's retained frame-0 mask input is bit-identical to each indexed source object mask after the pinned author add_new_mask resize/threshold operation; frame-zero output is not required to equal the input prompt.",
+      "Persistent IDs 1 and 2 map to distinct per-object output dictionaries; each memory read and each source predicted mask carries the matching ID.",
+      "Each propagated object/frame reaches all four SAM2 memory-attention layers exactly once.",
+      "Each recorded selected-memory span includes its frame index and SAM2 temporal slot.",
+      "Regional and generic controls match per-object, per-target, per-memory-frame, per-window merge counts exactly.",
+      "Object-pointer K/V are unchanged; key mass is conserved; actual pointer tokens are observed; compressed tensors and outputs are finite.",
+      "SAM2 parameters remain frozen and unchanged, and the pinned official evaluator accepts the complete gate prediction folder."
+    ],
+    "full_validation_allowed_only_if_all_checks_pass": true
+  },
+  "primary_evaluation": {
+    "endpoint": "Official DAVIS 2017 validation J&F-Mean",
+    "planned_contrasts": ["region_constrained_tome - native", "region_constrained_tome - generic_local_tome"],
+    "statistics": "Paired video-level mean and median differences, wins/ties/losses, 95% paired video-bootstrap intervals (10,000 resamples), two-sided paired Wilcoxon tests, Holm adjustment across the two contrasts.",
+    "supplementary": ["J-Mean", "F-Mean", "per-video and per-object scores", "framewise Dice on official scored frames", "retained spatial keys", "inference wall time"],
+    "evidence_screen": "Meaningful improvement is demonstrated only if the regional arm gains at least 0.01 J&F over native, has a positive mean difference over the matched generic control, both paired 95% interval lower bounds are above zero, both Holm-adjusted p-values are below 0.05, and regional wins on more validation videos than it loses in both contrasts.",
+    "decision": "If the gate fails, stop before validation inference and correct only integrity defects. If the gate passes, run the frozen validation comparison once. Do not tune this method on DAVIS after observing results. Failure to pass the evidence screen means this method did not establish the planned transfer improvement."
+  },
+  "native_reference": {
+    "run": "outputs/experiment/161_davis17_soft_mask_aware_tome_retry1_v1/full",
+    "setup_sha256": "f79d5c4908df2ec7c1d9b05d9422d0b30f07bd3bbed5cb7ef748a31bdfe4497a",
+    "results_sha256": "6495a3045e4b71dc8824193bfe8fc1cb925a7985b38788623d860cb18ff35b50",
+    "inventory_sha256": "571da6962e62814aca56a51ba6ebaf2b4941293045e3dcfda282e12ab0125a4f"
+  },
+  "output_drive_path": "outputs/experiment/164_davis17_region_constrained_tome_v1/",
+    "recording": "Snapshot this protocol and record its SHA-256 and all source/checkpoint/dataset receipts before the engineering gate."
+}

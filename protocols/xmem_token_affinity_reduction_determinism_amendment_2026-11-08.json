@@ -1,0 +1,34 @@
+{
+  "id": "xmem_token_affinity_reduction_determinism_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective engineering correction; efficacy remains stopped",
+  "parent_amendment": "protocols/xmem_token_affinity_autograd_determinism_amendment_2026-11-08.json",
+  "parent_amendment_sha256": "b6e29f28544b0c761c72a7c6112ab5d22e1fef6381606a62105d6ce019f351b5",
+  "diagnostic_evidence": {
+    "full_gate_setup_sha256": "b7e3f176213f4c27a7e0a888f25b52b17bab1ed6f253e267fcd371c85978ef03",
+    "full_gate_repeatability_sha256": "cab84f89a4abf49f0443d5f0756e96fb1aa5c8df1c0d1d595cf14a188212b2a7",
+    "full_gate_failure_sha256": "3d9b2a62274fcfc51e2a332c09735c9b412463d8ae442f554e4603ecbd90cd8d",
+    "token_diagnostic_setup_sha256": "f8c5f09efcd4fc6837eebdb83b28f08bdd119a523ab96a52258f8330355e66a9",
+    "token_diagnostic_repeatability_sha256": "d79687c72a3858a2864468e034abd35dc5cf9f83bc93cae8b3eeeee2fbc6102d",
+    "token_diagnostic_failure_sha256": "763f557e74292820f4e62ac369192a2d45a012e27f3ebd7d83c5e4a406d81b0a",
+    "observation": "With CPU autograd engine multithreading disabled, frame-broadcast repeated exactly. Token-affinity still produced different gradient tensor hashes in seq9 chunk 2 and seq2 chunk 1; first clip losses remained equal. Initial adapter, optimizer, and full RNG matched. This shows the mismatch is not only a gradient-summary formatting issue.",
+    "hypothesis": "Parallel intra-op CPU kernels used during token-affinity backpropagation may cause the tiny gradient drift. This cause has not yet been confirmed."
+  },
+  "change": {
+    "only_change": "Temporarily set torch intra-op threads to 1 during loss.backward(), gradient validation and reductions, and gradient clipping; restore the frozen 2-thread setting before optimizer.step(). Keep CPU autograd engine multithreading disabled during backward.",
+    "unchanged": [
+      "forward pass and all pretrained model weights",
+      "adapter architecture, initialization, and affinity equations",
+      "data, sequence roles, clip plan, frames, and predicted memory writes",
+      "losses, optimizer, learning rate, weight decay, and update schedule",
+      "device, dtype, parent deterministic-algorithm setting, and efficacy criteria"
+    ],
+    "reason": "Execution scheduling only; the change targets the observed CPU gradient drift and may make the existing exact-replay requirement achievable."
+  },
+  "required_checks": {
+    "scope": "Repeat the exact first two frozen training clips twice from clean starts for token-affinity and frame-broadcast arms, then run the complete short engineering gate.",
+    "pass": "Exact match of initial and final adapter/optimizer/RNG states, per-update gradient hashes, losses, receipts, and unchanged pretrained weights for both arms; all other required gate checks pass.",
+    "failure": "Keep efficacy training blocked. Identify the first differing gradient parameter and operation; do not relax equality or tune the method."
+  },
+  "interpretation": "This amendment addresses engineering reproducibility only. It is not an efficacy result and does not authorize full training until the complete source-bound gate passes."
+}

@@ -1,0 +1,41 @@
+{
+  "checkpoint": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "name": "Native memory region identification engineering diagnostic",
+  "sequences": [
+    "seq2",
+    "seq3"
+  ],
+  "target_offsets": [
+    1,
+    2
+  ],
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "status": "Frozen engineering diagnostic, no efficacy claim",
+  "device": "cpu",
+  "dtype": "float32",
+  "tokens_per_source": 4096,
+  "gt_policy": "Initial prompt is permitted; subsequent masks only evaluated after diagnostic maps are constructed",
+  "partition": "Official TokenCut default tau=0; abort partition on constant graph; no threshold search",
+  "orientation": "Initial prompted foreground/background memory prototypes; no target-GT orientation",
+  "targets": [
+    "object_presence_logit",
+    "native_selected_raw_mask_mean_on_fixed_native_positive_support"
+  ],
+  "gradient_policy": "Raw support target omitted and logged if empty; no GT fallback. CAM is sensitivity not membership truth.",
+  "source_files": [
+    "scripts/run_token_identification_diagnostic.py",
+    "modeling/token_partition_diagnostic.py",
+    "modeling/token_diagnostic_replay.py",
+    "external/TokenCut/object_discovery.py",
+    "external/pytorch-grad-cam/pytorch_grad_cam/grad_cam.py",
+    "external/pytorch-grad-cam/pytorch_grad_cam/base_cam.py",
+    "modeling/prediction_conditioned_affinity.py",
+    "scripts/run_cfbi_region_pilot.py",
+    "scripts/run_author_baseline.py"
+  ],
+  "sam2_repository": "external/sam2_diagnostic_reference"
+}

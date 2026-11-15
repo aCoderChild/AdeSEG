@@ -1,0 +1,70 @@
+{
+  "name": "Region-constrained ToMe merging in SAM2 spatial memory attention",
+  "status": "prospective engineering protocol; no efficacy run launched",
+  "created": "2026-11-05",
+  "question": "At a matched spatial-key budget, does merging similar memory tokens only within the same predicted region preserve or improve full-video segmentation over generic local merging and native dense memory?",
+  "prior_work": {
+    "paper": "Token Merging: Your ViT but Faster, ICLR 2023",
+    "paper_url": "https://arxiv.org/abs/2210.09461",
+    "official_repository": "https://github.com/facebookresearch/ToMe",
+    "repository_revision": "af95e4b1befa172dadccd8c81e223b10090f9579",
+    "merge_source_sha256": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e",
+    "license": "CC BY-NC 4.0",
+    "reused_functions": ["bipartite_soft_matching", "merge_wavg"],
+    "adaptation": "Reuse upstream similarity matching and weighted merging. Apply them to SAM2 memory K/V after native projections and rotary position encoding, grouped by a 4x4 local token window. Region-constrained mode matches only cells with the same predicted positional role."
+  },
+  "hypothesis": "Locally redundant memory tokens can be merged without deleting regional coverage. Constraining merges to the same predicted background, foreground-interior, or mixed-boundary role may avoid harmful cross-role averaging and preserve more useful evidence for the frozen decoder.",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "status": "Exploratory only: PolypGen has informed prior method development and sequence-level independence is unverified."
+  },
+  "model": {
+    "repository": "external/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "frozen": true,
+    "modified_weights": false
+  },
+  "method": {
+    "read_location": "Immediately before scaled-dot-product memory attention, after SAM2 has projected K/V and applied spatial RoPE. The current frame query, native memory writes, memory-frame schedule, decoder, and pointers remain on the author path.",
+    "memory_grid": "Each stored frame is 64x64 spatial tokens. Tile it into non-overlapping 4x4-token windows.",
+    "region_roles": "For each spatial key, compute the existing continuous mixed-cell roles from that frame's own stored native 256x256 predicted mask. Argmax is used only to define merge-compatible groups; it does not imply semantic purity or anatomical ground truth.",
+    "region_rule": "Within each local window, run upstream ToMe matching separately for each represented predicted role. For a role group of n keys, merge floor(n/2) pairs, bounded by the upstream 50% limit.",
+    "matched_control": "For each sequence, the generic control reuses the region-constrained arm's per-target, per-memory-frame, per-window merge counts. It then runs upstream ToMe matching across all tokens in each window without using region identities to select pairs. This keeps key budgets identical despite prediction trajectories diverging.",
+    "attention_mass": "Use upstream weighted mean merges for post-RoPE K and V. Add log(cluster_size) to the attention logits through an additive SDPA mask; this exactly preserves attention for identical merged keys/values and approximates their aggregate mass when they differ.",
+    "pointers": "Object pointers are excluded from merging, copied bit-identically, and retain their native unrotated tail position.",
+    "arms": ["native dense SAM2", "generic local ToMe", "region-constrained local ToMe"],
+    "training": "None; all SAM2 weights are frozen, and the ToMe procedure has no learned parameters.",
+    "forbidden": ["frame selection", "confidence gate", "prediction threshold", "decoder or memory-attention weight updates"]
+  },
+  "engineering_gate": {
+    "sequences": ["seq2", "seq3"],
+    "before_full_cohort": true,
+    "checks": [
+      "Fresh unmodified SAM2 full-video replay matches every compatible native mask and object-score hash on the gate videos.",
+      "All four memory-attention layers are intercepted exactly once per propagated target.",
+      "Region-constrained and generic controls have identical retained spatial-key counts per memory frame and target.",
+      "Original pointer K/V values are bit-identical and pointer counts/order are unchanged.",
+      "Spatial merged-key mass sums to the original spatial-key count; total mass including untouched pointers is conserved; all outputs and masks are finite.",
+      "The exact upstream ToMe source revision and digest remain pinned and clean.",
+      "Synthetic identical-key test reproduces dense SDPA within numerical tolerance after mass correction."
+    ]
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice over the complete post-prompt video.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false-alarm rate on GT-empty frames with denominator", "re-detection delay", "keys per read", "memory-attention wall time", "end-to-end wall time"],
+    "statistics": "Paired sequence bootstrap 95% intervals and two-sided Wilcoxon tests for region-ToMe versus native and region-ToMe versus generic ToMe, Holm-corrected across the two planned contrasts.",
+    "meaningful_screen": "At least +0.01 equal-sequence Dice versus native; positive mean versus matched generic ToMe; at least 14/21 sequence wins versus native; positive lower 95% bounds and Holm-adjusted p<0.05 for both contrasts; no increase in pooled GT-empty false alarms.",
+    "decision": "If the engineering gate fails, fix only implementation defects and rerun the gate. If it passes, run the frozen three-arm cohort once. Record negative or unexpected outcomes without changing the window, merge budget, role definition, or controls based on PolypGen results."
+  },
+  "limitations": [
+    "ToMe was developed for image-transformer tokens, not SAM2 memory keys; this is an integration hypothesis that must pass end-to-end parity and full-video tests.",
+    "Role labels describe positions under SAM2's own stored prediction, not exclusive feature semantics.",
+    "Key/value averaging is approximate when matched tokens differ; mass correction does not make a merged pair mathematically identical to two distinct keys.",
+    "This experiment tests a training-free token-merging hypothesis, not a guaranteed Dice improvement or independent confirmation."
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "SAM2 predicted-mask to stored-memory regional assignment alignment",
+  "status": "pre-analysis engineering audit",
+  "question": "Do Run 123's regional memberships from each frame's saved low-resolution predicted-mask logits agree with memberships derived from the exact probability map passed to SAM2's memory encoder for that same frame?",
+  "prior_work": {
+    "SAM2": {
+      "repository": "https://github.com/facebookresearch/sam2",
+      "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+      "implementation": "SAM2Base._encode_new_memory passes sigmoid-transformed high-resolution predicted-mask logits to MemoryEncoder; MemoryEncoder.MaskDownSampler downsamples the mask with total stride 16 to the 64x64 memory-token grid."
+    },
+    "soft_region_partition": {
+      "source": "modeling/soft_role_affinity.py:soft_mixed_cell_roles",
+      "reuse": "Apply the same continuous mean/within-cell-variance partition at each source resolution: 4x4 cells on stored 256x256 logits and 16x16 cells on the actual 1024x1024 memory-encoder input."
+    }
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "split": "dev",
+    "sequences": ["seq2", "seq3"],
+    "frames": "every prompt and post-prompt frame that has a stored SAM2 memory feature"
+  },
+  "capture": {
+    "memory_input": "Capture the exact mask probability tensor passed to SAM2 MemoryEncoder on each frame.",
+    "saved_prediction": "Read that frame's own stored pred_masks from SAM2 output_dict; do not reconstruct or use a later exported mask.",
+    "metrics": ["per-frame argmax-role agreement", "mean absolute membership difference", "mean per-token total variation", "role fractions"],
+    "inference": "Native SAM2 propagation only; hooks are read-only and do not change the returned values."
+  },
+  "interpretation": {
+    "pass": "Near-identical memberships across all stored frames. Freeze the current region-assignment route only if supported by the measured agreement.",
+    "fail": "Treat Run 123 as testing a mismatched region map; derive memberships from the actual memory-encoder mask and rerun every affected regional experiment. Do not alter the original results."
+  }
+}

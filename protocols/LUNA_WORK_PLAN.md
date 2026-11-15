@@ -1,138 +1,45 @@
-# Codex Luna: regional memory-reader work plan
+> **Superseded goal/work plan:** Follow [ACTIVE_RESEARCH_GOAL.md](ACTIVE_RESEARCH_GOAL.md), updated and resumed on 2026-11-11. The material below preserves the previous scope and decisions.
 
-Prepared 2026-11-06. Planning only: this file launches no experiments and is not
-a frozen efficacy protocol. Work through the stages sequentially.
+> **Active amendment — 2026-11-11:** The user authorised testing feature-based
+> grouping, gradient-based attribution and alternative matching before further
+> ToMe efficacy work. Follow [the staged identification study](TOME_REGION_IDENTIFICATION_STUDY.md).
+> Its aim is a more reliable gain than Run155. The historical stop decisions
+> below remain valid; new diagnostics do not reopen those failed runs.
 
-## Objective and constraints
+# Codex work plan: ToMe memory-token utilization
 
-Test whether one complementary regional reader improves full-video PolypGen Dice
-over native SAM2 **and** a parameter/training-matched generic reader. A reliable
-negative answer is a valid deliverable; improvement is not guaranteed.
+Follow [the current research goal](MEMORY_ATTENTION_GOAL.md). The active
+candidate is training-free, region-constrained local ToMe inside SAM2's spatial
+memory attention. Keep the native frame schedule and SAM2 model unchanged; do
+not add good/bad frame selection or confidence gates.
 
-- Freeze every original SAM2 weight; retain native frame selection and pointers.
-- No additional confidence gates, tuned decision thresholds, hard token deletion
-  or good/bad frame selection. Statistical criteria are not inference gates.
-- Reuse `modeling/complementary_memory/` and its pinned Cutie implementation.
-  Do not revive failed ToMe variants or start an architectural sweep.
-- Save artifacts, temporary data and tracker files in the configured Drive tree.
-  A Drive-backed path is not proof of cloud upload; verify upload separately.
-- PolypGen and previously examined DAVIS validation are exploratory. Sequence
-  separation does not establish patient independence.
+## Current state
 
-## Starting point
+The position-consistent implementation passed its seq2/seq3 engineering and
+persistent-ID gates. Its frozen PolypGen efficacy run stopped after 19 of 21
+matched sequences because the predeclared win criterion became unreachable and
+the false-alarm condition failed. The apparent Dice gain is sensitive to seq8.
+Run155 and DAVIS results are exploratory and do not establish reliable benefit.
+No ToMe inference process is active.
 
-Run 165 records 509 passing tests, exact zero-residual replay on 75 outputs per
-arm, learning gradients and a two-object isolation fixture. **Efficacy is untested.**
-Revalidate receipts and source hashes before reusing this evidence.
+Temporal audit: each selected memory frame keeps its native temporal slot and
+is merged independently; within-frame feature evidence and spatial detail are
+still averaged, so this is not lossless temporal-memory preservation.
 
-Preserve the bytes of the recorded [engineering protocol](complementary_memory_v1.json)
-and [dataset plan](dataset_evaluation_plan_v1.json); use new versioned protocols
-for new work.
+## Work order
 
-## Sequential stages
+1. Preserve the source, protocol, gate receipts, and completed results. Record
+   source-provenance limits explicitly; do not present unverified runtime
+   dependencies as exact reproduction.
+2. Do not restart, tune, or extend the stopped candidate on the analyzed
+   PolypGen or DAVIS validation cohorts.
+3. Start another efficacy study only if a distinct mechanism is supported by
+   new evidence, untouched annotated video data are available, and the split,
+   controls, token budget, metrics, practical-effect threshold, and stopping
+   rules are frozen before inference.
+4. Report Dice as primary, with boundary quality, false alarms, re-detection,
+   compute, uncertainty, and sensitivity to seq8. Keep exploratory results
+   separate from independent confirmation.
 
-| Step | Work and deliverable | Required before advancing |
-|---|---|---|
-| 0. Establish state | Inspect instructions, Git changes, processes, Drive artifacts and receipts; record checkpoint/source hashes and available data. | No duplicate job; compatible evidence identified; unrelated work preserved. |
-| 1. Freeze diagnostic | Write exact sequence splits, sample selection, supervision target, probe, fitting policy, seed and metrics. | Commit before computing diagnostic outcomes. |
-| 2. Run diagnostic | Compare mask-only, memory-feature-only and combined probes on identical held-out sequences/positions; save per-sequence results and error cases. | Verified alignment and coverage; evidence that features add useful information on stored-mask errors. Otherwise stop for review. |
-| 3. Freeze pilot | Write one executable training/evaluation recipe, practical-effect criteria, seeds, controls and stopping rules. | Commit before training; no unresolved metric, split or checkpoint-selection decision. |
-| 4. Verify runner | Check autoregressive training, native parity, matched arms, frozen weights, instance isolation and safe resume on real frames. | All relevant tests/checks pass with saved receipts. |
-| 5. Run pilot | Native reference, generic and regional full propagation; one fixed seed first, then pre-specified repeat seeds if the screen passes. | Complete coverage and integrity; no result-driven settings changes. |
-| 6. Decide and report | Per-sequence/aggregate tables, paired uncertainty, cost and failures; update the two research documents. | Apply the frozen rule. Stop this candidate if it fails; distinguish negative from inconclusive evidence. |
-| 7. Conditional transfer | Freeze the PolypGen model; verify DAVIS/LVOS data, instance handling and official evaluators, then evaluate all three arms. | Primary evidence warrants transfer; dataset-specific checks pass. |
-
-### Diagnostic safeguards
-
-Use an existing documented probe/library, not a new learning algorithm. Match the
-probe family, samples, regularization policy and training allowance; disclose
-different input dimensions. Fit normalization and model selection on training/
-validation sequences only.
-
-Use GT targets only for supervision and scoring. Predicting the same mask-derived
-labels supplied as inputs is circular. Analyze both correct and incorrect stored
-mask positions, retaining the full sampled population in the main result.
-Feature-only memory is already mask-conditioned by SAM2; it is not image-only.
-Probe accuracy measures decodable information, not causal utility or Dice gain.
-
-Audit archived sample selection. Outcome-selected snapshots are debugging evidence,
-not an unbiased evaluation. Predefine representative sampling if needed. Treat
-sequences as units, not thousands of independent tokens. Freeze the diagnostic's
-continuation criterion before outcomes; inconclusive evidence requires review,
-not automatic authorization of a larger experiment.
-
-### Pilot freeze checklist
-
-- [ ] Exact train/validation/evaluation sequence IDs; exclude seq1/seq7. No sequence
-  spans split roles. State which sequences contribute to each reported mean.
-- [ ] Same native checkpoint, prompts, geometry, precision and scored frames.
-  Evaluation GT after initialization is used only for scoring.
-- [ ] Generic/regional arms have the same initialization seed, parameter/summary
-  count, optimizer, schedule, training samples and checkpoint-selection policy.
-  Generic uses the existing constant-0.5 external cue.
-- [ ] Each arm propagates its own predictions into its own memory bank. Fixed
-  native-bank replay is diagnostic, not the final efficacy experiment.
-- [ ] Equal-sequence present-frame Dice is primary. Specify prompt handling,
-  empty-frame conventions, paired sequence bootstrap, paired tests and multiplicity.
-- [ ] Report per-sequence differences, wins/ties/losses, leave-one-sequence-out
-  sensitivity, IoU, Boundary F, false alarms/denominators, re-detection and cost.
-  Fix metric implementations and definitions before outcomes.
-- [ ] Set numeric practical-effect and tolerated-harm criteria prospectively.
-  Suggested discussion targets: +0.02 absolute Dice versus native and +0.01 versus
-  generic. These are proposed research targets, not established clinical relevance
-  or already-frozen pass criteria. Finalize them in the pilot protocol.
-- [ ] Fix first-seed continuation rule, repeat-seed list and compute budget.
-  One seed is a feasibility screen only. Include all planned seeds; never select
-  the best seed. Sequence, not frame/token/seed, remains the statistical unit.
-- [ ] Final positive interpretation requires the frozen practical and uncertainty
-  criteria against both controls, within agreed harm limits.
-
-## Execution and tracking
-
-For every stage save setup, logs, status, metrics and a completion receipt on
-Drive. Record run ID, protocol commit, source/checkpoint hashes, exact command,
-PID, timestamps, expected/completed units, exit code and artifact paths. Write
-status atomically. Resume only with compatible hashes/settings and validated
-completed units; preserve failed attempts with their validity clearly marked.
-
-On each continuation inspect the actual process and recent output progress before
-saying a job is running. Report an evidence timestamp and completed/expected units.
-Estimate remaining time from measured throughput, with uncertainty. Do not claim
-unattended monitoring unless a monitor actually exists.
-
-If a check fails, stop dependent runs, diagnose it, add a targeted test, document
-the fix and invalidate affected results. Re-run affected checks before resuming.
-Unexpected performance alone is not a software bug. Changes to frozen methods
-require a dated amendment and a new run; never silently overwrite provenance.
-
-Keep this ledger current. Keep `docs/REGION_TOKENS.md` short and methodological;
-put verified completed tables and brief analysis in `docs/REGION_TOKENS_RESULTS.md`.
-Do not turn either document into a training log. Commit only reviewed task-related
-changes; never blanket-stage the existing dirty worktree.
-
-## Progress ledger
-
-Update each state with a date and evidence link. Initial entries reflect project
-records, not a fresh process or hash verification.
-
-| Item | State | Evidence / next action |
-|---|---|---|
-| Run 165 engineering gate | Recorded complete | Drive `165_complementary_memory_v1/gate_retry1/`; revalidate at Step 0 |
-| Current-state inventory | Complete (2026-11-06) | No experiment process active; Run 165 receipt passed, `pilot_authorized_by_this_receipt=false`; all 228 Run 165 snapshotted sources and the checkpoint match; Run 143 bank receipts verify all 21 sequences / 2,012 post-prompt frames. In Run 143's 81-file source list, 79 match; the only differences are test configuration and CLI catalog, excluded from inference imports and disclosed in diagnostic v1. seq13 bank is referenced from `gate/observed/seq13`. |
-| Diagnostic protocol | Amended and frozen before fitting (2026-11-06) | [Complementary memory diagnostic v1](complementary_memory_diagnostic_v1.json); preflight corrected test-split post-prompt count from 432 to 372 using manifests and receipts, then froze immutable Drive attempts. No probe was fitted and no result inspected. |
-| Diagnostic implementation/preflight | Complete (2026-11-06) | Pinned environment; 5 targeted checks pass; read-only validation verifies all 21 eligible banks / 2,012 post-prompt frames and provenance. Runner commit `fe955bed`; output saved in Drive `166_complementary_memory_diagnostic_v1/attempt_01`. |
-| Diagnostic results | Screen passed; exploratory only (2026-11-06) | Eight previously analyzed test sequences / 372 frames: combined-minus-mask-only present Brier improvement 0.006086, paired 95% CI [0.003530, 0.008657]; all-frame Brier also improves. MAE is mixed. Verified Drive receipts and independent score recomputation; no Dice or causal effect tested. See `docs/REGION_TOKENS_RESULTS.md` and Run 166 artifacts. |
-| Pilot protocol | Pending | Step 3; use the screen only to justify freezing the full-propagation recipe. The efficacy runner is not yet verified. |
-| Pilot runner verification | Pending | Step 4 |
-| First-seed full propagation | Not started | Conditional on Steps 1–4 |
-| Repeated seeds | Not started | Conditional on frozen screen |
-| Primary decision/report | Pending | Step 6 |
-| DAVIS/LVOS transfer | Not started | Conditional on evidence and dataset checks |
-
-## Handoff instruction
-
-Complete one small reviewable task at a time; record evidence and the next action.
-Ask only when a missing decision blocks correctness. Never invent scores, bypass
-checks or substitute a method mid-run. If the diagnostic or pilot fails its frozen
-criteria, report the finding and a justified next proposal. Do not automatically
-start another architecture.
+The concise method and status are in [`docs/REGION_TOKENS.md`](../docs/REGION_TOKENS.md)
+and [`docs/REGION_TOKENS_RESULTS.md`](../docs/REGION_TOKENS_RESULTS.md).

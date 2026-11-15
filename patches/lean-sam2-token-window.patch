@@ -1,0 +1,69 @@
+diff --git a/sam2/modeling/sam2_base.py b/sam2/modeling/sam2_base.py
+index 5d439ae..88d3e89 100644
+--- a/sam2/modeling/sam2_base.py
++++ b/sam2/modeling/sam2_base.py
+@@ -2391,7 +2391,25 @@ class SAM2Base(torch.nn.Module):
+             # We also allow taking the memory frame non-consecutively (with stride>1), in which case
+             # we take (self.num_maskmem - 2) frames among every stride-th frames plus the last frame.
+             stride = 1 if self.training else self.memory_temporal_stride_for_eval
+-            for t_pos in range(1, self.num_maskmem):
++            # Experimental opt-in: read every retained spatial entry admitted
++            # by the token budget. The trained temporal table has only the
++            # original slots, so older ages reuse its oldest noncond slot.
++            token_window = getattr(self, "token_window_runtime", None)
++            if token_window is not None:
++                if track_in_reverse or stride != 1 or self.num_maskmem < 2:
++                    raise ValueError("Token window supports forward stride-one inference only")
++                if len(cond_outputs) != 1 or self.ema_history_replace_old_tail_in_attn or self.ema_history_resident_prune:
++                    raise ValueError("Token window requires one condition and no EMA history replacement/pruning")
++                from modeling.lean_token_storage_observer import representation
++                from modeling.lean_token_window_storage import temporal_slot
++                for prev_frame_idx, out in sorted(output_dict["non_cond_frame_outputs"].items()):
++                    if prev_frame_idx >= frame_idx or not representation(out)["feature_tokens"]:
++                        continue
++                    if out.get("frame_idx", None) is None:
++                        out["frame_idx"] = prev_frame_idx
++                    t_pos = temporal_slot(frame_idx, prev_frame_idx, self.num_maskmem)
++                    non_cond_t_pos_and_prevs.append((t_pos, out, False))
++            for t_pos in ([] if token_window is not None else range(1, self.num_maskmem)):
+                 t_rel = self.num_maskmem - t_pos  # how many frames before current frame
+                 if t_rel == 1:
+                     # for t_rel == 1, we take the last frame (regardless of r)
+@@ -3504,6 +3522,9 @@ class SAM2Base(torch.nn.Module):
+                         obj_idx=obj_idx,
+                         fallback_frame_idx=frame_idx,
+                     )
++        token_window = getattr(self, "token_window_runtime", None)
++        if token_window is not None and not is_init_cond_frame:
++            token_window.verify(output_dict, inference_state, obj_idx, "after_read", frame_idx)
+         # reshape the output (HW)BC => BCHW
+         pix_feat_with_mem = pix_feat_with_mem.permute(1, 2, 0).view(B, C, H, W)
+         return pix_feat_with_mem
+diff --git a/sam2/sam2_video_predictor_topk_insurance.py b/sam2/sam2_video_predictor_topk_insurance.py
+index 28e792f..c516482 100644
+--- a/sam2/sam2_video_predictor_topk_insurance.py
++++ b/sam2/sam2_video_predictor_topk_insurance.py
+@@ -671,7 +671,14 @@ class SAM2VideoPredictor(SAM2Base):
+                         current_out
+                     )
+                     current_out["frame_idx"] = frame_idx
++                    token_window = getattr(self, "token_window_runtime", None)
++                    if token_window is not None:
++                        if reverse or batch_size != 1:
++                            raise ValueError("Token window supports one forward object only")
++                        token_window.admit(self, obj_output_dict, inference_state, obj_idx, frame_idx, current_out)
+                     obj_output_dict[storage_key][frame_idx] = current_out
++                    if token_window is not None:
++                        token_window.verify(obj_output_dict, inference_state, obj_idx, "after_write", frame_idx)
+                     cfm_on_frame_write(
+                         self,
+                         obj_output_dict,
+@@ -686,6 +693,8 @@ class SAM2VideoPredictor(SAM2Base):
+                         obj_idx=obj_idx,
+                         fallback_frame_idx=frame_idx,
+                     )
++                    if token_window is not None:
++                        token_window.verify(obj_output_dict, inference_state, obj_idx, "after_bank_write", frame_idx)
+ 
+                 bank = inference_state["insurance_mem_bank"].get(obj_idx, None)
+                 bank_size = 0 if bank is None else len(bank)

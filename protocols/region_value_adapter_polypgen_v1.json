@@ -1,0 +1,47 @@
+{
+  "name": "Predicted-region value-role adapter",
+  "status": "Exploratory PolypGen sequence-split pilot",
+  "motivation": "Prior region attention-mass biases and pooled regional readouts failed to improve sequence-level Dice. This candidate leaves native attention assignment unchanged and adds bounded, zero-initialized role embeddings only to spatial memory values.",
+  "method": "For each of SAM2's four memory-attention layers, add a learned foreground, mixed-boundary, or background role vector to each spatial value token. Bound each channel's offset to 0.1 times that channel's spatial-value RMS. Keep queries, keys, attention probabilities, object-pointer keys/values, all spatial tokens, memory writes, image encoder, decoder, and frame schedule unchanged.",
+  "prior_work": {
+    "RMNet_paper": "https://openaccess.thecvf.com/content/CVPR2021/papers/Xie_Efficient_Regional_Memory_Network_for_Video_Object_Segmentation_CVPR_2021_paper.pdf",
+    "RMNet_code": "https://github.com/hzxie/RMNet",
+    "RMNet_revision": "ed0f323b57803c0893f061dc8cfcf0b81e368492",
+    "RMNet_license": "MIT",
+    "adaptation": "RMNet uses mask-defined regional memory and applies mask-derived modulation to memory keys and values. This SAM2 adaptation uses the checked-out project's predicted-mask region assignments and applies bounded additive role embeddings to value tokens only; it does not import RMNet's optical-flow ROI tracking or replace SAM2 attention.",
+    "MMN_paper": "https://www.mdpi.com/2227-7390/12/6/863",
+    "MMN_code_status": "No official public repository was located during this survey; no MMN implementation is claimed."
+  },
+  "model": {
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "trainable_parameters": 3072,
+    "initialization": "All role vectors zero; output must be bit-identical to native attention.",
+    "maximum_relative_channel_offset": 0.1
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "evaluation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive prompt frame", "seq7": "No positive prompt frame"},
+    "clip_length": 5,
+    "clips_per_training_sequence_per_epoch": 1,
+    "epochs": 5,
+    "seed": 20261104,
+    "scope": "Exploratory only: PolypGen informed earlier analyses and candidate design; patient-to-sequence independence is unverified."
+  },
+  "training": {
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "loss": "Mean author-compatible post-prompt decoder BCE plus Dice mask loss and object-presence loss across sampled clips.",
+    "frozen": ["image encoder", "SAM2 decoder", "memory encoder", "attention queries and keys", "native attention probabilities", "object pointers"],
+    "conditions": ["native SAM2", "regional value-role adapter"],
+    "shuffled_condition": "Omitted at user request."
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice over seq16-seq23.",
+    "success_screen": "At least +0.01 equal-sequence Dice over native, higher Dice on at least 6/8 sequences, and no increase in pooled false alarms on GT-empty frames.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "empty-frame false alarms", "missed return events", "inference wall time", "memory-token and pointer counts"],
+    "interpretation": "One seed is a screening experiment, not reliable confirmation. A positive result requires a second pre-specified seed and an untouched external dataset before a general performance claim."
+  }
+}

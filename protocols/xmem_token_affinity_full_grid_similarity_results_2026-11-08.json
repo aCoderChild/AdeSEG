@@ -1,0 +1,48 @@
+{
+  "id": "xmem_token_affinity_full_grid_similarity_results_2026-11-08",
+  "date": "2026-11-08",
+  "status": "failed exact repeatability; candidate stopped; no efficacy result",
+  "protocol": "protocols/xmem_token_affinity_full_grid_similarity_amendment_2026-11-08.json",
+  "protocol_sha256": "92014df79860aaf0156d476549a5fe356935bed029c40d1b7363be73199a3de0",
+  "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_rng_token_affinity_full_grid_score_20261108_01/",
+  "artifacts": {
+    "setup.json": "5cc4d4e932f4b718c082266be62ec52046ba2504132510caa627a1bdda4cfd91",
+    "source_snapshot.zip": "43acb4050d6078bde73cfd5b0b7c563ad00ed9192562e9b86ff7a47c57d368ca",
+    "fresh_start_repeatability_progress.json": "b6c714e56bfddbefc654c8c7be83c4648a322823d84b933175cf36cbb473febb",
+    "failure.json": "f3ccb641662a87a159e197b1e3e7059faa887c4693e9619fe06e817df96fd9c3"
+  },
+  "scope": {
+    "arm": "token_affinity",
+    "fresh_starts": 2,
+    "device": "cpu",
+    "clips": {
+      "seq9": [18, 19, 20, 21, 22, 23, 24, 25],
+      "seq2": [19, 20, 21, 22, 23, 24, 25, 26]
+    },
+    "updates_per_clip": 2,
+    "peak_process_rss_bytes": 12673613824,
+    "metrics_computed": [],
+    "full_cohort_training_or_inference": false
+  },
+  "checks": {
+    "full_grid_vs_chunked_score_fixture_within_1e_6": true,
+    "initial_adapter": true,
+    "initial_optimizer": true,
+    "initial_full_rng": true,
+    "seq9_clip_result_and_gradient_receipts": true,
+    "seq2_clip_result_and_gradient_receipts": false,
+    "final_adapter": false,
+    "final_optimizer_tensor_state": false,
+    "final_full_rng": true,
+    "pretrained_sam2_unchanged": true
+  },
+  "first_divergence": {
+    "clip": "seq2 frames 19-26, optimizer update 1, after the seq9 prefix matched exactly",
+    "parameter": "memory_attention.layers.0.cross_attn_image.xmem_strength",
+    "clip_losses_match": true,
+    "final_adapter_max_absolute_difference": 8.731149137020111e-11,
+    "final_optimizer_exp_avg_max_absolute_difference": 3.166496753692627e-08
+  },
+  "interpretation": "Full-grid affinity computation made the seq9 prefix exactly repeatable, but the strict two-clip replay still diverged at the shared affinity strength during the first seq2 update. The score-equivalence fixture passed. Peak process RSS was 12.67 GB on this 24 GB Mac. The CPU results show a bounded implementation may be very memory-intensive and is not bitwise repeatable yet.",
+  "decision": "Stop the XMem token-affinity candidate under its frozen failure rule. Do not launch efficacy training or evaluation, do not add another numerical patch to chase exact replay, and do not report a Dice result. Preserve the Drive artifacts as engineering evidence only."
+}

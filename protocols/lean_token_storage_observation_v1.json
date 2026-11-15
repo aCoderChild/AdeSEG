@@ -1,0 +1,7 @@
+{
+  "purpose": "Measure actual resident spatial-memory representations before and after Lean memory reads, to inform a stored-token budget.",
+  "cohort": ["seq8", "seq11", "seq20", "seq23"],
+  "method": "Replay the existing indexed Lean predictor, observing output dictionaries without changing them. Count physical full-grid and compressed feature entries separately, along with stored positions, pending selections, stored object pointers, and insurance memory entries. Record before/after each memory conditioning call. The count is per representation, not a byte-level deduplicated allocation; separately represented aliases may share storage. Prediction masks, anchor arrays and other auxiliary state are outside these spatial-token counts.",
+  "validation": "Two independent seq3 gates must match each other and reproduce all reference masks, selected-token hashes, indexed positions, memory events, and model weights. Pilot sequences must pass the same exact replay checks. Labels are not needed for this diagnostic.",
+  "limitation": "A read-time count cannot alone enforce a bound at every write, or count transient tensors during a call. Physical tokens, logical retained tokens, attention keys, pointers, and total resident bytes are distinct quantities."
+}

@@ -1,0 +1,7 @@
+{
+  "purpose": "Create aligned early-feature and attention/decoder snapshots for a sequence-separated, automatic-Lean token-utility study; no utility selector is trained or promoted by this capture step.",
+  "groups": {"train": ["seq2", "seq3", "seq4"], "validation": ["seq9", "seq10"], "protected_priority": ["seq8", "seq11", "seq20", "seq23"]},
+  "method": "Reuse the existing verified raw-window feature capture and read-only attention/decoder capture together in the same propagation. Select exactly the preflight fixed frames, without label-based selection. Keep the original automatic prompt, model, memory and RoPE. Compare every saved feature, mask and trajectory trace against the frozen individual feature capture, and independently validate no-op attention and decoder reconstruction before any deletion intervention. No re-detection, new inference threshold, gate or labels in propagation.",
+  "engineering": "Two independent seq3 nested captures must reproduce the individually verified feature capture, recorded attention snapshots, masks, memory selections and positions. Independently verify snapshot hashes and model no-op replay before capturing additional sequences. The resulting snapshots are not labels or evidence that a selector works.",
+  "limitations": "Existing splits are by sequence, not verified by patient. Previously inspected data and unknown overlaps limit generalization. A training target based on deletion is conditional on other memory keys and attention renormalization; no ground-truth-derived utility is permitted at inference."
+}

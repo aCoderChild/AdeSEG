@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Describe the magnitude of existing frozen tile-deletion effects."""
+import argparse,hashlib,json,sys
+from pathlib import Path
+import numpy as np
+ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
+from scripts.memory_token_io import validate_output
+p=argparse.ArgumentParser();p.add_argument('--source',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
+h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+done=json.loads((a.source/'completion.json').read_text());path=a.source/'results.json'
+if not done['complete'] or h(path)!=done['results_sha256']:raise ValueError('Frozen source results changed')
+x=json.loads(path.read_text());rows=x['rows'];a0=np.asarray([r['tile_removal_utility'] for r in rows],dtype=np.float64)
+if a0.shape!=(42,16) or not np.isfinite(a0).all() or len({r['sequence'] for r in rows})!=21:raise ValueError('Unexpected source scope or nonfinite values')
+z=np.abs(a0);summary={'reads':42,'sequences':21,'tiles':int(a0.size),'median_absolute_dice_effect':float(np.median(z)),'p95_absolute_dice_effect':float(np.quantile(z,.95)),'median_within_read_range':float(np.median(np.ptp(a0,axis=1))),'constant_effect_reads':int(np.count_nonzero(np.ptp(a0,axis=1)==0)),'absolute_effect_over_0_001':int(np.count_nonzero(z>.001)),'absolute_effect_over_0_01':int(np.count_nonzero(z>.01))}
+out=validate_output(a.output);out.mkdir(parents=True,exist_ok=False);data={'summary':summary,'source_results_sha256':h(path),'source_completion_sha256':h(a.source/'completion.json'),'script_sha256':h(Path(__file__)),'scope':'Post-hoc distribution of prior native SAM2 tile-deletion outcomes; GT-present selected reads, not Lean or automatic inference.'};(out/'results.json').write_text(json.dumps(data,indent=2)+'\n')
+report=f'''# Scale of archived memory-tile deletion effects\n\nAcross {summary['reads']} previously inspected GT-present native SAM2 reads from {summary['sequences']} sequences ({summary['tiles']} tile deletions), median absolute Dice effect was {summary['median_absolute_dice_effect']:.8f}; the 95th percentile was {summary['p95_absolute_dice_effect']:.6f}. The median within-read range was {summary['median_within_read_range']:.6f}; {summary['constant_effect_reads']} reads had exactly constant tile effects. {summary['absolute_effect_over_0_001']} / {summary['tiles']} absolute effects exceeded 0.001 Dice and {summary['absolute_effect_over_0_01']} exceeded 0.01. These cutoffs describe the archived distribution and are not inference thresholds.\n\nThe existing channel gate was trained on foreground occupancy rather than these conditional deletion effects. Small and heterogeneous deletion effects make a direct utility target challenging and motivate sequence-separated validation, but do not prove that occupancy cannot predict utility. These archived native SAM2 states use different prompts and runtime from automatic Lean; deletion effects depend on the other keys and attention renormalization. No full-video efficacy or patient independence is established.\n''';(out/'report.md').write_text(report);(out/'completion.json').write_text(json.dumps({'passed':True,'results_sha256':h(out/'results.json'),'report_sha256':h(out/'report.md')},indent=2)+'\n');print(report)

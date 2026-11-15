@@ -1,0 +1,100 @@
+{
+  "name": "Dataset hierarchy for complementary regional memory",
+  "created": "2026-11-06",
+  "status": "Prospective dataset plan; no dataset download or efficacy run started by this amendment",
+  "method_protocol": "protocols/complementary_memory_v1.json",
+  "primary": {
+    "dataset": "PolypGen 2021 sequence cohort",
+    "manifest": "data/polypgen_sequence.jsonl",
+    "eligible_sequences": [
+      "seq2",
+      "seq3",
+      "seq4",
+      "seq5",
+      "seq6",
+      "seq8",
+      "seq9",
+      "seq10",
+      "seq11",
+      "seq12",
+      "seq13",
+      "seq14",
+      "seq15",
+      "seq16",
+      "seq17",
+      "seq18",
+      "seq19",
+      "seq20",
+      "seq21",
+      "seq22",
+      "seq23"
+    ],
+    "excluded": {
+      "seq1": "No eligible positive first-frame prompt",
+      "seq7": "No eligible positive first-frame prompt"
+    },
+    "primary_endpoint": "Equal-sequence mean present-frame Dice under full propagation",
+    "secondary_endpoints": [
+      "IoU",
+      "Boundary F",
+      "false alarms with GT-empty denominators",
+      "return detection",
+      "runtime"
+    ],
+    "role": "Main medical-video development and evaluation dataset",
+    "scope": "Exploratory: repeatedly used during development; train/evaluation separation still required; patient independence unverified"
+  },
+  "secondary": [
+    {
+      "dataset": "DAVIS 2017",
+      "split": "validation",
+      "videos": 30,
+      "objects": 61,
+      "primary_endpoint": "Official J&F; report official aggregation and equal-video paired contrasts separately",
+      "supplementary": "Dice for continuity with PolypGen; not a substitute for official J&F",
+      "role": "Standard multi-object short-video transfer evaluation",
+      "scope": "Exploratory transfer: earlier candidates were already evaluated on this split",
+      "availability": "Existing project dataset; active-reader dataset gate still required"
+    },
+    {
+      "dataset": "LVOS v2",
+      "split": "validation / official evaluation set",
+      "videos": 140,
+      "primary_endpoint": "Official evaluator region similarity J and contour accuracy F; J&F summary where provided by pinned toolkit",
+      "supplementary": [
+        "Official long-term stability metric where implemented",
+        "Dice",
+        "reappearance performance",
+        "runtime"
+      ],
+      "role": "Long-term multi-object transfer; distractors, absence and reappearance",
+      "annotation_setup": "Persistent object IDs in indexed PNG masks; initialization and scored frames follow pinned official metadata/toolkit, including differing object start frames",
+      "official_dataset": "https://lingyihongfd.github.io/lvos.github.io/dataset.html",
+      "official_repository": "https://github.com/LingyiHongfd/LVOS",
+      "official_evaluator": "https://github.com/LingyiHongfd/lvos-evaluation",
+      "evaluation_archive": "https://drive.google.com/file/d/17Hwc__6i2rpF5e2s5OPqoywNxG5bzlcO/view",
+      "access": "Official public download links; no author application described. Archive download and integrity have not yet been verified locally.",
+      "terms": "Official repository: non-commercial research data; annotations CC BY 4.0; evaluator BSD-3-Clause",
+      "scope": "Potential fresh transfer evaluation; audit prior local results and training exposure before calling it untouched",
+      "availability": "Not downloaded or integrated. Official Drive metadata reverified 2026-11-12: valid.zip, 11,833,302,254 bytes. Raw download, archive contents/checksum and evaluation readiness remain unverified.",
+      "metadata_verification_receipt": "outputs/experiment/tome_region_identification_v1/external_confirmation_availability_20261112/receipt.json"
+    }
+  ],
+  "evaluation_rules": [
+    "Complete PolypGen diagnostic and freeze one model/training configuration before secondary outcomes are examined.",
+    "Evaluate the frozen PolypGen-trained reader on secondary datasets without benchmark-specific tuning for the primary transfer analysis.",
+    "Any additional dataset-specific adapter training is a separate supervised experiment, with the same training allowance for the generic control.",
+    "Keep native SAM2, parameter/training-matched generic and regional arms under identical checkpoint, prompts, image geometry, native frame schedule and evaluation settings.",
+    "Use native object pointers and per-object banks; initialize instances only at official permitted prompt frames; no future GT enters inference.",
+    "Pin official evaluators and verify native replay, instance registration order, late object introduction, disappearing/reappearing objects, indexed-ID preservation and complete frame coverage before evaluation.",
+    "Keep per-dataset metrics and uncertainty separate; no pooled medical/natural-scene Dice average.",
+    "Secondary success cannot establish a PolypGen Dice gain when the primary comparison fails.",
+    "Published results are contextual comparisons unless checkpoint, training data, prompts, resolution, split and evaluation protocol match; local paired controls remain necessary.",
+    "Outputs, archives and tracker files are saved only in the configured Drive output tree."
+  ],
+  "not_selected": {
+    "SA-V": "Unavailable: user has no approved download links; no access workaround.",
+    "MOSE_validation": "Official repository states only first-frame validation annotations are distributed; server-based scoring is less suitable for the requested local full-trajectory diagnosis.",
+    "LVOS_v2_test": "Subsequent test annotations withheld; use public validation for reproducible local analysis."
+  }
+}

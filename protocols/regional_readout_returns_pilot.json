@@ -1,0 +1,126 @@
+{
+  "scope": "Exploratory, outcome-informed PolypGen training comparison; evaluation sequences were previously inspected. No patient-independence or held-out confirmation claim.",
+  "training_sequences": [
+    "seq4",
+    "seq5",
+    "seq6",
+    "seq8",
+    "seq9",
+    "seq10",
+    "seq11",
+    "seq12",
+    "seq14",
+    "seq15"
+  ],
+  "validation_sequences": [
+    "seq2",
+    "seq3",
+    "seq13",
+    "seq17"
+  ],
+  "clip_length": 5,
+  "epochs": 2,
+  "seed": 20261101,
+  "learning_rate": 1e-05,
+  "method": "Use 20 clips: ten fixed outcome-informed training-set return windows interleaved with the original pilot first ten author-sampled clips. Apply the pinned SAM2 sampler to each window; retain native memory and the regional, shuffled and generic residual heads.",
+  "controls": [
+    "native",
+    "regional",
+    "shuffled",
+    "generic"
+  ],
+  "evaluation": "Full autonomous propagation and equal-sequence present-frame Dice; also record boundary F, false alarms and return episodes. The four-sequence comparison is exploratory and cannot establish a reliable improvement.",
+  "rationale": "Tests training exposure to sampled-frame disappearance and return against the earlier 20-clip uniform pilot; schedule changes are confounded with individual clips, order and their gradients.",
+  "schedule": [
+    [
+      "seq4",
+      20261201,
+      15
+    ],
+    [
+      "seq4",
+      20261101
+    ],
+    [
+      "seq5",
+      20261202,
+      114
+    ],
+    [
+      "seq5",
+      20261102
+    ],
+    [
+      "seq8",
+      20261203,
+      43
+    ],
+    [
+      "seq6",
+      20261103
+    ],
+    [
+      "seq11",
+      20261204,
+      20
+    ],
+    [
+      "seq8",
+      20261104
+    ],
+    [
+      "seq5",
+      20261205,
+      180
+    ],
+    [
+      "seq9",
+      20261105
+    ],
+    [
+      "seq8",
+      20261206,
+      47
+    ],
+    [
+      "seq10",
+      20261106
+    ],
+    [
+      "seq11",
+      20261207,
+      81
+    ],
+    [
+      "seq11",
+      20261107
+    ],
+    [
+      "seq8",
+      20261208,
+      62
+    ],
+    [
+      "seq12",
+      20261108
+    ],
+    [
+      "seq11",
+      20261209,
+      93
+    ],
+    [
+      "seq14",
+      20261109
+    ],
+    [
+      "seq11",
+      20261210,
+      125
+    ],
+    [
+      "seq15",
+      20261110
+    ]
+  ]
+}

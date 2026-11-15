@@ -1,0 +1,40 @@
+{
+  "id": "xmem_token_affinity_corrected_source_gate_results_2026-11-08",
+  "date": "2026-11-08",
+  "status": "full engineering gate failed at fresh-start repeatability; efficacy remains blocked",
+  "protocol": "protocols/xmem_token_affinity_corrected_source_gate_amendment_2026-11-08.json",
+  "protocol_sha256": "985fb7eaf1ad68625606157db6a0ec38eea298aff27083df97e70b30188bf703",
+  "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_corrected_source_seq2_seq3_20261108_01/",
+  "artifacts": {
+    "setup.json": "d98736cd1a092202aaf3dcad36fa533aac37404ebeefc24c2ad61df1fd44bb15",
+    "source_snapshot.zip": "914e87a9cb147b279c373817489134f28e48123e2613b6fd26614da06278c370",
+    "fresh_start_repeatability_progress.json": "1140fed88e3c280ada5a201552f6ee921601c4755eadf009927f2fca10aacf00",
+    "failure.json": "cf73c717fe3b3d564cc32b5a2eb71dde768b43f104b57e93c84451ea76d234fd"
+  },
+  "scope": {
+    "requested_engineering_gate_sequences": ["seq2", "seq3"],
+    "device": "cpu",
+    "native_real_frame_checks_and_save_resume": "completed before repeatability check",
+    "repeatability_failure": "token_affinity arm, seq9 then seq2 frozen training clips",
+    "frame_broadcast_repeatability_and_persistent_id_gate": "not reached",
+    "efficacy_metrics": []
+  },
+  "checks": {
+    "initial_adapter": true,
+    "initial_optimizer": true,
+    "initial_full_rng": true,
+    "exact_clip_results_and_losses": false,
+    "final_adapter": false,
+    "final_optimizer_tensor_state": false,
+    "final_full_rng": true,
+    "pretrained_sam2_unchanged": true
+  },
+  "first_divergence": {
+    "clip": "seq9 frames 18-25, optimizer update 2",
+    "parameter": "memory_attention.layers.2.cross_attn_image.xmem_memory_projection.shrinkage_proj.weight",
+    "later_seq2_loss_replay_a": [0.6773796677589417, 0.65555340051651],
+    "later_seq2_loss_replay_b": [0.6773799061775208, 0.6555542349815369]
+  },
+  "interpretation": "The shared-scale correction made the two-clip repeatability-only diagnostic pass, but the larger complete gate exposed a remaining difference in an affinity projection's backward gradient on the second seq9 update. The subsequent seq2 losses diverged after that update. Thus the previous correction was insufficient and the strict complete gate has not passed.",
+  "decision": "Do not train or evaluate efficacy. The next bounded engineering amendment will compute the unchanged affinity equation once for the complete query grid, then slice the already-computed bias for the existing chunked SDPA calls. It targets repeated score-backward contributions to shared projections; if exact repeatability still fails, stop this candidate rather than relax the criterion."
+}

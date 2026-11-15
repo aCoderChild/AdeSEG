@@ -1,0 +1,56 @@
+{
+  "name": "Cutie pretrained regional memory summaries for SAM2",
+  "status": "Exploratory PolypGen screen; no shuffled arm",
+  "motivation": "The previous scalar region-conditioned K/V gain run was effectively tied with native SAM2. This candidate adds a parallel region-summary read using Cutie's published learned object summarizer and pretrained pixel cross-attention. It preserves every native SAM2 memory token and the native attention result, then learns a bounded auxiliary message from predicted foreground, mixed-boundary and background summaries.",
+  "method": {
+    "regions": "Predicted-mask grid labels: background=0, foreground=1, mixed boundary=2, using the frozen project assignment protocol.",
+    "summary_source": "Cutie ObjectSummarizer, applied to SAM2's per-frame projected memory values and each predicted region mask; retain the eight mask-conditioned summaries per region, discard complement summaries.",
+    "read_source": "Cutie's pretrained CrossAttention read_from_pixel module, initialized from cutie-base-mega.pth. One module per SAM2 attention layer, fine-tuned with the auxiliary branch.",
+    "integration": "For each of SAM2's four memory-attention layers, add a zero-initialized scalar-scaled Cutie cross-attention message from regional summaries to the native SAM2 attention output. The native SAM2 read is computed unchanged and retained. Pointer tokens do not enter summaries and remain in the untouched native read.",
+    "history": "Summaries are formed from all spatial memory frames present in the native bank; no frame is selected or discarded. Cutie's pretrained spatial encoding is used in summary formation. The auxiliary read uses a learned region-type embedding; the native SAM2 read retains its normal temporal position encoding.",
+    "controls": "Native SAM2 reference only. No shuffled-region condition, at user request."
+  },
+  "prior_work": {
+    "repository": "https://github.com/hkchengrex/Cutie",
+    "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+    "license": "MIT",
+    "checkpoint": "external/Cutie/weights/cutie-base-mega.pth",
+    "checkpoint_md5": "a6071de6136982e396851903ab4c083a",
+    "modules": [
+      "cutie.model.transformer.object_summarizer.ObjectSummarizer",
+      "cutie.model.transformer.transformer_layers.CrossAttention"
+    ],
+    "adaptation": "Uses the authors' learned summarizer and cross-attention implementation and pretrained weights as an auxiliary SAM2 branch; it does not claim to reproduce Cutie or to use its full video-object memory architecture."
+  },
+  "model": {
+    "sam2_configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "memory_feature_width": 256,
+    "prototype_count": "up to 8 per region per stored frame",
+    "sam2_modules_frozen": ["image encoder", "memory encoder", "native memory attention", "mask decoder"],
+    "trainable": "Cutie cross-attention readers, learned region-type embeddings, and one residual scale per SAM2 attention layer",
+    "initialization": "Residual scales are zero, making the first forward pass exactly native SAM2 if all auxiliary computations are finite."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "evaluation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive prompt frame", "seq7": "No positive prompt frame"},
+    "clip_length": 5,
+    "epochs": 5,
+    "seed": 20261105,
+    "scope": "Exploratory only: prior PolypGen results informed this direction, and sequence-to-patient independence has not been verified."
+  },
+  "training": {
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "loss": "Mean author-compatible decoder mask loss plus object-presence loss across sampled five-frame clips.",
+    "selection": "No hyperparameter tuning on evaluation sequences."
+  },
+  "evaluation": {
+    "primary": "Equal-sequence mean present-frame Dice on seq16-seq23 against the exact archived native SAM2 trajectory.",
+    "meaningful_screen": "At least +0.01 equal-sequence Dice, improvement on at least 6/8 evaluation sequences, and no increase in pooled false alarms on GT-empty frames.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false alarms", "missed-return events", "inference wall time", "native spatial and pointer token counts"],
+    "interpretation": "A positive single-seed PolypGen screen remains exploratory and requires a second pre-specified seed and untouched external dataset before a general performance claim."
+  }
+}

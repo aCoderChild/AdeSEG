@@ -1,0 +1,10 @@
+{
+  "status": "exploratory plan; PolypGen and all listed validation sequences informed earlier experiments",
+  "question": "Does training through predicted memory improve a regional readout relative to native and matched controls?",
+  "training_sequences": ["seq4", "seq5", "seq9"],
+  "validation_sequences": ["seq2", "seq3", "seq13", "seq17"],
+  "capture": "For each training sequence capture the first two post-prompt reads, with the author's first-labeled-frame mask prompt and native prediction, low-resolution mask, bank and cache checks. Retain the stored prediction and image features for each. These pairs are not independent clips.",
+  "training": "Frozen SAM2 in evaluation mode; 24 Adam updates at learning rate 0.001 and seed 20261031, cycling the three pairs in the order seq4, seq5, seq9. Train independently initialized regional, shuffled and generic heads on the same pairs and schedule. Apply the present-only pre-suppression mask loss and object-presence loss to both frames, averaging their sum across frames. The first prediction is written to memory in bfloat16 as in the video predictor; the second-frame loss flows through this predicted memory. Region labels are discrete and detached. The learning rate and update count match the prior snapshot pilot; this does not isolate training-history effects because its sample distribution and loss schedule differ.",
+  "evaluation": "Full autonomous propagation; equally weighted present-frame sequence Dice, false-alarm counts, boundary F and per-sequence values. Compare native and independently trained matched controls; no held-out or patient-independence claim.",
+  "limitations": "Tiny, outcome-informed sample and previously examined validation sequences; this is an engineering feasibility pilot, not confirmation. A pre-existing native bank begins each pair; the pair does not simulate a full training trajectory from the prompt."
+}

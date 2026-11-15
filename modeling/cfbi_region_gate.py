@@ -16,6 +16,12 @@ from modeling.regional_refinement import pooled_context
 CFBI_REVISION = '91fc6a31b1752a8a9110b3ed480e05656f756691'
 
 
+def shuffle_regions(labels, sequence, frame, seed):
+    key = f'{sequence}/{frame}/{seed}'.encode()
+    value = int.from_bytes(hashlib.sha256(key).digest()[:8], 'little') % (2**63)
+    return labels[torch.randperm(len(labels), generator=torch.Generator().manual_seed(value))]
+
+
 @lru_cache(maxsize=1)
 def author_gate():
     path, source = _verified_source('CFBI', CFBI_REVISION, 'networks/layers/attention.py')
@@ -55,8 +61,11 @@ def region_context(vectors, labels, mode, seed=0):
 
 class NativeCFBIGate:
     """Attach the shared gate to the four native cross-attention outputs."""
-    def __init__(self, model, gate, mode, sequence):
+    def __init__(self, model, gate, mode, sequence, shuffle_seed=20261031,
+                 region_encoder=None):
         self.model, self.gate, self.mode, self.sequence = model, gate, mode, sequence
+        self.shuffle_seed = shuffle_seed
+        self.region_encoder = region_encoder
         self.prepare = model._prepare_memory_conditioned_features
         self.signature = inspect.signature(self.prepare)
         self.handles = []
@@ -77,7 +86,17 @@ class NativeCFBIGate:
                     key = feature_key(stored['maskmem_features'].flatten(2).transpose(1, 2))
                     if key in self.bank:
                         raise RuntimeError('Ambiguous native memory identity')
-                    labels = torch.from_numpy(mixed_cell_regions(stored['pred_masks'][0, 0])['labels']).flatten()
+                    if self.region_encoder is None:
+                        regions = mixed_cell_regions(stored['pred_masks'][0, 0])['labels']
+                    else:
+                        regions = self.region_encoder(stored['pred_masks'][0, 0])
+                    regions = torch.as_tensor(regions)
+                    if regions.shape[:2] != (64, 64):
+                        raise RuntimeError('Stored-mask regions must align with the 64x64 memory grid')
+                    if not torch.isfinite(regions.float()).all():
+                        raise RuntimeError('Stored-mask regions contain nonfinite values')
+                    regions = regions.reshape(4096, *regions.shape[2:])
+                    labels = regions
                     self.bank[key] = (index, labels)
         return self.prepare(*args, **kwargs)
 
@@ -99,12 +118,15 @@ class NativeCFBIGate:
                 raise RuntimeError('Future memory access')
             frames.append(index)
             if self.mode == 'shuffled':
-                seed = int.from_bytes(hashlib.sha256(f'{self.sequence}/{index}/20261031'.encode()).digest()[:8], 'little') % (2**63)
-                label = label[torch.randperm(len(label), generator=torch.Generator().manual_seed(seed))]
+                label = shuffle_regions(label, self.sequence, index, self.shuffle_seed)
             labels.append(label)
         vectors = memory[:spatial, 0].float()
         mode = 'regional' if self.mode == 'shuffled' else self.mode
-        self.context = region_context(vectors, torch.cat(labels).to(vectors.device), mode)
+        labels = torch.cat(labels).to(vectors.device)
+        if hasattr(self.gate, 'region_context'):
+            self.context = self.gate.region_context(vectors, labels, mode)
+        else:
+            self.context = region_context(vectors, labels, mode)
         self.trace.append({'frame': self.frame, 'memory_frames': frames, 'spatial_keys': spatial, 'pointer_keys': pointers, 'layers': []})
 
     def apply(self, layer, module, args, output):

@@ -1,0 +1,13 @@
+{
+  "purpose": "Exploratory matched-frame study of detector box plus SAM2 feature-selected points; no video propagation",
+  "selection": "Per eligible sequence, first, median and last GT-present targets after the first visible prompt, plus the first GT-empty target; duplicates removed. GT is used only for selecting/evaluating frames and oracle boxes.",
+  "gate_sequences": ["seq2", "seq20"],
+  "detector": {"confidence": 0.25, "iou": 0.7, "imgsz": 640, "class": 0, "selection": "highest confidence", "no_detection": "empty prediction, no feature fallback"},
+  "sam2": {"config": "configs/sam2.1/sam2.1_hiera_b+.yaml", "device": "cpu", "precision": "float32", "multimask_output": false, "postprocessing": false},
+  "conditions": ["yolo_box", "box_random_points", "box_feature_points", "oracle_gt_box"],
+  "feature_reference": "Search prior frames in chronological order and retain the first automatic YOLO-box SAM2 mask that yields usable prototypes; build spatially weighted foreground and background outside a two-cell exclusion margin from the same SAM2 image embedding, with the no-memory embedding removed. A target never uses the current or a future frame as reference. No GT mask, box or GT-selected reference frame is used by this method.",
+  "point_policy": "Within the same top-confidence YOLO box, highest and lowest cosine foreground-minus-background margins produce one positive and one negative point. Matched control samples two distinct box cells uniformly with a fixed seed.",
+  "fallback": "If no target detection, return empty masks for all detector conditions. If the automatic reference is unavailable/degenerate or fewer than two cells fall inside the target box, both point conditions fall back to box-only and are flagged.",
+  "statistics": "Per-sequence mean GT-present Dice averaged equally over sequences, frame-level box IoU/recall at 0.5 and GT-empty false alarms. Report no detections and fallback separately; oracle only on present targets.",
+  "limitations": "The detector checkpoint metadata names polypgen.yaml, but training split and overlap are unknown. This study is not an independent evaluation. The first automatic reference can be a false detection or a different object; this is not confidence-validated. Feature conditioning uses earlier images and extra model inference unavailable to a box-only baseline. No inference changes to propagation."
+}

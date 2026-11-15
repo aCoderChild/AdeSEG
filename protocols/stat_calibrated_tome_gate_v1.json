@@ -1,0 +1,71 @@
+{
+  "name": "Paper-derived statistical calibration for compressed SAM2 memory reads",
+  "status": "implemented; unit checks passed; real-frame gate not yet run",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": ["seq2", "seq3"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"}
+  },
+  "model": {
+    "repository": "external/sam2_diagnostic_reference",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "frozen": true
+  },
+  "prior_work": {
+    "repository_revision": "af95e4b1befa172dadccd8c81e223b10090f9579",
+    "merge_source_sha256": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e"
+  },
+  "source": {
+    "paper": "Statistically Calibrated Scaling for Token Merging in Transformers",
+    "venue": "ICML 2026, Proceedings of Machine Learning Research 306",
+    "url": "https://proceedings.mlr.press/v306/zhou26bj.html",
+    "official_code_url": "https://github.com/mrazhou/sqrt_r",
+    "code_status": "The linked repository has no source files; this integration reuses this project's pinned official ToMe matcher and weighted-merge operation and transcribes the paper's stated scaling equations."
+  },
+  "question": "Does the paper-derived correction reduce damage from fixed-budget ToMe when reading SAM2 spatial memory, and does region-constrained matching add benefit beyond generic matching?",
+  "method": {
+    "location": "After existing ToMe compression of projected post-RoPE spatial memory K/V and before frozen SAM2 SDPA.",
+    "retention_ratio": "r = compressed spatial-key count / original spatial-key count for that read.",
+    "key_logits": "Scale compressed spatial K by sqrt(r), equivalent to scaling merged logits by sqrt(r).",
+    "values": "Scale compressed spatial V by sqrt(r).",
+    "mass_prior": "Scale additive log(cluster-size) attention bias by 1-sqrt(r), implementing T(z,n)=sqrt(r)*z+(1-sqrt(r))*log(n).",
+    "pointers": "Never merge or scale object-pointer K/V; their additive bias remains zero.",
+    "no_merge": "Exact identity when r=1.",
+    "training": "None. SAM2 checkpoint and all model weights remain frozen.",
+    "forbidden": ["frame selection", "confidence gates", "similarity thresholds", "mask thresholds", "decoder or memory-attention weight updates"]
+  },
+  "important_limit": "The paper's derivation is for Transformer self-attention without SAM2's separately appended object-pointer tokens. Applying it only to SAM2's spatial-memory partition is a reasoned adaptation; its theoretical calibration is not guaranteed in this mixed spatial/pointer cross-attention. It is not a targeted Seq5 object-presence or reappearance fix.",
+  "planned_arms": [
+    "native dense SAM2",
+    "generic local ToMe",
+    "region-constrained local ToMe",
+    "statistically calibrated generic local ToMe",
+    "statistically calibrated region-constrained local ToMe"
+  ],
+  "controls": "Each calibrated arm must replay the exact merge assignments and per-frame/window token budgets of its uncalibrated counterpart. Generic and regional treatments must have matched token counts using the existing frozen plan. No hyperparameter search.",
+  "engineering_gate": {
+    "scope": ["seq2", "seq3"],
+    "checks": [
+      "native replay exactly matches the archived reference",
+      "uncalibrated arms retain the existing seq2/seq3 gate invariants",
+      "calibrated arms use the same merge counts, assignments and source-frame schedule as their corresponding uncalibrated arms",
+      "all four attention layers are intercepted once per target",
+      "object-pointer keys/values and positions are bit-identical",
+      "SAM2 parameters, native memory writes, current queries, prompts, frame schedule, decoder and presence handling are unchanged",
+      "no-merge calibration is exact identity",
+      "calibrated tensors and propagated outputs are finite",
+      "two fresh-process gate runs have identical result records"
+    ],
+    "failure_rule": "Any failed invariant stops the gate. Do not relax tolerances or proceed to efficacy evaluation."
+  },
+  "efficacy": {
+    "status": "not authorized until an independent review accepts the real-frame gate",
+    "scope": "all 21 eligible PolypGen sequences, excluding seq1 and seq7, full-video propagation",
+    "primary": "Equal-sequence mean Dice on post-prompt GT-present frames.",
+    "secondary": ["per-sequence Dice", "Boundary F", "GT-empty false alarms with denominators", "reappearance", "runtime", "paired sequence-bootstrap intervals", "paired tests and Holm correction", "sensitivity without seq8"],
+    "stopping": "Use the active research goal's frozen meaningful-improvement screen; no criterion changes after observing validation or test results."
+  }
+}

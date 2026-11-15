@@ -1,0 +1,31 @@
+{
+  "id": "xmem_token_affinity_corrected_source_gate_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective full engineering gate; efficacy remains blocked",
+  "parent_amendment": "protocols/xmem_token_affinity_single_scale_amendment_2026-11-08.json",
+  "parent_amendment_sha256": "dd8858ef7bf8ee8ed4ee8247751cd0398625792c4576553d23a2a58d7c92bc9f",
+  "parent_result": "protocols/xmem_token_affinity_single_scale_results_2026-11-08.json",
+  "parent_result_sha256": "468b70182c1f31e09e8b91a0a42ab663c66cd28656e2b0afd7ec0c34f22fcc40",
+  "question": "Does the corrected, exactly repeatable token-affinity source pass the complete frozen real-checkpoint engineering gate?",
+  "scope": {
+    "runner": "scripts/verify_xmem_token_affinity.py without --repeatability-only",
+    "sequences": ["seq2", "seq3"],
+    "clip_length": 3,
+    "seed": 20261108,
+    "device": "cpu",
+    "checks": [
+      "native zero-strength parity",
+      "all four memory-attention layers and correct token/pointer geometry",
+      "native memory-bank ordering, positional encodings, and own-prediction writes",
+      "unchanged pretrained SAM2 weights and finite adapter-only gradients",
+      "real-frame save/resume equivalence",
+      "fresh-start repeatability for token-affinity and frame-broadcast arms",
+      "persistent object-ID isolation fixture"
+    ],
+    "full_cohort_training_or_evaluation": false,
+    "Dice_or_efficacy_metrics": false
+  },
+  "pass": "Every check required by the frozen method and efficacy protocol passes, with setup/source snapshots and completion receipts bound to this correction and its evidence.",
+  "failure": "Keep all efficacy training and evaluation blocked. Preserve the failure receipt and diagnose it without changing the method or pass criteria.",
+  "interpretation_limit": "A complete engineering pass establishes that this implementation follows the tested SAM2 data path reliably. It does not establish a segmentation gain or authorize a claim about Dice."
+}

@@ -1,0 +1,116 @@
+{
+  "cache_gate_receipt": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/pitome_causal_series01/cache_gate/completion.json",
+  "checkpoint": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "conditions": [
+    {
+      "matcher": "tome",
+      "merge_divisor": 2,
+      "mode": "regional"
+    },
+    {
+      "matcher": "tome",
+      "merge_divisor": 2,
+      "mode": "global"
+    },
+    {
+      "matcher": "tome",
+      "merge_divisor": 4,
+      "mode": "regional"
+    },
+    {
+      "matcher": "tome",
+      "merge_divisor": 4,
+      "mode": "global"
+    },
+    {
+      "matcher": "pitome",
+      "merge_divisor": 4,
+      "mode": "regional"
+    },
+    {
+      "matcher": "pitome",
+      "merge_divisor": 4,
+      "mode": "global"
+    }
+  ],
+  "device": "cpu",
+  "fixed_invariants": [
+    "SAM2 checkpoint, parameters, memory writer, frame scheduler, dense current-frame queries, decoder, pointer tokens, and output decision remain native.",
+    "No ground-truth masks are read for this diagnostic.",
+    "Each shadow condition uses the same per-layer native Q/K/V; no earlier shadow result feeds a later layer.",
+    "The original Q/K/V tensors, pointers, bank payload, model parameters, and native decoder outputs must remain unchanged."
+  ],
+  "id_gate_receipt": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/pitome_ids_gate01/completion.json",
+  "interpretation_limits": [
+    "Attention fidelity is descriptive and does not establish Dice improvement.",
+    "A smaller attention error may preserve native mistakes.",
+    "Norm/output errors do not isolate key damage from value damage.",
+    "Six targets cannot support cohort-wide claims."
+  ],
+  "manifest": "data/polypgen_sequence.jsonl",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "matcher_independent_replay_receipt": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/pitome_fresh_process_receipt.json",
+  "measurements": [
+    "Per-frame/per-layer token counts, cluster mass, source frame IDs and temporal slots.",
+    "Spatial K/V norms before and mass-weighted after merging; pointer K/V norms separately.",
+    "Relative squared error, cosine similarity, and maximum absolute difference between each shadow attention output and the native attention output; zero-reference values explicitly null."
+  ],
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "name": "Existing-merge shadow attention distortion diagnostic",
+  "native_history_plan": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/pitome_cohort_plan01.json",
+  "native_history_plan_sha256": "d36c2074bfe60686b2338816d1d4fb88cddb0cf445de751339dce5e5272a58b7",
+  "operation": "Capture the inputs to each native cross-attention SDPA call. For each condition, compress the same post-projection, post-spatial-RoPE K and corresponding V using the pinned existing matcher and the predeclared mass correction; compute a shadow output; return only the original native SDPA output.",
+  "output_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/attention_distortion_diagnostic_v1",
+  "pitome_repository": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/candidate_source_review01/PiToMe",
+  "pitome_revision": "550b5deed94aadfeac28bfbe381d87e672044a40",
+  "pitome_source_sha256": "135728c0e489419d25d65aba2b08fc6db1d563ffcbe7c48fe7e4c94e3f0cd8a6",
+  "purpose": "Measure the effects of existing, source-pinned ToMe/PiToMe merges on native SAM2 attention outputs without injecting shadow outputs into the decoder or memory bank.",
+  "required_gates": [
+    "Three focused analytic tests pass: exact native return/input immutability, mass-corrected identity-key equivalence for every pinned matcher/control, and exact zero-removal K/V order/parity.",
+    "Independent-process replay of all six targets yields bit-identical tensor hashes and measurement values.",
+    "Every target captures layers 0\u20133 exactly once and native decoder mask/presence replay is exact."
+  ],
+  "sam2_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "sam2_repository": "external/sam2_diagnostic_reference",
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "scope": "Engineering/mechanism diagnosis only; not an efficacy experiment and not a full-video Dice result.",
+  "seed": 20261111,
+  "sequences": [
+    "seq2",
+    "seq3"
+  ],
+  "source_hashes": {
+    "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/candidate_source_review01/PiToMe/algo/pitome/merge.py": "135728c0e489419d25d65aba2b08fc6db1d563ffcbe7c48fe7e4c94e3f0cd8a6",
+    "datasets/video.py": "273b54371286359fbd4446f20743ecdc07fc9f1b1deb8c804888f066e477bd4c",
+    "external/ToMe/tome/merge.py": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e",
+    "external/sam2_diagnostic_reference/sam2/configs/sam2.1/sam2.1_hiera_t.yaml": "f932eac1c6241e910031b2f000a81cd9f8a8d4896e2277ab5ffb721f378b188d",
+    "external/sam2_diagnostic_reference/sam2/modeling/memory_attention.py": "07358cb7f58ec3788e88ff4e6415f8a9d628a3963529d6e2c915494a5347c8e2",
+    "external/sam2_diagnostic_reference/sam2/modeling/memory_encoder.py": "73f7089ae5fdacdfcaaf3deca1ca6d9f84d89e7deb9cf97589622a9ef17ba42f",
+    "external/sam2_diagnostic_reference/sam2/modeling/sam/transformer.py": "cda19052331e775190ce8b1159efcb828a4632d931a6d8bd4d47109f121782f1",
+    "external/sam2_diagnostic_reference/sam2/modeling/sam2_base.py": "69a46b44e8625f509791352bd09beaafe589cd7d872721384e63d37f9fdc6e41",
+    "modeling/attention_distortion_observer.py": "6ab862c5c8d885674ec52bcc77fe5cad14bd4f699b725eb5cef64d32a994af6e",
+    "modeling/author_token_matching.py": "5983cda6bd48930d36e7469ecd357c7602c5acc57b4807c7c7bd7c1b7dcd9e17",
+    "modeling/native_history_cache.py": "0b78a4a85b0cee9bf3f340392d62199fc2b2e53264f76ba19088568456d93f4f",
+    "modeling/pitome_matching.py": "ac0e07937df574b3d9c2f09d1c12bd7650e275e51eb388a045d238dab4b82c5a",
+    "modeling/prediction_conditioned_affinity.py": "df9a98a79a19063e47ca4cf96ea3f894f7abe20b9cde1df4e4ec4dacba0b5538",
+    "modeling/region_constrained_tome.py": "20318412db61c7735083b78d61af327c1563fcd8af375f492adc4f9d4669d1e0",
+    "modeling/token_diagnostic_replay.py": "c77c3e1aeefd1a5c4804ec9e452d4441251c02ab6fca69ed7ff765fb38eb7d2b",
+    "scripts/bank_integrity.py": "5fd5664110cde769979678b97c7e19efea70a1c41c1344b40c5f87b3d37dd333",
+    "scripts/memory_token_io.py": "6203ab7f441cf0dca082db7053099fe7908142ba25d873deadaccb6d3f4e8df4",
+    "scripts/run_attention_distortion_diagnostic.py": "0707ad009d48bd57c6bfaf6ef46a662a43ea59179248fc7607e7b13f9025099b",
+    "scripts/run_author_baseline.py": "6d45eb32fe7a52763509b27af638a3ffb22e887b1f9725083ca75f0c8ed72b56",
+    "scripts/run_author_matching_diagnostic.py": "720c9a6f703a9eee50304e71a9247519bfe2209dc58dfaaee11fd5c46ebe99d7",
+    "scripts/run_cfbi_region_pilot.py": "a5f5920064d9784bcf13bbfd328e2305c24d3d85be78c55e37fb7aca11d44410",
+    "scripts/run_regional_refinement.py": "8ab6c191b571d01d7166d6ed2ddc0f5d761b589dcb3e3c1fa4d78c7ec91e5904",
+    "tests/test_attention_distortion_observer.py": "c43376894dcb5f460cdbf773d03cb722a1cfa221a74d1f1e6de19bf95c41748d"
+  },
+  "source_scope": "All spatial memory frames selected by the unmodified SAM2 scheduler on the archived native history at each target; retain the original full-video length and native pointer timing.",
+  "status": "frozen_for_bounded_diagnostic",
+  "stopping_rule": "Any native replay, input immutability, bank/parameter, matcher, target-coverage, or deterministic-replay invariant failure stops interpretation; completion authorizes no efficacy run by itself.",
+  "target_offsets_from_prompt": [
+    1,
+    4,
+    8
+  ]
+}

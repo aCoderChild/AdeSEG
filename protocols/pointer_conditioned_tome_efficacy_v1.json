@@ -1,0 +1,61 @@
+{
+  "name": "Pointer-conditioned local ToMe full-video efficacy study",
+  "status": "frozen exploratory efficacy protocol",
+  "date_frozen": "2026-11-13",
+  "question": "Does same-frame object-pointer compatibility improve full-video SAM2 memory-token merging beyond native SAM2 and a merge-budget-matched generic ToMe control?",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "unit": "Full autoregressive video propagation from first labeled-frame prompt; sequence is paired statistical unit.",
+    "data_status": "Exploratory: PolypGen informed prior method development; sequence-level patient independence is unverified."
+  },
+  "model": {
+    "repository": "external/sam2_diagnostic_reference",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "frozen": true
+  },
+  "method": {
+    "upstream": "facebookresearch/ToMe",
+    "repository_revision": "af95e4b1befa172dadccd8c81e223b10090f9579",
+    "merge_source_sha256": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e",
+    "matching": "Within each 4x4 spatial window of each selected memory frame, run pinned ToMe bipartite matching on the normalized mean-head post-RoPE K metric concatenated with each source cell's cosine compatibility to that same frame's stored object pointer.",
+    "aggregation": "Pinned ToMe weighted mean for K/V plus log cluster-mass attention bias; pointer K/V tail remains unchanged.",
+    "generic_control": "Same source-frame schedule and exact per-target, per-frame, per-window merge counts as pointer-conditioned treatment; match using spatial K alone.",
+    "native_control": "Frozen unmodified SAM2, replayed from verified full-cohort native outputs for the paired reference; one full-video native replay is performed per sequence as an exactness check.",
+    "unchanged": ["SAM2 pretrained weights", "native memory writes", "frame schedule", "dense current-frame query grid", "decoder", "object-presence handling", "pointer tokens"],
+    "forbidden": ["good/bad frame selection", "confidence gates", "threshold tuning", "evaluation-mask input to matching", "per-sequence parameter tuning"]
+  },
+  "prior_work": {
+    "repository": "https://github.com/facebookresearch/ToMe",
+    "repository_revision": "af95e4b1befa172dadccd8c81e223b10090f9579",
+    "merge_source_sha256": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e"
+  },
+  "engineering_gate": {
+    "protocol": "protocols/pointer_conditioned_tome_v1.json",
+    "passed_attempts": ["attempt02", "attempt03"],
+    "required_receipts": ["completion.json", "setup.json", "results.json"],
+    "result_sha256": "b0a6539312f0b8d649aa7cb6cda516c976b4fc5f3cbc7f7649cad006bb5a8dbd",
+    "independent_replay": "attempt02 and attempt03 results are byte-identical"
+  },
+  "evaluation": {
+    "primary": "For each sequence, average Dice on all post-prompt GT-present frames; then take the equal mean across 21 sequences.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "GT-empty false alarms with denominator", "reappearance detection and delay", "per-read token counts", "wall-clock runtime", "leave-seq8-out sensitivity"],
+    "statistics": "Paired sequence bootstrap 95% CI, two-sided paired Wilcoxon, Holm correction across the two planned contrasts: pointer-conditioned minus native and pointer-conditioned minus generic.",
+    "minimum_meaningful_gain": 0.01,
+    "continuation_screen": "At least +0.01 equal-sequence Dice vs native; positive mean and positive 95% CI lower bound vs both native and matched generic; at least 14/21 wins vs native; Holm-adjusted p<0.05 for both contrasts; no increase in pooled GT-empty false alarms.",
+    "stopping_rule": "This single frozen cohort run is reported regardless of outcome. If the screen fails, do not tune or rerun this candidate on PolypGen. Any later claim requires a separately frozen untouched dataset.",
+    "framewise_yolo_reference": "Report historical all-frame mean 0.748099 and previously audited matched post-prompt, GT-present equal-sequence mean 0.718842 separately. The detector/checkpoint and prompting pipeline provenance are incomplete; these are not a fully matched inference benchmark."
+  },
+  "execution": {
+    "device": "cpu",
+    "dtype": "float32",
+    "seed": 20261113,
+    "artifacts": "Google Drive AdeSEG/outputs/experiment/pointer_conditioned_tome_polypgen_v1/full_attempt01/",
+    "resume": "Allowed only from a matching setup receipt, source hashes, native reference digest, and per-sequence completion receipts."
+  }
+}

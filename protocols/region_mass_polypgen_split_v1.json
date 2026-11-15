@@ -1,0 +1,46 @@
+{
+  "name": "Bounded regional attention-mass redistribution",
+  "status": "Exploratory sequence-split evaluation; PolypGen has informed prior analyses",
+  "question": "Can a small learned preference over predicted-mask foreground, background and mixed-boundary memory keys improve Dice while retaining native temporal memory and frame scheduling?",
+  "method": "At each of SAM2's four memory cross-attention layers, compute the native conditional attention read within each nonempty predicted-mask region, then redistribute the native spatial attention mass using three learned per-layer log-mass biases. Keep pointer attention mass and pointer values unchanged. Bound each bias to plus/minus ln(2). The zero-bias path returns native SDPA output exactly. Memory writing, image encoder, decoder, frame selection and all spatial memory keys remain unchanged.",
+  "provenance": [
+    "SAM2 native RoPE attention and memory interfaces from the pinned official SAM2 repository",
+    "Mask-conditioned foreground/background memory grouping is conceptually related to Cutie's CVPR 2024 object transformer; Cutie's architecture is not a drop-in SAM2 module",
+    "The three-way predicted-mask grouping follows this project's frozen BPR/Mask-Transfiner mixed-cell protocol"
+  ],
+  "checkpoint": {
+    "path": "checkpoints/MedSAM2_latest.pt",
+    "architecture": "Hiera-T, 1024 input, strict checkpoint loading",
+    "note": "This is the available MedSAM2 checkpoint; results are compared only against this same checkpoint's native SAM2 propagation. They do not compare to prior Hiera-B+ runs."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "excluded_sequences": {"seq1": "No positive-mask frames", "seq7": "No positive-mask frames"},
+    "evaluation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "unit": "Sequence",
+    "independence": "Sequence-wise split; patient mapping is unverified and the full dataset has been examined in previous experiments. Exploratory only, not independent confirmation."
+  },
+  "training": {
+    "seed": 20261102,
+    "epochs": 2,
+    "clip_length": 5,
+    "clips_per_sequence_per_epoch": 1,
+    "sampler": "Pinned SAM2 RandomUniformSampler; clips are consecutive and begin with a positive-mask prompt",
+    "optimizer": "Adam",
+    "learning_rate": 0.01,
+    "trainable_parameters": "12 per arm (24 total across independently trained regional and shuffled controls)",
+    "loss": "Mean post-prompt decoder present-mask loss plus object-presence loss; SAM2 stays frozen, predicted masks are written to memory during each clip",
+    "arms": ["region-aware", "shuffled-region"]
+  },
+  "controls": {
+    "native": "The same checkpoint and prompt protocol with zero regional bias; must match native SDPA exactly",
+    "region-aware": "Learned per-layer foreground/background/boundary log-mass biases using predicted-mask region labels",
+    "shuffled-region": "Same learned parameters, sample schedule and per-frame region counts, with deterministic spatial label permutation"
+  },
+  "metrics": {
+    "primary": "Mean present-frame Dice, first averaged within each sequence, then equally across the eight evaluation sequences",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false-positive frames on empty-GT frames", "return-event detection delay", "per-frame memory-key counts", "inference wall time"]
+  },
+  "interpretation": "A positive one-seed sequence-split result is a pilot signal only. Do not tune on seq16-23 or claim a general improvement from this run. If region-aware does not exceed native and shuffled on the primary metric, stop this fixed-bias formulation rather than changing weights post hoc."
+}

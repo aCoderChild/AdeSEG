@@ -1,0 +1,63 @@
+{
+  "id": "xmem_token_affinity_gate_complete_results_2026-11-08",
+  "date": "2026-11-08",
+  "status": "complete engineering gate after manifest-split correction; no efficacy result",
+  "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_splitfix_20261108/",
+  "scope": "Pinned SAM2 checkpoint, fixed short seq2/seq3 clips, training-path save/resume, and a synthetic two-ID isolation fixture. This is not a full-video, natural multi-object, or Dice-efficacy evaluation.",
+  "inputs": {
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "manifest_split_amendment_sha256": "b2a3bec7e7a5e14439ab328e86c5310ea50da8fb7d0a443350030f5a6de2370a",
+    "role_to_manifest_split": {"train": "dev", "validation": "dev", "excluded": "dev", "test": "test"},
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "device": "cpu",
+    "environment": {
+      "python": "3.13.13",
+      "torch": "2.13.0"
+    },
+    "clips": {
+      "seq2": [19, 20, 21],
+      "seq3": [7, 8, 9]
+    }
+  },
+  "required_checks": {
+    "native_zero_strength_parity": true,
+    "four_layer_reads": true,
+    "memory_and_pointer_geometry_unchanged": true,
+    "pretrained_sam2_weights_unchanged": true,
+    "adapter_only_finite_gradients": true,
+    "native_bank_integrity": true,
+    "deterministic_initialization": true,
+    "own_prediction_memory_writes": true,
+    "adapter_optimizer_rng_resume_equivalence": true,
+    "persistent_multi_object_id_isolation": true
+  },
+  "observations": {
+    "zero_strength_post_prompt_reads": 4,
+    "adapter_parameter_tensors_receiving_gradients_per_sequence": 36,
+    "trainable_adapter_parameters": 1330184,
+    "resume_arms": ["token_affinity", "frame_broadcast"],
+    "resume_equivalence_fields": ["clip_record", "adapter_state", "optimizer_state", "rng_state", "pretrained_weights"],
+    "synthetic_object_ids": [7, 42],
+    "synthetic_id_isolation_arms": ["token_affinity", "frame_broadcast"]
+  },
+  "artifact_sha256": {
+    "setup.json": "92bf946abf49bb90ee1670174808646ecf0f1165f4d6f7ad087473b559ec9211",
+    "completion.json": "ca99165cec307b83e3249e283bf1abec82d217d64c78c74ea4acd191bc591e21",
+    "source_snapshot.zip": "0f4c627d151317621cc67757bf93955bfc5026d19522faf1a266f78ba24653a5",
+    "results.json": "35f476b8d153477db1d869abe5a4e62172a8ad7dc3e0c7421470b2e84d3759f9"
+  },
+  "source_files_verified": 37,
+  "plan_only_validation": {
+    "status": "plan_verified_no_training",
+    "train_sequences": 10,
+    "validation_sequences": 3,
+    "test_sequences": 8,
+    "clips": 480,
+    "plan_sha256": "02165c3b18234d13f78117b8b763d604746a58e7694cda18bf593f4e71e1bc49",
+    "training_started": false
+  },
+  "runner_receipt_validation": "Passed against reconstructed plan core and current shared source hashes.",
+  "elapsed_seconds": 79.89,
+  "interpretation": "The tested adapter and runner satisfy the frozen short-clip engineering requirements, and the corrected runner resolves train/validation/excluded IDs from manifest dev while resolving frozen test IDs from manifest test. This does not show that the adapter improves segmentation, that every token is useful, or that the synthetic fixture establishes performance on naturally annotated multi-object videos. Do not infer Dice efficacy from this gate."
+}

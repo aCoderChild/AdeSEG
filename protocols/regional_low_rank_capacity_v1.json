@@ -1,0 +1,20 @@
+{
+  "name": "Regional low-rank training-capacity diagnostic",
+  "status": "Prospective training-only diagnostic; no held-out Dice selection",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "sampling_rule": "First four distinct sequences in the archived Run 127 fold-3 epoch-0 training schedule, in recorded order. Do not select clips by validation outcomes or native failure severity.",
+  "clips": [
+    {"sequence": "seq2", "seed": 20561118, "frames": [52, 53, 54, 55, 56]},
+    {"sequence": "seq3", "seed": 20561119, "frames": [4, 5, 6, 7, 8]},
+    {"sequence": "seq5", "seed": 20561120, "frames": [229, 230, 231, 232, 233]},
+    {"sequence": "seq6", "seed": 20561121, "frames": [31, 32, 33, 34, 35]}
+  ],
+  "excluded_fold3_sequences": ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"],
+  "training": {"seed": 20261121, "rank": 4, "updates_per_arm": 20, "learning_rate": 0.0001, "weight_decay": 0.01, "clip_gradient_norm": 1.0},
+  "method": "Current verified one-read, dense native-memory regional low-rank adapter; shared author LoRA parameters, unchanged native writer and raw decoder supervision. Train regional and per-frame global-control arms on identical clips in fixed round-robin order, with identical starting parameters.",
+  "measurements": "Before training and after exactly 20 updates, measure all four fixed training-clip losses. Save every update's loss, gradient norms, factor norms and actual layer/key/pointer records. Require finite losses, nonzero B-factor gradients in all four layers, unchanged backbone and source hashes; verify native replay on each initial clip.",
+  "decision": "If mean training loss does not decrease or integrity fails, diagnose before full CV. A decrease only shows optimization responsiveness; it is not an accuracy success or a basis for selecting a checkpoint by held-out outcomes. Save the final fixed-step weights, not best validation weights. No learning-rate sweep, frame selection, exclusion, added threshold or confidence gate.",
+  "prior_work": {"paper": "https://arxiv.org/abs/2106.09685", "repository": "https://github.com/microsoft/LoRA", "revision": "c4593f060e6a368d7bb5af5273b8e42810cdef90"},
+  "scope": "Exploratory PolypGen training-only mechanism check; patient independence unverified. These weights are not a final method candidate. All experiment and tracking files remain in Drive."
+}

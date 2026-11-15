@@ -1,0 +1,9 @@
+{
+  "purpose": "Determine the full-video effect of the original earlier-feature points, using box-only automatic Lean with the same first YOLO box and pooled-grid memory.",
+  "cohort": ["seq2", "seq4", "seq8", "seq9", "seq11", "seq16", "seq17", "seq18", "seq20", "seq23"],
+  "selection": "Previously inspected problem sequences and seq2 as a relatively strong reference; exploratory and outcome-selected.",
+  "method": "Replay the old first automatic YOLO box and box-only provisional mask. Initialize Lean's mask-prompt anchor with that automatic mask; do not add any positive or negative points. Preserve all original model weights, memory score, frame order, precision and first-detection schedule. The saved combined original-points videos are the comparator.",
+  "constraints": "No redetection, new adaptive gates or new decision thresholds. No labels or ground-truth prompts in inference. Existing YOLO settings and native binary-mask convention are unchanged.",
+  "verification": "Two fresh-process seq3 full-video replays must match every saved original-points output and token selection; independently repeat a changed box-only seq2 video. The box-only mask must equal the old saved provisional prompt bit-for-bit. Independently rescore saved predictions against labels after each complete video.",
+  "metrics": "All-frame present Dice and empty-frame false alarms plus matched historical target-frame Dice and native/Lean GT-prompt references. The prior native/Lean scores are not same-initialization controls. Report per-sequence outcomes and selected-cohort mean without population-generalization claims."
+}

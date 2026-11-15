@@ -28,9 +28,39 @@
 [submodule "external/CFBI"]
 	path = external/CFBI
 	url = https://github.com/z-x-yang/CFBI.git
+[submodule "external/Cutie"]
+	path = external/Cutie
+	url = https://github.com/hkchengrex/Cutie.git
+[submodule "external/RMNet"]
+	path = external/RMNet
+	url = https://github.com/hzxie/RMNet.git
+[submodule "external/RegionContrast"]
+	path = external/RegionContrast
+	url = https://github.com/hzhupku/RegionContrast.git
+[submodule "external/ToMe"]
+	path = external/ToMe
+	url = https://github.com/facebookresearch/ToMe.git
 [submodule "external/MAVOS"]
 	path = external/MAVOS
 	url = https://github.com/Amshaker/MAVOS.git
 [submodule "external/SupContrast"]
 	path = external/SupContrast
 	url = https://github.com/HobbitLong/SupContrast.git
+[submodule "external/Lean-SAM2-token-window"]
+	path = external/Lean-SAM2-token-window
+	url = https://github.com/DeawhaleQwQ/Lean-SAM2.git
+[submodule "external/Lean-SAM2-fused-window-control"]
+	path = external/Lean-SAM2-fused-window-control
+	url = https://github.com/DeawhaleQwQ/Lean-SAM2.git
+[submodule "external/Lean-SAM2-raw-two-control"]
+	path = external/Lean-SAM2-raw-two-control
+	url = https://github.com/DeawhaleQwQ/Lean-SAM2.git
+[submodule "external/CMSA-Net"]
+	path = external/CMSA-Net
+	url = https://github.com/wangtong627/CMSA-Net.git
+[submodule "external/SASVi"]
+	path = external/SASVi
+	url = https://github.com/MECLabTUDA/SASVi.git
+[submodule "external/SAMRefiner"]
+	path = external/SAMRefiner
+	url = https://github.com/linyq2117/SAMRefiner.git

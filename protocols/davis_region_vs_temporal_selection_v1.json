@@ -1,0 +1,96 @@
+{
+  "name": "Regional memory-token use versus temporal-selection systems on DAVIS 2017",
+  "created": "2026-11-05",
+  "status": "Frozen prospectively before SAMURAI/SAM2Long DAVIS inference; starts only after Run 159 passes its gate and completes.",
+  "question": "Can predicted-region-guided memory-token merging improve DAVIS segmentation quality without choosing good or bad frames, and how does it compare with representative temporal/path-selection systems?",
+  "hypothesis": {
+    "method": "Soft-mask-aware local ToMe changes which nearby spatial memory keys and values are merged within each frame; it retains the native frame schedule and frozen SAM2 weights.",
+    "primary_outcome": "Official DAVIS 2017 val J&F-Mean.",
+    "mechanism_control": "The mask-aware method must be compared with generic local ToMe at the same merge budget; comparison only with native SAM2 cannot isolate the regional cue.",
+    "interpretation": "A paired gain over native and generic ToMe supports region-guided token utilization under this setting. A matched comparison with SAMURAI/SAM2Long describes system-level competitiveness, not a pure frame-selection ablation."
+  },
+  "dataset": {
+    "name": "DAVIS 2017 semi-supervised validation, 480p",
+    "videos": 30,
+    "objects": 61,
+    "prompt": "All object IDs in the ground-truth indexed mask of frame 0; no later labels are read by inference.",
+    "evaluator": "Pinned official DAVIS 2017 semi-supervised evaluator; score frames 1 through N-2 according to its official protocol."
+  },
+  "shared_setup": {
+    "checkpoint": "SAM2.1 Hiera-Tiny (same file used in Run 159)",
+    "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "device_precision": "CPU inference with frozen FP32 model weights and two PyTorch CPU threads. Preserve each pinned method's upstream arithmetic; SAM2Long stores memory features in BF16, so numerical precision is not fully matched.",
+    "indexed_mask_outputs": "non_overlap_masks=true for all methods; packed indexed masks and first-frame prompts follow author VOS inference behavior.",
+    "evaluator_revision": "ac7c43fca936f9722837b7fbd337d284ba37004b",
+    "local_reference_run": "outputs/experiment/159_davis17_soft_mask_aware_tome_v1/full",
+    "local_reference_required_conditions": ["native", "generic_local_tome", "soft_mask_aware_tome"]
+  },
+  "author_comparators": [
+    {
+      "id": "samurai",
+      "repository": "external/SAMURAI",
+      "revision": "76ba195984892b0d1e3db5d9c9f90bb62175680a",
+      "configuration": "configs/samurai/sam2.1_hiera_t.yaml",
+      "inference": "Call tools/vos_inference.py:vos_inference, the entry point used by the author's CLI when all objects are prompted in frame 0; preserve score_thresh=0 and other defaults. Instantiate a fresh predictor per video to prevent model-level Kalman state leaking across videos.",
+      "paper": "SAMURAI: Adapting Segment Anything Model for Zero-Shot Visual Tracking with Motion-Aware Memory",
+      "paper_url": "https://arxiv.org/abs/2411.11922",
+      "interpretation_limit": "This runs the released VOS entry point on DAVIS as our system comparison; SAMURAI's paper targets visual object tracking and its published tracking scores are not DAVIS J&F results."
+    },
+    {
+      "id": "sam2long",
+      "repository": "external/SAM2Long",
+      "revision": "d70b50a7936fec55af201244ecde3d4433aff943",
+      "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+      "inference": "Call tools/vos_inference.py:vos_separate_inference_per_object, the entry point used by the author's CLI. Preserve documented settings: 3 pathways, IoU threshold 0.1, uncertainty 2, score threshold 0.0; instantiate a fresh predictor per video.",
+      "paper": "SAM2Long: Enhancing SAM 2 for Long Video Segmentation with a Training-Free Memory Tree",
+      "paper_url": "https://arxiv.org/abs/2410.16268",
+      "settings_source": "Pinned repository tools/README.md and tools/vos_inference.py parser; use the documented three-pathway command values.",
+      "interpretation_limit": "This is the released long-video segmentation system run on DAVIS with its author VOS path, not a controlled frame-selection-only ablation."
+    }
+  ],
+  "comparison_conditions": [
+    "native",
+    "generic_local_tome",
+    "soft_mask_aware_tome",
+    "samurai",
+    "sam2long"
+  ],
+  "comparisons": {
+    "primary": [
+      "soft_mask_aware_tome - native",
+      "soft_mask_aware_tome - generic_local_tome"
+    ],
+    "system_level_secondary": [
+      "soft_mask_aware_tome - samurai",
+      "soft_mask_aware_tome - sam2long"
+    ],
+    "statistics": "Treat video as the paired unit; average per-object J, F and J&F within video. Report mean and median paired differences, wins/ties/losses, 95% paired video-bootstrap intervals, paired two-sided Wilcoxon p-values, and Holm-adjusted p-values across all four contrasts.",
+    "runtime": "Report inference wall time and author pathway count separately; do not describe these as compute-matched methods."
+  },
+  "limits": [
+    "SAMURAI combines motion-aware mask selection with memory selection; it is not only a good/bad frame filter.",
+    "SAM2Long maintains multiple segmentation pathways and selects their masks/memories; it is not only frame selection.",
+    "SAM2Long's upstream implementation stores memory features in BF16 even on this CPU run; report this precision difference and do not call the comparison compute- or numerics-matched.",
+    "The additional SAMURAI/SAM2Long runs are local evaluations of pinned author implementations; do not substitute the methods' published metrics from other benchmarks or protocols.",
+    "The local ToMe arms share one schedule and key budget, so generic ToMe is the control for regional specificity.",
+    "Same Tiny checkpoint and evaluator improve comparability, but author-specific algorithms and compute remain different.",
+    "DAVIS is an external transfer benchmark but is not claimed unseen during foundation-model pretraining; it cannot replace an independent clinical cohort.",
+    "Published benchmark values remain context, not paired results."
+  ],
+  "engineering_gate": {
+    "split": "train",
+    "video": "bmx-bumps",
+    "objects": [1, 2],
+    "scope": "Run each author VOS pipeline on the full two-object video before any val inference.",
+    "checks": [
+      "Author repo revision is pinned and tracked files are clean.",
+      "Tiny checkpoint and frame-0 indexed-mask prompts match Run 159.",
+      "All expected frame PNGs are emitted at original DAVIS resolution with IDs 1 and 2.",
+      "The prompt-frame indexed output equals the supplied frame-0 mask.",
+      "Parameters remain unchanged; inference is finite and CPU FP32.",
+      "Official evaluator accepts the saved indexed masks."
+    ],
+    "full_val_requires_all_gates": true
+  },
+  "output": "Google Drive outputs/experiment/160_davis_region_vs_temporal_selection_v1/"
+}

@@ -1,0 +1,47 @@
+{
+  "id": "multiscale_memory_utility_diagnostic_v1",
+  "status": "frozen_exploratory_offline_diagnostic",
+  "question": "Does coarse spatial context improve a query-key similarity ranking of source-memory tiles against the exact source-local tile-removal effects?",
+  "scope": "Four existing outcome-selected SAM2 reads from the prior signed-feature diagnostic; 16 fixed tiles per read. Descriptive only. No fitting, policy, token removal, new prediction trajectory, or efficacy claim.",
+  "source": "CMSA-Net motivates multiscale context only. This is not CMA: its learned pyramid features, weights and operations are not transferable to SAM2 memory. Reuse SAM2's native first-layer Q/K projections and PyTorch pooling.",
+  "pairs_protocol": "protocols/signed_memory_feature_utility_overlap_v1.json",
+  "capture_archive": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/signed_memory_feature_utility_overlap_v1/attempt_02",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "algorithm": {
+    "layer": 0,
+    "matching": "Native pre-RoPE Q/K projections at corresponding 64x64 coordinates; includes positions as supplied to the native projections. Compute per-position cosine similarity; zero norm gives zero. This aligned-location score is not native full attention and can miss motion.",
+    "local": "Mean cosine per one of sixteen fixed 16x16 tiles.",
+    "coarse": "Average-pool Q and K separately at scales 2 and 4 in projected pre-RoPE space; cosine at pooled cells; upsample nearest to original grid and average per tile.",
+    "multiscale": "Unweighted mean of within-read mid-ranks of local, scale-2 and scale-4 tile scores; ties get average ranks. Fixed before outcomes are evaluated.",
+    "generic_control": "Native layer-0 attention mass per tile, computed from post-RoPE Q/K softmax over all spatial memories and pointer keys, averaged over queries and heads; chunked exact softmax.",
+    "random_control": "Exact uniform average over all sixteen tiles, no random draws.",
+    "utility": "Native target Dice minus Dice after removing this source tile; positive means removal worsened Dice. Utility is an evaluation label, never a score input.",
+    "metrics": "Within-read Spearman correlation and lower-score selected removal utility minus exact uniform mean; ties averaged. Scores should be high for helpful groups, so choose the lowest-scoring tile for the diagnostic only.",
+    "ties": "When all score or utility values are constant Spearman is undefined and recorded as null. No GT-empty target is evaluated here."
+  },
+  "controls": "Compare local vs fixed equal-weight multiscale on identical 16 tiles, plus native attention and exact uniform; per-pair values and equal-pair descriptive means, no pooled-tile confidence intervals.",
+  "checks": [
+    "Prior capture and utility receipts independently hash-validated",
+    "Capture/native replay raw decoder outputs equal",
+    "Native queries, positions, memory and pointers unmodified",
+    "Every source span and target ID matches prior utility",
+    "all 4 attention layers observed",
+    "source/checkpoint hashes and exact fresh-process repeated results",
+    "no post-prompt GT input to descriptor or replay"
+  ],
+  "limitations": [
+    "Four post-hoc selected pairs, not representative or independent; cannot establish selector utility or efficacy",
+    "Coarse descriptors are pooled representations of a single SAM2 memory scale, not original multi-scale encoder maps or CMSA's learned CMA",
+    "Spatially aligned similarity can fail under motion",
+    "Utility is conditional on fixed history, grouped deletion, and attention renormalization",
+    "No absent-frame safety, training, deployment or full-video result"
+  ],
+  "output_policy": "Only a new directory under mounted Drive AdeSEG/outputs/experiment; preserve all prior receipts and outputs.",
+  "archived_receipt_hashes": {
+    "audit.json": "1f04c194cec28b44743b9e51b5730060f70c07470f5a0c4697a4bb3e0938c877",
+    "capture_receipts.json": "d240305f269913d8ed3308deef3e5b99bd06fe5fbfcbf0bb0fd279c5e50bab47",
+    "completion.json": "12fe39bbb3d44e372350299d70b16a581ddcf1c88a51f73adf38b69614ce9eed",
+    "utility_alignment.json": "e47a336c3d25c718de827b4eff6afb0adb1824360b032f2aa408907949eb91f9",
+    "setup.json": "579a12e10aa36a664ebfcdddfc99617f7b74ef15dbeb1c279f589ed4a2775d42"
+  }
+}

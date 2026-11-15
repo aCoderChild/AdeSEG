@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""Run one full warm reference or observer on frozen automatic prompts, no labels."""
+import argparse
+from contextlib import ExitStack, nullcontext
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+from types import SimpleNamespace
+import uuid
+
+ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
+import numpy as np
+from PIL import Image
+import torch
+from datasets.video import load_manifest,stage_frames
+from modeling.lean_indexed_spatial_rope_mps import indexed_spatial_rope_mps
+from modeling.lean_mps_blocking_pointer_position import blocking_mps_pointer_position
+from modeling.lean_mps_decoder_observer import observe_decoder_reads
+from modeling.lean_multiscale_anchor import install_multiscale_anchor
+from modeling.lean_token_window_storage import TokenWindowRuntime
+from modeling.prompt_feature_refinement import reference_prototypes
+from modeling.seq23_viewport import restore_mask,stage_cropped_frames
+from modeling.warm_automatic_prompt_v1 import apply_archived_warm_prompt
+from scripts.crossfit_observer_capture_shared_v1 import (BASE,DATA,EXISTING,OUT,PLAN_SHA,read,require,
+    require_headroom,sequence_inputs,validate_plan,verify_frames,phase_artifact,archived_frame_metadata)
+from scripts.memory_token_io import digest
+from scripts.run_author_baseline import build_author_predictor
+from scripts.run_source_group_capture_v1 import state_hash
+from scripts.source_group_label_guard_v1 import install_mask_open_guard
+from scripts.certify_crossfit_warm_gate_v1 import GATE_SOURCES,VIDEO_SOURCES,verify_certificate
+from scripts.train_region_mixed_loss_v1 import environment_identity
+
+FORK=ROOT/'external/Lean-SAM2-token-window'
+WARM=OUT/'crossfit_warm_observer_preflight_v3_attempt01'
+WARM_SHA='c77833f050dfafceab78273deb3fce3cd06474232c5c75bee2ee7c2597804f9d'
+SOURCES=(*GATE_SOURCES,*VIDEO_SOURCES)
+
+
+def warm_plan():
+    path=WARM/'plan.json';done=read(WARM/'completion.json')
+    require(digest(path)==WARM_SHA and done.get('passed') is True and done.get('plan_sha256')==WARM_SHA,
+            'Warm preflight changed')
+    plan=read(path);require(digest(path)==WARM_SHA and plan.get('passed') is True and
+        plan.get('capture_authorized') is False and plan.get('label_guard',{}).get('open_attempts')==0 and
+        plan.get('frozen_index_plan_sha256')==PLAN_SHA and
+        all(digest(ROOT/p)==sha for p,sha in plan['source_sha256'].items()),'Warm plan sources changed')
+    return plan
+
+
+def verify_old_mps_hooks(identity):
+    for key,path in (('mps_indexed_sha256','modeling/lean_indexed_spatial_rope_mps.py'),
+                     ('mps_blocking_sha256','modeling/lean_mps_blocking_pointer_position.py')):
+        require(identity[key]==digest(ROOT/path),f'Historical MPS adapter differs: {key}')
+
+
+def video_inputs(sequence,index,warm):
+    from scripts.crossfit_observer_capture_shared_v1 import FRESH
+    require(sequence in FRESH,'Sequence is not part of the 143-read plan')
+    frames,records,start,targets,mask,_,_,_=sequence_inputs(index,sequence)
+    spec=warm['fresh_prompts'][sequence];file=Path(spec['prompt_metadata_path'])
+    require(digest(file)==spec['prompt_metadata_sha256'],'Prompt changed');prompt=read(file)
+    require(digest(file)==spec['prompt_metadata_sha256'] and prompt['first_detection_index']==start,
+            'Prompt changed during parsing')
+    return frames,records,start,targets,mask,prompt[spec['box_field']],prompt[spec['points_field']],spec['roi_xyxy']
+
+
+
+def reference_receipt(folder,sequence,warm_sha,certificate_sha,sources):
+    folder=Path(folder).resolve(strict=True);path=folder/'receipt.json'
+    expected=phase_artifact(folder.parent.parent,f'{sequence}_reference',path);rec=read(path)
+    require(digest(path)==expected and rec.get('passed') is True and rec.get('mode')=='reference' and
+            rec.get('sequence')==sequence and rec.get('warm_gate_sha256')==warm_sha and rec.get('certificate_sha256')==certificate_sha and
+            rec.get('source_sha256')==sources and rec.get('label_guard',{}).get('open_attempts')==0,
+            'Warm reference receipt differs')
+    return rec,expected
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--sequence',required=True)
+    parser.add_argument('--mode',choices=('reference','capture'),required=True);parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--certificate',type=Path,required=True);parser.add_argument('--reference',type=Path)
+    args=parser.parse_args();require((args.mode=='capture')==(args.reference is not None),'Observer requires one reference')
+    out=args.output.resolve();require(out.is_relative_to(BASE.resolve()) and not out.exists(),'Invalid output')
+    guard=install_mask_open_guard(DATA);warm=warm_plan();verify_old_mps_hooks(warm['old_identity'])
+    index=validate_plan();certificate,certificate_sha=verify_certificate(args.certificate)
+    gate_sha=certificate['warm_gate_sha256']
+    flags={'PYTHONHASHSEED':'0','PYTORCH_ENABLE_MPS_FALLBACK':'0','PYTORCH_MPS_FAST_MATH':'0'}
+    require(all(os.environ.get(k)==v for k,v in flags.items()) and torch.backends.mps.is_available(), 'Required MPS flags differ')
+    frames,records,start,targets,mask,box,points,roi=video_inputs(args.sequence,index,warm)
+    require_headroom(BASE,len(targets) if args.mode=='capture' else 0)
+    torch.set_num_threads(2);torch.use_deterministic_algorithms(True)
+    require(environment_identity()==warm['old_identity']['runtime_environment'],'Runtime environment differs from old source-group')
+    torch.manual_seed(20261021);torch.mps.manual_seed(20261021);np.random.seed(20261021)
+    sys.path.insert(0,str(FORK));checkpoint=Path(certificate['checkpoint_path'])
+    model=build_author_predictor(SimpleNamespace(method='lean',checkpoint=checkpoint,device='mps'),FORK)
+    import sam2
+    require(Path(sam2.__file__).resolve().is_relative_to(FORK.resolve()),'Wrong SAM2 worktree')
+    require(model.num_maskmem==7 and model.mem_keep_ratio==.25 and model.insurance_max_frames==3 and
+            model.enable_insurance_bank and model.fill_hole_area==0,'Model config differs')
+    model.ema_history_replace_old_tail_in_attn=False;model.ema_history_resident_prune=False
+    model.token_window_runtime=TokenWindowRuntime(16384,3072)
+    selection=[];anchor_events=install_multiscale_anchor(model,.5,selection_events=selection)
+    before=state_hash(model);require(before==warm['old_identity']['model_state_sha256'],'Model fingerprint differs')
+    sources={p:digest(ROOT/p) for p in SOURCES}
+    ref,ref_sha=reference_receipt(args.reference,args.sequence,gate_sha,certificate_sha,sources) if args.reference else (None,None)
+    out.mkdir(parents=True,exist_ok=False)
+    positions=[];observations=[];rows=[]
+    with tempfile.TemporaryDirectory(prefix='staged_',dir=out) as temp:
+        if args.sequence=='seq23':stage_cropped_frames(frames,temp)
+        else:stage_frames(frames,Path(temp))
+        state=model.init_state(video_path=temp,offload_video_to_cpu=True,offload_state_to_cpu=False)
+        require((state['video_height'],state['video_width'])==mask.shape,'Staged prompt geometry differs')
+        try:
+            with ExitStack() as stack:
+                stack.enter_context(torch.inference_mode());stack.enter_context(indexed_spatial_rope_mps(model,positions))
+                stack.enter_context(blocking_mps_pointer_position(model));holder={}
+                def before_mask(initial):
+                    _,backbone,_,_,_=model._get_image_feature(state,start,batch_size=1)
+                    early=backbone['backbone_fpn'][0][0].detach().float().cpu()
+                    holder['prototypes']=reference_prototypes(early,initial)
+                initial=apply_archived_warm_prompt(model,state,start,box,points,mask,before_mask=before_mask)
+                conditioning=out/'conditioning_mask.png'
+                Image.fromarray(initial.astype(np.uint8)*255).save(conditioning)
+                conditioning_sha=digest(conditioning)
+                stack.enter_context(observe_decoder_reads(model,set(targets),out,holder['prototypes'],observations)
+                                    if args.mode=='capture' else nullcontext())
+                for frame,ids,logits in model.propagate_in_video(state,start_frame_idx=start,reverse=False):
+                    require(ids==[1] and frame==start+len(rows) and logits.ndim==4 and
+                            tuple(logits.shape[:2])==(1,1) and bool(torch.isfinite(logits).all()),'Invalid output')
+                    prediction=logits[0,0].cpu().numpy()>0
+                    if args.sequence=='seq23':prediction=restore_mask(prediction)
+                    file=out/f'{frame:06d}.png';Image.fromarray(prediction.astype(np.uint8)*255).save(file)
+                    rows.append({'frame':frame,'mask_sha256':digest(file)})
+        finally:model.reset_state(state)
+    torch.mps.synchronize();expected=len(frames)-start
+    require(len(rows)==expected and state_hash(model)==before,'Model/trajectory coverage differs')
+    require(args.mode!='capture' or [x['frame'] for x in observations]==targets,'Observation grid differs')
+    for item in observations:
+        for key in ('feature','snapshot'):
+            file=Path(item[key+'_file']).resolve(strict=True);require(file.is_relative_to(out),'Tensor path escaped')
+            item[key+'_sha256']=digest(file)
+    if ref is not None:
+        require(rows==ref['rows'] and positions==ref['positions'] and selection==ref['selection'] and
+                anchor_events==ref['anchor_events'] and model.token_window_runtime.events==ref['token_window_events'] and
+                conditioning_sha==ref['conditioning_sha256'], 'Warm observer changed reference trajectory')
+        require(digest(Path(args.reference)/'receipt.json')==ref_sha,'Warm reference changed')
+    verify_frames(frames,records);require(guard['open_attempts']==0,'Annotation open attempted')
+    require(sources=={p:digest(ROOT/p) for p in SOURCES} and digest(WARM/'plan.json')==WARM_SHA,'Source changed')
+    receipt={'passed':True,'scope':'Full warm reference or observer; no labels or efficacy.','sequence':args.sequence,
+        'mode':args.mode,'warm_plan_sha256':WARM_SHA,'warm_gate_sha256':gate_sha,
+        'certificate_path':str(args.certificate.resolve()),'certificate_sha256':certificate_sha,
+        'reference_receipt_sha256':ref_sha,'source_sha256':sources,'environment_flags':flags,
+        'model_state_sha256':before,'process_id':os.getpid(),'run_uuid':uuid.uuid4().hex,
+        'prompt_frame':start,'target_frames':targets,'view':warm['fresh_prompts'][args.sequence]['view'],
+        'roi_xyxy':roi,'input_images':records,'archived_frame_metadata':archived_frame_metadata(index,args.sequence),
+        'conditioning_sha256':conditioning_sha,
+        'rows':rows,'positions':positions,'selection':selection,'anchor_events':anchor_events,
+        'token_window_events':model.token_window_runtime.events,'observations':observations,'label_guard':dict(guard)}
+    (out/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
+    print(json.dumps({'passed':True,'sequence':args.sequence,'mode':args.mode,'frames':len(rows),'targets':len(observations)}))
+
+if __name__=='__main__':main()

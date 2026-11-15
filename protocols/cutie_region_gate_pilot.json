@@ -1,0 +1,10 @@
+{
+  "status": "post-hoc exploratory development; not independent validation",
+  "motivation": "Test learned region-conditioned summaries against matched shuffled and generic contexts; the previous mean-pooling gate failed on selected sequences.",
+  "training_sequences": ["seq4", "seq5", "seq9"],
+  "validation_sequences": ["seq2", "seq3", "seq13", "seq17"],
+  "training": "Reuse the 12 verified native-read samples, 24-step schedule, seed, optimizer and loss from the completed CFBI pilot. Frozen SAM2; independently train regional, shuffled and generic adapters with identical sample schedule.",
+  "validation": "Full autonomous propagation, first ground-truth mask prompt, own predicted memory; compare per-sequence present Dice, boundary F, empty-frame false alarms and return-frame overlap against archived native and controls.",
+  "gates": "Require full seq2 zero-gate prediction parity, nonzero seq3 regional/shuffled/generic propagation, frozen-source tests, source and input integrity checks before launch. Stop on error.",
+  "interpretation": "These selected sequences and all of PolypGen informed earlier work; this is not an independent or patient-independent test. Do not choose a seed or configuration after viewing these outcomes without disclosing selection."
+}

@@ -1,0 +1,18 @@
+{
+  "purpose": "Explore whether candidate-constrained earlier-FPN points improve the existing automatic Lean prompt, without detector re-detection, new confidence gates or changes in prompt schedule.",
+  "base": "Keep the previous first-chronological YOLO box, same automatic box-only preliminary mask, Lean, weights, preprocessing, frame order, and CMSA-inspired pooled-grid memory score. No additional model tuning.",
+  "method": "Reuse project foreground/background prototype computation and cosine contrast. Positive feature-cell centers must lie inside the automatic provisional mask; negative centers must lie outside it; both must lie in the detector box. Select maximum/minimum contrast respectively. If either candidate set is empty, use the unchanged box-only prompt. Masks remain binary exactly as used by the original runner. No new confidence score or acceptance threshold.",
+  "controls": "At the same first detector boxes, compare existing unconstrained feature points, box-only provisional mask, and constrained feature points. Preliminary analysis is prompt-frame only; a full sequence is required to measure propagation and cannot be inferred from prompt Dice. The existing saved combined full videos are the direct historical reference. A proper same-prompt baseline is required to isolate changes, but the user has not authorized rerunning historical native and released Lean models.",
+  "verification": "Unit test feature-cell to image coordinates on nonsquare images and mask candidate constraints, fallbacks, and invalid inputs. On real model inputs use the pinned Lean predictor, reproduce saved provisional and unconstrained prompt masks exactly, check label-free inputs, save constrained masks and records, and require two independently identical process replays. No outcome-dependent selection or tuning.",
+  "limitations": "An automatic provisional mask may itself be wrong or overextended; constraining points to it cannot correct a missed or wrong detector initialization in general. Several PolypGen sequences and their results have already informed this investigation; all results are exploratory. Historical native and Lean scores use ground-truth initialization and cannot isolate the prompt or memory effects. Per-sequence better historical Dice is an oracle analysis target, not an inference-time selector.",
+  "cohort": [
+    "seq2",
+    "seq8",
+    "seq9",
+    "seq15",
+    "seq16",
+    "seq17",
+    "seq22"
+  ],
+  "video_scope": "Run the candidate only on these seven videos where the saved prompt-frame pilot changed the initial mask. The other fourteen had identical automatic initial masks and no other inference change; their saved original videos remain reference outputs. The seven are selected by implementation activity, not labeled scores; all are previously inspected and exploratory."
+}

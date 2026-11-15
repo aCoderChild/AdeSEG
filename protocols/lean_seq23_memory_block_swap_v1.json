@@ -1,0 +1,7 @@
+{
+  "status": "post-hoc follow-up to whole nonconditioning-memory swap; no inferential independence",
+  "scope": "Previously inspected sequence 23 reads 8,20,35,48,51; sequence 3 engineering reads 8,12.",
+  "arms": "For both recipient trajectories independently, exchange one matched slice of nonconditioning spatial keys and its positions: [4096,7168), [7168,8192), or [8192,12288). Include both original no-op reads. The middle slice is the captured fused skeleton in the fused trajectory; the raw trajectory's corresponding slice may represent a different frame. The blocks are index-defined, not asserted to be equivalent semantic units.",
+  "controls": "Same recipient current query, conditioning memory, decoder image features and pointer tail; same key counts. Require full frozen attention and decoder replay, exact no-op masks, validated captured fusion slice, two independent engineering replays, two independent sequence 23 replays, and independent verification before reading labels.",
+  "interpretation": "All swaps mix trajectory-derived memories and positions without feedback; they cannot isolate causal effects of fusion, more source frames, or an online policy. The chosen frames and block boundaries are exploratory and selected after seeing the whole-memory swap. No additional redetection or new confidence threshold."
+}

@@ -38,6 +38,45 @@ def test_empty_and_border_only_contours_are_undefined_when_excluded():
     assert full["excluding_border"]["missed_fraction"] is None
 
 
+def test_boundary_footprint_precision_is_pooled_and_empty_is_undefined():
+    mask = np.zeros((256, 256), np.uint8)
+    mask[65:127, 65:127] = 1
+    labels = mixed_cell_regions(torch.from_numpy(mask).float() * 20 - 10)["labels"]
+    result = contour_coverage(mask, labels)
+    inc = result["including_border"]
+    assert inc["boundary_footprint_pixels"] == int((labels == 2).sum()) * 16
+    assert inc["contour_covered_pixels"] == (
+        inc["contour_pixels"] - inc["missed_pixels"]
+    )
+    assert inc["boundary_footprint_precision"] == pytest.approx(
+        inc["contour_covered_pixels"] / inc["boundary_footprint_pixels"]
+    )
+
+    counts = np.bincount(labels.ravel(), minlength=3).tolist()
+    summary = summarize_frames(
+        [
+            {
+                "schemes": {
+                    "mixed": {
+                        "counts": counts,
+                        "confusion": np.zeros((3, 3), dtype=int).tolist(),
+                        "self_contour": result,
+                        "gt_contour": result,
+                    }
+                }
+            }
+        ]
+    )["mixed"]["self_contour"]["including_border"]
+    assert summary["pooled_boundary_footprint_precision"] == pytest.approx(
+        inc["boundary_footprint_precision"]
+    )
+
+    empty_boundary = contour_coverage(
+        np.zeros((256, 256), np.uint8), np.zeros((64, 64), int)
+    )
+    assert empty_boundary["including_border"]["boundary_footprint_precision"] is None
+
+
 def test_shape_guard_quartile_ties_and_empty_summary():
     with pytest.raises(ValueError, match="native256"):
         contour_coverage(np.zeros((64, 64)), np.zeros((64, 64)))

@@ -1,0 +1,67 @@
+{
+  "name": "Continuous three-role memory-value embeddings",
+  "status": "exploratory protocol frozen before the real-data engineering gate",
+  "motivation": "Run 109 retained every native memory token and frame but used hard predicted-mask region labels; its corrected CFBI residual did not pass the improvement screen. This candidate tests whether continuous region responsibility avoids brittle token assignment while using every memory value and the unchanged native attention.",
+  "prior_work": {
+    "RMNet": {
+      "paper": "Efficient Regional Memory Network for Video Object Segmentation",
+      "paper_url": "https://openaccess.thecvf.com/content/CVPR2021/papers/Xie_Efficient_Regional_Memory_Network_for_Video_Object_Segmentation_CVPR_2021_paper.pdf",
+      "repository": "https://github.com/hzxie/RMNet",
+      "revision": "ed0f323b57803c0893f061dc8cfcf0b81e368492",
+      "license": "MIT",
+      "reused_logic": "RMNet's region-conditioned memory and mask-derived memory modulation motivate the region-role adaptation. This project does not port RMNet's optical-flow ROI machinery; its SAM2 adapter adds continuous weighted role embeddings to values."
+    },
+    "continuous_masks": {
+      "paper": "Differentiable Soft-Masked Attention",
+      "paper_url": "https://arxiv.org/abs/2206.00182",
+      "repository": "https://github.com/Ali2500/HODOR",
+      "revision_inspected": "45da7329e32c8c6e52658f5aeebe625c1fefddef",
+      "decision": "The authors' attention-mask operator subtracts a mask-dependent bias from attention logits, so it is not integrated because this experiment forbids gating attention. Its continuous-mask premise motivates testing soft membership only."
+    }
+  },
+  "method": {
+    "mask_source": "The memory frame's own stored 256x256 SAM2 predicted-mask logits; never ground truth.",
+    "soft_roles": "Convert logits to probabilities p, average-pool each 4x4 cell to the native 64x64 memory grid, then define background=(1-p)^2, foreground=p^2 and boundary=2p(1-p). These are agreement/disagreement probabilities of two independent Bernoulli draws, sum to one per token, and use no categorical threshold.",
+    "adaptation": "At each native memory-attention layer, add the per-token membership-weighted mixture of three learned role embeddings to spatial value vectors. Center the parameters across roles before bounding and center the bounded vectors again; this removes any generic shared residual exactly. Initialize embeddings to zero. Do not modify query/key tensors, attention weights, pointers, memory writes, frame schedule, image encoder or decoder.",
+    "frame_policy": "All frames selected by native SAM2 remain; no good/bad-frame classification, frame gate, token removal or attention gate.",
+    "region_semantics": "Boundary weight means mixed/uncertain support at the token footprint, not a claim that the feature vector is semantically pure or that the boundary is anatomically exact."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequence_grouping": "Three fixed sequence-level folds; patient independence is unknown.",
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "scope": "Exploratory only: PolypGen informed earlier analyses and candidate design; patient-to-sequence independence is unverified."
+  },
+  "model": {
+    "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "native_baseline": "outputs/experiment/96_temporal_region_fusion_polypgen_cv_v1"
+  },
+  "training": {
+    "folds": [
+      ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21"],
+      ["seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22"],
+      ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"]
+    ],
+    "clip_length": 5,
+    "epochs": 10,
+    "clips_per_training_sequence_per_epoch": 1,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "max_gradient_norm": 1.0,
+    "seed": 20261109,
+    "loss": "The same autoregressive decoder mask Dice/BCE and object-presence losses as run 109.",
+    "frozen": ["SAM2 image encoder", "SAM2 memory encoder", "SAM2 decoder", "native frame schedule"]
+  },
+  "evaluation": {
+    "cohort": "All 21 promptable PolypGen sequences; seq1 and seq7 excluded because they have no positive first-frame prompt mask.",
+    "design": "Three sequence-grouped out-of-fold evaluations. PolypGen has informed prior development; this remains exploratory and patient independence is unverified.",
+    "primary": "Equal-sequence mean present-frame Dice.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "GT-empty false alarms", "missed-return events", "runtime"],
+    "success_screen": "At least +0.01 mean Dice, positive delta on at least 14/21 sequences, and no increase in pooled GT-empty false alarms.",
+    "decision": "If the implementation gate fails, do not launch the cohort run. If the frozen screen fails, report the negative result without tuning on this cohort.",
+    "native_baseline": "outputs/experiment/96_temporal_region_fusion_polypgen_cv_v1"
+  }
+}

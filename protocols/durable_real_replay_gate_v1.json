@@ -1,0 +1,16 @@
+{
+  "name": "Durable condition checkpoints real-frame process-interruption gate v1",
+  "status": "frozen_for_engineering_only",
+  "base_protocol": "protocols/spatiotemporal_tome_value_exchange_cohort_v1.json",
+  "base_protocol_sha256": "a8c8c06aaad4999f1c233e48a575e6e2cbc5c02b670ed423620954ca7384706b",
+  "source_hashes": {
+    "scripts/verify_durable_real_replay.py": "496b4f2099fc64427c84386b231d40ced3195b045149563987e38949322b5e45",
+    "scripts/cohort_audit_checkpoints.py": "d8a77b171b41986bf66e52f687a68c65ff236bc71949324e3a8483af8b34e4ce",
+    "scripts/run_spatiotemporal_tome_value_exchange_durable.py": "96e71c64f3a50c561e9fb4c6cac7b2a453e494cf362b64dff397d3bc4890f5d0"
+  },
+  "sequence": "seq6",
+  "prompt": 24,
+  "target_count": 4,
+  "output_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/spatiotemporal_tome_value_exchange_v1/durable_real_replay_gate_v1",
+  "design": "Two independent processes on the same four real targets: uninterrupted reference and SIGKILL during local after a saved partial target; resume in a third process. Require exact frame records and raw attention calls for all three arms, native parity, unchanged parameters/temporal slots, preserved partial folder, and matching cross-frame audit. This tests actual condition runner and checkpoint helpers; durable cohort main resume orchestration remains covered only by mocked integration and needs separate real-run validation. No efficacy inference."
+}

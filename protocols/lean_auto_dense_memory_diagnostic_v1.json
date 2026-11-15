@@ -1,0 +1,20 @@
+{
+  "purpose": "Test whether retaining all spatial memory tokens instead of Lean's fixed 25% TAMP budget affects the existing automatic system's failure cases.",
+  "cohort": [
+    "seq2",
+    "seq4",
+    "seq8",
+    "seq11",
+    "seq20",
+    "seq23"
+  ],
+  "selection": "Seq8, seq11, seq20 and seq23 are the user's inspected failure cases; seq4 is a prompt-delay case and seq2 is a stronger reference. This is an exploratory, outcome-selected diagnostic, not a generalization estimate.",
+  "method": "Reuse the same first YOLO box, original earlier-FPN points, automatic refined-mask initialization, pretrained Lean predictor, pooled anchor scorer and full chronological frame schedule. Set the released Lean mem_keep_ratio to 1.0 rather than 0.25 for every frame, retaining all available candidates in TAMP. Other Lean mechanisms remain enabled, including temporal conditional insurance and the released attention-routing settings. No adaptive gate, new confidence threshold, redetection or GT input is added.",
+  "interpretation": "This removes the fixed 75% spatial-token reduction from the released Lean selection path. It does not turn the whole architecture into native SAM2 or remove other Lean mechanisms, and it is not compute- or memory-budget matched. It is a causal ablation of the fixed retention quota, not evidence of efficient token utilization.",
+  "verification": "Two independent seq3 full-video no-op replays must reproduce all saved automatic masks and selection records at 25%. Two independent fixed-100% seq3 runs must reproduce masks, token selections and attention input shapes exactly, keep 4096/4096 in each eligible 4096-token selection, preserve position/pointer tails and model parameters, and produce memory attention shape observations. Only then run the exploratory selected cohort. Independently re-score every candidate mask and label after inference.",
+  "metrics": "Equal-sequence Dice on all labeled-present frames and matched historical IDs, per-sequence results, empty-frame false alarms, retained-token counts and memory-attention input lengths. Native and released Lean historical references use GT prompts and are not matched initialization controls.",
+  "limitations": "Previously inspected PolypGen data, unknown detector training split and incomplete annotation certainty. Additional retained tokens can change later predictions, memory, and routing through the resulting trajectory. No independent dataset validation or claim that per-sequence GT-prompt best can be selected automatically.",
+  "engineering_sequences": [
+    "seq3"
+  ]
+}

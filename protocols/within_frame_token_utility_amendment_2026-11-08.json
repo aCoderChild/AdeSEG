@@ -1,0 +1,38 @@
+{
+  "id": "within_frame_token_utility_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "post-run clarification; the frozen protocol and archived outputs are unchanged",
+  "applies_to": [
+    "within_frame_token_utility_v1.json",
+    "xmem_token_affinity_polypgen_v1.json"
+  ],
+  "evidence_identity": {
+    "run_directory": "outputs/experiment/within_frame_token_utility_v1/scientific_run_20261108",
+    "setup_sha256": "656512fd85d6c6cad5fb8d24e78f5c062c8187b7e9c8c30b634d64f496a6a2df",
+    "results_sha256": "347830558ac183e177a14ee93d723b538f4510267b5a34cad8e2a965e9405d0d"
+  },
+  "clarifications": [
+    {
+      "field": "fixed_history_diagnostic.uniform_control",
+      "correction": "The diagnostic exhaustively evaluated all sixteen equal-size spatial tiles. Their arithmetic mean is the exact expected outcome for selecting one tile uniformly from that fixed set. There was no separately sampled random-block arm or random-seed distribution.",
+      "analysis_consequence": "Report the exhaustive uniform-tile expectation as such. Do not describe it as an independently run random-control arm or use it to estimate random-seed variability."
+    },
+    {
+      "field": "analysis_before_training.design",
+      "correction": "The XMem candidate protocol's reference to a matched random-block control does not describe the completed fixed-history diagnostic. That diagnostic contains exhaustive single-tile removals, whole-source removal, and two fixed unions; it contains no separately sampled random-block control.",
+      "analysis_consequence": "Any future XMem study must define and freeze its own matched control before training. The completed diagnostic cannot be retroactively treated as that control."
+    },
+    {
+      "field": "experiment_status",
+      "correction": "The fixed-history diagnostic is complete on 21 sequences and 59 targets. Run174 is complete. The XMem-inspired real-checkpoint engineering gate and efficacy training have not run; its training/resume runner is not implemented.",
+      "analysis_consequence": "No full XMem efficacy experiment is currently ready or authorized by this record."
+  },
+  {
+    "field": "xmem_adapter_architecture_claim",
+    "correction": "The local SAM2 adapter follows XMem's anisotropic-L2 affinity equation and projection-head pattern, but it does not import XMem code or reproduce its shared KeyProjection wiring. It uses separate projections for SAM2's 256-channel query and 64-channel memory inputs into one common key space.",
+    "analysis_consequence": "Describe it as an XMem-inspired SAM2 adaptation. Prior XMem work motivates the affinity form, but does not validate this module wiring or establish a Dice gain. No method setting, gate outcome, or efficacy result is changed."
+    }
+  ],
+  "reason": "A final source-and-output audit found stale status text and wording that could imply a separate random-control arm. This amendment makes the record accurate after completion.",
+  "changes_to_frozen_run": "None. No source, input, target, arm, analysis rule, or result was changed. The original frozen protocol remains intact."
+}

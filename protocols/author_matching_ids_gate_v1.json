@@ -1,0 +1,40 @@
+{
+  "checkpoint": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "name": "ToMe/ATC persistent-ID routing gate",
+  "sequences": [
+    "seq2",
+    "seq3"
+  ],
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "status": "Frozen engineering gate; no accuracy claim",
+  "device": "cpu",
+  "dtype": "float32",
+  "gt_policy": "Initial prompt is permitted; subsequent masks only evaluated after diagnostic maps are constructed",
+  "source_files": [
+    "scripts/verify_author_matching_ids.py",
+    "scripts/verify_position_consistent_tome_davis_ids.py",
+    "modeling/region_constrained_tome.py",
+    "modeling/author_token_matching.py",
+    "modeling/prediction_conditioned_affinity.py",
+    "datasets/vos_benchmarks.py",
+    "scripts/run_davis_region_constrained_tome.py",
+    "scripts/run_davis_soft_mask_aware_tome.py",
+    "scripts/run_author_baseline.py",
+    "external/ToMe/tome/merge.py",
+    "external/ATC/SSLBackbone_setup/token_reduc/merge.py"
+  ],
+  "sam2_repository": "external/sam2_diagnostic_reference",
+  "conditions": [
+    "tome_regional",
+    "tome_global",
+    "atc_regional",
+    "atc_global"
+  ],
+  "atc_revision": "227c94b584df323b94dd79e8ddbb88b1587eeb8e",
+  "atc_linkage": "average",
+  "fixture": "DAVIS17 val/bike-packing IDs1,2 frames0-2"
+}

@@ -1,0 +1,79 @@
+{
+  "name": "Prompt-anchored projected-key ToMe diagnostic on PolypGen seq5",
+  "status": "design amended and frozen v2; helper/tests updated; waits for active cohort completion and gate v2",
+  "purpose": "Mechanism diagnostic for whether a fixed prompt object pointer is a more useful token-matching reference than the current source frame's pointer during prolonged SAM2 presence failures.",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "sequence": "seq5",
+    "role": "post-hoc development diagnostic only; not an efficacy cohort or independent confirmation",
+    "prompt": "Use the sequence's original frame-0 prompt unchanged.",
+    "frames": "Propagate all 249 post-prompt targets in order; no hand-picked target frames."
+  },
+  "method": {
+    "implementation": "modeling/prompt_anchor_tome.py",
+    "implementation_sha256": "9ba74e589aef387967ab8c45c1d6c2a50bc446b33537d9595769b46f67521450",
+    "unit_test_sha256": "508837a73c92307b9fc034b545c696d728ee9e78db74874f6e25a1b3a956186e",
+    "matching": "Within each SAM2 cross-attention layer, compare every projected spatial K against the initial prompt-pointer K tokens from that same attention call. Add this same-space cosine affinity to the existing projected spatial-key ToMe metric; retain original ToMe merge and weighted K/V aggregation.",
+    "merge": "Reuse the pinned ToMe bipartite matcher, weighted K/V merge, and log cluster-mass attention bias from modeling/pointer_conditioned_tome.py.",
+    "controls": [
+      "frozen native SAM2",
+      "same-frame pointer-conditioned ToMe",
+      "merge-budget-matched generic local ToMe"
+    ],
+    "unchanged": [
+      "SAM2 parameters",
+      "native memory writes",
+      "native attention weights",
+      "all selected frames",
+      "per-window merge quotas",
+      "pointer K/V tail",
+      "object-presence handling",
+      "decoder",
+      "prompt and evaluation frame order"
+    ],
+    "forbidden": [
+      "thresholds",
+      "presence bypass",
+      "frame selection",
+      "evaluation-mask input",
+      "per-frame tuning",
+      "quota changes"
+    ],
+    "affinity_source": "actual SDPA K tensors after frozen layer-specific key projection and native positional transform; not raw memory features or reshaped pointer chunks"
+  },
+  "verification": {
+    "synthetic_unit_tests": "tests/test_prompt_anchor_tome.py (3 passed after v2 amendment)",
+    "required_real_frame_gate_before_seq5_replay": [
+      "exact no-merge parity",
+      "fixed prompt-pointer identity across source frames",
+      "finite/aligned affinities",
+      "four attention-layer coverage",
+      "matched generic per-window quotas",
+      "unchanged SAM2 parameter digest",
+      "pointer-tail preservation",
+      "temporal-state restoration",
+      "no evaluation-mask access by matching code"
+    ],
+    "stop_on_any_gate_failure": true,
+    "real_frame_gate_protocol": "protocols/prompt_anchor_tome_gate_v2.json",
+    "real_frame_gate_sha256": "014f9b4116137b1d09fb656519b16cb161babe520e80df0ae985d6e9055e1c91",
+    "runner_integration_status": "not built; the gate script only performs bounded engineering replay"
+  },
+  "report": {
+    "primary_diagnostic": "per-frame object-score logit and unsuppressed/suppressed mask behavior on all frames, with GT used only after inference for offline analysis",
+    "secondary": [
+      "present-frame Dice",
+      "false alarms on empty frames",
+      "return detection and delay",
+      "token merge assignments",
+      "runtime"
+    ],
+    "claim_limit": "Any improvement on seq5 is exploratory because this sequence informed the method. It cannot support a cohort or generalization claim. No full-cohort rerun is authorized by this protocol."
+  },
+  "execution": {
+    "blocked_until": "PID 50946 full-cohort pointer-conditioned ToMe run is complete and audited; then the amended v2 real-frame gate must pass",
+    "output": "Google Drive AdeSEG/outputs/experiment/pointer_conditioned_tome_polypgen_v1/full_attempt01/prompt_anchor_seq5_diagnostic/",
+    "device": "CPU FP32",
+    "seed": 20261113
+  }
+}

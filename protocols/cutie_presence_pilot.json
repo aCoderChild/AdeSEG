@@ -1,0 +1,13 @@
+{
+  "status": "post-hoc exploratory development; not independent validation",
+  "motivation": "Test whether supervising object presence and including native missed-object reads improves the Cutie-summary gate's autonomous propagation relative to the earlier mask-only pilot.",
+  "training_sequences": ["seq4", "seq5", "seq9"],
+  "additional_samples": "Native seq4 frames 24 and 25 were selected after inspecting failures. Keep both with the 12 original native snapshots; they are adjacent and do not provide independent examples.",
+  "validation_sequences": ["seq2", "seq3", "seq13", "seq17"],
+  "training": "Frozen SAM2; separate regional, shuffled and generic gates, same seed and schedule, Adam 0.001, 24 updates. Use the existing mask loss plus 1.0 times the pinned SAM2 author object-presence focal loss. Select 18 original and 6 missed-object samples with replacement using seed 20261031, then shuffle the combined schedule with the same generator.",
+  "validation": "Autonomous full propagation using each arm's own predictions and native memory-writing, with the first labelled frame prompt. Compare sequence-weighted present Dice, boundary F, false alarms and return episodes against the existing native and mask-only pilot.",
+  "controls": "Independently train regional, shuffled and generic context arms using the same samples and schedule; compare against native and the prior mask-only arms. A regional-specific benefit requires a regional advantage over both controls, not merely over native.",
+  "gates": "Require native-replay prediction and bank parity for new samples; finite nonzero real missed-object gradients; unchanged base model; all four attention layers; pointer handling; tests; complete validation coverage and input hashes. Outputs go to Drive.",
+  "limitations": "These samples and validation sequences were chosen after prior results; seq13 and all PolypGen have informed development. One seed and four selected validation sequences are a feasibility screen, not evidence of independence, reliability or statistical significance. No propagation-aware training is claimed.",
+  "interpretation": "Outcome-selected exploratory feasibility only; no independent or patient-independent validation, and no claim of propagated-memory training."
+}

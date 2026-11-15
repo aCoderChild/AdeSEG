@@ -1,0 +1,70 @@
+{
+  "name": "Representative-position long-history ToMe engineering gate (runtime-aligned amendment)",
+  "status": "engineering only; no efficacy inference authorized",
+  "created": "2026-11-12",
+  "question": "At identical matching, memory trajectory rules, per-frame/window token quotas and total K/V budget, does retaining each ToMe destination token's SAM2 position embedding execute reliably compared with averaging position embeddings?",
+  "scope": {
+    "dataset": "PolypGen 2021",
+    "sequence": "seq3",
+    "targets": "All post-prompt frames; the clip must include reads with more than six non-conditioning history maps.",
+    "evidence_class": "Real-clip engineering gate only. Frame scores are checked for pipeline and pre-compression parity, not used as efficacy evidence.",
+    "cohort_status": "PolypGen has informed prior development. This gate cannot support a confirmatory or generalization claim."
+  },
+  "conditions": {
+    "position_mean": "Generic projected-key ToMe matching; fixed ten-map uniform history allocation; mass-weighted merge of memory and position embeddings; representative-position RoPE.",
+    "position_representative": "Same configuration and matching; mass-weighted merge of memory content, but copy the ToMe destination's original SAM2 position embedding and use that same spatial coordinate for RoPE."
+  },
+  "shared_design": {
+    "sam2": "Frozen SAM2.1 Hiera-Tiny; original image encoder, memory writes, frame schedule, dense queries, decoder, object scores and pointer path.",
+    "history": "Native conditioning map plus the same selected prior frame IDs, up to ten non-conditioning maps. No frame selection or confidence gates.",
+    "budget": "Keep one dense 4096-token conditioning map. With N<=6 prior maps retain all N*4096 tokens; for N>6 allocate exactly 24576 tokens over prior maps uniformly, remainder to newest ages. Pointers remain separate and uncompressed.",
+    "matching": "Pinned official ToMe bipartite soft matching on each layer's frozen SAM2 projected-key metric, within each map's non-overlapping 4x4 windows. No cross-frame merges.",
+    "aggregation": "Use pinned ToMe mass-weighted means for memory content and the existing log-mass attention correction. The correction is approximate when key/value vectors differ.",
+    "temporal_position": "Keep native age embeddings 1..6; reuse the oldest native non-conditioning age slot for ages 7..10 in both conditions, then restore native model state on exit.",
+    "parameters": "No training; all pretrained SAM2 parameters remain frozen."
+  },
+  "required_checks": [
+    "Archived native reference provenance and prompt index match the manifest, checkpoint and model config.",
+    "Both conditions exactly reproduce archived native predictions and stored outputs until ToMe compression starts (at most six non-conditioning maps).",
+    "The full clip reaches at least one target with more than six non-conditioning maps and actually reduces spatial K/V keys there.",
+    "All four memory-attention layers are called once per target; every frame/window has the frozen exact quota and cluster provenance.",
+    "Spatial token mass is conserved, pointers remain unchanged, K/V input alignment is valid, all outputs are finite, and model parameters are unchanged.",
+    "Extended temporal embeddings and num_maskmem are restored after each condition.",
+    "Two fresh processes reproduce prediction hashes, stored-output hashes, quota traces and merge provenance exactly for each condition.",
+    "The two conditions use the same frame/window quotas. No Dice effect or candidate efficacy conclusion is inferred from this gate."
+  ],
+  "stop_rule": "Any integrity, parity or replay failure blocks efficacy testing. Fix only a demonstrated implementation defect and rerun this gate. Do not tune this candidate on PolypGen; require untouched-data evaluation for efficacy claims.",
+  "artifacts": "Google Drive: outputs/experiment/position_consistent_long_history_tome_v1/engineering_gate_attempt04/",
+  "references": [
+    {
+      "title": "Token Merging: Your ViT But Faster",
+      "venue": "ICLR 2023",
+      "url": "https://arxiv.org/abs/2210.09461"
+    },
+    {
+      "title": "ALGM: Adaptive Local-then-Global Token Merging for Efficient Semantic Segmentation with Plain Vision Transformers",
+      "venue": "CVPR 2024",
+      "url": "https://openaccess.thecvf.com/content/CVPR2024/html/Norouzi_ALGM_Adaptive_Local-then-Global_Token_Merging_for_Efficient_Semantic_Segmentation_with_Plain_Vision_Transformers_CVPR_2024_paper.html"
+    },
+    {
+      "title": "SAM 2: Segment Anything in Images and Videos",
+      "venue": "ICLR 2025",
+      "url": "https://arxiv.org/abs/2408.00714"
+    }
+  ],
+  "runtime": {
+    "threads": 2,
+    "seed": 20261021,
+    "deterministic_algorithms": false,
+    "rationale": "Match scripts/run_author_baseline.py and archived native receipts. A one-thread deterministic replay produced different BF16 mask-memory features despite identical prediction logits; both native and candidate matched exactly under the baseline two-thread runtime."
+  },
+  "amendment": {
+    "supersedes": "position_consistent_long_history_tome_gate_v1.json for subsequent gate attempts only",
+    "reason": "Attempt 02/03 exposed a runtime mismatch between the gate and its archived native reference. The candidate was not the cause: native and candidate exact-replayed each other when both used the archived two-thread runtime.",
+    "prior_attempts": [
+      "engineering_gate_attempt02: failed pre-compression stored-state parity because it used one thread and deterministic algorithm dispatch",
+      "engineering_gate_attempt03/position_mean_diagnostic: confirmed prediction logits matched; stored memory features differed under the mismatched runtime"
+    ],
+    "frozen_method_design_unchanged": true
+  }
+}

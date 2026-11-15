@@ -1,0 +1,11 @@
+{
+  "purpose": "Exploratory CMSA-inspired spatial-context modification of Lean-SAM2 TAMP",
+  "author_revision": "8d1cf2618519d291905d22fe859b8302476d7f50",
+  "method": "For each eligible dense memory write, reuse Lean's max-cosine prompt-anchor scorer on the original memory and on average-pooled 2x and 4x versions. Bilinearly upsample the pooled score maps and blend 0.5 local + 0.25 scale2 + 0.25 scale4. Replace only the cached TAMP anchor score after the author cache writer has already supplied the original affinity to TARR.",
+  "limitations": "Context is pooled from one SAM2 memory grid; this does not use distinct encoder-stage features or reproduce CMSA-Net's learned CMA. The original CMSA feature spaces and learned parameters are not checkpoint-compatible with Lean SAM2. The previous fixed-tile pooled diagnostic did not show reliable utility gains; this anchor-based policy is distinct but exploratory.",
+  "controls": "Full released Lean baseline at identical model, prompt, memory schedule, token budget, precision and hardware. Zero-strength wrapper must reproduce saved Lean logits and a fresh-process replay before treatment evaluation. A full target sequence is propagated, not selected using its labels.",
+  "fixed_settings": {"strength": 0.5, "scales": [1, 2, 4], "weights": [0.5, 0.25, 0.25], "device": "cpu", "precision": "float32", "threads": 2},
+  "scope": "PolypGen, first labeled mask prompt as in existing Lean reference; labels after that prompt used only for evaluation. Same eligible sequences and matched target frames as the pinned Lean comparison.",
+  "metrics": "Equal-sequence present Dice, paired bootstrap intervals, GT-empty false alarms, and per-sequence outcomes; retain exact masks and logs on Drive.",
+  "safety": "No changes to trained parameters, memory frame selection, memory encoding, pointer layout or Lean TARR affinity; physical selection uses Lean's original top-k budget and original operations. Changing retained tokens may change future predictions, subsequent memory and TARR decisions through the resulting trajectory."
+}

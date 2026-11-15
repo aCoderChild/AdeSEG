@@ -1,0 +1,97 @@
+{
+  "name": "Position-consistent region-constrained ToMe for SAM2 spatial memory",
+  "status": "frozen engineering protocol; efficacy not authorized until gates pass",
+  "created": "2026-11-09",
+  "research_question": "At the same per-frame and per-window spatial-key budget, does merging similar stored SAM2 memory tokens only within the same predicted region preserve or improve present-frame Dice over native SAM2 and generic local ToMe?",
+  "motivation_and_scope": {
+    "run155": "Exploratory 21-sequence point estimate was positive, but paired intervals included zero, the effect was highly sensitive to seq8, false alarms increased, and the exact full-run method source hash was not recovered. The current implementation is a new position-consistent candidate, not a reproduction of Run155.",
+    "prior_tome_scope": "ToMe establishes a training-free similarity-merging operation for transformer tokens. ALGM establishes that carefully placed local/global token merging can be evaluated on image semantic segmentation. Neither establishes a Dice gain for SAM2 video-memory attention.",
+    "sam2_scope": "Use the frozen SAM2.1 Hiera-Tiny video predictor and its native streaming memory schedule. This protocol does not change SAM2 weights, writes, frame choice, object score, or mask decoder.",
+    "limitations": [
+      "This is a post hoc exploratory PolypGen study; the cohort has informed earlier development.",
+      "Region roles are labels derived from SAM2's own stored mask probabilities; they do not imply semantically pure feature vectors.",
+      "Weighted merging is approximate for distinct keys/values, even when cluster mass is conserved.",
+      "A passing engineering gate establishes implementation integrity only, not segmentation benefit."
+    ]
+  },
+  "source_and_assets": {
+    "sam2_repository": "external/sam2",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "sam2_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "sam2_checkpoint_drive_path": "outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "sam2_checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "tome_repository": "external/ToMe",
+    "tome_revision": "af95e4b1befa172dadccd8c81e223b10090f9579",
+    "tome_source": "tome/merge.py",
+    "tome_source_sha256": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e",
+    "tome_reused_operations": ["bipartite_soft_matching", "merge_wavg", "merge_source"],
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "primary_run155_source_status": "unrecovered: setup SHA for modeling/region_constrained_tome.py was 780426d00e9b6acad4ca4f90cdd6e5c4c0d10b19473aac05edc1c37daab05ffc; available replay source hashes to 3fadfb3a1874490fb5fcca0bc2891a7424c363d589fdea0f227fb334d73caa7f"
+  },
+  "method": {
+    "weights_and_pipeline": "Training-free. Freeze every SAM2 parameter; preserve native image encoding, predicted masks, memory writes, memory-frame selection/schedule, decoder, object scores, and pointers.",
+    "input_alignment": "At each memory-attention layer, operate on the batch-first spatial memory tensor and its aligned position tensor before the native K and V projections. Spatial tokens are grouped by their native memory frame; no merge crosses a frame boundary. The pointer suffix is excluded.",
+    "matching_metric": "For each layer, project (memory + position) with that layer's frozen native K projection, split heads, and average projected head features. Run official ToMe bipartite soft matching on this metric. Matching assignments are computed without gradients.",
+    "locality": "Partition each 64x64 stored-frame grid into non-overlapping 4x4-token windows. Never match across windows or frames.",
+    "roles": "For each memory token, derive background, foreground-interior, and mixed-boundary probabilities from its corresponding stored 256x256 predicted mask. Use argmax solely to constrain pair matching; ties follow torch.argmax's lowest-index behavior. Do not use ground truth.",
+    "regional_merge": "Within each window and role, merge floor(n/2) tokens for n tokens in that role using official ToMe weighted-mean merging. Apply exactly the same ToMe assignment and cluster weights to memory content and position inputs.",
+    "spatial_position": "Keep each merged cluster's ToMe destination spatial coordinate as its representative RoPE coordinate. After all window/role groups for one frame are formed, sort the output clusters by representative raster index; apply native SAM2 axial RoPE at those representative coordinates. This gives exact original order when merge count is zero.",
+    "temporal_position": "Never merge across stored frames. Average position inputs only among tokens from the same frame, so that the frame's temporal positional component remains aligned. Record frame ID and native temporal slot for every memory span.",
+    "attention_mass": "Use log(cluster_size) as an additive attention-logit bias. This is exact only for identical keys/values and otherwise an approximation; report it as such. Pointer mass remains one.",
+    "generic_control": "For each target, layer, memory frame, and 4x4 window, use the regional arm's exact merge count. Ignore role labels during matching and run official ToMe across all tokens in that local window. This isolates region-constrained matching from token budget and frame selection.",
+    "conditions": ["native SAM2", "matched generic local ToMe", "position-consistent region-constrained local ToMe"],
+    "prohibited": ["training or fine-tuning", "good/bad frame selection", "confidence/object-score gate", "mask threshold used to select/drop tokens", "decoder or native attention weight changes"]
+  },
+  "engineering_gates": {
+    "polypgen_real_clip": ["seq2", "seq3"],
+    "deterministic_replay": {
+      "script": "scripts/verify_position_consistent_tome_replay.py",
+      "clip": "PolypGen seq2, prompt plus targets 1-2",
+      "processes": 2,
+      "must_match": ["per-layer memory/position/mass/RoPE hashes", "ToMe cluster provenance", "predicted-mask and stored-output hashes"]
+    },
+    "multi_object_id_gate": {
+      "script": "scripts/verify_position_consistent_tome_davis_ids.py",
+      "dataset": "DAVIS 2017 validation",
+      "video": "bike-packing",
+      "persistent_ids": [1, 2],
+      "frames": [0, 1, 2],
+      "checks": ["per-object stored-bank invariance to registration order", "per-object stored-bank invariance when the other object is absent", "all four layers per object and target", "frozen SAM2 parameters"],
+      "interpretation": "Compare stored per-object masks, memory features and object scores exactly. Jointly decoded output logits can differ from single-object runs because SAM2 applies non-overlap consolidation across the active object set; they are not used as the memory-isolation test."
+    },
+    "all_required_before_efficacy": true,
+    "must_pass_before_efficacy": true,
+    "checks": [
+      "Fresh native full-video replay matches archived per-frame prediction and stored-output hashes for seq2 and seq3.",
+      "The candidate with all merge counts forced to zero preserves memory and positional tensors in raster order and reproduces native attention output within the predeclared FP32 tolerance.",
+      "All four SAM2 memory-attention layers are intercepted exactly once per propagated target, with frozen parameters and no change to writes.",
+      "Each compressed memory token has a provenance record for source frame, temporal slot, representative coordinate, original members, and mass; K inputs and V inputs use the same clusters and weights.",
+      "Pointer K/V/position tail is bit-identical and pointer count/order are unchanged.",
+      "Regional and generic controls have equal retained spatial-key counts at every target, layer, memory frame, and window.",
+      "Spatial cluster mass sums to original spatial keys; pointer-inclusive mass sums to original total tokens; outputs are finite.",
+      "Two fresh-process fixed-clip replays reproduce merge assignments, compressed tensor hashes, and output hashes exactly on the frozen CPU FP32 runtime.",
+      "A real multi-object DAVIS clip preserves persistent IDs, prompt-order independence, and per-object memory isolation for this exact candidate.",
+      "Pinned ToMe source is unchanged, and the candidate/protocol/checkpoint/data/runner hashes are captured before inference."
+    ],
+    "failure_rule": "If any gate fails, stop. Fix only a demonstrated implementation defect, amend the protocol with a reason, and repeat the affected engineering gate. Do not infer efficacy."
+  },
+  "efficacy": {
+    "dataset": "PolypGen 2021",
+    "sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15", "seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "primary_metric": "Equal-sequence mean of each sequence's mean Dice over GT-present post-prompt frames.",
+    "secondary_metrics": ["per-sequence Dice", "IoU", "Boundary F", "false alarms / GT-empty frames", "return-event recovery and delay", "spatial keys per read", "memory-attention time", "end-to-end wall time"],
+    "contrasts": ["regional minus native", "regional minus matched generic"],
+    "uncertainty": "Paired sequence bootstrap 95% intervals; two-sided paired Wilcoxon tests with Holm adjustment over the two planned contrasts. Sequence is the statistical unit; frame events are descriptive and clustered by video.",
+    "meaningful_screen": "At least +0.01 equal-sequence Dice versus native, positive mean versus generic, at least 14/21 sequence wins versus native, positive lower 95% bounds and Holm-adjusted p<0.05 for both contrasts, and no increase in pooled GT-empty false alarms.",
+    "sensitivity": "Report all sequences and leave-seq8-out paired mean; seq8 is not removed from primary analysis.",
+    "decision": "Run exactly the three efficacy conditions (native, region-constrained ToMe, matched generic local ToMe) once after the seq2/seq3 gate, fresh-process deterministic replay, and DAVIS persistent-ID gate all pass. A failed screen stops this candidate; do not tune merge window, role assignment, budget, or controls on this cohort. All PolypGen results remain exploratory because the data informed prior work."
+  },
+  "artifact_location": "Google Drive: outputs/experiment/position_consistent_region_tome_polypgen_v2/",
+  "references": [
+    {"title": "Token Merging: Your ViT But Faster", "venue": "ICLR 2023", "url": "https://arxiv.org/abs/2210.09461"},
+    {"title": "ALGM: Adaptive Local-then-Global Token Merging for Efficient Semantic Segmentation with Plain Vision Transformers", "venue": "CVPR 2024", "url": "https://openaccess.thecvf.com/content/CVPR2024/html/Norouzi_ALGM_Adaptive_Local-then-Global_Token_Merging_for_Efficient_Semantic_Segmentation_with_Plain_Vision_Transformers_CVPR_2024_paper.html"},
+    {"title": "SAM 2: Segment Anything in Images and Videos", "venue": "2024", "url": "https://arxiv.org/abs/2408.00714"}
+  ]
+}

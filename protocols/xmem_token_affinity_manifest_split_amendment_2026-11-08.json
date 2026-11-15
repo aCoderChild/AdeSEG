@@ -1,0 +1,29 @@
+{
+  "id": "xmem_token_affinity_manifest_split_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective technical correction; efficacy training has not started",
+  "applies_to": "xmem_token_affinity_polypgen_v1 and its efficacy amendment",
+  "reason": "The efficacy amendment assigns seq16-seq23 to the frozen test role, but those rows are in the manifest split named test. The first plan-only run loaded only dev and correctly rejected the missing test videos. This correction makes the existing roles executable without relabeling sequences or changing any role.",
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "method_protocol": "protocols/xmem_token_affinity_polypgen_v1.json",
+    "method_protocol_sha256": "1085423ff0fb8317ec9fc60c1fee7dc2334d948d05d0c5d1facbb3b57af423a9",
+    "efficacy_amendment": "protocols/xmem_token_affinity_efficacy_amendment_2026-11-08.json",
+    "efficacy_amendment_sha256": "5b8889225ec9ce81438de01caa16c1ef16dd19e383c687d3745619829fff44b6",
+    "sequence_roles_source": "protocols/iterative_memory_pilot_v1.json",
+    "sequence_roles_source_sha256": "8270acdbd93b2d196401092819be62ee7a0d057f8e10947babed5c04cef5e575",
+    "role_to_manifest_split": {
+      "train": "dev",
+      "validation": "dev",
+      "test": "test",
+      "excluded": "dev"
+    },
+    "expected_sequences_by_manifest_split": {
+      "dev": ["seq1", "seq2", "seq3", "seq4", "seq5", "seq6", "seq7", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+      "test": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"]
+    },
+    "integrity_rule": "The runner must load dev and test as separately named manifest splits, verify each split has exactly the listed sequence IDs, then verify every train/validation/test/excluded role belongs to its declared manifest split. Never move or relabel a sequence."
+  },
+  "scope": "Data-loader/provenance correction only. Method, sequence roles, clips, optimizer, seed, metrics, and stopping rule are unchanged."
+}

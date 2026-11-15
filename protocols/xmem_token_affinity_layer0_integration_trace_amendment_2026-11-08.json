@@ -1,0 +1,45 @@
+{
+  "id": "xmem_token_affinity_layer0_integration_trace_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "bounded engineering diagnostic only; efficacy remains blocked",
+  "parent_amendment": "protocols/xmem_token_affinity_parameter_diagnostic_amendment_2026-11-08.json",
+  "parent_amendment_sha256": "1155b11b0dac729d9d5c31e422b1decc89c14a071ef05221cb5bf26d7aaf9dd0",
+  "parent_result": "protocols/xmem_token_affinity_parameter_diagnostic_results_2026-11-08.json",
+  "parent_result_sha256": "650f73b435b7678c1c084bff9171a22e848e0ae8372afae3c6ef4ca2bd198d98",
+  "motivation": "The frozen real-clip fresh-start gate first diverged in the layer-0 xmem_strength gradient. Isolated synthetic SDPA and single-layer adapter repeats were exact, so this diagnostic traces the full integration boundary to locate the first differing input, output, or incoming output gradient.",
+  "scope": {
+    "arm": "token_affinity only",
+    "repetitions": 2,
+    "training_clips": "The same first two frozen training-plan clips used by the preceding repeatability diagnostic.",
+    "instrumented_module": "memory_attention.layers.0.cross_attn_image",
+    "record_only": [
+      "forward inputs q, k, v and effective unpositioned affinity inputs",
+      "object-pointer tail length",
+      "xmem_strength value before each call",
+      "module output",
+      "incoming gradient at the module output during backward"
+    ],
+    "recording": "Shapes, dtypes, exact tensor hashes, and gradient summary values only; no feature tensors or predictions are written.",
+    "training_updates": "Unchanged two frozen-prefix updates per clip, solely to reproduce the engineering failure.",
+    "metrics_computed": [],
+    "full_cohort_training_or_inference": false
+  },
+  "change": {
+    "only_change": "Add temporary forward and tensor-gradient hooks in the verifier for layer-0 cross-attention. Hooks record receipts and return inputs/gradients unchanged.",
+    "unchanged": [
+      "affinity equation, module weights, and initialization",
+      "model forward, losses, optimizer, training clips, and update schedule",
+      "exact repeatability criterion",
+      "efficacy protocol and full-run authorization guard"
+    ]
+  },
+  "interpretation_rules": {
+    "different_module_inputs": "Trace discrepancy upstream of layer-0 attention; inspect the first differing input producer.",
+    "same_inputs_different_outputs": "Discrepancy is inside layer-0 forward execution.",
+    "same_inputs_outputs_different_incoming_gradients": "Discrepancy arrives from downstream attention layers, decoder, or loss backpropagation.",
+    "same_boundary_receipts_but_different_parameter_gradient": "Discrepancy is internal to the affinity/attention backward path; retain the failure and narrow only with another pre-registered operation-level diagnostic."
+  },
+  "pass": "This diagnostic does not itself clear the gate. A repeat must still be bit-identical to clear strict repeatability.",
+  "failure": "Do not launch efficacy training. Preserve exact equality and the frozen method. Use the first differing receipt to select one narrowly bounded follow-up check.",
+  "scope_limit": "Diagnostic instrumentation is not a model change, accuracy experiment, or efficacy result. Passing here does not replace the complete source-bound engineering gate."
+}

@@ -1,0 +1,26 @@
+{
+  "id": "xmem_token_affinity_gate_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "applies_to": "xmem_token_affinity_polypgen_v1 engineering gate only",
+  "status": "pre-efficacy engineering correction",
+  "failed_attempts": [
+    {
+      "drive_path": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_20261108/",
+      "setup_protocol_sha256": "1085423ff0fb8317ec9fc60c1fee7dc2334d948d05d0c5d1facbb3b57af423a9",
+      "failure": "Gradient check failed because later-layer query hashes differed after the gate toggled the wrapped attention into train mode."
+    },
+    {
+      "drive_path": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_dropout_fix_20261108/",
+      "setup_protocol_sha256": "1085423ff0fb8317ec9fc60c1fee7dc2334d948d05d0c5d1facbb3b57af423a9",
+      "failure": "The differentiable zero-strength check passed and one optimizer update completed. The verifier then incorrectly required all later-layer query hashes to remain native after nonzero affinity had changed earlier-layer outputs."
+    }
+  ],
+  "diagnosis": "Attempt 1 exposed an unintended dropout-mode change in the gate. Attempt 2 showed that the verifier also compared post-update queries against native queries. That is too strict: after a learned bias changes an earlier layer's output, queries entering later layers should change. Memory key/value geometry and pointers should remain fixed; only the first-layer query is expected to remain native.",
+  "correction": "Keep the frozen SAM2 model in eval mode and force adapter dropout to the native inference value (zero). Use a differentiable straight-through zero-initialization path so forward values remain exactly native while affinity strength receives a gradient. After the update, require the first-layer current query, keys/positions, values, pointers and four-layer order/counts to match; allow later-layer queries to change as a direct consequence of nonzero affinity.",
+  "verification": {
+    "added_regression": "Nonzero-dropout synthetic four-layer fixture reproduces the native eval output bit-for-bit while producing finite nonzero affinity-strength gradients.",
+    "targeted_tests": "tests/test_xmem_token_affinity.py passes after the correction.",
+    "real_checkpoint_retry": "A third real-checkpoint attempt is still pending; use a new Drive output directory and preserve both failed attempts."
+  },
+  "scope": "No model architecture, method, data, clip, optimizer, or efficacy outcome was changed or observed. Both failed attempts are retained as evidence; these corrections address the engineering gate only."
+}

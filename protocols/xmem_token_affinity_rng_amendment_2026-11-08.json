@@ -1,0 +1,25 @@
+{
+  "id": "xmem_token_affinity_rng_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective engineering correction; full efficacy remains stopped",
+  "parent_efficacy_amendment": "protocols/xmem_token_affinity_efficacy_amendment_2026-11-08.json",
+  "parent_efficacy_amendment_sha256": "5b8889225ec9ce81438de01caa16c1ef16dd19e383c687d3745619829fff44b6",
+  "reason": "A strict fresh replay showed that adapter, optimizer tensor, and complete RNG state after clip 1 did not match the prior saved checkpoint, despite identical clip losses. The old attempt did not record initial Python or NumPy RNG states, so its post-clip state cannot serve as an exact fresh-start reference.",
+  "scope": "Correct RNG initialization and verification only. Do not change model architecture, clip plan, seed, optimizer, losses, data roles, or efficacy criteria.",
+  "seed_policy": {
+    "seed_source": "The frozen training seed in the parent efficacy amendment.",
+    "reset_generators": ["python.random", "numpy.random", "torch CPU"],
+    "cuda": "Not used; CPU is frozen by the parent protocol.",
+    "arm_initialization": "Reset all generators immediately before each arm's base-model construction and again before adapter construction. Require token and frame-control arms to have identical initial adapter and post-setup RNG digests.",
+    "fresh_arm_start": "Reset all generators for each arm before model construction. Hash the full Python, NumPy, and torch CPU RNG state immediately before the first training clip and compare it with the frozen setup receipt.",
+    "resume": "Restore and verify full Python, NumPy, and torch CPU RNG state from the clip-boundary checkpoint. Bind the checkpoint and receipt to this amendment hash.",
+    "determinism": "Use the parent protocol's CPU setting and deterministic-algorithm setting. Any unsupported nondeterministic operation is a gate failure, not a reason to weaken exact comparison."
+  },
+  "required_engineering_gate_checks": [
+    "fresh_start_repeatability",
+    "matched_arm_initial_rng_state",
+    "complete_rng_checkpoint_provenance"
+  ],
+  "fresh_start_repeatability": "Run the first two rows of the frozen 480-clip training plan, with their actual sequence and frame indices, twice from independent clean model/optimizer initialization for both arms. This prefix directly covers the sequence transition at which the prior attempt stopped. Require exact equality of initial adapter, initial optimizer, full RNG, per-update losses and receipts, final adapter, optimizer tensor state, and full RNG state.",
+  "interpretation": "Passing proves only repeatable engineering behavior for the frozen short prefix. It does not explain or clear the prior stored-memory alignment failure, and does not authorize full efficacy training until a fresh source-bound gate also diagnoses that failure mode."
+}

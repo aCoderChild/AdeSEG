@@ -1,0 +1,7 @@
+{
+  "purpose": "Test whether predicted background from the preceding frame adds information to foreground features in selected sequence 11 frames.",
+  "pairs": [[2,3], [2,50], [50,51], [58,59], [100,101], [114,115], [171,172]],
+  "prediction": "Use the archived indexed Lean predicted mask at the source frame to form the existing foreground and background prototypes from frozen early FPN features. Score each target pixel using foreground similarity, negative background similarity, and foreground-minus-background contrast. Also calculate an RGB color distance baseline using the same source mask. Only images and archived predictions are used to create score maps.",
+  "evaluation": "After all score maps are saved, use labels only to measure AUC for labeled foreground versus labeled background globally and inside the target's archived predicted mask. Measure source-prediction contamination and report empty targets and undefined cases. No fitted thresholds, postprocessing, propagation changes, or ground-truth input.",
+  "interpretation": "Pairs are selected after inspecting this sequence. Frame 2 to 50 is a long temporal gap; the remaining pairs are adjacent manifest frames. Higher AUC for contrast than foreground alone is evidence of ranking complementarity in this setting, not evidence of improvement in masks or causal usefulness during propagation. Empty labels cannot provide foreground AUC. Background derived from automatic predictions can contain missed foreground; frame borders can confound color and features."
+}

@@ -1,0 +1,50 @@
+{
+  "id": "xmem_token_affinity_layer0_integration_trace_results_2026-11-08",
+  "date": "2026-11-08",
+  "status": "failed; efficacy remains blocked",
+  "protocol": "protocols/xmem_token_affinity_layer0_integration_trace_amendment_2026-11-08.json",
+  "protocol_sha256": "152636c7b33dddcd9e4e2da35db532f7f7214d4fa4fd3a4793208b31b1388f94",
+  "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_rng_token_affinity_layer0_integration_trace_20261108_01/",
+  "artifacts": {
+    "setup.json": "91517331d6d0664f95c46ce333c5307227b3befb390f8c6830909cdfd746cba8",
+    "source_snapshot.zip": "ee9e7284530f134850d5db29f04bac05010b732d50e256cd99314115c720ebff",
+    "fresh_start_repeatability_progress.json": "60d85b76e6adbe299be0a5bb0092ebc74273f90be2ecc86c32f1324a8bf6ffc7",
+    "failure.json": "ecf4a1d79e0baf55a239328dfef4a92107496dffc9219962a3c758f2e9095978"
+  },
+  "scope": {
+    "arm": "token_affinity",
+    "fresh_starts": 2,
+    "device": "cpu",
+    "frozen_training_clips": {
+      "seq9": [18, 19, 20, 21, 22, 23, 24, 25],
+      "seq2": [19, 20, 21, 22, 23, 24, 25, 26]
+    },
+    "layer0_attention_calls_per_clip": 7,
+    "metrics_computed": [],
+    "full_cohort_training_or_inference": false
+  },
+  "observations": {
+    "initial_adapter_optimizer_and_full_rng_match": true,
+    "final_full_rng_match": true,
+    "pretrained_sam2_unchanged": true,
+    "fixed_clip_plans_read_counts_and_memory_write_counts_match": true,
+    "strict_repeatability": false,
+    "first_parameter_gradient_mismatches": {
+      "seq9_chunk_2": "memory_attention.layers.1.cross_attn_image.xmem_strength",
+      "seq2_chunk_1": "memory_attention.layers.0.cross_attn_image.xmem_strength"
+    },
+    "layer0_boundary_trace": {
+      "seq9": "All seven recorded layer-0 call inputs, outputs, and incoming output gradients matched exactly across fresh starts.",
+      "seq2_first_call": "Layer-0 q/k/v inputs and output matched exactly, but the incoming output gradient differed: L1 1.8821868896 vs 1.8821855783; max absolute 0.0007806405 vs 0.0007806454.",
+      "seq2_second_call_and_later": "Memory k/v input hashes and layer-0 output hashes differed from call 1 onward; the first recorded boundary discrepancy was the incoming gradient at call 0."
+    },
+    "final_adapter_xmem_strength_max_abs_difference": 2.3283064365386963e-10,
+    "final_optimizer_exp_avg_max_abs_difference": 1.3317912817001343e-7,
+    "losses": {
+      "repeat_1": {"seq9": [0.09347166121006012, 0.06413189321756363], "seq2": [0.6773797273635864, 0.6555533409118652]},
+      "repeat_2": {"seq9": [0.09347166121006012, 0.06413189321756363], "seq2": [0.6773797273635864, 0.65555340051651]}
+    }
+  },
+  "interpretation": "The layer-0 trace narrows the integration discrepancy but does not explain it. On seq9, layer-0 boundary receipts match even though the first named gradient mismatch is in layer 1. On seq2, layer-0 forward inputs and output match on the first call, while its incoming backward gradient differs; later, memory k/v and output hashes diverge. This points to an unresolved interaction in downstream backward propagation and/or autoregressive memory writes. No causal source is established. The exact engineering gate still fails; this is not an efficacy result.",
+  "decision": "Keep full training and efficacy evaluation blocked. The next bounded diagnostic should trace all four memory cross-attention boundaries and hash each post-frame prediction and memory-encoder write across the same two repeats. Do not change the method, thresholds, or equality criterion."
+}

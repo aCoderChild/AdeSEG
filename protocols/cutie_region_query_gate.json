@@ -1,0 +1,40 @@
+{
+  "name": "Cutie query-block integration gate",
+  "status": "engineering gate only; no accuracy claim",
+  "source": {
+    "repository": "https://github.com/hkchengrex/Cutie",
+    "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+    "module": "cutie.model.transformer.object_transformer.QueryTransformerBlock",
+    "position_encoding": "cutie.model.transformer.positional_encoding.PositionalEncoding",
+    "pretrained_weights": "https://github.com/hkchengrex/Cutie/releases/download/v1.0/cutie-base-mega.pth",
+    "official_md5": "a6071de6136982e396851903ab4c083a"
+  },
+  "method": "At each native SAM2 memory cross-attention layer, form three prototypes by pooling spatial memory values using the stored predicted-mask labels. Use them as Cutie query tokens to update a low-resolution map formed from the native attention read and current SAM2 query. Reuse one official pretrained Cutie QueryTransformerBlock across SAM2 layers, freeze it, and train a shared feature bridge plus per-layer region queries and bounded residual scales. The zero-scale initialization must preserve native output exactly. Pointer keys and values remain in the untouched native SDPA call and are excluded from region prototypes.",
+  "configuration": {
+    "sam2_channels": 256,
+    "cutie_embed_dim": 256,
+    "cutie_heads": 8,
+    "cutie_ff_dim": 2048,
+    "maximum_residual_scale": 0.25,
+    "layers": 4,
+    "shared_pretrained_blocks": 1,
+    "trainable_parameters_per_arm": 268292,
+    "modes": ["regional", "shuffled", "generic"]
+  },
+  "gate": {
+    "dataset": "PolypGen",
+    "sequence": "seq4",
+    "clip_length": 3,
+    "seed": 20261101,
+    "checks": [
+      "first frame is a positive-mask prompt",
+      "zero-scale predictions and stored memory are bit-identical to native SAM2",
+      "all four memory-attention layers are observed on every read",
+      "pointer counts are recorded and pointer tensors are never passed to the regional summarizer",
+      "one finite optimizer update per mode and finite nonzero gradients in each region query and shared feature bridge",
+      "pretrained Cutie block remains frozen",
+      "SAM2 remains frozen"
+    ]
+  },
+  "decision": "If the gate fails, stop before any PolypGen accuracy run and repair the implementation. Passing only establishes engineering compatibility; it does not justify a performance claim. Any later performance pilot must freeze the training and evaluation protocol first. All PolypGen outcomes remain exploratory because the dataset has informed earlier work."
+}

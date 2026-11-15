@@ -1,0 +1,55 @@
+{
+  "name": "Cutie query-adapted SAM2 memory read",
+  "status": "Exploratory PolypGen development pilot; freeze before launch",
+  "scope": "PolypGen and all its sequences informed previous work. Seq16-23 are a sequence split for this pilot, not an untouched external test or verified patient-independent cohort.",
+  "method": "Keep SAM2 image encoder, memory writer, decoder, frame schedule, spatial tokens and pointer path native. At each of four memory attention layers, pool stored predicted-memory values by the predicted-mask foreground, mixed-boundary and background labels. Use these prototypes as three Cutie object queries that refine the native read and current SAM2 query map. Add a bounded residual to native attention output. Reuse one official pretrained Cutie QueryTransformerBlock across SAM2 layers and freeze it; train the shared input/output projections plus per-layer region-query embeddings and residual scales.",
+  "provenance": {
+    "repository": "https://github.com/hkchengrex/Cutie",
+    "revision": "ec5cdd4cf16f75c73ad785a2f96fb97dbad4125a",
+    "weight_url": "https://github.com/hkchengrex/Cutie/releases/download/v1.0/cutie-base-mega.pth",
+    "weight_md5": "a6071de6136982e396851903ab4c083a",
+    "weight_sha256": "9c05402ee36d3a356fb72715d263ba7e1ea06ad3bada48c1306491792da43023",
+    "adaptation": "Cutie's pretrained block is author code; the SAM2 feature bridge and residual placement are this project's adaptation."
+  },
+  "model": {
+    "sam2_checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "sam2_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "trainable_parameters_per_arm": 268292,
+    "maximum_residual_scale": 0.25,
+    "memory_and_pointer_behavior": "No memory keys are removed or selected; pointer K/V stay in native SDPA and are not included in the three region prototypes."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+    "evaluation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+    "excluded": {"seq1": "No positive-mask frames", "seq7": "No positive-mask frames"},
+    "sampling": "Pinned SAM2 RandomUniformSampler; clips start with a positive mask, are 5 frames long, and each clip writes its predicted masks/features to memory."
+  },
+  "training_sequences": ["seq2", "seq3", "seq4", "seq5", "seq6", "seq8", "seq9", "seq10", "seq11", "seq12", "seq13", "seq14", "seq15"],
+  "validation_sequences": ["seq16", "seq17", "seq18", "seq19", "seq20", "seq21", "seq22", "seq23"],
+  "clip_length": 5,
+  "epochs": 5,
+  "seed": 20261103,
+  "learning_rate": 0.0001,
+  "scope": "Exploratory sequence-split PolypGen pilot; prior analyses included all sequences; no independent patient or dataset claim.",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "training": {
+    "seed": 20261103,
+    "epochs": 5,
+    "updates": 65,
+    "clips_per_training_sequence_per_epoch": 1,
+    "optimizer": "Adam",
+    "learning_rate": 0.0001,
+    "loss": "Mean post-prompt decoder mask loss plus object-presence loss over each sampled clip; SAM2 and the Cutie query-transformer block remain frozen.",
+    "arms": ["regional", "shuffled", "generic"],
+    "sampling_control": "All arms train on identical clips and schedules. Shuffled permutes predicted-mask region labels within each stored frame, preserving counts. Generic repeats the global memory mean for all three queries."
+  },
+  "evaluation": {
+    "conditions": ["native SAM2", "region-aware", "shuffled-region", "generic-region"],
+    "primary": "Equal-sequence mean present-frame Dice across seq16-23.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "false-alarm frames on empty-GT frames", "return-event detection and overlap", "memory key and pointer counts", "inference wall time"],
+    "pilot_signal": "Call it a positive pilot signal only if region-aware exceeds both native and shuffled mean Dice by at least 0.01 and is higher than native on at least 6/8 sequences, with no increase in total false-alarm frames. This is a screening criterion, not statistical confirmation."
+  },
+  "decision": "First pass the real seq2/seq3 engineering workflow gate. Then run this fixed one-seed pilot once. Do not tune on seq16-23. Any observed gain remains exploratory; an independent dataset and repeated seeds are required before claiming a reliable method."
+}

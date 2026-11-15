@@ -1,0 +1,68 @@
+{
+  "name": "RegionContrast supervision for SAM2 memory Q/K",
+  "status": "frozen before gate and full CV; exploratory post-result PolypGen study",
+  "motivation": "Earlier regional adapters and prototypes did not establish a region-specific gain. RegionContrast proposes class-wise region centers in a memory bank. This adaptation uses predicted-mask foreground-interior, mixed-boundary and background token centers as contrastive memory for SAM2's existing memory-attention projections.",
+  "prior_work": {
+    "RegionContrast": {
+      "paper": "Region-Aware Contrastive Learning for Semantic Segmentation",
+      "paper_url": "https://openaccess.thecvf.com/content/ICCV2021/papers/Hu_Region-Aware_Contrastive_Learning_for_Semantic_Segmentation_ICCV_2021_paper.pdf",
+      "repository": "https://github.com/hzhupku/RegionContrast",
+      "revision": "7ec8896c738ecb41eeea104976b4649a703a6cd8",
+      "license": "MIT",
+      "reused_code": "The author construct_region method forms class-wise feature centers. The training queue and paper-equation contrast are integrated with SAM2 projected Q/K features.",
+      "implementation_note": "The cloned repository's _compute_contrast_loss forms elementwise channel products and applies cross-entropy over channels, unlike the paper's dot-product InfoNCE Eq. 4. This candidate uses the paper equation with normalized region centers and documents the deviation; it does not call that inconsistent helper."
+    },
+    "SAM2": {
+      "repository": "https://github.com/facebookresearch/sam2",
+      "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+      "reused_code": "Native SAM2 track_step, mask and object-presence losses, four memory-attention Q/K projections and dense attention path."
+    }
+  },
+  "method": {
+    "token_roles": "Fixed v1 mixed-cell regions derived from each frame's own stored native 256x256 predicted mask on the 64x64 memory grid.",
+    "region_centers": "Use the pinned RegionContrast construct_region mean feature center, with a device-portability adaptation for CPU/MPS. Extract one center per role and per memory frame.",
+    "contrast": "At each read and each of four memory layers, query role centers are contrasted against same-role memory centers and that role's training queue; other roles are negatives. Use normalized dot-product InfoNCE from RegionContrast paper Eq. 4, temperature 0.2, mean role loss, weight 0.1. Queue capacity is 2975 per role and per layer; queues start empty and reset per fold.",
+    "trainable": "Only SAM2 cross-attention q_proj and k_proj in the four memory-attention layers. No new learned adapter is added.",
+    "control": "Matched Q/K-only arm with same fold, random seed, sampled clips, initialization, optimizer, training steps and SAM2 mask/presence loss; contrastive weight is zero.",
+    "inference": "Use trained Q/K parameters in the unmodified dense SAM2 attention path. Every native memory frame, spatial token, pointer, memory write, image encoder and decoder remains active. No good/bad-frame selection, attention gate, token pruning or inference threshold is used.",
+    "labels": "Region labels are generated from SAM2 predicted masks, never ground-truth masks. Ground truth is used only for the standard training loss and evaluation."
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "sequences": ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21", "seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22", "seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"],
+    "excluded": {"seq1": "No positive first-frame prompt mask", "seq7": "No positive first-frame prompt mask"},
+    "folds": [
+      ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21"],
+      ["seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22"],
+      ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"]
+    ],
+    "independence": "Sequence-grouped exploratory cross-validation. PolypGen informed prior method development; patient-to-sequence independence is unverified."
+  },
+  "training": {
+    "checkpoint": "checkpoints/MedSAM2_latest.pt",
+    "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "clip_length": 5,
+    "epochs": 10,
+    "clips_per_training_sequence_per_epoch": 1,
+    "seed": 20261105,
+    "sampler": "Pinned SAM2 RandomUniformSampler; forward consecutive clips with positive prompt conditioning.",
+    "optimizer": "AdamW",
+    "qk_learning_rate": 0.00001,
+    "contrast_weight": 0.1,
+    "contrast_temperature": 0.2,
+    "contrast_queue_capacity_per_role_layer": 2975,
+    "weight_decay": 0.01,
+    "gradient_norm": 1.0,
+    "loss": "Pinned SAM2 autoregressive mask Dice/BCE plus object-presence loss, with 0.1 times RegionContrast loss in the candidate arm.",
+    "frozen": ["image encoder", "memory encoder", "mask decoder", "self-attention", "feed-forward blocks", "native frame schedule"]
+  },
+  "evaluation": {
+    "design": "Three sequence-grouped folds; each eligible sequence is evaluated once out of fold in full propagation.",
+    "primary": "Equal-sequence mean of each sequence's present-frame Dice.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "pooled GT-empty false-alarm frames", "re-detection delay", "four-layer trace and spatial/pointer key counts"],
+    "screen_vs_native": "At least +0.01 equal-sequence Dice, positive delta on at least 14/21 sequences, and no increase in pooled GT-empty false alarms.",
+    "region_attribution_screen": "At least +0.01 equal-sequence Dice over matched Q/K-only, wins on at least 14/21 sequences, and no increase in GT-empty false alarms versus Q/K-only.",
+    "scope": "Exploratory PolypGen evidence only; not independent confirmation."
+  },
+  "decision": "Run focused CPU tests and a real-sequence engineering gate before full CV. The gate must confirm zero-update native identity, finite nonzero Q/K and contrast gradients, all four layers, valid region centers, and exact spatial/pointer accounting. If the gate passes, run the frozen CV once. Do not tune from its validation results."
+}

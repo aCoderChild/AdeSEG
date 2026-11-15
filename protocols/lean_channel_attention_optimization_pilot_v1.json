@@ -1,0 +1,14 @@
+{
+  "parent": "lean_channel_attention_training_pilot_v1.json; use only its frozen train and validation sequence groups and selected frames. No priority-sequence labels or features are used during training or model choice.",
+  "purpose": "Engineering-scale supervised feature-discrimination pilot. The primary output is whether a reproducible trained gate differs from matched controls on held-out sequences; it is not a full-video or independent-patient result.",
+  "conditions": {
+    "prompt_conditioned": "Author CBAM channel gate receives the same sequence's automatic foreground and negative-background prototypes.",
+    "descriptor_independent": "The identical author gate, parameter count, optimizer and initialization receives zero descriptors; feature contrast still uses the correct automatic prototypes.",
+    "mismatched_prompt": "The identical author gate receives another sequence's automatic prototypes under a fixed cycle; feature contrast still uses the correct automatic prototypes. Training cycle seq2→seq3→seq4→seq2; validation cycle seq9↔seq10. This control tests descriptor specificity, not a claim of causal background semantics.",
+    "unweighted": "No trainable gate: existing automatic-prototype feature contrast.",
+    "rgb": "No trainable gate: existing RGB foreground/background contrast, computed using the same automatic prompt and source frames."
+  },
+  "training": {"seed": 20261114, "device": "cpu", "dtype": "float32", "epochs": 80, "optimizer": "Adam", "learning_rate": 0.0003, "weight_decay": 0.0001, "loss": "fixed class-balanced soft binary cross entropy with logits equal to 8 times the 64x64 score; on GT-empty targets use ordinary mean background BCE", "epoch_selection": "fixed final epoch; no early stopping or validation tuning", "initialization": "identical seed and author initialization; final channel-gate linear layer zeroed so all channel weights begin uniformly at 0.5", "schedule": "same deterministic frame order for each trainable arm; no labels enter inference"},
+  "evaluation": "Freeze every arm before validation. Report per-sequence supervised score discrimination on positive frames and score distributions on empty frames; no claim of false-alarm rate from a continuous score without segmentation. Follow with same-state memory utility controls before any video propagation. Patient identity is unknown and all data were previously inspected.",
+  "provenance": "Record train and validation video identities, all feature/mask hashes, optimization protocol, source hashes, split manifest, exact feature pipeline and backbone hashes, seeds, loss history and checkpoint parameter fingerprint. Any candidate checkpoint must be retrievable without fabricating metadata."
+}

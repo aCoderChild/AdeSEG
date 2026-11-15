@@ -1,0 +1,40 @@
+{
+  "id": "xmem_token_affinity_single_scale_results_2026-11-08",
+  "date": "2026-11-08",
+  "status": "bounded repeatability passed; full engineering gate pending; efficacy remains blocked",
+  "protocol": "protocols/xmem_token_affinity_single_scale_amendment_2026-11-08.json",
+  "protocol_sha256": "dd8858ef7bf8ee8ed4ee8247751cd0398625792c4576553d23a2a58d7c92bc9f",
+  "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_rng_token_affinity_single_scale_20261108_01/",
+  "artifacts": {
+    "setup.json": "b6f3a70cc87c80620b555035af922673821ba0110cdaac39c0e6317d6cafb306",
+    "source_snapshot.zip": "ad6c3f38d5b1bd8d7a9e4361a4a70a65ee1e94de9202d3522688dbdfe76a0ce0",
+    "fresh_start_repeatability_progress.json": "6557a097efd5adfa72a11c3ca028d8df3d586d8c1ae479f3f63b7d70f9d76b87",
+    "completion.json": "c6df7aa64f3e3dd0a8319031a608ee81b0e64a4777f0f10805b1c5346b984428"
+  },
+  "scope": {
+    "arm": "token_affinity",
+    "fresh_starts": 2,
+    "device": "cpu",
+    "clips": {
+      "seq9": [18, 19, 20, 21, 22, 23, 24, 25],
+      "seq2": [19, 20, 21, 22, 23, 24, 25, 26]
+    },
+    "updates_per_clip": 2,
+    "metrics_computed": [],
+    "full_cohort_training_or_inference": false
+  },
+  "checks": {
+    "initial_adapter": true,
+    "initial_optimizer": true,
+    "initial_full_rng": true,
+    "clip_results_and_losses": true,
+    "final_adapter": true,
+    "final_optimizer_tensor_state": true,
+    "final_full_rng": true,
+    "pretrained_unchanged": true,
+    "seq9_losses_per_repeat": [0.09347166121006012, 0.06413189321756363],
+    "seq2_losses_per_repeat": [0.6773799061775208, 0.6555542349815369]
+  },
+  "interpretation": "Applying the shared affinity scale once across concatenated query-chunk scores, then restoring the original attention chunks, made the two fixed CPU training replays exactly identical. This supports the suspected repeated-accumulation explanation for the previous scalar-gradient drift, although it does not prove that was the only cause. The scoring equation, masks, model weights, optimizer, training schedule, and equality criterion were unchanged.",
+  "decision": "The repeatability subgate passes. Run the complete frozen seq2/seq3 engineering gate against this corrected source before any efficacy training. No Dice result exists and no full-cohort run is authorized by this receipt."
+}

@@ -1,0 +1,46 @@
+{
+  "name": "Native-schedule value-only local ToMe consolidation",
+  "status": "real_frame_gate_passed_full_propagation_gate_pending",
+  "scope": "training-free accuracy hypothesis; no speed or token-count improvement claim",
+  "mechanism": "Pinned official ToMe bipartite assignment, weighted mean and unmerge on each4x4 past-frame window; consolidate4of16 tokens then re-expand V. Original post-RoPE K,Q,pointer tail and conditioning map stay exact. Native six-map schedule, temporal table, memory-write function and decoder unchanged.",
+  "controls": [
+    "native",
+    "noop wrapper",
+    "value-only merge/unmerge",
+    "matched K-and-V merge/unmerge"
+  ],
+  "role_labels": "No foreground/background/boundary partitions used in matching or quota",
+  "prior_work_distinction": "Previous wider-history ToMe changed history coverage and K/V. Earlier value-only shadow measured attention errors but not a deployable native-schedule module or full-video efficacy. Trained value adapters are different.",
+  "known_risks": [
+    "Value smoothing can remove useful detail and still cause feedback drift",
+    "Preserving K preserves retrieval weights, not necessarily correct retrieval or better Dice",
+    "No efficiency benefit; this tests segmentation behavior, not compression speed"
+  ],
+  "engineering_targets": {
+    "seq6": [
+      31,
+      32
+    ],
+    "seq8": [
+      7,
+      8
+    ]
+  },
+  "required_gate": [
+    "native replay exact",
+    "noop exact at every target",
+    "all4layers and strictly past sourceframes",
+    "Q,K,pointers and conditioning exact in value-only mode",
+    "unchanged parameters and banks; no writes",
+    "two fresh processes exact replay"
+  ],
+  "stopping_rule": "Any invariant failure prevents broader inference. Do not run efficacy before real-frame gate and separately frozen meaningful-gain comparison. Do not tune quarter-merging or window size from these outcomes.",
+  "source_hashes": {
+    "modeling/native_value_consolidation.py": "0159fdbe0e962b63a0786c6a88565b0fc670e126f5afdfe1040da9cb5d796beb",
+    "tests/test_native_value_consolidation.py": "143769e0b5544f372e0a609e335177c8d5a67aeb8ad5c1616eacebfa4fff3280",
+    "modeling/region_constrained_tome.py": "d99dffc4c13bae73f4d8d11c82c17771ecedcb05b1eef469854d6c37f26b957b",
+    "external/ToMe/tome/merge.py": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e"
+  },
+  "test_result": "12 focused tests;4real targets\u00d74layers\u00d72processes exact replay; no efficacy result",
+  "gate_receipt": "kv_selectivity_mechanism_v1/native_value_consolidation_gate01/completion.json"
+}

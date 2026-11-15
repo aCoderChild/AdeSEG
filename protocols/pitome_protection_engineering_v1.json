@@ -1,0 +1,72 @@
+{
+  "checkpoint": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+  "sam2_repository": "external/sam2_diagnostic_reference",
+  "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "native_cache_completion": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/completion.json",
+  "scope": "Engineering-only gate; no efficacy promotion from its Dice values",
+  "sequences": [
+    "seq2",
+    "seq3"
+  ],
+  "target_offsets": [
+    1,
+    4,
+    8
+  ],
+  "conditions": [
+    "tome_regional",
+    "tome_global",
+    "pitome_regional",
+    "pitome_global"
+  ],
+  "merge_divisor": 4,
+  "budget": "Per source-frame 4x4 window, sum floor(predicted-role token count/4), identical across all conditions",
+  "pitome_repository": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/candidate_source_review01/PiToMe",
+  "pitome_revision": "550b5deed94aadfeac28bfbe381d87e672044a40",
+  "pitome_source_sha256": "135728c0e489419d25d65aba2b08fc6db1d563ffcbe7c48fe7e4c94e3f0cd8a6",
+  "margin": 0.5,
+  "alpha": 1.0,
+  "no_parameter_search": true,
+  "seed": 20261111,
+  "native_history_plan": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/cohort_plan02.json",
+  "requirements": [
+    "Exact zero-removal identity",
+    "Complete source assignment and conserved token mass",
+    "Exact quarter-budget agreement with ordinary ToMe",
+    "Untouched pointer K/V tails and aligned K/V clusters",
+    "Native cached logits/object-score parity",
+    "All four attention layers",
+    "Unchanged bank and pretrained parameters",
+    "Fresh-process replay before any efficacy study"
+  ],
+  "next": "After engineering gate and replay, freeze a separate bounded efficacy protocol. No full propagation from synthetic/source-only checks.",
+  "source_files": [
+    "scripts/run_author_matching_diagnostic.py",
+    "modeling/author_token_matching.py",
+    "modeling/region_constrained_tome.py",
+    "modeling/token_diagnostic_replay.py",
+    "modeling/prediction_conditioned_affinity.py",
+    "external/ATC/SSLBackbone_setup/token_reduc/merge.py",
+    "external/ToMe/tome/merge.py",
+    "scripts/run_author_baseline.py",
+    "scripts/run_cfbi_region_pilot.py",
+    "scripts/run_cached_author_matching_diagnostic.py",
+    "scripts/freeze_author_matching_causal_plan.py",
+    "evaluation/causal_memory_schedule.py",
+    "modeling/native_history_cache.py",
+    "modeling/native_history_training.py",
+    "modeling/cfbi_training.py",
+    "scripts/bank_integrity.py",
+    "scripts/memory_token_io.py",
+    "scripts/run_soft_role_affinity_cv.py",
+    "datasets/io.py",
+    "datasets/video.py",
+    "modeling/soft_role_affinity.py",
+    "modeling/pitome_matching.py",
+    "scripts/verify_pitome_memory_read.py"
+  ]
+}

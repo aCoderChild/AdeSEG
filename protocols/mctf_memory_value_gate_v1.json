@@ -1,0 +1,90 @@
+{
+  "name": "Attention-aware ToMe value consolidation engineering gate",
+  "status": "frozen_for_engineering_gate",
+  "created_utc": "2026-11-13",
+  "scope": "Cached real-frame implementation gate only; no full-sequence efficacy run.",
+  "input_plan": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/kv_selectivity_mechanism_v1/design/verified_input_plan.json",
+  "input_plan_sha256": "652eefd0027afdd9b95739175d4cd161cb3aa0b9d9213c70e3e352eee931c93a",
+  "native_plan": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/pitome_cohort_plan01.json",
+  "native_plan_sha256": "d36c2074bfe60686b2338816d1d4fb88cddb0cf445de751339dce5e5272a58b7",
+  "output_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/tome_region_identification_v1/mctf_attention_memory_v1",
+  "targets": {
+    "seq6": [
+      31,
+      32
+    ],
+    "seq8": [
+      7,
+      8
+    ]
+  },
+  "candidate": {
+    "mechanism": "Official MCTF multi-criteria matching over each past memory 4x4 window. Similarity comes from mean-head native K. Informativeness is average attention received from all current spatial queries and heads. Only V is weighted-merged; the author source-tracing map restores group values to the original spatial slots.",
+    "control": "Same official MCTF merge operator, fixed merge count and parameters, with uniform attention importance.",
+    "budget": "4 of 16 values merged per past 4x4 window, then restored to all source spatial positions; Q, K, spatial token count and pointers remain unchanged.",
+    "parameters": {
+      "tau_sim": 1,
+      "tau_info": 20,
+      "tau_size": 40,
+      "bidirection": 1,
+      "window_size": 4,
+      "merge_count": 4
+    },
+    "scope_limit": "All-query importance may favor broadly attended background over sparse small-object evidence; this is a testable risk, not a guaranteed recovery method."
+  },
+  "conditions": [
+    "native reference",
+    "noop wrapper",
+    "official ToMe value-only",
+    "MCTF uniform control",
+    "MCTF attention-aware"
+  ],
+  "runtime": {
+    "device": "cpu",
+    "threads": 2,
+    "deterministic_algorithms": true,
+    "seed": 20261111,
+    "python_at_freeze": "3.13.13",
+    "torch_at_freeze": "2.13.0"
+  },
+  "required_checks": [
+    "native cached replay exact",
+    "noop exact at every target",
+    "all four attention layers exactly once",
+    "same native source K/V and temporal schedule in each arm",
+    "query equal at first attention layer",
+    "Q/K/pointer inputs unmodified",
+    "conditioning frame and pointer values unchanged",
+    "fixed MCTF merge budget for both controls",
+    "SAM2 weights and cached banks unchanged",
+    "two fresh-process exact replay before any efficacy run"
+  ],
+  "stopping_rule": "Any implementation-integrity failure stops the candidate. Passing permits only a predeclared small diagnostic; it does not authorize or imply a full-cohort gain.",
+  "source_hashes": {
+    "modeling/mctf_memory_value.py": "84458a2306285cd17bd007afdca2e2db29b0372783e7231ffc2d09e04d8dc854",
+    "modeling/native_value_consolidation.py": "c61239f14d81057b1aa04698b5d99eb40b5ffabafa8611405f42f5f307df27e9",
+    "modeling/region_constrained_tome.py": "d99dffc4c13bae73f4d8d11c82c17771ecedcb05b1eef469854d6c37f26b957b",
+    "modeling/attention_distortion_observer.py": "258d6f0b1143f07557e944593d41b802ff444f2e1cd4660171c92115ae519baa",
+    "modeling/native_history_cache.py": "8b4244789e1d5d24d7f6d74e37f54baff398f6c9f95c834852320b5eb1ccc1b1",
+    "datasets/video.py": "273b54371286359fbd4446f20743ecdc07fc9f1b1deb8c804888f066e477bd4c",
+    "scripts/bank_integrity.py": "5fd5664110cde769979678b97c7e19efea70a1c41c1344b40c5f87b3d37dd333",
+    "scripts/memory_token_io.py": "6203ab7f441cf0dca082db7053099fe7908142ba25d873deadaccb6d3f4e8df4",
+    "scripts/run_attention_distortion_diagnostic.py": "0707ad009d48bd57c6bfaf6ef46a662a43ea59179248fc7607e7b13f9025099b",
+    "scripts/run_author_baseline.py": "6d45eb32fe7a52763509b27af638a3ffb22e887b1f9725083ca75f0c8ed72b56",
+    "scripts/run_cfbi_region_pilot.py": "a5f5920064d9784bcf13bbfd328e2305c24d3d85be78c55e37fb7aca11d44410",
+    "scripts/run_native_value_consolidation_gate.py": "c552305b269672ebb9a8a74aa1003122347784cacb496afecbed9a1b78797239",
+    "scripts/run_regional_refinement.py": "8ab6c191b571d01d7166d6ed2ddc0f5d761b589dcb3e3c1fa4d78c7ec91e5904",
+    "scripts/run_mctf_memory_value_gate.py": "522b628734616e25e8c1b8869c132223adf6e62ec2e19385f02c4cec7cf16253",
+    "tests/test_mctf_memory_value.py": "9fe92b7745b626deecee01ddec76a469d3e79bbd409b3f0fe71ae42cd2367fad",
+    "external/MCTF/utils/mctf.py": "7f994c741cd7188c8b76297ac6bc1dbf5d1114ae50f336a1f644a1148a9c2ba5",
+    "external/MCTF/LICENSE": "a0c362ea4d2154d2fb8ce0ab263eee0d8c7c470c7a8dfe100eca3b6e6bbe74f7",
+    "external/ToMe/tome/merge.py": "eb74b0de74329e991b49d7e2cd0c494b924eb245b8d51f9948dacc8ed8c14e2e"
+  },
+  "external_sources": {
+    "MCTF_repository": "https://github.com/mlvlab/MCTF",
+    "MCTF_revision": "2004da0cad3231fa74cbd60b6042b0bd133aacde",
+    "MCTF_license": "MIT",
+    "MCTF_file": "utils/mctf.py",
+    "ToMe_revision": "af95e4b1befa172dadccd8c81e223b10090f9579"
+  }
+}

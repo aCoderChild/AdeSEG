@@ -1,0 +1,131 @@
+{
+  "id": "xmem_token_affinity_polypgen_v1",
+  "date_frozen": "2026-11-08",
+  "model": {
+    "config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+    "checkpoint": "outputs/experiment/assets/sam2.1_hiera_tiny.pt",
+    "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+    "sam2_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4"
+  },
+  "data": {
+    "manifest": "data/polypgen_sequence.jsonl",
+    "manifest_sha256": "80d83e6a4099fc727e90bf06757ae81b3292d24dc5651daf1457f4a54e248c7f",
+    "split": "dev",
+    "real_checkpoint_gate_sequences": [
+      "seq2",
+      "seq3"
+    ],
+    "real_checkpoint_gate_clips": {
+      "seq2": [19, 20, 21],
+      "seq3": [7, 8, 9]
+    },
+    "real_checkpoint_gate_inputs": {
+      "seq2": [
+        {"frame_index": 19, "image_sha256": "f48c0fdae4529c8b62ae1643cbd400ab9dde32488a7b6fbd1b9c31150c264a8f", "mask_sha256": "1d085c11fb7f8459818783a2300461b816374bbbe41c5fda77cd17ea6ef39e2f"},
+        {"frame_index": 20, "image_sha256": "d6ae8b3dfbac751160fd3095a175229b044713b87a3fa726714b595c0be2ddba", "mask_sha256": "6ddd3cdb4115977e4c1b14304abde0c4c1c320597f37f20c7755e6a9e445cdcd"},
+        {"frame_index": 21, "image_sha256": "141fcf5788efb965951f9e2694a4bc8ffdad5a891f28e09304bcf2aef174f3c6", "mask_sha256": "42d51c39dfeed52837a86ac75c6277801193a3df4c4202d61fefeee9c7ee3cf3"}
+      ],
+      "seq3": [
+        {"frame_index": 7, "image_sha256": "f281afe8246b3c07ff2ad5504c767fd5a5d52007ae4fc4fa6941321a768b94b1", "mask_sha256": "a21e5e1db09fd3905bb603165334b0d0ef3bc128707a116e907051885a49b76c"},
+        {"frame_index": 8, "image_sha256": "9b10da9ba1b11c8e517a6640fc1c7e4712bf4c21efb7d39df07db00fd49afef0", "mask_sha256": "7b76eb340e79da50388878418c26f37bc8b5eb59b53b954d85e41f4fe2a40465"},
+        {"frame_index": 9, "image_sha256": "1e24429b6e24a2e11cbe6c30a5995c7e41c5822ee2763a569b1bb77baf9cf16d", "mask_sha256": "3cddded418894a1f09ce0c4cf688151022274df7e50dc9b952702d3d436290ac"}
+      ]
+    }
+  },
+  "status": "Engineering prototype only. The previously referenced Run174 process is complete: its frozen continuation criterion failed, and its exploratory seq16\u201323 results did not show a Dice improvement. No XMem real-checkpoint gate or efficacy run has started. This candidate still requires the frozen seq2/seq3 real-checkpoint gate before any training or cohort evaluation.",
+  "amendments": [
+    {
+      "date": "2026-11-08",
+      "change": "The frame-broadcast control now averages the complete query-to-token affinity score within each source frame, then broadcasts it to every spatial key in that frame.",
+      "reason": "The initial draft averaged only shrinkage, leaving pairwise query-to-token scores spatially varying in both arms. That did not isolate within-frame token-specific use. No real-data gate or efficacy result had been observed when corrected."
+    },
+    {
+      "date": "2026-11-08",
+      "change": "Updated the experiment-state note after Run174 completed and the within-frame token-utility diagnostic resumed.",
+      "reason": "The original status field referred to an earlier Run174 source-integrity stop and epoch-8 training state. This is a provenance/status correction only; method, model, data, controls, and planned gates are unchanged. The independent within-frame diagnostic is active under outputs/experiment/within_frame_token_utility_v1/scientific_run_20261108; do not launch the XMem gate concurrently."
+    },
+    {
+      "date": "2026-11-08",
+      "change": "Before the XMem real-checkpoint gate, froze the exact seq2/seq3 sampled frame IDs and image/mask hashes, clip length, seed, CPU device, Python version, and PyTorch version; made the gate reject any override and write a source/input setup receipt.",
+      "reason": "The initial gate accepted alternate sequences, clip lengths, seeds, devices, and data-file revisions while only checking the manifest hash. This is a pre-gate engineering amendment; no XMem real-checkpoint inference or efficacy outcome had been observed."
+    }
+  ],
+  "research_question": "Can a memory frame with poor overall mask quality still contribute useful spatial tokens to some current queries, and can continuous token-level affinity improve frozen-SAM2 video segmentation over native dense attention and a matched frame-broadcast control?",
+  "hypothesis": "Memory usefulness is query- and token-dependent, not a single quality value for an entire frame. Some spatial tokens from a low-quality stored frame may still match current query features and help segmentation.",
+  "literature_basis": {
+    "primary": "XMem (ECCV 2022) uses anisotropic L2 memory similarity with a per-memory-element shrinkage s_i and per-query, per-channel selection e_jc. A low-confidence key can still contribute strongly when a query matches it. Adapt the published KeyProjection heads and exact similarity equation; do not use XMem memory stores, prototype selection, or top-k.",
+    "source_paper": "https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136880633.pdf",
+    "source_code": "https://github.com/hkchengrex/XMem",
+    "pinned_code_revision": "f3b841d50df058910bbf690229ddc15fb1aef7d6",
+    "inspected_files": [
+      "model/modules.py: KeyProjection",
+      "model/memory_util.py: get_similarity and dense get_affinity path"
+    ],
+    "boundary_of_claim": "XMem supports the plausibility of element-level confidence and query-conditioned matching in VOS. It does not prove this SAM2 adaptation improves Dice or that a low-quality frame contains beneficial tokens."
+  },
+  "method": {
+    "insertion_point": "Add a residual affinity to the spatial K/V logits in each of SAM2's four existing memory cross-attention layers.",
+    "query_input": "The normalized current query feature before SAM2 positional encoding.",
+    "memory_input": "Each stored spatial memory feature before SAM2 spatial/temporal positional encoding; pointer tail is excluded from the adapter.",
+    "similarity": "XMem anisotropic L2: -s_i * sum_c[e_jc * (k_ic-q_jc)^2] / sqrt(C). The learned per-memory-token shrinkage is d_i^2+1; per-query channel selection is sigmoid(e_j). Add alpha_l times this score to the original SAM2 dot-product logits. alpha_l is zero-initialized. Scores are computed densely in query chunks to bound peak temporary memory.",
+    "preserved": "All pretrained SAM2 weights, native Q/K/V projections, RoPE, values, memory encoder, frame schedule, all spatial memory tokens, object pointers, and mask decoder. Only added XMem-style projections and one scalar per layer are trainable.",
+    "forbidden": "No top-k, token deletion, hard mask, confidence threshold, frame-quality gate, good/bad frame choice, or ground truth at inference. Pointer logits receive zero added affinity. No explicit foreground/background/boundary label is required.",
+    "claim_scope": "The adapter changes query-to-token compatibility. It does not establish semantic purity of a memory vector or identify an anatomical region."
+  },
+  "arms": {
+    "native": "Unmodified pretrained SAM2 dense memory attention.",
+    "token_affinity": "XMem-style per-token shrinkage plus per-query channel selection in all four memory cross-attention layers.",
+    "frame_broadcast_control": "Same affinity heads and parameter count, but average the complete query-to-token anisotropic-L2 score over the spatial tokens of each source frame and broadcast that query/frame mean uniformly to all spatial keys in the frame. This preserves learned frame-level weighting while removing within-frame token score variation. It is not a hard frame selector."
+  },
+  "engineering_gate": {
+    "settings": {
+      "clip_length": 3,
+      "seed": 20261108,
+      "device": "cpu",
+      "torch_threads": 2,
+      "deterministic_algorithms": true
+    },
+    "environment": {
+      "python": "3.13.13",
+      "torch": "2.13.0"
+    },
+    "before_real_data": [
+      "Eight targeted unit checks pass: exact four-layer zero-strength identity; XMem equation matches direct anisotropic-L2 calculation; token treatment can vary within a frame; all spatial keys receive a finite dense score; pointer-tail score is zero; finite adapter-only gradients; frozen SAM2 weights; and frame-broadcast control is constant within each frame while remaining continuous and dense.",
+      "With the pinned real SAM2 checkpoint, load every original attention tensor bit-identically and verify all four memory layers are adapted.",
+      "On seq2 and seq3, require zero-strength full-model outputs and stored memory hashes to match native; require unchanged frame IDs, all four layers, RoPE coordinates, and pointer tensors/counts.",
+      "At nonzero strength, require finite adapter-only gradients, unchanged memory bank and pointers, identical number/order of keys, and finite scores. Verify no source frame is skipped and no token is removed.",
+      "Run a save/resume equivalence check for adapter, optimizer, and RNG state before efficacy training."
+    ],
+    "current_verification": "Focused synthetic checks pass for within-frame score variation, attention integration, and equation parity. A real-checkpoint gate is implemented at scripts/verify_xmem_token_affinity.py but has not been run. The gate must reject deviations from the frozen sequences, sampled frames, file hashes, clip length, seed, CPU device, and Python/PyTorch versions.",
+    "scope_limitations": "The seq2/seq3 PolypGen engineering gate is single-object. It does not establish persistent multi-object ID handling; DAVIS/LVOS evaluation requires a separate real multi-object parity and identity gate."
+  },
+  "analysis_before_training": {
+    "purpose": "Directly test the user's within-frame premise, which earlier Run171/173 results did not isolate.",
+    "design": "On frozen native trajectories, perturb one stored source frame at a time while holding every other source frame, query, pointer, and position fixed. Use pre-specified equal-size spatial blocks from that frame and a matched random-block control; record target Dice changes. Independently report the source frame's continuous GT Dice only for post-hoc stratification, never for selection. Analyze within-frame spread of group utility and its association with continuous source-frame quality at the sequence level.",
+    "interpretation": "Mixed helpful and harmful block effects within a low-quality source frame would support local utility heterogeneity at group resolution, not individual-token causality, semantic purity, or deployment benefit. This diagnostic is not the method's efficacy result.",
+    "status": "Implemented as the separate fixed-history within-frame token-utility diagnostic; its full-cohort run is in progress under outputs/experiment/within_frame_token_utility_v1/scientific_run_20261108. Complete and review this diagnostic before any XMem gate or efficacy run."
+  },
+  "efficacy": {
+    "data": "PolypGen only after Run174 is complete and the source-frame diagnostic and real-checkpoint engineering gate pass. Existing PolypGen sequences have informed earlier work; label the result exploratory, not independent confirmation.",
+    "split": "Reuse the fixed project train/validation/test manifest roles. Do not move sequences, tune seeds, or inspect the pilot-test results for method changes.",
+    "training": "Identical clips, seed, optimizer, schedule, validation epochs, and autoregressive predicted-mask writes for token-affinity and frame-broadcast control. Original SAM2 weights are frozen. Ground truth is used only as training loss after prompt and as evaluation labels.",
+    "primary": "Equal-sequence present-frame Dice; report paired changes against both native SAM2 and frame-broadcast control.",
+    "secondary": [
+      "Boundary F and IoU",
+      "False alarms on GT-empty frames",
+      "Missed/returned-object frames and re-detection delay",
+      "Per-sequence deltas, wins/ties/losses, sequence-bootstrap intervals",
+      "Attention and adapter runtime, peak memory, and key/token counts"
+    ],
+    "practical_success_rule": "The frozen token-affinity checkpoint must improve equal-sequence present Dice by at least 0.01 over native SAM2 and the frame-broadcast control, with paired sequence-bootstrap 95% lower bounds above zero for both contrasts, and no material rise in false alarms or missed returns. If this fails, report the negative/inconclusive result and stop this candidate; do not adjust the score or architecture on test sequences.",
+    "external_confirmation": "Required before any publishable generalization claim. PolypGen and the already-inspected DAVIS validation set cannot serve as untouched confirmation."
+  },
+  "outputs": "After authorization by the protocol's prerequisites, store all experiment outputs and receipts under mounted Drive outputs/experiment/xmem_token_affinity_polypgen_v1. A Drive-mounted path alone is not proof of cloud synchronization.",
+  "implementation": {
+    "module": "modeling/xmem_token_affinity.py",
+    "sam2_integration": "No vendored SAM2 source edit. The adapter replaces only each existing cross-attention module after verifying pos_enc_at_cross_attn_queries is false; it receives the native call's normalized query q and unpositioned memory value input v, while the original positional key k remains in SAM2 RoPE attention.",
+    "tests": "tests/test_xmem_token_affinity.py",
+    "real_checkpoint_gate": "scripts/verify_xmem_token_affinity.py",
+    "real_training_runner": "Not implemented. Do not launch until Run174 is terminal, the real-checkpoint gate passes, and any failure is resolved without bypassing parity or integrity checks."
+  }
+}

@@ -1,0 +1,698 @@
+{
+  "id": "multiscale_memory_utility_cohort_v1",
+  "status": "frozen_exploratory_fixed_history",
+  "cohort": "All 42 GT-present prespecified targets from prior 59-target utility study, 2 per 21 sequences; no selection by treatment outcome. Four earlier pilot reads flagged and additional 38 reported separately. PolypGen has been explored; neither subset is external confirmation.",
+  "prior_scientific_setup_sha256": "656512fd85d6c6cad5fb8d24e78f5c062c8187b7e9c8c30b634d64f496a6a2df",
+  "prior_scientific_completion_sha256": "776b55cd83e7ecbe260c6417dccd804e5a038f7724a47cff5dd22e95388e5f3d",
+  "descriptor_protocol": "protocols/multiscale_memory_utility_diagnostic_v1.json",
+  "descriptor_protocol_sha256": "06df2f7faaeafe9cf70b8e29775409414e7f5de6fad430787dfabd6a2c885230",
+  "checkpoint_sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69",
+  "archive_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full",
+  "utility_root": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/within_frame_token_utility_v1/scientific_run_20261108",
+  "target_count": 42,
+  "sequence_count": 21,
+  "plan": {
+    "seq2": {
+      "targets": [
+        {
+          "source_frame": 4,
+          "target_frame": 6,
+          "native_prediction_sha256": "19fd962296ce9ccbd967f85d9de9a7693c2641a3b30f43625238a15279610f96",
+          "memory_sources": [
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "source_frame": 56,
+          "target_frame": 62,
+          "native_prediction_sha256": "83aee106f527214692288efe6b3539f7c79725cbaeacbbcebabe7dde43f8ac96",
+          "memory_sources": [
+            3,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/gate/observed/seq2",
+      "utility_results_sha256": "81541ef16f96eeeb1ffe1b069491d39ec6e5d42f905d6588f920024fe900fa02",
+      "bank_receipt_sha256": "457deed1aa7b83850475cc4eadafb06926d8ac73e45822806d3e0898d133ac8e",
+      "bank_sha256": "d96a68c52b2c4a69665c0518e5e07cf29c392da1d71c0cc983385ed2fb20a600"
+    },
+    "seq3": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "b1cab82a4b36007ba6b472ae715dcb75c14553df06ae48c5715bf96a26e11f6e",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 10,
+          "target_frame": 14,
+          "native_prediction_sha256": "751faf7b3bb4558b673db5a93fd60988cb8591a051557c3c23db8549e6285152",
+          "memory_sources": [
+            0,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq3",
+      "utility_results_sha256": "d51b408f6226e6a1cbc8614c61ddeeab61e07f411b2b0936310d808aeea86ced",
+      "bank_receipt_sha256": "c899f976cc7bcf54f139407d2022c630a91427d8bbca12384341705a2a4d65ac",
+      "bank_sha256": "5ee53cce5ed29fb82d350651e16680c3589b78a5d1c881abb1a1e6476ff08ec6"
+    },
+    "seq4": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "9e5b7e322fb7913c96dd0a8604a094a1c055d2e6794c767b2834241d23c7cda1",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 42,
+          "target_frame": 47,
+          "native_prediction_sha256": "53e8c11c64bb0b8d4a737e6bc73275ad7684e9a6e04c5f28508506b8e83a47e9",
+          "memory_sources": [
+            0,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq4",
+      "utility_results_sha256": "1ad9dbd970bcaffeeaec64298efcb1a141326d88ffdf85d97bd53968e827e193",
+      "bank_receipt_sha256": "5d302b34c394a3c0a56cabcf26db1d86fa74e673e9bff0afbc8bc03ca241bf1f",
+      "bank_sha256": "c36acb665edb3aa444a7d841517257d0cede03d492895c5d7f325dcdee9cd140"
+    },
+    "seq5": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "93167371ac588dcb39e9e26cfbe03cdc80f818177c9b489ee33c137b8bec3ecb",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 247,
+          "target_frame": 249,
+          "native_prediction_sha256": "9e99a507c8d1e53a93beaa5bdd2b91a5aeb71c250147d433038bda5fe50dc1d0",
+          "memory_sources": [
+            0,
+            243,
+            244,
+            245,
+            246,
+            247,
+            248
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq5",
+      "utility_results_sha256": "49e089c71c9326edf07adbaf2b4dddc515c3712ee028c0f487fd26e7c51e818f",
+      "bank_receipt_sha256": "91855eb51d86f946bdf36464339ada6ffafa19f516af82b2266f4560e2368f7a",
+      "bank_sha256": "dcb8c462ab7d62741f86a79a26ca38927fd79882d39310cbe4377e6cd0ee56f1"
+    },
+    "seq6": {
+      "targets": [
+        {
+          "source_frame": 25,
+          "target_frame": 27,
+          "native_prediction_sha256": "32ba3b505432e612b6538529f28c3d36bd05e45bc37c51af6b42b5865addd2ef",
+          "memory_sources": [
+            24,
+            25,
+            26
+          ]
+        },
+        {
+          "source_frame": 79,
+          "target_frame": 85,
+          "native_prediction_sha256": "d4ab694155fbcc46ff7991b41666f21997445330f5cdc55265d8b8ef5befa52b",
+          "memory_sources": [
+            24,
+            79,
+            80,
+            81,
+            82,
+            83,
+            84
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq6",
+      "utility_results_sha256": "da4be8abb4e2405317abafc65f1df68fabcbadb0919df9287830c36cf9b6dd2f",
+      "bank_receipt_sha256": "da253a7c8de6ffa32290cb2072958ff4033e22345d966b8cb02f060f3b37b8dc",
+      "bank_sha256": "755fb601dd583dd6887c1b16f4e5bd98ff9c15f3d907ac3556dfe61f778ef5c0"
+    },
+    "seq8": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "7115117c3d23c7fcad4e515a7c479f20d2136a78d4a13e29aec9687f8feda5ac",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 67,
+          "target_frame": 69,
+          "native_prediction_sha256": "1026532d0b19685680a1ea6409cd3e10b4df61ed607425a93f30794bec0c8a8c",
+          "memory_sources": [
+            0,
+            63,
+            64,
+            65,
+            66,
+            67,
+            68
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq8",
+      "utility_results_sha256": "0f678bbdb1e2f55336e49b1536d1c1b6873017087dfb3bce0c15ef825230b448",
+      "bank_receipt_sha256": "72ecbe8b187d6e764f286768aeb24e04cd1aba819471563fc641825c1b938b73",
+      "bank_sha256": "ebaaaa2d22b8ee3c38dc6309b0863fb09ed76bca35076e672ce2a3704533d734"
+    },
+    "seq9": {
+      "targets": [
+        {
+          "source_frame": 4,
+          "target_frame": 6,
+          "native_prediction_sha256": "b871714b0a703c06915907698bac442475fcaa436946cbb0102d61e5cb68288e",
+          "memory_sources": [
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "source_frame": 45,
+          "target_frame": 50,
+          "native_prediction_sha256": "ff91d9bf19b8e3815bf44d38d0acc2c1d416cb0d92c5953a188cdcf183590f78",
+          "memory_sources": [
+            3,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq9",
+      "utility_results_sha256": "c0dfbb59121c5791599f3cc99ef01a25c62cb0fb94cdeb07c2dd78f5c4f0a895",
+      "bank_receipt_sha256": "f296a1b91f04579ebac55b87c83c61a589d84e0b6245e0941b0c61abf7583aea",
+      "bank_sha256": "421ff76ae63a32ad99a9ca608ab1e14341abf2d11eb91a0eb5062f152ad620ab"
+    },
+    "seq10": {
+      "targets": [
+        {
+          "source_frame": 18,
+          "target_frame": 20,
+          "native_prediction_sha256": "12ae8dff7d68075f4e338672e40ce537a691395087b32d0caa3e796fb9e563f5",
+          "memory_sources": [
+            17,
+            18,
+            19
+          ]
+        },
+        {
+          "source_frame": 21,
+          "target_frame": 23,
+          "native_prediction_sha256": "ff68407da5f9a70255fc09ccafbcefc6730ba84eddd3e564ca340fc0dc8a8a94",
+          "memory_sources": [
+            17,
+            18,
+            19,
+            20,
+            21,
+            22
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq10",
+      "utility_results_sha256": "262a7b318ccedc953506c562f0e0efdb6a4ea545a7df934504e583b9bd0ba854",
+      "bank_receipt_sha256": "f8202e6d5b6352d5415e418a72f8488903ab7873b8498ee999c5e05364f2bb51",
+      "bank_sha256": "cd02191a70c09f24ce1e3c5af66249c3b2480849c83bceb456b4cab4aa4cb6df"
+    },
+    "seq11": {
+      "targets": [
+        {
+          "source_frame": 3,
+          "target_frame": 5,
+          "native_prediction_sha256": "2b59da6c9e940be5d792ade6c9f2e9a89fad97d42d6e5aff21e1568200b9729c",
+          "memory_sources": [
+            2,
+            3,
+            4
+          ]
+        },
+        {
+          "source_frame": 170,
+          "target_frame": 173,
+          "native_prediction_sha256": "e2c8bd4753c58c4cf5063c074289819715325025967176a347e769b245cdb8d3",
+          "memory_sources": [
+            2,
+            167,
+            168,
+            169,
+            170,
+            171,
+            172
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq11",
+      "utility_results_sha256": "1ba548fb37cd41e9897598dbb8c2418d2eb5b1b7706d0d7d6524971331f17b1e",
+      "bank_receipt_sha256": "85d3e9be3ac72121f6ac88677790cd18449173475da0f1c95105e25cc72fdd5c",
+      "bank_sha256": "9825cbcc92ca00d0f4e3ca6f3de2f48d2c5d6f9fb76061f3139746b9df76091a"
+    },
+    "seq12": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "7896f86dec8d30b52322e3a76d7e2f728945581e0e320a8f07447ae096046cf9",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 244,
+          "target_frame": 249,
+          "native_prediction_sha256": "c2c38a97198e045510ca372b1bfa3bb990d85570520337a8a162c868e908b6ea",
+          "memory_sources": [
+            0,
+            243,
+            244,
+            245,
+            246,
+            247,
+            248
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq12",
+      "utility_results_sha256": "0631bdd77c4ab496764e49773946bbf64e84cc1f85c5120426d94ffd0473d158",
+      "bank_receipt_sha256": "53057919f40b39fc0d440b38395d1a15ef6f5d1b7fda1bd6805fdf5880c77cf3",
+      "bank_sha256": "bcf7e7a154444242f9f29e4c1b37777175496114c39f66bf4f545df231f2133f"
+    },
+    "seq13": {
+      "targets": [
+        {
+          "source_frame": 8,
+          "target_frame": 10,
+          "native_prediction_sha256": "b790cf357ef1b035bbecca8518d35afc0bcb09fe5e996aa8d76404812967a66b",
+          "memory_sources": [
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "source_frame": 246,
+          "target_frame": 249,
+          "native_prediction_sha256": "549a7bcacc2e89c6b32ef05abbe6d06d60692f04747fb1a895b89dcdf5438867",
+          "memory_sources": [
+            7,
+            243,
+            244,
+            245,
+            246,
+            247,
+            248
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/gate/observed/seq13",
+      "utility_results_sha256": "2aab5b1eb9dc208daad85a195ec1b6e1ef5fa2e48d5df361e2547bbe35b084dc",
+      "bank_receipt_sha256": "1a70fb99f10307efcd7e5e190631f0cba9ac657ef8d7823ae19edf45d5bd9cdb",
+      "bank_sha256": "fcfc1d99b99688c73cd5f0204ef214784b83eaf805f458f27407a6f982613329"
+    },
+    "seq14": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "df004005fb7a78eca737f0b93802e4cf2047fbd61d76e2f182ec212f2ea075de",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 243,
+          "target_frame": 248,
+          "native_prediction_sha256": "f63f9eaadc2287e77bc2f0704986641852ebb5dbd810048869c7edd5bfba3af6",
+          "memory_sources": [
+            0,
+            242,
+            243,
+            244,
+            245,
+            246,
+            247
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq14",
+      "utility_results_sha256": "b89a08626ae7c7adb1f26d52cd34646df671ecad1145db185c29eeb313f9e5bc",
+      "bank_receipt_sha256": "c7a612ab5284407605ac2868ccce8f6db637d6a87a183aa3bfd9242da997a9e2",
+      "bank_sha256": "f497afb0c0f78a430bd0431bc3262d685db721094f2b0ec2b42aad5d392c45a5"
+    },
+    "seq15": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "4f959552e038725603154f2c18b271bc85719b36e10c809ec23a9098a6ef5d3d",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 112,
+          "target_frame": 115,
+          "native_prediction_sha256": "7d4a4c866d2d731e20d6b7ec4ec8f13bf2c9fc91ffbc0136f33241976a9f3517",
+          "memory_sources": [
+            0,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq15",
+      "utility_results_sha256": "7de7d8edd0639409b3070235247c409b43a6dc0591081511e19db88c7d73b79c",
+      "bank_receipt_sha256": "4ad26874a4ec240f168aeb64a32305c67213df59d6546a3495e5d16ccba69275",
+      "bank_sha256": "b96a3cb4214e4fb14fb5c09ad0260a236439e7207d4d04a9d26afe964c5898c0"
+    },
+    "seq16": {
+      "targets": [
+        {
+          "source_frame": 7,
+          "target_frame": 9,
+          "native_prediction_sha256": "bc8e61340a7befbbf814eacdca66bb3a90005cfa4e917e8714fc2660051435d7",
+          "memory_sources": [
+            6,
+            7,
+            8
+          ]
+        },
+        {
+          "source_frame": 34,
+          "target_frame": 39,
+          "native_prediction_sha256": "c830b5719e673981b8995582ae381e0c76d24fc26be38281321fddc8d8ce3825",
+          "memory_sources": [
+            6,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq16",
+      "utility_results_sha256": "9e9440d9ba898eb7f3cb3a76d6f7641a208347e24a35f4a2d42042fec2195dd0",
+      "bank_receipt_sha256": "b389bfe6a4ee1b29e42e4047b1e3f44c438ff9d0b7b5f15754a469ee7094e92b",
+      "bank_sha256": "27f4d0615084dd74d0b82fe01cf475ab08f195b4abee5097bc5f6e6d31453aaf"
+    },
+    "seq17": {
+      "targets": [
+        {
+          "source_frame": 17,
+          "target_frame": 19,
+          "native_prediction_sha256": "57a07ef1539e42a34b13d494e40a62ebeacbaad5b671e85f64feb9981cfd0385",
+          "memory_sources": [
+            16,
+            17,
+            18
+          ]
+        },
+        {
+          "source_frame": 56,
+          "target_frame": 62,
+          "native_prediction_sha256": "4b713059831501f38bd94673b3b92d6858bf356e4e3675cdbc0427f418fcd253",
+          "memory_sources": [
+            16,
+            56,
+            57,
+            58,
+            59,
+            60,
+            61
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq17",
+      "utility_results_sha256": "b33544ba2694923069f82fcae34171b4fa5e3ed66c81839ddb33b3ca6578195d",
+      "bank_receipt_sha256": "be0821cfdc96550b709081d06042db3b1b21b4771f5e015aab1f0d409df0bc71",
+      "bank_sha256": "dd49bc703b5e7930d0604b4383ef12aaed8b13e13b5e8f0a80a0ebc35c7bf0ea"
+    },
+    "seq18": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "6f9062acb3bbfcbef46d0b7e1d7f48dd06f3993d230a50d68318b741eda82ee4",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 50,
+          "target_frame": 56,
+          "native_prediction_sha256": "20de988d702f90ade61b250e8a246d9c254e21af0042cf23bdea2588a875b0f9",
+          "memory_sources": [
+            0,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq18",
+      "utility_results_sha256": "2602038a255648c37ee5c561e3fa0c05591e42d0ad480c51fae0068e747f4012",
+      "bank_receipt_sha256": "88b55be3d1a5a9df67e3f781f48e8ec064223e64bbe71744de4e706a67193ead",
+      "bank_sha256": "d7976652f441efccb1c1b0695c71dc037b883e474951d011c59e3192203ab90e"
+    },
+    "seq19": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "688296855bfbbc62866d90ee634ba6db21fa002b4928dc095bf542af214e68a1",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 53,
+          "target_frame": 55,
+          "native_prediction_sha256": "54a904357347e30ec6c08ab67304caab087680e5d096c4ff94dbf4a007eeb971",
+          "memory_sources": [
+            0,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq19",
+      "utility_results_sha256": "e49ff8b282ab202a8d49f00a0ade4c1e4704eec1cd6bb43f154a66050ea559d8",
+      "bank_receipt_sha256": "7591b0b9579c058916558646b5603617a7269b6c9bb3d7b0cdd178d01c2ed35c",
+      "bank_sha256": "04ecbbf1daae84ff6f4c5a3cac885901dc6f3731b7748190de9ba1ff10fa59af"
+    },
+    "seq20": {
+      "targets": [
+        {
+          "source_frame": 18,
+          "target_frame": 20,
+          "native_prediction_sha256": "54a904357347e30ec6c08ab67304caab087680e5d096c4ff94dbf4a007eeb971",
+          "memory_sources": [
+            16,
+            17,
+            18,
+            19
+          ]
+        },
+        {
+          "source_frame": 49,
+          "target_frame": 51,
+          "native_prediction_sha256": "54a904357347e30ec6c08ab67304caab087680e5d096c4ff94dbf4a007eeb971",
+          "memory_sources": [
+            16,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq20",
+      "utility_results_sha256": "9180feef5398b0b4bf2c6c624db51c4efdafa3356bfe3f094139f410a9f30c1e",
+      "bank_receipt_sha256": "329be39a606bcec6b91df9e3777c0683fc56d1adc0a3830739e1f9bb5065b666",
+      "bank_sha256": "3b514d8a3b492569cffa6141005291d1da1a5cfa0b0f79139ebb7a46d1daa542"
+    },
+    "seq21": {
+      "targets": [
+        {
+          "source_frame": 10,
+          "target_frame": 12,
+          "native_prediction_sha256": "9a7e65a7da51c2af4a7449b2d540962bf280e95d1387a416faec03eb2969c0e3",
+          "memory_sources": [
+            8,
+            9,
+            10,
+            11
+          ]
+        },
+        {
+          "source_frame": 28,
+          "target_frame": 34,
+          "native_prediction_sha256": "a68333d763968c490329c7044e8b7eb9d5dafe367af66a99e7df46a14c2446d1",
+          "memory_sources": [
+            8,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq21",
+      "utility_results_sha256": "e9523f8cffffffed54a712627543ed900b33fc43fca02200a0620e9fa6f5e9cb",
+      "bank_receipt_sha256": "f9fc9cdb7e86d5c90bddde70319a60a546e4c6fb3ad332ef68442c86e86b11f0",
+      "bank_sha256": "41d00b3855449009636ea6472f78ae77aec88e2eff4f7aa8dcab6fd528ef8381"
+    },
+    "seq22": {
+      "targets": [
+        {
+          "source_frame": 1,
+          "target_frame": 3,
+          "native_prediction_sha256": "4181fe9718ff43b2cefd60373fdcaa33ec0c5280bc1207578e61c345b910b2f0",
+          "memory_sources": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "source_frame": 41,
+          "target_frame": 45,
+          "native_prediction_sha256": "bd0c603d811ef5442e77bef8472a65f1b1d3f729f3a8886e2a6cffbe18c0a023",
+          "memory_sources": [
+            0,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq22",
+      "utility_results_sha256": "fd28028b249ecb6e1ddc9bb2c21fe4b32c4df8fb1a078174407cd80a778acdfd",
+      "bank_receipt_sha256": "bba0c696d434faf55889a25b7b879918a422871e04fc818f55174f1a6d60e743",
+      "bank_sha256": "c4ee44d99e092c58ebbc660f12a7db75e993ecafa2a1575cc12323e72fe71d35"
+    },
+    "seq23": {
+      "targets": [
+        {
+          "source_frame": 7,
+          "target_frame": 9,
+          "native_prediction_sha256": "125973098d400efb34d0d3dc09e57cffe86fcde16a27c45be611bba38f8abd0e",
+          "memory_sources": [
+            6,
+            7,
+            8
+          ]
+        },
+        {
+          "source_frame": 53,
+          "target_frame": 55,
+          "native_prediction_sha256": "54a904357347e30ec6c08ab67304caab087680e5d096c4ff94dbf4a007eeb971",
+          "memory_sources": [
+            6,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54
+          ]
+        }
+      ],
+      "bank_dir": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/143_official_native_feature_audit_v1/full/seq23",
+      "utility_results_sha256": "c32fa1619fe871a23650b3bbb62a21f2b38f1c9b3346f7feb0d824adca79ba6a",
+      "bank_receipt_sha256": "03b9c3ed497716a56c0665a5efa31e8c2517f7b29ba94c12e51d68bd9527f5e2",
+      "bank_sha256": "fbf7e0b982c798bf0ccc826cfc79f02d2b3025701da5546098837c4648dc8c6a"
+    }
+  },
+  "controls": "Fixed layer-0 local cosine, rank-averaged 1/2/4-scale context, native attention mass, uniform tile selection; no fitting or hyperparameter search.",
+  "statistics": "Average target results within sequence, then equal-sequence means; sequence bootstrap intervals for paired multiscale-minus-local correlations and removal effects; correlations omit flat utility reads and report coverage. Report selected-minus-uniform and pilot-excluded results separately. No efficacy claim.",
+  "limitations": [
+    "Fixed-history deletion, not full video",
+    "Coarsened SAM2 memory grid, not CMSA-Net multi-stage features",
+    "Explored PolypGen, patient independence not established",
+    "Original four-pair pilot targets included; report remaining 38 separately",
+    "GT-present only; no false-alarm safety inference"
+  ]
+}

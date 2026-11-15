@@ -1,0 +1,28 @@
+{
+  "id": "xmem_token_affinity_single_scale_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "prospective bounded engineering correction; efficacy remains blocked",
+  "parent_amendment": "protocols/xmem_token_affinity_gradient_scaling_trace_amendment_2026-11-08.json",
+  "parent_amendment_sha256": "ae8e08f06056e090a25a0d0079e1336b3e656a01069d766280f2d88bbc5b8be9",
+  "parent_result": "protocols/xmem_token_affinity_gradient_scaling_trace_results_2026-11-08.json",
+  "parent_result_sha256": "e41e543ac0a48f631cd08450c8c15adb0482ebcd15e8a7a9bd646cf4b4e2d8d5",
+  "motivation": "The bounded CPU replay showed identical initialization, full RNG state, forward attention boundaries, incoming output gradients, and predicted memory writes, but the shared scalar xmem_strength gradient differed slightly before clipping. The existing runner already enables deterministic PyTorch algorithms and single-threaded backward/reductions. The current implementation multiplies the same scalar separately into each query-chunk affinity score, creating many backward contributions to one scalar parameter.",
+  "change": {
+    "only_change": "Concatenate the existing query-chunk affinity scores, multiply the shared scalar strength once, then split the resulting bias back into the same query chunks for the same native scaled-dot-product-attention calls.",
+    "mathematics": "The per-query, per-memory-token logit bias is unchanged: xmem_strength multiplied by the same XMem-style score. This only consolidates the shared scalar's autograd reduction.",
+    "unchanged": [
+      "XMem-derived projections and anisotropic-L2 score",
+      "SAM2 pretrained weights and attention/value/pointer/position paths",
+      "query chunk size and native SDPA calls",
+      "loss, optimizer, learning rate, weight decay, clipping threshold, and update schedule",
+      "data, sequence roles, fixed clips, device, dtype, and seed",
+      "exact fresh-start repeatability criterion"
+    ]
+  },
+  "verification": {
+    "scope": "Repeat the same two fresh-start CPU replays over frozen seq9 then seq2 clips; no other sequences or inference.",
+    "pass": "Exact equality for initial adapter/optimizer/RNG, each clip's losses and gradient receipts, final adapter/optimizer tensor state, final RNG, and unchanged pretrained SAM2 weights.",
+    "failure": "Keep efficacy blocked. Do not relax exact equality, alter model settings, or run full-cohort training. Record that this algebra-preserving implementation correction did not resolve repeatability."
+  },
+  "interpretation_limit": "This is a bounded engineering correction only. It is not a new method comparison, a Dice result, or authorization for efficacy training."
+}

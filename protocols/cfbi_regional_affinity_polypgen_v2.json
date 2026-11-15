@@ -1,0 +1,103 @@
+{
+  "name": "CFBI regional nearest-neighbour evidence for SAM2 \u2014 normalized-descriptor correction",
+  "status": "frozen amended candidate; real-data engineering gate required before corrected cohort rerun",
+  "prior_method": {
+    "paper": "Collaborative Video Object Segmentation by Foreground-Background Integration",
+    "paper_url": "https://arxiv.org/abs/2003.08333",
+    "repository": "https://github.com/z-x-yang/CFBI",
+    "revision": "91fc6a31b1752a8a9110b3ed480e05656f756691",
+    "license": "BSD-3-Clause",
+    "reused_code": "The pinned author global_matching implementation and its unchanged pairwise-distance / nearest-neighbour helpers are loaded from external/CFBI/networks/layers/matching.py."
+  },
+  "hypothesis": "Native SAM2 already attends to all stored memory. CFBI-style class-conditioned nearest-neighbour evidence may help the read distinguish useful foreground, boundary and background matches without selecting or dropping frames.",
+  "method": {
+    "query": "SAM2 q_proj(query) before rotary encoding, pooled from 64x64 to 16x16.",
+    "memory": "SAM2 k_proj(memory content) before rotary encoding; object-pointer tokens are excluded from the auxiliary matcher and remain in native attention.",
+    "regions": "Per-frame predicted-mask labels on the stored memory's 64x64 token grid. Within each 4x4 pooling cell, features are averaged separately for every region present. This preserves foreground, mixed-boundary and background evidence in a coarse local grid.",
+    "matching": "L2-normalize pooled query and region-specific memory descriptors, then call pinned CFBI global_matching over every stored memory frame and region-specific pooled key. Preserve CFBI squared-L2 distances and sigmoid mapping. It returns three 16x16 maps. Missing regions receive neutral zero evidence.",
+    "integration": "A zero-initialized 1x1 projection maps the three evidence maps to a bounded residual added to each native cross-attention output. The native attention computation, stored memory, frame schedule, pointers, image encoder, memory encoder and decoder remain unchanged.",
+    "frame_policy": "Use SAM2's unchanged native frame schedule; do not select, reject or classify memory frames."
+  },
+  "engineering_gate": {
+    "sequence": "seq5",
+    "required": [
+      "zero-projection replay is bit-identical to native masks, scores, writes and cache state",
+      "all four memory-attention layers receive finite regional evidence",
+      "all spatial memory tokens are accounted for and pointer tokens remain unchanged",
+      "CFBI source revision is verified and its global matcher matches a direct author-function call",
+      "after one update, all four projections receive finite nonzero gradients and full clip propagation completes",
+      "no SAM2 parameter receives gradients",
+      "each present region produces finite, non-saturated, spatially varying CFBI evidence on the real-data gate clip"
+    ]
+  },
+  "training": {
+    "folds": [
+      [
+        "seq2",
+        "seq5",
+        "seq8",
+        "seq11",
+        "seq14",
+        "seq18",
+        "seq21"
+      ],
+      [
+        "seq3",
+        "seq6",
+        "seq9",
+        "seq12",
+        "seq15",
+        "seq19",
+        "seq22"
+      ],
+      [
+        "seq4",
+        "seq10",
+        "seq13",
+        "seq16",
+        "seq17",
+        "seq20",
+        "seq23"
+      ]
+    ],
+    "clip_length": 5,
+    "epochs": 10,
+    "clips_per_training_sequence_per_epoch": 1,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "gradient_norm": 1.0,
+    "seed": 20261109,
+    "loss": "Existing autoregressive SAM2 decoder mask Dice/BCE plus object-presence loss on each sampled clip.",
+    "frozen": [
+      "SAM2 image encoder",
+      "SAM2 memory encoder",
+      "SAM2 decoder",
+      "native frame schedule"
+    ]
+  },
+  "evaluation": {
+    "cohort": "All 21 promptable PolypGen sequences; seq1 and seq7 excluded because they have no positive first-frame prompt mask.",
+    "design": "Three sequence-grouped folds. The same sequences have informed earlier development, so results are exploratory and not independent confirmation.",
+    "primary": "Equal-sequence mean present-frame Dice on out-of-fold full propagation.",
+    "secondary": [
+      "per-sequence Dice",
+      "IoU",
+      "Boundary F",
+      "GT-empty false alarms",
+      "missed-return events",
+      "attention evidence by layer",
+      "inference runtime"
+    ],
+    "meaningful_screen": "At least +0.01 equal-sequence mean Dice, positive delta on at least 14/21 sequences, and no increase in pooled GT-empty false alarms.",
+    "patient_independence": "Unverified"
+  },
+  "decision": "If the engineering gate fails, do not launch the cohort run. If the frozen screen fails, report the negative result without tuning on these sequences.",
+  "amendment": {
+    "date": "2026-11-02",
+    "reason": "Run 106 post-run audit found the three author-matcher maps were identically 1.0 because unnormalized SAM2 projection distances (about 265\u20132,076 on the seq5 gate clip) saturated CFBI sigmoid(distance). The prior run therefore did not test spatially varying regional evidence.",
+    "correction": "L2-normalize pooled SAM2 query and region-specific memory descriptors before calling the unchanged pinned CFBI matcher. This preserves the author squared-L2 matching function and the existing folds, optimizer, training schedule, losses, and success screen.",
+    "prior_results": "Run 106 remains archived as the measured outcome of the collapsed adapter; its Dice change is not evidence for regional matching.",
+    "no_performance_tuning": "The correction is based on a failed numerical mechanism check, not on selecting weights or settings for better Dice. The frozen meaningful-improvement screen is unchanged."
+  }
+}

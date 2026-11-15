@@ -1,0 +1,53 @@
+{
+  "name": "Temporal-uncertainty-gated regional memory residual",
+  "status": "engineering gate only; no accuracy result yet",
+  "motivation": "Prior global region weighting, token exclusion and pooled regional summaries did not produce meaningful Dice gains. This candidate retains native attention over every memory token and adds a zero-initialized correction assembled from predicted-mask region readouts, gated by temporal read uncertainty.",
+  "prior_implementation": {
+    "paper": "MatAnyone: Stable Video Matting with Consistent Memory Propagation, CVPR 2025",
+    "repository": "https://github.com/pq-yang/MatAnyone",
+    "revision": "e5ddc534c1fff9bb9e54cf476095d29071b7cb4f",
+    "reused_component": "The official UncertPred class is loaded unchanged from matanyone/model/big_modules.py.",
+    "adaptation": "A small zero-initialized projection combines foreground-interior, mixed-boundary and background memory readouts; MatAnyone UncertPred gates its residual using recent stored value, current query, previous predicted mask and regional-read/recent-value difference. The residual is bounded to 0.25 times the native read's per-query RMS to limit destabilizing changes. This SAM2 adapter is project glue, not an author-provided SAM2 method."
+  },
+  "inference": {
+    "regions": "Labels for each spatial memory block come from that block's own stored predicted low-resolution mask.",
+    "frames": "Use SAM2's native frame schedule; no good/bad-frame selection or frame dropping.",
+    "memory": "All native spatial keys and pointer keys remain in the original global attention. The regional branch only adds a query-grid residual after each native memory read.",
+    "ground_truth": "Training loss only; never used to assign inference-time regions or gate values."
+  },
+  "gate": {
+    "sequence": "seq5",
+    "clip_length": 5,
+    "required": ["zero-residual prediction and stored-memory parity", "all four attention layers observed on every read", "finite nonzero gradients to every regional projection", "uncertainty predictor gradient after one optimizer update", "all spatial and pointer keys preserved", "post-update full clip propagation completes and changes at least one prediction"]
+  },
+  "training": {
+    "sequences": "Training sequences are the 14 non-held-out sequences in each fold.",
+    "clip_length": 5,
+    "epochs": 5,
+    "clips_per_sequence_per_epoch": 1,
+    "sampler": "Pinned SAM2 RandomUniformSampler adapter; prompt on first selected positive mask, then consecutive frames.",
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "max_gradient_norm": 1.0,
+    "seed": 20261108,
+    "loss": "Pinned SAM2 decoder Dice/BCE plus object-presence loss; autoregressive predicted memory is written between clip frames.",
+    "frozen": ["SAM2 image encoder", "SAM2 memory encoder", "SAM2 decoder", "native frame schedule"]
+  },
+  "evaluation_plan": {
+    "cohort": "21 promptable sequences; seq1 and seq7 excluded because they have no positive prompt mask.",
+    "design": "Three fixed sequence-grouped folds, each sequence evaluated only in its held-out fold. Patient identity is unknown; this is exploratory cross-validation, not independent-patient confirmation.",
+    "folds": [
+      ["seq2", "seq5", "seq8", "seq11", "seq14", "seq18", "seq21"],
+      ["seq3", "seq6", "seq9", "seq12", "seq15", "seq19", "seq22"],
+      ["seq4", "seq10", "seq13", "seq16", "seq17", "seq20", "seq23"]
+    ],
+    "training_description": "See the frozen training settings above.",
+    "baseline": "Paired native SAM2 using the same checkpoint, prompt frame, manifest, native frame schedule and evaluation targets.",
+    "primary": "Equal-sequence mean present-frame Dice across all out-of-fold predictions.",
+    "meaningful_signal_screen": "At least +0.01 equal-sequence Dice, positive delta on at least 14/21 sequences, and no increase in false alarms on GT-empty frames. This is a development screen, not a confirmatory claim.",
+    "secondary": ["per-sequence Dice", "IoU", "Boundary F", "empty-GT false alarms", "missed-return events", "actual memory-key and pointer counts", "runtime"],
+    "no_shuffled_arm": true,
+    "interpretation": "PolypGen has repeatedly informed this project. Any result is exploratory and must not be described as independent confirmation or a reliable general improvement."
+  }
+}

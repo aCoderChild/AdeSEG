@@ -1,0 +1,47 @@
+{
+  "id": "xmem_token_affinity_gradient_scaling_trace_amendment_2026-11-08",
+  "date": "2026-11-08",
+  "status": "bounded engineering diagnostic only; efficacy remains blocked",
+  "parent_amendment": "protocols/xmem_token_affinity_full_read_write_trace_hook_correction_2026-11-08.json",
+  "parent_amendment_sha256": "d75af28e7012200b835c8d61775ba0009b1ed5d1b8bdf5c315312c3d20c7c8be",
+  "parent_result": {
+    "drive_output": "outputs/experiment/xmem_token_affinity_polypgen_v1/engineering_gate_rng_token_affinity_callsite_trace_20261108_01/",
+    "setup_sha256": "7808e927db692b4ff9ac4661ab462147d77df42eac4f4be17a540632a0878758",
+    "progress_sha256": "f7d4a91d423215c2ab4e025a5e81f72c5f35545109096ff1a3fbdecd1b4e5931",
+    "failure_sha256": "960991e5713eae28ef13b84a822d6cdce276804b8d41d18cdd6306643bf48ceb"
+  },
+  "motivation": "The corrected observer recorded seven writes and all 28 layer-read calls per clip. On seq9, attention inputs, outputs, incoming output gradients, and memory-write hashes matched across the two fresh starts, while the first named mismatch remained the layer-0 xmem_strength gradient in the second optimizer chunk. This trace separates raw parameter-gradient differences from global gradient clipping.",
+  "scope": {
+    "arm": "token_affinity only",
+    "fresh_starts": 2,
+    "device": "cpu",
+    "training_clips": "The same two frozen training-plan clips, seq9 followed by seq2.",
+    "updates_per_clip": 2,
+    "record": [
+      "per-layer xmem_strength gradient scalar before global gradient clipping for each optimizer update",
+      "per-layer xmem_strength gradient scalar after global gradient clipping for each optimizer update",
+      "pre-clip total gradient norm",
+      "existing four-layer read/write hashes and exact-repeatability receipts"
+    ],
+    "metrics_computed": [],
+    "full_cohort_training_or_inference": false
+  },
+  "change": {
+    "only_change": "Record four scalar affinity-scale gradient values before and after the already-frozen global gradient clipping operation; add those small receipts to the progress summary. Replace the previous verbose failure message with clip losses only so failure.json does not duplicate large traces.",
+    "unchanged": [
+      "XMem-derived affinity equation, projections, and initialization",
+      "SAM2 pretrained weights, loss, optimizer, gradient clipping threshold, data, clips, and update schedule",
+      "all-layer and predicted-write trace checks",
+      "exact repeatability criterion",
+      "no-full-run authorization rule"
+    ]
+  },
+  "interpretation_rules": {
+    "pre_clip_differs": "The discrepancy exists before global norm clipping; keep efficacy blocked and report it as an unresolved affinity/backprop accumulation issue.",
+    "pre_clip_matches_post_clip_differs": "Inspect the global norm/clip scaling calculation; do not change its threshold.",
+    "all_scalar_gradients_match_but_final_state_differs": "Use the first other exact receipt to identify the remaining source; do not relax equality."
+  },
+  "pass": "This diagnostic only localizes the training mismatch. The existing exact repeatability gate must still pass before efficacy training.",
+  "failure": "Keep efficacy training blocked. Do not change the method, optimizer, clipping threshold, or equality criterion to obtain a pass.",
+  "scope_limit": "No validation/test inference, Dice computation, full-cohort training, or efficacy claim."
+}

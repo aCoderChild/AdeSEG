@@ -1,0 +1,18 @@
+{
+  "artifacts_preserved": [
+    "setup.json",
+    "failure.json"
+  ],
+  "attempt_output": "/Users/maianhpham/Library/CloudStorage/GoogleDrive-phammaianh11102005@gmail.com/My Drive/AdeSEG/outputs/experiment/spatiotemporal_tome_value_exchange_v1/engineering_gate01",
+  "created_utc": "2026-11-13T05:01:59.162765+00:00",
+  "failure": {
+    "message": "No module named 'hydra'",
+    "type": "ModuleNotFoundError"
+  },
+  "method_or_targets_changed": false,
+  "name": "Engineering gate attempt 01 runtime failure",
+  "next_output": "engineering_gate02",
+  "protocol_sha256_for_next_attempt": "a2fc381950ac28b4ed781c02173260899a56f843c6c0d64726bb3de0d996763e",
+  "runtime_fix": "Added project-declared hydra-core 1.3.3 and iopath 0.1.10; added the SAM2-required torchvision 0.28.0 aligned with frozen torch 2.13.0.",
+  "stage": "build_author_predictor import; verified cache receipt and bank load completed, model construction and frame prediction did not begin"
+}

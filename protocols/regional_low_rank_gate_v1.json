@@ -1,0 +1,28 @@
+{
+  "status": "Prospective engineering gate, not an accuracy experiment",
+  "prior_work": {
+    "paper": "https://arxiv.org/abs/2106.09685",
+    "repository": "https://github.com/microsoft/LoRA",
+    "revision": "c4593f060e6a368d7bb5af5273b8e42810cdef90",
+    "integration": "Unchanged author Linear implements each low-rank residual. Regional mixing and native hooks are project adaptations, not a published LoRA VOS result."
+  },
+  "model_config": "configs/sam2.1/sam2.1_hiera_t.yaml",
+  "manifest": "data/polypgen_sequence.jsonl",
+  "sequence": "seq5",
+  "seed": 20261118,
+  "clip_length": 3,
+  "rank": 4,
+  "updates": 2,
+  "learning_rate": 0.0001,
+  "weight_decay": 0.01,
+  "method": "One native dense read; four layer-specific, content-dependent residual transforms mixed by three continuous memberships from each stored prediction. All native frames, spatial tokens, temporal positions and pointers retained. No confidence gate, added threshold or query-mask second pass.",
+  "control": "Same parameters and initialization; broadcast each stored frame's mean memberships to its tokens.",
+  "checks": [
+    "Zero initialization reproduces native masks, object scores and intermediate autoregressive memory writes bit-for-bit.",
+    "Every read visits all four layers once and regional/global key and pointer schedules match.",
+    "Every LoRA B receives finite nonzero gradients initially; both factors receive finite nonzero gradients after the first update.",
+    "All native weights remain frozen and their digest is unchanged.",
+    "Post-update propagation is finite; saved-source hashes remain unchanged."
+  ],
+  "scope": "Training-only clip; no validation-based choice, no Dice improvement claim. DAVIS requires a separate instance-aware integration and baseline-reproduction gate."
+}
