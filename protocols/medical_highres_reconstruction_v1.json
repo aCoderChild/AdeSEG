@@ -1,0 +1,52 @@
+{
+  "method_id": "medical_highres_teacher_reconstruction_v1",
+  "status": "new_reconstructed_implementation_not_historical_reproduction",
+  "backbone": {
+    "family": "MedSAM2",
+    "architecture": "Hiera-T",
+    "input_size": 512,
+    "checkpoint_basename": "MedSAM2_latest.pt",
+    "sha256": "c92743b99f00d078bf32a3afcc38aaa9faf1c1692dffe3eaa7a90938c1991060",
+    "config": "sam2.1_hiera_t512.yaml"
+  },
+  "adapter": {
+    "registered_layers": [
+      "early_proj",
+      "deep_proj",
+      "fuse",
+      "spatial",
+      "output"
+    ],
+    "in_channels": {
+      "early": 32,
+      "deep": 256,
+      "skip": 32
+    },
+    "spatial_depthwise": true,
+    "initial_residual_zero": true,
+    "new_assumed_maximum_delta": 0.1,
+    "original_forward_unavailable": true
+  },
+  "teacher_preservation": {
+    "training_only": true,
+    "historical_report_kl_weight": 0.1,
+    "student_target_loss": "BCE_plus_softDice",
+    "native_teacher": "detached_decoder_prediction"
+  },
+  "checkpoint_recovery": {
+    "original_resume_format": "highres_initial_clip_native_teacher_resume_v2_checkpoint",
+    "one_verified_resume_sha256": "96d48afe993826436f3b799223592c6e1829f6970f25ff9ca2bc2e00692a19fd",
+    "historical_forward_equivalence": false
+  },
+  "evaluation": {
+    "four_target_sequences": [
+      "seq8",
+      "seq11",
+      "seq14",
+      "seq23"
+    ],
+    "historical_exploratory_only": true,
+    "locked_21_sequence_test_completed": false,
+    "score_inherited_by_reconstruction": false
+  }
+}

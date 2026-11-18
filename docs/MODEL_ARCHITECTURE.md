@@ -1,6 +1,6 @@
-# Six-block model architecture
+# Contribution 2 — Lean-SAM2 six-block channel-value architecture
 
-The main learned method is a **structured implementation** of the original
+This is the second distinct research contribution. The primary MedSAM2 method is described in [the medical high-resolution architecture](MEDICAL_HIGHRES_ARCHITECTURE.md). The Lean learned method is a **structured implementation** of the original
 `MultiscaleChannelValueRefinerV1`. Its trainable tensors and source-bound
 legacy implementation remain intact for strict checkpoint compatibility.
 

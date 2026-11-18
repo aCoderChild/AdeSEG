@@ -55,18 +55,20 @@ legacy dependency tree; use the backup for strict run reproduction.
 The Drive reports name local implementation files such as
 `modeling/highres_skip_ablation_v1.py` and
 `scripts/run_medsam2_spatial_video_512_v1.py`. **Those files are not
-present in the full GitHub experiment backup** inspected here. The teacher
-loss is preserved, but a runnable, complete high-resolution teacher adapter
-cannot be reconstructed from the repository alone.
+present in the full GitHub experiment backup** inspected here. The original teacher loss is preserved, and a **newly reconstructed** five-layer adapter is now available in `modeling/medical_highres/`. Its checkpoint geometry is verified, but its historical forward operations and video-training behavior cannot be recovered solely from the repository and saved weights.
 
 ## Verification boundaries
 
 These SHA-256 values are recorded in saved manifests/reports. The actual
-`.pt` weights are **not stored in this Git repository** and were not
-accessible for direct byte hashing in this review. The optional
+`.pt` weights are **not stored in this Git repository** and were not all accessible for direct byte hashing. One **original adapter checkpoint** was retrieved from Drive and its full SHA-256 verified: `96d48afe993826436f3b799223592c6e1829f6970f25ff9ca2bc2e00692a19fd`. It loaded strictly into the reconstructed five-layer adapter (10 tensors, 12,736 parameters). This verifies state geometry, **not** historical forward-output parity. The optional
 `verify_medsam2_latest` loader checks actual bytes before model creation.
 
 Do not call one experiment's Dice an architecture-only gain over another
 unless they share the backbone, checkpoint, initialization, frame set and
 evaluation rule. A file named `latest` does not prove that it is the
 newest available pretrained model release.
+
+
+## C. Active medical reconstruction versus historical evidence
+
+The primary research implementation is now `modeling/medical_highres/`, documented in [the medical architecture](MEDICAL_HIGHRES_ARCHITECTURE.md). It uses the **MedSAM2 Hiera-T/512** family. Early/deep 1×1 projection, 1×1 fusion, depthwise 3×3 spatial convolution, and 1×1 output have the exact verified saved tensor names and shapes. Its chosen GELU activation order and bounded residual multiplier are new assumptions because the original forward source is absent. Do not inherit the target-patient Dice of the old source-bound run. The training-only KL/positive preservation objectives and the decoder pre-hook are implemented with CPU tests, but full video efficacy and original-source equivalence are pending.

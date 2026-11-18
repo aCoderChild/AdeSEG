@@ -1,4 +1,18 @@
-# Offline feature aggregation training
+# Training — two independent research contributions
+
+## Contribution 1: MedSAM2 Hiera-T/512 medical adapter
+
+`python -m training.train_medical_highres_adapter --help`
+
+This new trainer consumes frozen TRAIN-only mask-decoder captures produced by a separately verified original MedSAM2 predictor. A manifest is a JSON list such as:
+
+```json
+[{"split":"train","sequence":"seq2","file":"captures/seq2_frame0.pt"}]
+```
+
+Every `.pt` capture contains exactly `image_embeddings`, `image_pe`, `sparse_prompt_embeddings`, `dense_prompt_embeddings`, `high_res_0`, `high_res_1`, and `target`. The target is for training only. The native pretrained decoder is frozen; the adapter optimizes against BCE, soft Dice and detached native-teacher KL (default weight 0.1). The training script does **not** produce decoder captures or reproduce historical four-frame video training. Strict `MedSAM2_latest.pt` SHA256 checking is mandatory. See [medical architecture](../docs/MEDICAL_HIGHRES_ARCHITECTURE.md).
+
+## Contribution 2: Lean-SAM2 feature aggregation
 
 `python -m training.train_feature_aggregator --help`
 
