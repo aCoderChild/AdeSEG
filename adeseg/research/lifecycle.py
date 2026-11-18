@@ -19,9 +19,11 @@ from .protocol import STAGES, verify_protocol, digest
 
 def run_stage(stage, spec, root, workdir, dry_run=False):
     cfg = spec["stages"][stage]
+    repo_root = Path(__file__).resolve().parents[2]
     argv = [arg.replace("{python}", sys.executable)
                .replace("{workdir}", str(workdir))
                .replace("{protocol_dir}", str(root))
+               .replace("{repo_root}", str(repo_root))
             for arg in cfg["command"]]
     outputs = [(workdir / arg).resolve() for arg in cfg["artifacts"]]
     if any(not path.is_relative_to(workdir.resolve()) for path in outputs):
@@ -38,7 +40,7 @@ def run_stage(stage, spec, root, workdir, dry_run=False):
     env = os.environ.copy()
     env["ADESEG_EXPERIMENT_ID"] = spec["experiment_id"]
     started = datetime.now(timezone.utc).isoformat()
-    proc = subprocess.run(argv, cwd=root, env=env, check=False)
+    proc = subprocess.run(argv, cwd=repo_root, env=env, check=False)
     record = {"stage": stage, "started_utc": started,
               "finished_utc": datetime.now(timezone.utc).isoformat(),
               "command": argv, "exit_code": proc.returncode}
@@ -70,7 +72,8 @@ def main(argv=None):
         return 0
     workdir = (args.workdir / spec["experiment_id"]).resolve()
     stages = STAGES if args.stage == "all" else (args.stage,)
-    if not args.dry_run and workdir.exists() and (workdir / "receipt.json").exists():
+    receipt_path = workdir / f"receipt_{args.stage}.json"
+    if not args.dry_run and receipt_path.exists():
         raise FileExistsError("Receipt already exists; select a fresh output root")
     records = []
     for stage in stages:
@@ -85,7 +88,7 @@ def main(argv=None):
                           and len(records) == len(stages) else "incomplete")}
     if not args.dry_run:
         workdir.mkdir(parents=True, exist_ok=True)
-        destination = workdir / "receipt.json"
+        destination = receipt_path
         destination.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt, indent=2))
     return 0 if receipt["status"] in ("completed", "dry_run") else 2
