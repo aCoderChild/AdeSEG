@@ -17,9 +17,10 @@ unchanged**. This directory is an index rather than a second source tree.
 | `evaluation/segmentation.py` | `adeseg.evaluation.segmentation_metrics` |
 | `evaluation/temporal.py` | `adeseg.evaluation.temporal_metrics` |
 
-Older exploratory projects such as CBAM, region-bias and test-sequence-specific
-crop code remain at their legacy paths to prevent breaking provenance-bound
-runners. They are **not** public main-model components.
+Some region/memory controls required by retained comparators remain at their
+legacy paths. Other exploratory code, including the test-sequence-specific
+crop and unsupported automatic-memory runners, is preserved **only in the
+full experiment backup**. These are not public model components.
 
 Do not copy their source into the active adapters, silently rename it, or
 treat an old exploratory result as an external holdout measurement.

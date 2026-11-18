@@ -16,7 +16,8 @@ place would break that evidence. Their public, short names are under:
 - `adeseg/inference/`: decoder hook and memory routing
 - `adeseg/evaluation/`: segmentation and temporal metrics
 
-`seq23_viewport.py` is a **retrospectively selected evaluation crop**,
+The retired `seq23_viewport.py` is a **retrospectively selected evaluation crop**
+archived in `backup/experiment-full-20261118`, not in active `main` and
 not a trainable model feature. Region-bias and CBAM prototypes are exploratory
 controls, not active scientific contributions. Source-bound files are indexed
 in `legacy/original_source_bound_modules/README.md`.

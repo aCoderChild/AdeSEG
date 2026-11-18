@@ -1,0 +1,5 @@
+{
+  "sam2_hiera_bplus_sha256": "a2345aede8715ab1d5d31b4a509fb160c5a4af1970f199d9054ccfb746c004c5",
+  "model": "SAM2.1 Hiera-B+",
+  "purpose": "Checkpoint identity for the retained author-model comparison; historical experiment settings are in the full backup."
+}

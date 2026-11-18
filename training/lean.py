@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from adeseg.adapters.multiscale_channel_attention import MultistageFeatureAggregator
 from modeling.cmsa_boundary_training_loss import cmsa_boundary_loss
-from modeling.teacher_preservation import positive_preservation_penalty
+from adeseg.losses.foreground_preservation import positive_preservation_penalty
 import modeling.multiscale_channel_value_refiner_v1 as model_source
 
 
@@ -54,7 +54,7 @@ def load_training_capture(path, device):
     return {k: v.to(device=device, dtype=torch.float32) for k, v in x.items()}
 
 
-def main():
+def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--manifest", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
@@ -66,7 +66,7 @@ def main():
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--teacher-weight", type=float, default=0.0)
     p.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
-    a = p.parse_args()
+    a = p.parse_args(argv)
     if a.epochs < 1 or not 0 < a.lr < 1 or not 0 <= a.teacher_weight <= 100:
         p.error("Invalid optimizer or teacher-preservation setting")
     for value in (a.backbone_sha256, a.feature_pipeline_sha256):

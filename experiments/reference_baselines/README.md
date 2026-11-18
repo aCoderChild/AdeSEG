@@ -1,24 +1,25 @@
-# Reference-model comparisons
+# Reference models
 
-Use `python -m scripts.evaluate_reference_backbones --help` for SAM2, Lean-SAM2, SAM2Long and SAMURAI. Use `python -m scripts.evaluate_cmsa_net --help` for the CMSA-Net author baseline. The pinned author repos are submodules, and their different `sam2` packages may require isolated Python processes.
+| Comparison | Source | Relevant caution |
+|---|---|---|
+| SAM2, Lean-SAM2, SAM2Long, SAMURAI | Pinned Git submodules | Prompt policies and temporal information access differ |
+| CMSA-Net | Pinned author submodule | Active comparison exports image-only predictions; historical protocol used GT for image sizing |
+| Corrected Lean 0.742071 | [Saved 21-sequence automatic-prompt run](modified_lean_742.md) | **Not** a learned adapter, not MedSAM2 |
 
-An archived Lean-SAM2 author baseline scored **0.73446** mean Dice over 21 GT-mask-initialized PolypGen videos. This is neither a learned aggregation score nor a final independent test.
+The retained `scripts.compare_models` runner uses
+`experiments/reference_baselines/checkpoint.json` as its B+ checkpoint
+identity setting. This **replaces** the original umbrella research recipe
+and means newly generated source-bound receipts differ from historic runs.
 
-[Original audited result](https://drive.google.com/drive/folders/1DmkKRrGmEcJQUp0Pb0fp5u5CS0DSo0B5).
+The original pinned CMSA-Net test loader provided both image and GT arrays.
+The new `scripts.evaluate_cmsa` runner supplies zero labels, avoids opening
+GT mask bytes during inference, and sizes output from its RGB source frames.
+Ground truth is accessed only **after predictions are written** for scoring.
+This is a new comparison method and old Dice values should not be inherited.
 
-**Separate 21-sequence automatic-prompt Lean result:** 0.742071 Dice on the SAM2.1 Hiera-B+ with indexed RoPE and a blocking MPS pointer correction. See [modified Lean-SAM2 benchmark](modified_lean_742.md). This is not MedSAM2-latest or learned channel-value aggregation.
+**Results:** a historical GT-initialized author Lean baseline scored
+0.73446 mean present Dice over 21 eligible videos. The distinct corrected,
+automatically initialized author Lean run scored **0.742071** patient-macro
+Dice. They are not directly matched experiments.
 
-## Data-flow caution
-
-The retained CMSA-Net comparison constructs a dataset from both frame images and mask paths, with `img_only=False`. The exact author loop must be checked to establish that target labels do not enter prediction. Its prompt policy also differs from the SAM2-family baselines. Use `python -m scripts.compare_models --help` and `python -m scripts.evaluate_cmsa --help` for the retained runners.
-
-## New GT-free CMSA export protocol
-
-The old pinned author test loop takes images and label tensors and uses a GT
-path solely for prediction output dimensions; its model computation and
-reference updates use images and predictions, not GT values. The active
-`scripts.evaluate_cmsa` now uses `scripts/run_cmsa_image_only.py`: labels
-are zeros, no GT mask files are opened in the inference dataset, and saved
-prediction dimensions come from RGB image dimensions. The original vendor
-commit and historical runner remain unchanged. **This is a protocol change**:
-old CMSA Dice numbers are not inherited automatically and must be rerun.
+[Original GT-initialized comparison](https://drive.google.com/drive/folders/1DmkKRrGmEcJQUp0Pb0fp5u5CS0DSo0B5).

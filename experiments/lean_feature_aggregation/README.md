@@ -1,27 +1,25 @@
-# Lean feature aggregation
+# Lean-SAM2 multi-stage feature aggregation
 
-**Contribution 2:** a learned six-stage feature refiner on the
-**Lean-SAM2 Hiera-B+** backbone. It is different from MedSAM2 Hiera-T.
+**Contribution candidate:** learned fusion of early FPN, deep
+memory-conditioned features and native mask logits via foreground/background
+channel-value attention and residual mask decoding.
 
-## What changes?
+- Backbone: Lean-SAM2 / SAM2.1 Hiera-B+; no MedSAM2 checkpoint.
+- Trainable module: `adeseg.adapters.multiscale_channel_attention`.
+- Control settings: global, foreground, FG/BG and diagonal channel mixing.
+- Runtime: output-only or future-memory routing under source-verified leases.
+- Objective: source-verified frozen TRAIN captures with optional positive
+  teacher preservation.
 
-Early FPN features, deep memory-conditioned features, and native mask logits
-are fed through projection, context pooling, region-aware Q/K/V channel
-attention, feature fusion, foreground/background contrast, and a residual mask
-decoder. The original source-bound parameter registration remains intact.
+[Six-stage architecture](../../docs/ARCHITECTURE.md) ·
+[Training](../../training/README.md)
 
-**Public API:** `adeseg.adapters.multiscale_channel_attention`.
-**Training:** `python -m scripts.train_lean --help`.
-**Memory routing:** `adeseg.inference.lean_memory_routing`.
+The structured class inherits the source-verified original model; it
+does not demonstrate a performance improvement by renaming or splitting
+a class. The recorded 0.742071 Dice was produced by a *different*
+compatibility-corrected Lean author baseline **without** this adapter.
+No complete paired 21-video efficacy result is established for the
+learned aggregator.
 
-Original checkpoint/source contract:
-`modeling/multiscale_channel_value_refiner_v1.py`.
-Original frozen method definition:
-`protocols/MULTISCALE_CHANNEL_VALUE_REFINER_V1.md`.
-
-## Evidence
-
-Small historical pilots had mixed outcomes; **there is no established
-21-sequence improvement from this learned module**. The verified
-0.742071 patient-macro Dice belongs to a *separate* corrected author
-Lean-SAM2 baseline: [see exact run](../reference_baselines/modified_lean_742.md).
+Exact original experimental definitions live in
+[the complete backup](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118).

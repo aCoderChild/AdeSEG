@@ -427,8 +427,8 @@ def main():
             or reference["signature"] != {**identity, "method": "sam2"}
         ):
             raise ValueError("Zero-bias/native reference identity or delivery mismatch")
-    protocol = json.loads((ROOT / "protocols/memory_token_regions.json").read_text())
-    if identity["checkpoint_sha256"] != protocol["model"]["checkpoint_sha256"]:
+    benchmark = json.loads((ROOT / "experiments/reference_baselines/checkpoint.json").read_text())
+    if identity["checkpoint_sha256"] != benchmark["sam2_hiera_bplus_sha256"]:
         raise ValueError("Unregistered B+ checkpoint")
     if not args.smoke:
         if args.validation_dir is None:

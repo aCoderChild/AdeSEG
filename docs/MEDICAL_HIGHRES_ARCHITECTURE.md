@@ -92,7 +92,7 @@ confidence gates or memory writes during evaluation.
 - `modeling/medical_highres/integration.py` — reversible native decoder hook
 - `modeling/medical_highres/teacher_loss.py` — supervised/teacher objectives
 - `training/medical_highres_training.py` — frozen-decoder training step
-- `training/train_medical_highres_adapter.py` — new offline-capture CLI
+- `training/medical.py` — new offline-capture CLI
 - `tests/test_medical_highres_*.py` — isolated CPU regression tests
 
 The checkpoint loader authenticates weights and module shapes. **It cannot

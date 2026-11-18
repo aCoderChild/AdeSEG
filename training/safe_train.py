@@ -1,48 +1,54 @@
-"""Shared strict split check for public training command wrappers."""
+"""Small, fail-closed entrypoint for TRAIN-only capture provenance.
+
+Both public CLI commands use this before and after their model trainer.
+A declared source group is not independent proof of patient identity.
+"""
 import argparse
-from contextlib import contextmanager
 import json
 from pathlib import Path
 import sys
 
-from .split_guard import sha256, validate_train_sources
+from training.split_guard import sha256, validate_train_sources
 
 
-@contextmanager
-def checked_arguments(*, mode):
-    # Keep original training implementations/source hashes untouched.
-    p = argparse.ArgumentParser(add_help=False)
-    p.add_argument("--split-file", type=Path)
-    p.add_argument("--manifest", type=Path)
-    p.add_argument("--output", type=Path)
-    args, rest = p.parse_known_args()
-    if "--help" in rest or "-h" in rest:
-        print("PUBLIC RESEARCH RUN: --split-file PATH is REQUIRED.")
-        print("Each training manifest row requires source_group and capture_sha256.")
-        print("The frozen split file must have train, dev and test arrays.")
-        yield None
+def run_training(trainer, *, mode, argv=None):
+    if mode not in ("med", "lean"):
+        raise ValueError("Expected med or lean trainer")
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    guard = argparse.ArgumentParser(add_help=False)
+    guard.add_argument("--split-file", type=Path)
+    guard.add_argument("--manifest", type=Path)
+    guard.add_argument("--output", type=Path)
+    args, remaining = guard.parse_known_args(arguments)
+    if "-h" in remaining or "--help" in remaining:
+        print("Training requires --split-file, source_group and capture_sha256.")
+        trainer(["--help"])
         return
     if not args.split_file or not args.manifest or not args.output:
-        p.error("--split-file, --manifest and --output are required")
-    field = "file" if mode == "med" else "tensor_file"
-    receipt = validate_train_sources(args.manifest, args.split_file, file_field=field)
+        guard.error("--split-file, --manifest and --output are required")
+    file_field = "file" if mode == "med" else "tensor_file"
+    expected = validate_train_sources(
+        args.manifest, args.split_file, file_field=file_field
+    )
     output = args.output.expanduser().resolve()
-    sidecar = Path(str(output) + ".split.json")
-    if sidecar.exists():
-        p.error("Refusing to overwrite an existing split audit")
-    prior = sys.argv
-    # Restore the original CLI args except the *new* split-lock flag.
-    sys.argv = [prior[0], "--manifest", str(args.manifest),
-                "--output", str(args.output), *rest]
-    try:
-        yield (output, sidecar, receipt)
-    finally:
-        sys.argv = prior
-
-
-def save_receipt(info):
-    output, sidecar, record = info
+    if output.exists() or Path(str(output) + ".split.json").exists():
+        guard.error("Training checkpoint or source receipt already exists")
+    forward = [
+        "--manifest", str(args.manifest), "--output", str(args.output),
+        *remaining,
+    ]
+    trainer(forward)
     if not output.is_file():
-        raise FileNotFoundError("No training checkpoint was created")
-    record["trained_checkpoint_sha256"] = sha256(output)
-    sidecar.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        raise RuntimeError("Trainer did not create the expected checkpoint")
+    observed = validate_train_sources(
+        args.manifest, args.split_file, file_field=file_field
+    )
+    if observed != expected:
+        raise RuntimeError(
+            "Training inputs/split records changed during the run; checkpoint is unverified"
+        )
+    sidecar = Path(str(output) + ".split.json")
+    receipt = dict(observed)
+    receipt["trained_checkpoint_sha256"] = sha256(output)
+    receipt["training_method"] = mode
+    sidecar.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")

@@ -1,16 +1,10 @@
-"""Train MedSAM2 with a mandatory, frozen source-group partition.
-
-Use --split-file train_groups.json alongside original training arguments.
-"""
-from training.safe_train import checked_arguments, save_receipt
-from training.train_medical_highres_adapter import main as training_main
+"""Train MedSAM2 high-resolution refinement with sealed capture-group checks."""
+from training.medical import main as trainer
+from training.safe_train import run_training
 
 
 def main():
-    with checked_arguments(mode="med") as proof:
-        training_main()
-        if proof is not None:
-            save_receipt(proof)
+    run_training(trainer, mode="med")
 
 
 if __name__ == "__main__":

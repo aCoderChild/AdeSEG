@@ -53,11 +53,11 @@ equation and training protocol are an explicit reconstruction and must NOT
 inherit the historical scores.
 
 For architecture and limitations, see
-[Medical adapter architecture](../../docs/MEDICAL_HIGHRES_ARCHITECTURE.md).
+[Model architecture and limits](../../docs/ARCHITECTURE.md).
 
 ## New experiment pipeline
 
-`training/train_medical_highres_adapter.py` can train this new adapter from
+`training/medical.py` can train this new adapter from
 frozen, TRAIN-only decoder captures and the verified MedSAM2-latest backbone.
 It uses teacher KL weight 0.1 by default and records distinct new hashes.
 It is not the original four-frame video clip pipeline. To evaluate it, conduct

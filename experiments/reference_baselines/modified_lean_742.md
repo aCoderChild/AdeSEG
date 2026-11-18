@@ -23,7 +23,7 @@ the MedSAM2-latest checkpoint.
 `modeling/lean_indexed_spatial_rope_mps.py`,
 `modeling/lean_mps_blocking_pointer_position.py`, the pinned author
 submodule and bypass weights. Do not treat the contemporary
-`scripts/evaluate_lean_sam2.py` (GT-initialized benchmark) as this run.
+`scripts/evaluate_lean.py` (GT-initialized benchmark) as this run.
 
 The purpose of preserving this result is reproducibility, not to claim
 that an untested six-block feature refiner already achieves Dice 0.742.

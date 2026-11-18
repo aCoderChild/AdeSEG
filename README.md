@@ -1,104 +1,85 @@
 # AdeSEG
 
-Video segmentation research with **two separate model contributions**:
+**Two experimental extensions for video segmentation**, with separate
+pretrained backbones, trainable adapters, and evaluation procedures.
 
-1. **MedSAM2 (Hiera-T/512):** high-resolution decoder skip adapter with a training-only teacher KL loss.
-2. **Lean-SAM2 (Hiera-B+):** multi-scale feature aggregation with channel Q/K/V attention.
+| Research direction | Pretrained model | What we add | Evidence |
+|---|---|---|---|
+| **1. Medical high-resolution refinement** | MedSAM2 Hiera-T / 512 | Trainable high-resolution decoder-skip adapter + *training-only* native-teacher KL | Reconstructed adapter; four-sequence pilots mixed, **not** a validated 21-sequence improvement |
+| **2. Multi-stage feature aggregation** | Lean-SAM2 / SAM2.1 Hiera-B+ | Region-conditioned channel Q/K/V feature fusion + residual mask prediction | Source-compatible implementation; **no verified 21-sequence learned-adapter gain** |
 
-The original implementations and source-hash contracts are retained. The
-medical adapter is a **reconstruction**, not a verified reproduction of the
-missing original forward source.
+Teacher KL is a standard distillation objective; its possible contribution
+here is **where and how it is applied**, not the invention of KL divergence.
+These hypotheses still need controlled ablations and independent evaluation.
 
-## Project layout
+[**Model architecture and novelty**](docs/ARCHITECTURE.md) ·
+[Experiment evidence](experiments/README.md) ·
+[Checkpoint identities](docs/CHECKPOINT_PROVENANCE.md)
+
+## Active project structure
 
 ```text
-adeseg/
-├── backbones/
-│   ├── medsam2.py
-│   └── lean_sam2.py
-├── adapters/
-│   ├── high_resolution_skip.py
-│   └── multiscale_channel_attention.py
-├── losses/
-│   ├── teacher_kl.py
-│   ├── foreground_preservation.py
-│   └── segmentation.py
-├── memory/
-│   ├── temporal_anchors.py
-│   └── spatial_position_encoding.py
-├── inference/
-│   ├── medical_decoder_integration.py
-│   └── lean_memory_routing.py
-└── evaluation/
-    ├── segmentation_metrics.py
-    └── temporal_metrics.py
-
-experiments/
-├── medsam2_high_resolution/
-├── lean_feature_aggregation/
-├── reference_baselines/
-└── exploratory_ablations/
-
-training/      # Source-bound training implementations
-scripts/       # Short command-line entry points and legacy runners
-modeling/      # Original modules; kept at their checkpoint-bound paths
-protocols/     # Frozen experiment settings
-legacy/        # Index of original filenames and backups
-tests/         # Unit and interface checks
-external/      # Pinned third-party implementations
+AdeSEG/
+├── adeseg/
+│   ├── backbones/              # MedSAM2 and Lean-SAM2 (different checkpoints)
+│   ├── adapters/               # high_resolution_skip, multiscale_channel_attention
+│   ├── losses/                 # teacher_kl, foreground_preservation, segmentation
+│   ├── memory/                 # temporal_anchors, spatial_position_encoding
+│   ├── inference/              # decoder hook, Lean memory routing
+│   └── evaluation/             # segmentation and temporal metrics
+├── experiments/
+│   ├── medsam2_high_resolution/
+│   ├── lean_feature_aggregation/
+│   ├── reference_baselines/
+│   └── exploratory_ablations/
+├── training/                   # lean.py, medical.py, split_guard.py
+├── scripts/                    # short train/evaluate/compare/validate commands
+├── tests/
+├── docs/
+├── datasets/
+├── external/                   # pinned author implementations
+└── legacy/                     # historical provenance index
 ```
 
-See [public API](adeseg/README.md), [experiment registry](experiments/README.md),
-and [checkpoint identities](docs/CHECKPOINT_PROVENANCE.md).
+The `modeling/` and `evaluation/` roots remain as **implementation
+compatibility modules**, not alternative research contributions. They are
+referenced by source-hash-bound checkpoints and the public `adeseg/` APIs.
+The old `protocols/` directory and experimental-only runners are absent
+from active `main`; exact original files live in the immutable Git backup.
 
-## Commands
+## Quick commands
 
 ```bash
 git clone --recurse-submodules https://github.com/aCoderChild/AdeSEG.git
 cd AdeSEG
 python -m pip install -r requirements.txt
-python -m pytest -q tests/
 
-python -m scripts.train_med --help       # Reconstructed MedSAM2 adapter
-python -m scripts.train_lean --help      # Lean multiscale aggregator
-python -m scripts.compare_models --help  # SAM2, Lean, SAM2Long, SAMURAI
-python -m scripts.evaluate_cmsa --help   # CMSA-Net image-only inference
-python -m scripts.evaluate_lean --help   # GT-initialized Lean baseline
-python -m scripts.validate_results --help # Rescore saved Lean/native masks
+python -m scripts.train_med --help
+python -m scripts.train_lean --help
+python -m scripts.compare_models --help
+python -m scripts.evaluate_cmsa --help
+python -m scripts.evaluate_lean --help
+python -m scripts.validate_results --help
+python -m pytest -q tests/
 ```
 
-The public trainers now require `--split-file`, explicit `source_group`
-and `capture_sha256` for every frozen training capture. They refuse
-cross-split group overlap and modified capture bytes, writing a split-receipt
-sidecar tied to the checkpoint. These checks still cannot independently verify
-that user-provided source groups correspond to actual distinct patients. The new CMSA-Net comparison runs image-only transforms, supplies dummy
-labels to the pinned author's loop, and exports prediction sizes using RGB
-source images. The historical runner is preserved; the new protocol must be
-re-evaluated rather than inheriting old scores.
+Training from frozen feature captures requires `--split-file`, a recorded
+`source_group` and a SHA256 for **each** capture. These safeguards validate
+file integrity and declared disjointness; they do not independently prove
+different patient identities. See [training](training/README.md).
 
-## Historical reference
+## Reference benchmark (not a learned-adapter contribution)
 
-The corrected, automatically initialized author Lean-SAM2 run achieved
-**0.742071 patient-macro Dice** on 21 eligible PolypGen sequences using
-indexed MPS spatial RoPE and blocking pointer transfer, **without** either
-learned adapter. [Exact archived result](https://drive.google.com/file/d/1jjqesyv8RXcUI9JN5gcoVVnvSFn9u7O3/view).
+An archived, compatibility-corrected **author Lean-SAM2** run obtained
+**0.742071 patient-macro present-frame Dice** over 21 initialized PolypGen
+sequences with automatically initialized masks, indexed spatial RoPE and an
+MPS pointer-transfer correction. It did **not** contain the two learned
+adapters above. [Original result](https://drive.google.com/file/d/1jjqesyv8RXcUI9JN5gcoVVnvSFn9u7O3/view).
 
-MedSAM2-latest is a separate **Hiera-T/512** checkpoint; it must not be
-confused with Lean-SAM2's Hiera-B+ weights.
+**Clinical limitation:** PolypGen colonoscopy frames are a *proxy*, not a
+nasopharyngoscopy/adenoid validation cohort. Previously inspected sequences
+must not be presented as untouched independent tests.
 
-## What do `v1` and `audit` mean?
-
-- **`v1`:** “version 1” of an old experiment or saved protocol. The old name
-  is retained only when changing it would break checkpoint/source hashes or
-  result provenance. New active interfaces do **not** use version suffixes.
-- **`audit`:** independently re-check saved masks, scores, frame coverage and
-  prompt records. The new commands call this **`validate`** (for example,
-  `scripts/validate_results.py`).
-
-The original experiment source and scores remain available in
-[backup/experiment-full-20261118](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118).
-
-**Scope:** PolypGen is a colonoscopy proxy, not clinical adenoid data.
-Results from previously inspected sequences are exploratory. The GitHub
-Actions runner is currently failing before tests start; full video
-reproduction and independent-test generalization are not verified.
+**Runtime status:** GitHub-hosted runners have failed before any CI steps
+started. Static source checks do not establish successful PyTorch execution,
+checkpoint loading or full-video Dice reproduction.

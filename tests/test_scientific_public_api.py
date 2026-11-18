@@ -1,7 +1,7 @@
 """CPU smoke tests of the clean scientific research interfaces."""
 import torch
 from modeling.feature_aggregation import MultistageFeatureAggregator
-from modeling.teacher_preservation import positive_teacher_penalty, positive_preservation_penalty
+from adeseg.losses.foreground_preservation import positive_teacher_penalty, positive_preservation_penalty
 
 def test_feature_aggregator_preserves_native_logits_at_initialization():
     torch.manual_seed(9)

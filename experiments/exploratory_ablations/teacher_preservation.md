@@ -1,9 +1,10 @@
-# Teacher-preservation training objectives
+# Archived positive-preservation objective
 
-Use `modeling/teacher_preservation.py` for the **training-only** positive-teacher consistency loss, one-sided foreground preservation loss, and deterministic training-logit expansion.
+The project also investigated a one-sided positive-teacher loss using the
+*training* mask to preserve confident teacher positives. This is distinct
+from Bernoulli teacher KL. Both are training-only optimizers, not test-time
+segmentation features or ground-truth-dependent prompt selectors.
 
-The scientifically named training script `training/train_feature_aggregator.py` accepts `--teacher-weight`. This is a **new combination** of the learned channel-value aggregator and a prior preservation objective; the archived teacher studies have not been reproduced by the new runner.
-
-Historical preservation protocol: `protocols/SOURCE_GROUP_PRESERVATION_V1.md`. No inference-time GT, inference-time label-derived gate or clinical claim is introduced.
-
-This older positive-preservation objective is **not** the same as the native MedSAM2 Bernoulli teacher-KL loss (`adeseg.losses.teacher_kl`). Both are training-only; no GT-derived inference gating is permitted.
+The original experimental recipes and frozen source versions are preserved in
+[the full experiment backup](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118).
+The current public API is `adeseg.losses.foreground_preservation`.

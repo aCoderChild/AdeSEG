@@ -1,16 +1,10 @@
-"""Train Lean aggregation with a mandatory, frozen source-group partition.
-
-Use --split-file train_groups.json alongside original training arguments.
-"""
-from training.safe_train import checked_arguments, save_receipt
-from training.train_feature_aggregator import main as training_main
+"""Train Lean-SAM2 learned feature aggregation with sealed capture-group checks."""
+from training.lean import main as trainer
+from training.safe_train import run_training
 
 
 def main():
-    with checked_arguments(mode="lean") as proof:
-        training_main()
-        if proof is not None:
-            save_receipt(proof)
+    run_training(trainer, mode="lean")
 
 
 if __name__ == "__main__":
