@@ -28,7 +28,7 @@
 | `modeling/spatial_position_correction.py` | `lean_indexed_spatial_rope.py` and `lean_indexed_spatial_rope_mps.py` | Retained-token spatial RoPE correction |
 | `modeling/rotary_position_encoding.py` | `lean_rope_cpu_repeat_fix.py` | CPU rotary-frequency repeat-order correction |
 
-Legacy files remain **unchanged** when archival scripts, checkpoint digests and source-hash receipts require their original paths. Descriptive entry points in `scripts/` call their original, pinned implementation. The newly named `feature_aggregation.py` is a **new source version**, not a hash-identical rename of the historical file.
+Legacy files remain **unchanged** when archival scripts, checkpoint digests and source-hash receipts require their original paths. Descriptive entry points in `scripts/` call their original, pinned implementation. The descriptive `feature_aggregation.py` re-exports the **exact original model class**, so existing runtime type checks and trained-checkpoint source hashes remain compatible. The original implementation's bytes are not renamed or altered.
 
 ## Get started
 
