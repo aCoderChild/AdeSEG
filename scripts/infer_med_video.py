@@ -1,0 +1,151 @@
+"""Reproducible native vs reconstructed-adapter MedSAM2 video inference.
+
+Initialization is ORACLE FIRST-PRESENT MASK (one GT mask per video). This is
+NOT automatic segmentation. All later frames are propagated without GT prompts.
+Evaluate the saved predictions separately with evaluation.temporal.
+"""
+from __future__ import annotations
+import argparse
+from contextlib import nullcontext
+import hashlib
+import json
+from pathlib import Path
+import tempfile
+
+import numpy as np
+from PIL import Image
+import torch
+
+from adeseg.backbones.medsam2 import (
+    build_verified_medsam2_latest, MEDSAM2_LATEST_SHA256
+)
+from datasets.io import load_label_mask
+from datasets.video import load_manifest, stage_frames
+from modeling.medical_highres import attach_medical_highres_adapter
+from modeling.medical_highres.checkpoints import load_reconstructed_medical_adapter
+
+def sha256(path):
+    h = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024*1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def oracle_first_present(frames, label_id):
+    """Select first annotated present mask; never use GT to re-prompt later."""
+    for index, frame in enumerate(frames):
+        mask = load_label_mask(frame.mask_path, [label_id]) == label_id
+        if mask.any():
+            return index, mask
+    return None, None
+
+def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None):
+    prompt, initial = oracle_first_present(frames, label_id)
+    if prompt is None:
+        return {"status": "unpromptable", "frames": len(frames), "predicted": 0}
+    destination = output / "predictions" / frames[0].video_id
+    destination.mkdir(parents=True, exist_ok=False)
+    rows = []
+    with tempfile.TemporaryDirectory(prefix="adeseg_medsam2_") as tmp:
+        stage_frames(frames, Path(tmp))
+        state = predictor.init_state(
+            video_path=tmp, offload_video_to_cpu=True, offload_state_to_cpu=False
+        )
+        predictor.add_new_mask(
+            state, frame_idx=prompt, obj_id=label_id,
+            mask=torch.from_numpy(initial)
+        )
+        scope = (attach_medical_highres_adapter(predictor, adapter)
+                 if adapter is not None else nullcontext())
+        with scope:
+            for index, object_ids, logits in predictor.propagate_in_video(
+                state, start_frame_idx=prompt, reverse=False
+            ):
+                if object_ids != [label_id]:
+                    raise RuntimeError("Unexpected object IDs in MedSAM2 propagation")
+                if index == prompt:
+                    continue  # Oracle prompt must not be counted as prediction
+                if index != prompt + len(rows) + 1:
+                    raise RuntimeError("Nonconsecutive or duplicate prediction index")
+                if tuple(logits.shape) != (1, 1, *initial.shape):
+                    raise RuntimeError("Video output shape differs from original annotation")
+                mask = logits[0, 0].detach().float().cpu().numpy()
+                if not np.isfinite(mask).all():
+                    raise FloatingPointError("Nonfinite MedSAM2 logits")
+                path = destination / (frames[index].image_path.stem + ".png")
+                if path.exists():
+                    raise FileExistsError(path)
+                Image.fromarray((mask > 0).astype(np.uint8) * 255).save(path)
+                rows.append({
+                    "frame_index": frames[index].frame_index,
+                    "source_image": str(frames[index].image_path),
+                    "prediction_file": str(path.relative_to(output)),
+                    "prediction_sha256": sha256(path),
+                })
+        if len(rows) != len(frames) - prompt - 1:
+            raise RuntimeError("Prediction coverage incomplete")
+    return {
+        "status": "completed", "frames": len(frames), "predicted": len(rows),
+        "prompt_source_index": frames[prompt].frame_index,
+        "prompt_position": prompt, "prompt_source": "oracle_gt_mask",
+        "predictions": rows,
+    }
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--split", choices=("dev","test"), required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--model-config", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--device", choices=("cpu","mps","cuda"), default="cpu")
+    parser.add_argument("--label-id", type=int, default=1)
+    parser.add_argument("--adapter-checkpoint", type=Path)
+    parser.add_argument("--adapter-sha256")
+    args = parser.parse_args(argv)
+    if args.label_id < 1:
+        parser.error("--label-id must be a positive annotation label")
+    if bool(args.adapter_checkpoint) != bool(args.adapter_sha256):
+        parser.error("Adapter checkpoint and SHA256 must be supplied together")
+    if args.output.exists():
+        parser.error("Refusing to overwrite existing output")
+    videos = load_manifest(args.manifest.resolve(strict=True), args.split)
+    # Do not build a video predictor from an unverified or silently changed backbone.
+    predictor = build_verified_medsam2_latest(
+        args.checkpoint, model_cfg=args.model_config,
+        device=args.device, apply_postprocessing=False
+    ).eval()
+    predictor.fill_hole_area = 0
+    adapter = None
+    if args.adapter_checkpoint:
+        adapter, _ = load_reconstructed_medical_adapter(
+            args.adapter_checkpoint, expected_sha256=args.adapter_sha256,
+            backbone_sha256=MEDSAM2_LATEST_SHA256,
+            model_config=args.model_config
+        )
+        adapter = adapter.to(args.device)
+    args.output.mkdir(parents=True)
+    results = {}
+    for video_id, frames in sorted(videos.items()):
+        results[video_id] = infer_sequence(
+            predictor, frames, args.output,
+            label_id=args.label_id, adapter=adapter
+        )
+    record = {
+        "protocol": "oracle_first_present_mask_post_prompt_v1",
+        "split": args.split, "manifest_sha256": sha256(args.manifest),
+        "backbone_sha256": MEDSAM2_LATEST_SHA256, "model_config": args.model_config,
+        "adapter_sha256": args.adapter_sha256,
+        "label_id": args.label_id, "device": args.device,
+        "postprocessing": "no_hole_filling",
+        "results": results,
+    }
+    (args.output / "run.json").write_text(json.dumps(record, indent=2) + "\n")
+    print(json.dumps({
+        "output": str(args.output), "videos": len(results),
+        "completed": sum(x["status"] == "completed" for x in results.values()),
+        "initialization": "oracle_first_present_mask (NOT automatic)",
+    }, indent=2))
+
+if __name__ == "__main__":
+    main()

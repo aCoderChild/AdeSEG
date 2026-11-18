@@ -46,3 +46,30 @@ training checkpoint payloads. **Exact resume remains unimplemented**: an
 optimizer state saved to a file does not by itself reproduce the interrupted
 data order, epoch position, device RNG, libraries, or GPU kernels. Do not
 claim resumable training until a tested resume command is added.
+
+## Native MedSAM2 oracle-initialized video evaluation
+
+A model-specific real predictor runner now exists:
+
+```bash
+python -m scripts.infer_med_video \
+  --manifest /path/to/frames.jsonl --split test \
+  --checkpoint /path/to/MedSAM2_latest.pt \
+  --model-config sam2.1_hiera_t512.yaml \
+  --output /path/to/native_run --device cuda
+
+# Run adapter under the SAME input frames/first-GT-mask prompt:
+python -m scripts.infer_med_video \
+  --manifest /path/to/frames.jsonl --split test \
+  --checkpoint /path/to/MedSAM2_latest.pt \
+  --model-config sam2.1_hiera_t512.yaml \
+  --adapter-checkpoint /path/to/adapter.pt \
+  --adapter-sha256 <exact-file-sha256> \
+  --output /path/to/adapter_run --device cuda
+```
+
+`predictions/<video_id>/<image_stem>.png` excludes the oracle prompt;
+`run.json` records the prompt's source frame and image-hash provenance.
+This runner is strictly **GT-mask oracle initialized** (first annotated
+foreground), not automatic; do not conflate it with detector-driven results.
+Actual GPU checkpoint execution remains to be verified in a supported runtime.
