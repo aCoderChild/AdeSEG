@@ -13,7 +13,7 @@ TRACKS = ("medsam2_highres", "lean_sam2_aggregation", "reference_baseline")
 PROMPTS = ("oracle_mask", "oracle_box", "automatic_box", "automatic_mask", "text", "none")
 REQUIRED = {"schema_version", "experiment_id", "track", "dataset", "split",
             "initialization", "checkpoint", "stages"}
-OPTIONAL = {"hypothesis", "seed", "notes"}
+OPTIONAL = {"hypothesis", "seed", "notes", "evaluation"}
 
 def digest(path: Path) -> str:
     h = hashlib.sha256()
@@ -82,6 +82,26 @@ def load_protocol(path):
             raise ValueError(f"stages.{stage}.artifacts must be a string list")
         if command and not cfg["artifacts"]:
             raise ValueError(f"stages.{stage}: executable stages must declare artifacts")
+    if "evaluation" in spec:
+        evaluation = spec["evaluation"]
+        fields = {"resolution_hw", "mask_threshold", "postprocessing",
+                  "frame_policy", "aggregation", "prompt_frame_manifest_sha256"}
+        _require_keys(evaluation, fields, label="evaluation")
+        size = evaluation["resolution_hw"]
+        if (not isinstance(size, list) or len(size) != 2
+                or any(type(v) is not int or v <= 0 for v in size)):
+            raise ValueError("evaluation.resolution_hw must be two positive integers")
+        if (type(evaluation["mask_threshold"]) not in (int, float)
+                or not 0 <= evaluation["mask_threshold"] <= 1):
+            raise ValueError("evaluation.mask_threshold must be in [0,1]")
+        for field in ("postprocessing", "frame_policy", "aggregation"):
+            if not isinstance(evaluation[field], str) or not evaluation[field].strip():
+                raise ValueError(f"evaluation.{field} must be a nonempty string")
+        sha = evaluation["prompt_frame_manifest_sha256"]
+        if not isinstance(sha, str) or len(sha) != 64 or any(
+            c not in "0123456789abcdef" for c in sha
+        ):
+            raise ValueError("evaluation.prompt_frame_manifest_sha256 must be SHA256")
     return path, spec
 
 def verify_protocol(path):
@@ -94,7 +114,10 @@ def verify_protocol(path):
 
 def comparison_key(spec):
     """Conditions that must match for a causal paired comparison."""
+    if "evaluation" not in spec:
+        raise ValueError("Paired comparisons require a fully specified evaluation protocol")
     return (
+        json.dumps(spec["evaluation"], sort_keys=True),
         spec["dataset"]["manifest"]["sha256"],
         spec["checkpoint"]["sha256"], spec["split"],
         spec["initialization"]["source"],

@@ -27,7 +27,7 @@ def paired_comparison(baseline_protocol, candidate_protocol, baseline_csv, candi
     _, base = load_protocol(baseline_protocol)
     _, candidate = load_protocol(candidate_protocol)
     if comparison_key(base) != comparison_key(candidate):
-        raise ValueError("Protocol mismatch: dataset, backbone checkpoint, split or prompt conditions differ")
+        raise ValueError("Protocol mismatch: evaluation, dataset, backbone checkpoint, split or prompt conditions differ")
     if base["track"] != candidate["track"]:
         raise ValueError("Ablations require the same backbone/research track")
     if n_bootstrap < 100:

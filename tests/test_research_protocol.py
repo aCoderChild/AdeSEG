@@ -22,6 +22,12 @@ def make_protocol(tmp_path, experiment_id="baseline", prompt="oracle_mask"):
                 "path": "manifest.jsonl", "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest()}},
         "checkpoint": {"path": "backbone.pt", "sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest()},
         "split": "test", "initialization": {"source": prompt, "prompt_budget": 1},
+        "evaluation": {
+            "resolution_hw": [512, 512], "mask_threshold": 0.5,
+            "postprocessing": "none", "frame_policy": "post_prompt_present",
+            "aggregation": "sequence_macro",
+            "prompt_frame_manifest_sha256": "a" * 64
+        },
         "stages": {s: {"command": [], "artifacts": []}
                    for s in ("data", "training", "inference", "evaluation")}
     }
@@ -129,3 +135,24 @@ def test_video_cannot_change_patient_within_split(tmp_path):
     path.write_text("\n".join(json.dumps(x) for x in rows))
     with pytest.raises(ValueError, match="multiple patients"):
         validate_video_manifest(path)
+
+def test_ablation_rejects_different_frame_policy(tmp_path):
+    base = make_protocol(tmp_path, "baseline")
+    candidate = make_protocol(tmp_path, "candidate")
+    config = json.loads(candidate.read_text())
+    config["evaluation"]["frame_policy"] = "all_frames"
+    candidate.write_text(json.dumps(config))
+    (tmp_path / "base.csv").write_text("sequence,dice\\nv1,0.5\\n")
+    (tmp_path / "candidate.csv").write_text("sequence,dice\\nv1,0.6\\n")
+    with pytest.raises(ValueError, match="Protocol mismatch"):
+        paired_comparison(base, candidate, tmp_path / "base.csv",
+                          tmp_path / "candidate.csv")
+
+def test_ablation_fails_if_evaluation_unspecified(tmp_path):
+    base = make_protocol(tmp_path, "baseline")
+    candidate = make_protocol(tmp_path, "candidate")
+    value = json.loads(base.read_text())
+    del value["evaluation"]
+    base.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="fully specified evaluation"):
+        comparison_key(load_protocol(base)[1])

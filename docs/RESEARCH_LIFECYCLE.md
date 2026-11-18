@@ -32,7 +32,7 @@ The `adeseg.research` package adds a fail-closed **experiment contract and stage
 
    `python -m scripts.ablate --baseline-protocol base.json --candidate-protocol adapter.json --baseline-csv base.csv --candidate-csv adapter.csv --output comparison.json`
 
-   The comparison requires identical dataset manifest SHA256, split, initialization and prompt budget, same research track, pinned backbone checkpoint SHA256 and exactly matched sequence sets. It produces paired per-sequence deltas and bootstrap intervals. It does NOT independently prove patient independence.
+   The comparison requires an explicit `evaluation` object in BOTH protocols: input resolution, probability threshold, postprocessing, frame policy, aggregation and the SHA256 of a frozen prompt-frame manifest. It also requires matching dataset and backbone hashes, split, initial prompt source and prompt budget, research track, and identical sequence sets. Run-specific adapter settings can differ. A missing evaluation object makes comparison fail closed. It produces paired per-sequence deltas and bootstrap intervals. It does NOT independently prove patient independence.
 
 7. Reproduce: use the same sealed protocol and all-stage execution on a clean environment, compare artifact and receipt hashes against the release record, and document expected nondeterminism.
 
@@ -54,6 +54,7 @@ The `adeseg.research` package adds a fail-closed **experiment contract and stage
   "split": "test",
   "initialization": {"source": "oracle_mask", "prompt_budget": 1},
   "checkpoint": {"path": "backbone.pt", "sha256": "<actual sha256>"},
+  "evaluation": {"resolution_hw": [512,512], "mask_threshold": 0.5, "postprocessing": "none", "frame_policy": "post_prompt_present", "aggregation": "sequence_macro", "prompt_frame_manifest_sha256": "<actual sha256>"},
   "stages": {
     "data": {"command": [], "artifacts": []},
     "training": {"command": [], "artifacts": []},

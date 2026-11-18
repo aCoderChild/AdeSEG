@@ -25,7 +25,9 @@ def run_stage(stage, spec, root, workdir, dry_run=False):
                .replace("{protocol_dir}", str(root))
                .replace("{repo_root}", str(repo_root))
             for arg in cfg["command"]]
-    outputs = [(workdir / arg).resolve() for arg in cfg["artifacts"]]\n    if argv and not outputs:\n        raise ValueError(f"{stage}: executable stage must declare output artifacts")
+    outputs = [(workdir / arg).resolve() for arg in cfg["artifacts"]]
+    if argv and not outputs:
+        raise ValueError(f"{stage}: executable stage must declare output artifacts")
     if any(not path.is_relative_to(workdir.resolve()) for path in outputs):
         raise ValueError(f"{stage}: artifacts must be inside workdir")
     if not argv:

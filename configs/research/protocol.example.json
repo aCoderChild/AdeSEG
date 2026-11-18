@@ -37,5 +37,16 @@
       "command": [],
       "artifacts": []
     }
+  },
+  "evaluation": {
+    "resolution_hw": [
+      512,
+      512
+    ],
+    "mask_threshold": 0.5,
+    "postprocessing": "none",
+    "frame_policy": "post_prompt_present",
+    "aggregation": "sequence_macro",
+    "prompt_frame_manifest_sha256": "REPLACE_WITH_ACTUAL_SHA256"
   }
 }
