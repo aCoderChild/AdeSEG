@@ -34,7 +34,8 @@ def run_training(trainer, *, mode, argv=None):
     if output.exists() or Path(str(output) + ".split.json").exists():
         guard.error("Training checkpoint or source receipt already exists")
     forward = [
-        "--manifest", str(args.manifest), "--output", str(args.output),
+        "--manifest", str(args.manifest), "--split-file", str(args.split_file),
+        "--output", str(args.output),
         *remaining,
     ]
     trainer(forward)

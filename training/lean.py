@@ -7,6 +7,8 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+
+from training.split_guard import validate_train_sources
 import sys
 
 import torch
@@ -57,6 +59,8 @@ def load_training_capture(path, device):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--manifest", type=Path, required=True)
+    p.add_argument("--split-file", type=Path, required=True,
+                   help="Required independent source-group partition and capture SHA256 guard")
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--backbone-sha256", required=True)
     p.add_argument("--feature-pipeline-sha256", required=True)
@@ -73,6 +77,7 @@ def main(argv=None):
         if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
             p.error("Source hashes must be lowercase 64-hex SHA256 digests")
     a.manifest = a.manifest.resolve(strict=True)
+    validate_train_sources(a.manifest, a.split_file, file_field="tensor_file")
     captures = read_training_manifest(a.manifest)
     if a.output.exists():
         p.error("Refusing to overwrite an existing checkpoint")

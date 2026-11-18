@@ -9,6 +9,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from training.split_guard import validate_train_sources
+
 import torch
 
 from adeseg.adapters.high_resolution_skip import MedicalHighResolutionAdapter
@@ -55,6 +57,8 @@ def main(argv=None):
     p.add_argument("--model-config", default="sam2.1_hiera_t512.yaml",
                    help="Config from the pinned vendored MedSAM2 package")
     p.add_argument("--manifest", type=Path, required=True)
+    p.add_argument("--split-file", type=Path, required=True,
+                   help="Required independent source-group partition and capture SHA256 guard")
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--device", choices=("cpu", "cuda", "mps"), default="cpu")
     p.add_argument("--epochs", type=int, default=1)
@@ -69,6 +73,7 @@ def main(argv=None):
             or not 0 <= a.positive_weight <= 10):
         p.error("Invalid hyperparameter")
     a.manifest = a.manifest.resolve(strict=True)
+    validate_train_sources(a.manifest, a.split_file, file_field="file")
     paths = load_train_manifest(a.manifest)
     if a.output.exists():
         p.error("Refusing to overwrite checkpoint")
