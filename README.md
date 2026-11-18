@@ -83,3 +83,37 @@ must not be presented as untouched independent tests.
 **Runtime status:** GitHub-hosted runners have failed before any CI steps
 started. Static source checks do not establish successful PyTorch execution,
 checkpoint loading or full-video Dice reproduction.
+
+
+## Reproducible research lifecycle
+
+The active research lifecycle is **Data → Training → Inference → Evaluation →
+Ablation → Reproduction**. The lifecycle contract is implemented under
+[`adeseg/research/`](adeseg/research/), with [the complete usage guide](docs/RESEARCH_LIFECYCLE.md)
+and the [explicit contribution boundaries](docs/CONTRIBUTIONS.md).
+
+```bash
+# Inspect the experiment contract (requires populated real file paths and SHA256)
+python -m scripts.research verify --protocol /path/to/protocol.json
+python -m scripts.research run --protocol /path/to/protocol.json --stage all --dry-run
+
+# Validate a patient-aware JSONL video manifest
+python -m adeseg.research.data --manifest /path/to/frames.jsonl
+
+# Execute a fully configured stage and record verified output hashes
+python -m scripts.research run --protocol /path/to/protocol.json --stage inference
+
+# Compare matched baseline and adapter per-sequence CSV files
+python -m scripts.ablate --baseline-protocol base.json --candidate-protocol adapter.json \
+  --baseline-csv base.csv --candidate-csv adapter.csv --output comparison.json
+
+# Run contract tests
+python -m pytest -q tests/test_research_protocol.py
+```
+
+**Research status:** this is a validated *contract and orchestration layer*, not
+a claim that arbitrary model-specific training or full-video benchmarking is
+already reproducible. The example protocol is intentionally not executable
+until the real dataset/checkpoint hashes and stage commands are supplied.
+Current model-specific CLI implementations and checkpoint-compatible source
+paths are preserved; see [remaining work](docs/RESEARCH_LIFECYCLE.md#not-yet-implemented).
