@@ -117,3 +117,22 @@ already reproducible. The example protocol is intentionally not executable
 until the real dataset/checkpoint hashes and stage commands are supplied.
 Current model-specific CLI implementations and checkpoint-compatible source
 paths are preserved; see [remaining work](docs/RESEARCH_LIFECYCLE.md#not-yet-implemented).
+
+## MedSAM2 controlled video inference (new, requires real checkpoint)
+
+A matched native-versus-adapter **oracle-GT-initialized** video path is
+available through `scripts.infer_med_video`, followed by
+`scripts.evaluate_med_video`. Its initial mask comes from the **first
+foreground GT frame**; the prompt frame is excluded from evaluation and never
+counted as a successful prediction. The evaluator separates Dice on
+foreground-present frames, false alarms on GT-empty frames, and equal-sequence
+means. See [training/README.md](training/README.md).
+
+```bash
+python -m scripts.infer_med_video --help
+python -m scripts.evaluate_med_video --help
+```
+
+This is a real model-specific execution path, but GPU-backed runs and
+numerical parity remain **unverified**. It must not be described as automatic
+detection or as reproduction of the historical Lean-SAM2 score.

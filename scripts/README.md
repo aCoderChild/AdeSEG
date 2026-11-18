@@ -5,6 +5,10 @@ The original exploratory scripts remain in the full Git backup.
 
 | Run | Meaning |
 |---|---|
+| `python -m scripts.infer_med_video` | Real MedSAM2 oracle-first-mask video propagation, optional verified adapter |
+| `python -m scripts.evaluate_med_video` | Strict post-prompt scorer for the above runner |
+| `python -m scripts.research` | Validated experiment lifecycle execution |
+| `python -m scripts.ablate` | Matched-protocol paired ablation analysis |
 | `python -m scripts.train_med` | Train reconstructed MedSAM2 high-resolution adapter |
 | `python -m scripts.train_lean` | Train Lean feature aggregation adapter |
 | `python -m scripts.compare_models` | Pinned native SAM2, Lean, SAM2Long and SAMURAI |

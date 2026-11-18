@@ -2,7 +2,7 @@
 
 Initialization is ORACLE FIRST-PRESENT MASK (one GT mask per video). This is
 NOT automatic segmentation. All later frames are propagated without GT prompts.
-Evaluate the saved predictions separately with evaluation.temporal.
+Evaluate the saved predictions with scripts.evaluate_med_video; the generic\nall-frame evaluator would incorrectly count excluded oracle prompts as missing.
 """
 from __future__ import annotations
 import argparse

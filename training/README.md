@@ -73,3 +73,11 @@ python -m scripts.infer_med_video \
 This runner is strictly **GT-mask oracle initialized** (first annotated
 foreground), not automatic; do not conflate it with detector-driven results.
 Actual GPU checkpoint execution remains to be verified in a supported runtime.
+
+The matching evaluator for the oracle first-mask protocol is
+`python -m scripts.evaluate_med_video --manifest /path/to/frames.jsonl
+--run /path/to/native_run --output /path/to/native_evaluation`.
+Do **not** use the generic all-frames temporal evaluator to score this
+post-prompt-only prediction folder: it would otherwise count the excluded
+oracle frame as missing. Repeat the same command for the adapter run,
+then pair their `per_sequence.csv` reports for analysis.

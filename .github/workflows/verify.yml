@@ -48,7 +48,14 @@ jobs:
             tests/test_training_foreground_preservation_v1.py \
             tests/test_multiscale_mechanism_controls_v1.py \
             tests/test_lean_multiscale_anchor.py \
-            tests/test_lean_memory_position_lookup.py
+            tests/test_lean_memory_position_lookup.py \
+            tests/test_research_protocol.py \
+            tests/test_train_commands.py \
+            tests/test_evaluation_consistency.py \
+            tests/test_statistics_alignment.py \
+            tests/test_medical_checkpoint_roundtrip.py \
+            tests/test_medical_video_infer.py \
+            tests/test_medical_video_evaluation.py
       - name: Verify five reference submodules
         run: |
           python - <<'PY'
