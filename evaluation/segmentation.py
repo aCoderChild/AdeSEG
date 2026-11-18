@@ -16,6 +16,10 @@ def _label_masks(prediction: np.ndarray, ground_truth: np.ndarray) -> tuple[np.n
         raise ValueError(
             f"Prediction and ground-truth shapes differ: {prediction.shape} and {ground_truth.shape}."
         )
+    if prediction.size == 0:
+        raise ValueError("Cannot evaluate empty image arrays")
+    if not np.isfinite(prediction).all() or not np.isfinite(ground_truth).all():
+        raise ValueError("Label maps must contain only finite values")
     return prediction, ground_truth
 
 
@@ -30,7 +34,9 @@ def _binary_scores(prediction: np.ndarray, ground_truth: np.ndarray) -> dict[str
     false_positive = int(np.count_nonzero(prediction & ~ground_truth))
     false_negative = int(np.count_nonzero(~prediction & ground_truth))
     true_negative = int(np.count_nonzero(~prediction & ~ground_truth))
-    precision = _ratio(true_positive, true_positive + false_positive)
+    # No predicted positives: precision=1 only when GT is also empty; else 0.
+    precision = (_ratio(true_positive, true_positive + false_positive)
+                 if true_positive + false_positive else float(false_negative == 0))
     recall = _ratio(true_positive, true_positive + false_negative)
     return {
         "dice": _ratio(2 * true_positive, 2 * true_positive + false_positive + false_negative),
@@ -60,6 +66,11 @@ def _multiclass_scores(
     if len(set(labels)) != len(labels):
         raise ValueError("class_labels must not contain duplicate labels.")
 
+    allowed = {0, *labels}
+    for name, mask in (("prediction", prediction), ("ground_truth", ground_truth)):
+        unexpected = set(np.unique(mask).tolist()) - allowed
+        if unexpected:
+            raise ValueError(f"Unknown {name} class labels: {sorted(unexpected)}")
     scores_by_label = []
     for label in labels:
         predicted_label = prediction == label

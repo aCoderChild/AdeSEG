@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from datasets.io import make_overlay, save_overlay
 from evaluation.segmentation import calculate_scores
+from evaluation.temporal_consistency import NAMES as TEMPORAL_NAMES, adjacent_mask_metrics, undefined_temporal_metrics
 
 DEFAULT_DATA_ROOT = (
     PROJECT_ROOT / "data" / "PolypGen2021_MultiCenterData_v3" / "sequenceData" / "positive"
@@ -174,6 +175,7 @@ def evaluate_sequence(
     prompt_index = prompt_indices[0] if prompt_indices else None
     rows: list[dict[str, object]] = []
     missing_predictions = 0
+    previous_prediction = None
 
     for ground_truth_path in ground_truth_files:
         stem = frame_stem(ground_truth_path)
@@ -194,6 +196,12 @@ def evaluate_sequence(
             save_overlay(create_overlay(frame_bgr, prediction, ground_truth), overlay_dir / f"{stem}.png")
 
         scores = segmentation_scores(prediction, ground_truth)
+        temporal_scores = (
+            adjacent_mask_metrics(previous_prediction, prediction)
+            if previous_prediction is not None and not prediction_missing
+            else undefined_temporal_metrics()
+        )
+        previous_prediction = None if prediction_missing else prediction.copy()
         diagnostic = diagnostics_by_stem.get(stem, {})
         frame_index = diagnostic.get("frame_idx")
         try:
@@ -209,6 +217,7 @@ def evaluate_sequence(
                 "gt_present": bool(ground_truth.any()),
                 "predicted_present": bool(prediction.any()),
                 **scores,
+                **temporal_scores,
             }
         )
 
@@ -219,6 +228,7 @@ def evaluate_sequence(
         "missing_predictions": missing_predictions,
     }
     sequence_row.update({metric: mean_metric(rows, metric) for metric in METRIC_NAMES})
+    sequence_row.update({metric: mean_metric(rows, metric) for metric in TEMPORAL_NAMES})
     return sequence_row, rows
 
 
@@ -456,26 +466,27 @@ def evaluate_masks(
         frame_rows.extend(rows)
 
     summary: dict[str, object] = {metric: mean_metric(frame_rows, metric) for metric in METRIC_NAMES}
+    summary.update({metric: mean_metric(frame_rows, metric) for metric in TEMPORAL_NAMES})
     summary["sequences"] = len(sequence_rows)
     summary["frames"] = len(frame_rows)
     summary["missing_predictions"] = int(sum(row["missing_predictions"] for row in sequence_rows))
 
     write_csv(
         evaluation_dir / "metrics_per_sequence.csv",
-        ["sequence", "frames", "missing_predictions", *METRIC_NAMES],
+        ["sequence", "frames", "missing_predictions", *METRIC_NAMES, *TEMPORAL_NAMES],
         sequence_rows,
     )
     write_csv(
         evaluation_dir / "metrics_per_frame.csv",
         [
             "sequence", "frame", "prediction_missing", "frames_after_prompt", "gt_present",
-            "predicted_present", "frames_since_reappearance", "preceding_absence", *METRIC_NAMES,
+            "predicted_present", "frames_since_reappearance", "preceding_absence", *METRIC_NAMES, *TEMPORAL_NAMES,
         ],
         frame_rows,
     )
     stats_rows = []
     for aggregation, rows in (("frame", frame_rows), ("sequence", sequence_rows)):
-        for metric in METRIC_NAMES:
+        for metric in (*METRIC_NAMES, *TEMPORAL_NAMES):
             values = np.asarray([row[metric] for row in rows], dtype=float)
             values = values[~np.isnan(values)]
             stats_rows.append({

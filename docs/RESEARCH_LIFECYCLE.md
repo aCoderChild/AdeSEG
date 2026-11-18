@@ -75,3 +75,19 @@ The schema intentionally requires all four stages: missing implementations must 
 - Automatic verification of all six lifecycle phases across the full benchmark.
 
 Until these are addressed the repository has a reproducible *orchestration foundation*, not demonstrated end-to-end scientific reproduction.
+
+## Evaluation conventions (2026-11 correction)
+
+- Binary masks treat all nonzero values as foreground; both-empty Dice/IoU
+  equal 1. A zero predicted foreground with nonempty GT has precision 0.
+- Semantic mode rejects unknown class IDs; it never silently drops predictions.
+- `evaluation.temporal_consistency.adjacent_mask_metrics` computes raw mask
+  temporal IoU, absolute relative area change, and centroid shift normalized
+  by the image diagonal. Missing predicted masks invalidate adjacent pairs;
+  empty/empty centroid shift is undefined. These measures are NOT optical-flow
+  compensation and can reflect legitimate camera motion.
+- The temporal evaluator retains its historical frame-weighted segmentation
+  aggregates and now also exports temporal values in frame/sequence CSVs.
+  For paper claims, specify whether frame-weighted or equal-sequence estimates
+  are used and whether GT-empty frames are included. Previously published
+  results must be reported with their original evaluation version.
