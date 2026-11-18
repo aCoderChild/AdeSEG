@@ -13,3 +13,6 @@ scikit-image
 pytest>=7
 wandb
 ultralytics
+timm==1.0.27
+loguru>=0.7.3
+einops>=0.8

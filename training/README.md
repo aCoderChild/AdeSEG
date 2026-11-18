@@ -1,7 +1,7 @@
-# Offline channel-value aggregation training
+# Offline feature aggregation training
 
-The retained `scripts/train_aggregation.py` trains `MultiscaleChannelValueRefinerV1` on frozen precomputed feature captures; **this is not a raw-video training pipeline**. Each JSON manifest entry must be `{"split":"train","tensor_file":"relative/path.pt"}`. Each .pt must be a dict of float tensors named `early` [1,32,H,W], `deep` [1,256,h,w], `logits` [1,1,H,W], `target` [1,1,H,W]. The native logits and features must come from the same frozen, provenance-tracked prediction; `target` is an annotated **training-only** mask. Batch size is one. No validation/test labels are read.
+`python -m training.train_feature_aggregator --help`
 
-Example: `python scripts/train_aggregation.py --manifest /path/to/train.json --output /path/to/adapter.pt --backbone-sha256 <64-hex> --feature-pipeline-sha256 <64-hex> --mode foreground_background_asinh --teacher-weight 1`.
+Requires an explicitly training-only JSON manifest listing `{"split":"train","tensor_file":"relative-file.pt"}` entries. Each feature file stores `early`, `deep`, `logits` and `target` float tensors from a source-verified TRAIN capture; shape assumptions are enforced. Training never opens test labels. Source and checkpoint SHA256 arguments are required.
 
-The trainer writes an original-model-compatible checkpoint payload. Do not treat it as evaluated for inference: output-vs-memory routing requires the original runtime checks, a matching Lean checkpoint, real-video validation and separate held-out scoring. Preserve source hashes and do not modify the original archived scripts if reproducing a published or frozen run.
+The default objective combines boundary-weighted BCE/IoU and soft Dice; optional `--teacher-weight` adds one-sided positive teacher preservation. The script does **not** generate raw video captures, prove model efficacy, or bypass verifier-owned inference checks.
