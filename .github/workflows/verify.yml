@@ -40,6 +40,8 @@ jobs:
             tests/test_medical_highres_contribution.py \
             tests/test_medical_highres_training.py \
             tests/test_api.py \
+            tests/test_cmsa_image_only.py \
+            tests/test_split_guard.py \
             tests/test_clean_aggregation.py \
             tests/test_positive_teacher_preservation_loss.py \
             tests/test_training_foreground_preservation_v1.py \

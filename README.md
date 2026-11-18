@@ -62,16 +62,19 @@ python -m pytest -q tests/
 python -m scripts.train_med --help       # Reconstructed MedSAM2 adapter
 python -m scripts.train_lean --help      # Lean multiscale aggregator
 python -m scripts.compare_models --help  # SAM2, Lean, SAM2Long, SAMURAI
-python -m scripts.evaluate_cmsa --help   # CMSA-Net comparison
+python -m scripts.evaluate_cmsa --help   # CMSA-Net image-only inference
 python -m scripts.evaluate_lean --help   # GT-initialized Lean baseline
 python -m scripts.validate_results --help # Rescore saved Lean/native masks
 ```
 
-The trainers require frozen, **TRAIN-only feature captures**, valid checkpoint
-hashes and external pretrained weights. Training-manifest labels by themselves
-do **not** establish an independent patient split. The historical CMSA-Net
-test runner still requires checking that its supplied masks are not used for
-model prediction.
+The public trainers now require `--split-file`, explicit `source_group`
+and `capture_sha256` for every frozen training capture. They refuse
+cross-split group overlap and modified capture bytes, writing a split-receipt
+sidecar tied to the checkpoint. These checks still cannot independently verify
+that user-provided source groups correspond to actual distinct patients. The new CMSA-Net comparison runs image-only transforms, supplies dummy
+labels to the pinned author's loop, and exports prediction sizes using RGB
+source images. The historical runner is preserved; the new protocol must be
+re-evaluated rather than inheriting old scores.
 
 ## Historical reference
 

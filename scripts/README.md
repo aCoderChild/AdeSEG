@@ -9,7 +9,7 @@ reproduction; do not import them directly in new research code.
 | `python -m scripts.train_med` | Train reconstructed MedSAM2 high-res skip adapter |
 | `python -m scripts.train_lean` | Train Lean channel-value aggregation |
 | `python -m scripts.compare_models` | SAM2, Lean, SAM2Long, SAMURAI comparisons |
-| `python -m scripts.evaluate_cmsa` | CMSA-Net benchmark (label-flow not yet audited) |
+| `python -m scripts.evaluate_cmsa` | CMSA-Net image-only benchmark; no GT mask reads in inference |
 | `python -m scripts.evaluate_lean` | GT-first-mask Lean benchmark |
 | `python -m scripts.evaluate_memory` | Automatic Lean pooled-memory ablation |
 | `python -m scripts.evaluate_rope` | Indexed spatial RoPE ablation |
@@ -23,3 +23,5 @@ reproduction; do not import them directly in new research code.
 the historical automatic-prompt run scored at 0.742071. That run's complete
 original source is preserved only in the full experiment backup.
 Validation checks results; it cannot turn development data into a sealed test.
+
+**Public training split requirement:** both `train_med` and `train_lean` now require `--split-file` and capture-level SHA256/source-group declarations (see `training/README.md`). The historical runner `run_cmsa_polypgen.py` is unchanged; the new `run_cmsa_image_only.py` intentionally uses a new output-export protocol.

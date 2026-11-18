@@ -1,8 +1,9 @@
-"""Evaluate pinned CMSA-Net with its original temporal preprocessing; label-flow audit is still needed.
+"""Run CMSA-Net without reading GT mask bytes during inference.
 
-Friendly CLI alias. The original source and hash-bound runner remain untouched.
+Saved GT masks are used only for post-inference metric scoring. This is a
+new output-resize protocol; do not directly inherit old comparison scores.
 """
-from scripts.run_cmsa_polypgen import main
+from scripts.run_cmsa_image_only import main
 
 if __name__ == "__main__":
     main()
