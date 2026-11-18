@@ -79,6 +79,8 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None):
                 rows.append({
                     "frame_index": frames[index].frame_index,
                     "source_image": str(frames[index].image_path),
+                    "source_image_sha256": sha256(frames[index].image_path),
+                    "source_gt_sha256": sha256(frames[index].mask_path),
                     "prediction_file": str(path.relative_to(output)),
                     "prediction_sha256": sha256(path),
                 })
@@ -88,6 +90,8 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None):
         "status": "completed", "frames": len(frames), "predicted": len(rows),
         "prompt_source_index": frames[prompt].frame_index,
         "prompt_position": prompt, "prompt_source": "oracle_gt_mask",
+        "prompt_mask_sha256": sha256(frames[prompt].mask_path),
+        "prompt_image_sha256": sha256(frames[prompt].image_path),
         "predictions": rows,
     }
 

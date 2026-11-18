@@ -45,8 +45,16 @@ def evaluate_run(manifest, run_root):
             raise ValueError("Invalid oracle prompt position")
         if summary.get("prompt_source_index") != frames[prompt].frame_index:
             raise ValueError("Prompt source index changed")
+        if summary.get("prompt_source") != "oracle_gt_mask":
+            raise ValueError("Run does not declare oracle GT initialization")
+        if (sha256(frames[prompt].mask_path) != summary.get("prompt_mask_sha256")
+                or sha256(frames[prompt].image_path) != summary.get("prompt_image_sha256")):
+            raise ValueError("Oracle prompt image/annotation changed since inference")
         if not (load_label_mask(frames[prompt].mask_path, [label_id]) == label_id).any():
             raise ValueError("Oracle prompt is absent")
+        if any((load_label_mask(frame.mask_path, [label_id]) == label_id).any()
+               for frame in frames[:prompt]):
+            raise ValueError("Oracle prompt is not the first foreground frame")
         predictions = summary["predictions"]
         if len(predictions) != len(frames) - prompt - 1:
             raise ValueError("Missing or extra post-prompt predictions")
@@ -54,6 +62,9 @@ def evaluate_run(manifest, run_root):
         for frame, row in zip(frames[prompt+1:], predictions):
             if row.get("frame_index") != frame.frame_index:
                 raise ValueError(f"Prediction frame order differs for {name}")
+            if (sha256(frame.image_path) != row.get("source_image_sha256")
+                    or sha256(frame.mask_path) != row.get("source_gt_sha256")):
+                raise ValueError(f"Source image/annotation bytes changed for {name}")
             relpath = Path(row["prediction_file"])
             expected_relpath = Path("predictions") / name / (frame.image_path.stem + ".png")
             if relpath != expected_relpath:

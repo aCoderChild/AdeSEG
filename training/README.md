@@ -81,3 +81,8 @@ Do **not** use the generic all-frames temporal evaluator to score this
 post-prompt-only prediction folder: it would otherwise count the excluded
 oracle frame as missing. Repeat the same command for the adapter run,
 then pair their `per_sequence.csv` reports for analysis.
+
+The model-specific runner records SHA256 for each post-prompt input image and
+GT annotation, plus the first oracle prompt image and mask. Its evaluator
+verifies these against the current source files and refuses to re-score runs
+against modified data. The prompt must be the first annotated foreground frame.
