@@ -12,7 +12,7 @@ The `adeseg.research` package adds a fail-closed **experiment contract and stage
 
    This checks file existence, duplicate frames, and cross-split patient/video leakage. Patient IDs are trusted metadata; they must be independently audited against source provenance.
 
-2. Copy `configs/research/protocol.example.json` and fill every actual path and SHA256. The example contains placeholders and is **not executable as-is**. Every stage has `command` and `artifacts`. Leave a stage command empty only when unimplemented; this is reported, never silently treated as success. In the command, `{python}`, `{workdir}` and `{protocol_dir}` are substituted without a shell.
+2. Copy `configs/research/protocol.example.json` and fill every actual path and SHA256. The example contains placeholders and is **not executable as-is**. Every stage has `command` and `artifacts`. Leave a stage command empty only when unimplemented; this is reported, never silently treated as success. In the command, `{python}`, `{workdir}`, `{protocol_dir}` and `{repo_root}` are substituted without a shell. Commands execute from the repository root.
 
 3. Validate pinned inputs:
 
@@ -26,7 +26,7 @@ The `adeseg.research` package adds a fail-closed **experiment contract and stage
 
    `python -m scripts.research run --protocol /path/to/protocol.json --stage inference --workdir runs`
 
-   The output root is `runs/<experiment_id>/`. A stage must return zero and create every declared artifact; otherwise the receipt is incomplete. To keep outputs immutable, existing declared outputs and existing receipts are never overwritten.
+   The output root is `runs/<experiment_id>/` with distinct `receipt_<stage>.json` files (or `receipt_all.json`). A stage must return zero and create every declared artifact; otherwise the receipt is incomplete. To keep outputs immutable, existing declared outputs and existing receipts are never overwritten.
 
 6. Paired ablation: export a CSV from each run containing unique `sequence` and a metric column, e.g. `dice`; compare them with
 
