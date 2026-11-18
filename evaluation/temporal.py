@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402 -- direct CLI bootstraps the repository import path
 """Evaluate MedSAM2 mask outputs on PolypGen sequences.
 
 MedSAM2 inference scripts write one indexed mask per frame to
@@ -20,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from adenoid.io import make_overlay, save_overlay
+from datasets.io import make_overlay, save_overlay
 from evaluation.segmentation import calculate_scores
 
 DEFAULT_DATA_ROOT = (

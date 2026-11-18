@@ -1,1 +1,1 @@
-"""Project-specific training extensions for MedSAM2."""
+"""Training-only objectives and offline feature-capture pipeline."""

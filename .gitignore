@@ -55,6 +55,9 @@ scripts/eval_outputs/
 # External projects not committed here
 external/WTNet/
 external/PraNet/
+# Additional local author checkouts are not automatically vendored. Explicitly
+# registered submodules remain tracked; see external/README.md.
+/external/*/
 .codex-docs-trusted-read/
 
 # LaTeX build files (they record local paths)
@@ -64,3 +67,15 @@ docs/*.fdb_latexmk
 docs/*.log
 docs/*.toc
 docs/*.synctex.gz
+
+# Generated thesis build intermediates
+thesis_report/main.aux
+thesis_report/main.glo
+thesis_report/main.ist
+thesis_report/main.lof
+thesis_report/main.lot
+thesis_report/main.ntn
+thesis_report/main.out
+thesis_report/main.pdfsync
+thesis_report/main.synctex.gz
+thesis_report/main.toc
