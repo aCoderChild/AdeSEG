@@ -1,5 +1,9 @@
 name: Runner availability diagnostic
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/runner-diagnostic.yml'
   workflow_dispatch:
 permissions:
   contents: read
