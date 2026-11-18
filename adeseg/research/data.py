@@ -8,7 +8,8 @@ def validate_video_manifest(path):
     path = Path(path).resolve(strict=True)
     records = []
     group_split = {}
-    video_split = {}\n    video_patient = {}
+    video_split = {}
+    video_patient = {}
     frame_keys = set()
     for line_number, text in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not text.strip():
@@ -20,7 +21,12 @@ def validate_video_manifest(path):
         patient, video, split = row["patient_id"], row["video_id"], row["split"]
         if not patient or not video or split not in ("train", "dev", "test"):
             raise ValueError(f"Line {line_number}: invalid patient/video/split")
-        if (not isinstance(patient, str) or not isinstance(video, str)):\n            raise ValueError(f"Line {line_number}: patient/video IDs must be strings")\n        if video in video_patient and video_patient[video] != patient:\n            raise ValueError(f"Line {line_number}: video {video} belongs to multiple patients")\n        video_patient[video] = patient\n        if type(row["frame_index"]) is not int or row["frame_index"] < 0:
+        if (not isinstance(patient, str) or not isinstance(video, str)):
+            raise ValueError(f"Line {line_number}: patient/video IDs must be strings")
+        if video in video_patient and video_patient[video] != patient:
+            raise ValueError(f"Line {line_number}: video {video} belongs to multiple patients")
+        video_patient[video] = patient
+        if type(row["frame_index"]) is not int or row["frame_index"] < 0:
             raise ValueError(f"Line {line_number}: invalid frame index")
         key = (video, row["frame_index"])
         if key in frame_keys:
