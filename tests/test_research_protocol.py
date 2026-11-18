@@ -97,8 +97,8 @@ def test_rejects_different_backbone_for_paired_ablation(tmp_path):
     value = json.loads(candidate.read_text())
     value["checkpoint"]["sha256"] = "f" * 64
     candidate.write_text(json.dumps(value))
-    (tmp_path / "base.csv").write_text("sequence,dice\\nv1,0.5\\n")
-    (tmp_path / "candidate.csv").write_text("sequence,dice\\nv1,0.6\\n")
+    (tmp_path / "base.csv").write_text("sequence,dice\nv1,0.5\n")
+    (tmp_path / "candidate.csv").write_text("sequence,dice\nv1,0.6\n")
     with pytest.raises(ValueError, match="backbone checkpoint"):
         paired_comparison(base, candidate, tmp_path / "base.csv",
                           tmp_path / "candidate.csv")
@@ -126,6 +126,6 @@ def test_video_cannot_change_patient_within_split(tmp_path):
         {"patient_id":"p1","video_id":"v1","frame_index":0,"split":"train","image":"a.jpg","mask":"a.png"},
         {"patient_id":"p2","video_id":"v1","frame_index":1,"split":"train","image":"b.jpg","mask":"b.png"}]
     path = tmp_path / "invalid.jsonl"
-    path.write_text("\\n".join(json.dumps(x) for x in rows))
+    path.write_text("\n".join(json.dumps(x) for x in rows))
     with pytest.raises(ValueError, match="multiple patients"):
         validate_video_manifest(path)
