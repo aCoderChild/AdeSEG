@@ -48,11 +48,11 @@ def load_protocol(path):
     _require_keys(spec, REQUIRED, OPTIONAL, "protocol")
     if spec["schema_version"] != 1:
         raise ValueError("Unsupported protocol schema_version")
-    if not isinstance(spec["experiment_id"], str) or not spec["experiment_id"].strip():
+    if (not isinstance(spec["experiment_id"], str) or not spec["experiment_id"].strip()\n            or "/" in spec["experiment_id"] or "\\\\" in spec["experiment_id"]\n            or spec["experiment_id"] in (".", "..")):
         raise ValueError("experiment_id must be nonempty")
     if spec["track"] not in TRACKS:
         raise ValueError(f"Unknown research track: {spec['track']}")
-    if not isinstance(spec["seed"], int) if "seed" in spec else False:
+    if "seed" in spec and type(spec["seed"]) is not int:
         raise ValueError("seed must be an integer")
     _require_keys(spec["dataset"], {"name", "manifest"}, {"patient_key"}, "dataset")
     if not isinstance(spec["dataset"]["name"], str) or not spec["dataset"]["name"]:
@@ -77,7 +77,7 @@ def load_protocol(path):
         if not isinstance(cfg["artifacts"], list) or any(
             not isinstance(item, str) or not item for item in cfg["artifacts"]
         ):
-            raise ValueError(f"stages.{stage}.artifacts must be a string list")
+            raise ValueError(f"stages.{stage}.artifacts must be a string list")\n        if command and not cfg["artifacts"]:\n            raise ValueError(f"stages.{stage}: executable stages must declare artifacts")
     return path, spec
 
 def verify_protocol(path):
@@ -91,7 +91,7 @@ def verify_protocol(path):
 def comparison_key(spec):
     """Conditions that must match for a causal paired comparison."""
     return (
-        spec["dataset"]["manifest"]["sha256"], spec["split"],
+        spec["dataset"]["manifest"]["sha256"],\n        spec["checkpoint"]["sha256"], spec["split"],
         spec["initialization"]["source"],
         spec["initialization"]["prompt_budget"],
     )

@@ -2,7 +2,7 @@
 
 Pipeline: **Data → Training → Inference → Evaluation → Ablation → Reproduction**.
 
-The `adeseg.research` package adds a fail-closed **experiment contract and stage executor**, not a replacement for the model-specific runners. Existing baseline and training entrypoints remain intact. Each experiment JSON pins the dataset manifest and backbone checkpoint by SHA256. Stage commands are explicit argv arrays, not shell strings; stage output files are hashed into a receipt.
+The `adeseg.research` package adds a fail-closed **experiment contract and stage executor**, not a replacement for the model-specific runners. Existing baseline and training entrypoints remain intact. Each experiment JSON pins the dataset manifest and backbone checkpoint by SHA256. Stage commands are explicit argv arrays, not shell strings; executable stages must declare at least one artifact and output files are hashed into a receipt.
 
 ## Use
 
@@ -32,7 +32,7 @@ The `adeseg.research` package adds a fail-closed **experiment contract and stage
 
    `python -m scripts.ablate --baseline-protocol base.json --candidate-protocol adapter.json --baseline-csv base.csv --candidate-csv adapter.csv --output comparison.json`
 
-   The comparison requires identical dataset manifest SHA256, split, initialization and prompt budget, same research track and exactly matched sequence sets. It produces paired per-sequence deltas and bootstrap intervals. It does NOT independently prove patient independence.
+   The comparison requires identical dataset manifest SHA256, split, initialization and prompt budget, same research track, pinned backbone checkpoint SHA256 and exactly matched sequence sets. It produces paired per-sequence deltas and bootstrap intervals. It does NOT independently prove patient independence.
 
 7. Reproduce: use the same sealed protocol and all-stage execution on a clean environment, compare artifact and receipt hashes against the release record, and document expected nondeterminism.
 

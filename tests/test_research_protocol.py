@@ -90,3 +90,42 @@ def test_paired_comparison_numeric(tmp_path):
     result = paired_comparison(base, candidate, tmp_path / "base.csv", tmp_path / "candidate.csv",
                                n_bootstrap=100)
     assert result["paired_mean_difference"] == pytest.approx(0.1)
+
+def test_rejects_different_backbone_for_paired_ablation(tmp_path):
+    base = make_protocol(tmp_path, "baseline")
+    candidate = make_protocol(tmp_path, "candidate")
+    value = json.loads(candidate.read_text())
+    value["checkpoint"]["sha256"] = "f" * 64
+    candidate.write_text(json.dumps(value))
+    (tmp_path / "base.csv").write_text("sequence,dice\\nv1,0.5\\n")
+    (tmp_path / "candidate.csv").write_text("sequence,dice\\nv1,0.6\\n")
+    with pytest.raises(ValueError, match="backbone checkpoint"):
+        paired_comparison(base, candidate, tmp_path / "base.csv",
+                          tmp_path / "candidate.csv")
+
+def test_executable_stage_requires_artifacts(tmp_path):
+    protocol = make_protocol(tmp_path)
+    value = json.loads(protocol.read_text())
+    value["stages"]["inference"]["command"] = [sys.executable, "-c", "pass"]
+    protocol.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="declare artifacts"):
+        load_protocol(protocol)
+
+def test_rejects_unsafe_experiment_id(tmp_path):
+    protocol = make_protocol(tmp_path)
+    value = json.loads(protocol.read_text())
+    value["experiment_id"] = "../../outside"
+    protocol.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="experiment_id"):
+        load_protocol(protocol)
+
+def test_video_cannot_change_patient_within_split(tmp_path):
+    for filename in ("a.jpg", "a.png", "b.jpg", "b.png"):
+        (tmp_path / filename).write_bytes(b"x")
+    rows = [
+        {"patient_id":"p1","video_id":"v1","frame_index":0,"split":"train","image":"a.jpg","mask":"a.png"},
+        {"patient_id":"p2","video_id":"v1","frame_index":1,"split":"train","image":"b.jpg","mask":"b.png"}]
+    path = tmp_path / "invalid.jsonl"
+    path.write_text("\\n".join(json.dumps(x) for x in rows))
+    with pytest.raises(ValueError, match="multiple patients"):
+        validate_video_manifest(path)
