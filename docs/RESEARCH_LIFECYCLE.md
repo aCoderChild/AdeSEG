@@ -100,3 +100,10 @@ the serialized checkpoint SHA256, exact backbone identity and config, current
 adapter source hash, positive training step count and the saved residual
 scale. The method **does not** establish historical-forward equivalence.
 Full-video integration and GPU testing remain separate verification gates.
+
+## Aggregate reporting
+
+The evaluator retains top-level frame-weighted metrics for compatibility, and
+adds `summary["sequence_macro"]` for equal-sequence means. These are distinct
+estimands and must never be presented as interchangeable. The paired Wilcoxon
+helper now rejects mismatched sequence sets rather than silently intersecting.

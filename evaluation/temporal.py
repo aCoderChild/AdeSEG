@@ -467,6 +467,11 @@ def evaluate_masks(
 
     summary: dict[str, object] = {metric: mean_metric(frame_rows, metric) for metric in METRIC_NAMES}
     summary.update({metric: mean_metric(frame_rows, metric) for metric in TEMPORAL_NAMES})
+    # Backward-compatible top-level frame means; explicit equal-sequence means.
+    summary["sequence_macro"] = {
+        metric: mean_metric(sequence_rows, metric)
+        for metric in (*METRIC_NAMES, *TEMPORAL_NAMES)
+    }
     summary["sequences"] = len(sequence_rows)
     summary["frames"] = len(frame_rows)
     summary["missing_predictions"] = int(sum(row["missing_predictions"] for row in sequence_rows))

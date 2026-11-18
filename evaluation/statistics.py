@@ -57,7 +57,9 @@ def rank_agreement(criterion, utility):
 
 def paired_wilcoxon(left_by_sequence, right_by_sequence):
     """Paired test over sequence means; frames are never treated as independent."""
-    names = sorted(set(left_by_sequence) & set(right_by_sequence))
+    if set(left_by_sequence) != set(right_by_sequence):
+        raise ValueError("Paired sequence sets differ; no implicit intersection allowed")
+    names = sorted(left_by_sequence)
     left = np.array([left_by_sequence[name] for name in names], dtype=float)
     right = np.array([right_by_sequence[name] for name in names], dtype=float)
     valid = np.isfinite(left) & np.isfinite(right)
