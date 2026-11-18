@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   core-cpu:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - name: Checkout source
@@ -23,39 +23,30 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install CPU test dependencies
+      - name: Install pinned CPU-compatible test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install numpy scipy Pillow pytest
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy scipy Pillow pytest opencv-python-headless pyyaml tqdm hydra-core iopath timm loguru einops
+      - name: Report environment
+        run: |
+          python - <<'PY'
+          import sys, torch, numpy, pytest
+          print("Python:", sys.version)
+          print("PyTorch:", torch.__version__, "CUDA available:", torch.cuda.is_available())
+          print("NumPy:", numpy.__version__, "pytest:", pytest.__version__)
+          PY
       - name: Compile source
         run: python -m compileall -q adeseg datasets evaluation modeling scripts training tests
-      - name: Validate scientific interfaces and historical compatibility
-        run: |
-          python -m pytest -q \
-            tests/test_scientific_public_api.py \
-            tests/test_feature_aggregation_compatibility.py \
-            tests/test_structured_feature_aggregation.py \
-            tests/test_medsam2_checkpoint_identity.py \
-            tests/test_medical_highres_contribution.py \
-            tests/test_medical_highres_training.py \
-            tests/test_api.py \
-            tests/test_cmsa_image_only.py \
-            tests/test_split_guard.py \
-            tests/test_project_layout.py \
-            tests/test_clean_aggregation.py \
-            tests/test_positive_teacher_preservation_loss.py \
-            tests/test_training_foreground_preservation_v1.py \
-            tests/test_multiscale_mechanism_controls_v1.py \
-            tests/test_lean_multiscale_anchor.py \
-            tests/test_lean_memory_position_lookup.py \
-            tests/test_research_protocol.py \
-            tests/test_train_commands.py \
-            tests/test_evaluation_consistency.py \
-            tests/test_statistics_alignment.py \
-            tests/test_medical_checkpoint_roundtrip.py \
-            tests/test_medical_video_infer.py \
-            tests/test_medical_video_evaluation.py
+      - name: Run complete CPU test suite
+        run: python -m pytest -q tests --junitxml=build/pytest.xml
+      - name: Upload CPU test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-pytest-${{ github.sha }}
+          path: build/pytest.xml
+          if-no-files-found: warn
       - name: Verify five reference submodules
         run: |
           python - <<'PY'

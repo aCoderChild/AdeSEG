@@ -1,0 +1,13 @@
+name: Runner availability diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "GitHub runner accepted job"
+      - run: python --version
+      - run: uname -a

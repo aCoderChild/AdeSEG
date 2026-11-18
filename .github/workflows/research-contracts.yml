@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   contracts:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +21,14 @@ jobs:
       - name: Compile research lifecycle
         run: python -m compileall -q adeseg/research scripts/research.py scripts/ablate.py
       - name: Run hermetic protocol tests
-        run: python -m pytest -q tests/test_research_protocol.py
+        run: python -m pytest -q tests/test_research_protocol.py --junitxml=build/contracts.xml
+      - name: Upload protocol test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-contracts-${{ github.sha }}
+          path: build/contracts.xml
+          if-no-files-found: warn
       - name: Verify CLI help
         run: |
           python -m scripts.research --help
