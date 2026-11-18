@@ -29,7 +29,7 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install numpy scipy Pillow pytest
       - name: Compile source
-        run: python -m compileall -q datasets evaluation modeling scripts training tests
+        run: python -m compileall -q adeseg datasets evaluation modeling scripts training tests
       - name: Validate scientific interfaces and historical compatibility
         run: |
           python -m pytest -q \
@@ -39,7 +39,7 @@ jobs:
             tests/test_medsam2_checkpoint_identity.py \
             tests/test_medical_highres_contribution.py \
             tests/test_medical_highres_training.py \
-            tests/test_research_block_boundaries.py \
+            tests/test_api.py \
             tests/test_clean_aggregation.py \
             tests/test_positive_teacher_preservation_loss.py \
             tests/test_training_foreground_preservation_v1.py \

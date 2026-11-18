@@ -13,7 +13,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from modeling.blocks.multiscale_feature_aggregation import MultistageFeatureAggregator
+from adeseg.adapters.multiscale_channel_attention import MultistageFeatureAggregator
 from modeling.cmsa_boundary_training_loss import cmsa_boundary_loss
 from modeling.teacher_preservation import positive_preservation_penalty
 import modeling.multiscale_channel_value_refiner_v1 as model_source

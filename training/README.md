@@ -1,25 +1,37 @@
-# Training — two independent research contributions
+# Training
 
-## Contribution 1: MedSAM2 Hiera-T/512 medical adapter
+There are **two different training pipelines**, with different backbones,
+feature captures and checkpoints.
 
-`python -m training.train_medical_highres_adapter --help`
+## MedSAM2 — high-resolution adapter
 
-This new trainer consumes frozen TRAIN-only mask-decoder captures produced by a separately verified original MedSAM2 predictor. A manifest is a JSON list such as:
-
-```json
-[{"split":"train","sequence":"seq2","file":"captures/seq2_frame0.pt"}]
+```bash
+python -m scripts.train_med --help
 ```
 
-Every `.pt` capture contains exactly `image_embeddings`, `image_pe`, `sparse_prompt_embeddings`, `dense_prompt_embeddings`, `high_res_0`, `high_res_1`, and `target`. The target is for training only. The native pretrained decoder is frozen; the adapter optimizes against BCE, soft Dice and detached native-teacher KL (default weight 0.1). The training script does **not** produce decoder captures or reproduce historical four-frame video training. Strict `MedSAM2_latest.pt` SHA256 checking is mandatory. See [medical architecture](../docs/MEDICAL_HIGHRES_ARCHITECTURE.md).
+- Backbone: SHA-verified MedSAM2 Hiera-T/512, **frozen**.
+- Learnable module: `adeseg.adapters.high_resolution_skip`.
+- Losses: `adeseg.losses.segmentation` and training-only
+  `adeseg.losses.teacher_kl` (detached native teacher).
+- Inputs: frozen TRAIN decoder captures with aligned segmentation targets.
+- Status: a **reconstruction** of a lost historical implementation; old
+  four-sequence scores are not reproduced by this command.
 
-## Contribution 2: Lean-SAM2 feature aggregation
+## Lean-SAM2 — multi-scale feature aggregation
 
-`python -m training.train_feature_aggregator --help`
+```bash
+python -m scripts.train_lean --help
+```
 
-Requires an explicitly training-only JSON manifest listing `{"split":"train","tensor_file":"relative-file.pt"}` entries. Each feature file stores `early`, `deep`, `logits` and `target` float tensors from a source-verified TRAIN capture; shape assumptions are enforced. Training never opens test labels. Source and checkpoint SHA256 arguments are required.
+- Backbone: Lean-SAM2 / SAM2.1 Hiera-B+.
+- Learnable module: `adeseg.adapters.multiscale_channel_attention`.
+- Losses: `adeseg.losses.segmentation`; optional positive preservation.
+- Inputs: TRAIN-only `early`, `deep`, `logits` and `target` tensors.
+- The structured refiner subclasses the original checkpoint-bound class
+  and retains its parameter names and strict source-hash loader.
+- Status: no verified 21-sequence improvement from learned fusion.
 
-The default objective combines boundary-weighted BCE/IoU and soft Dice; optional `--teacher-weight` adds one-sided positive teacher preservation. The script does **not** generate raw video captures, prove model efficacy, or bypass verifier-owned inference checks.
-
-The public `feature_aggregation` module aliases the original model class; checkpoint `source_sha256` is computed from `modeling/multiscale_channel_value_refiner_v1.py` so the existing trained-state verification and video routing type checks stay aligned.
-
-The new trainer instantiates `MultistageFeatureAggregator`, a six-block subclass of the original refiner. Its `state_dict` keys and strict source-hash loader remain bound to `modeling/multiscale_channel_value_refiner_v1.py`. The tensor features must match the actual selected backbone (SAM2.1 Hiera-B+ vs MedSAM2 Hiera-T); do not silently exchange checkpoints. See [checkpoint provenance](../docs/CHECKPOINT_PROVENANCE.md).
+**Leakage warning:** requiring manifest rows marked `split: train` is a
+format check, not verification of patient-level data separation. Seal and
+audit source-group IDs before using either trainer for a research claim.
+Never supply target masks to the test-time forward pass or memory writer.

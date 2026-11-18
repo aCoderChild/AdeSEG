@@ -1,14 +1,21 @@
-# Experiment registry
+# Research experiments
 
-The workstreams are separated so that a reported gain can be traced to **one architectural change**, a specific prompt budget, sequence/frame IDs, checkpoint and evaluation protocol.
+One experiment folder per scientific question. This is not a single
+leaderboard: checkpoint family, initialization, frame selection and data
+source all affect a comparison.
 
-| Workstream | Research question |
-|---|---|
-| **[Contribution 1: MedSAM2 teacher-preserving high-resolution refinement](medical_high_resolution_adapter/README.md)** | Can early/deep decoder-skip fusion retain correct native predictions under a training-only teacher loss? |
-| **[Contribution 2: Lean-SAM2 multi-stage channel-value aggregation](multistage_feature_aggregation/README.md)** | Can trainable cross-channel value mixing improve masks or memory quality? |
-| [Reference models](reference_models/README.md) | How does unchanged Lean-SAM2 compare with SAM2, SAM2Long, SAMURAI and CMSA-Net? |
-| [Modified Lean-SAM2 (0.7421)](modified_lean_742/README.md) | What exactly produced the verified 21-sequence automatic-prompt result? |
-| [Teacher preservation](teacher_preservation/README.md) | Can training preserve confident positive teacher predictions without test-time supervision? |
-| [Lean memory and positional ablations](lean_memory_ablations/README.md) | Do memory-anchor pooling or positional RoPE corrections change performance? |
+| Experiment | Question | Status |
+|---|---|---|
+| [MedSAM2 high resolution](medsam2_high_resolution/README.md) | Can high-res feature refinement plus teacher KL improve masks? | Reconstructed code; four-sequence historical results are mixed |
+| [Lean feature aggregation](lean_feature_aggregation/README.md) | Does learned early/deep Q/K/V channel mixing improve propagation? | Not validated on 21 sequences |
+| [Reference baselines](reference_baselines/README.md) | What do the original or corrected backbone methods achieve? | Includes corrected-Lean **0.742071** Dice |
+| [Exploratory ablations](exploratory_ablations/README.md) | Which memory, RoPE, region and loss controls matter? | Not independent validation |
 
-The full original experiment history and saved source-hash receipts remain on the backup branch and in the Drive experiment outputs. Scores from GT-initialized and automatic-initialized videos should **never** be represented as a matched model comparison.
+Always report initialization policy, patient/sequence IDs, mask availability,
+per-sequence target counts, false alarms on empty frames, checkpoint SHA-256,
+source revision and retrospectively chosen preprocessing rules. File labels
+like `split=train` are not proof that an external patient holdout was sealed.
+
+Historical protocols and scripts remain source-bound under their original
+names; the entire old tree is preserved in
+[the full experiment backup](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118).

@@ -7,8 +7,8 @@ This new pipeline is NOT a reconstruction of historical multi-frame dynamics.
 import torch
 from torch.nn import functional as F
 
-from modeling.blocks.high_resolution_adapter import MedicalHighResolutionAdapter
-from modeling.blocks.teacher_preserving_kl import supervised_mask_teacher_loss
+from adeseg.adapters.high_resolution_skip import MedicalHighResolutionAdapter
+from adeseg.losses.segmentation import supervised_mask_teacher_loss
 
 REQUIRED = frozenset((
     "image_embeddings", "image_pe", "sparse_prompt_embeddings",

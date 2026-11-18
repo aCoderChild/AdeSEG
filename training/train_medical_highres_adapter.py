@@ -11,8 +11,8 @@ from pathlib import Path
 
 import torch
 
-from modeling.blocks.high_resolution_adapter import MedicalHighResolutionAdapter
-from modeling.blocks.medsam2_backbone import (
+from adeseg.adapters.high_resolution_skip import MedicalHighResolutionAdapter
+from adeseg.backbones.medsam2 import (
     MEDSAM2_LATEST_SHA256, build_verified_medsam2_latest,
 )
 from training.medical_highres_training import (
