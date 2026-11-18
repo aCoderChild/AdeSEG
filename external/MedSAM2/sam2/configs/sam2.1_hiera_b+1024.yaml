@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - sam2.1_hiera_t1024
+  - _self_
+
+# Official SAM 2.1 Hiera-B+ backbone overrides. The shared 1024-pixel
+# configuration is the pinned upstream architecture; only B+ backbone widths
+# and FPN channels differ from Hiera-T.
+model:
+  image_encoder:
+    trunk:
+      embed_dim: 112
+      num_heads: 2
+      stages: [2, 3, 16, 3]
+      global_att_blocks: [12, 16, 20]
+      window_pos_embed_bkg_spatial_size: [14, 14]
+    neck:
+      backbone_channel_list: [896, 448, 224, 112]

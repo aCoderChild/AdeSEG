@@ -13,7 +13,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from modeling.feature_aggregation import MultiscaleChannelValueRefinerV1
+from modeling.feature_aggregation import MultistageFeatureAggregator
 from modeling.cmsa_boundary_training_loss import cmsa_boundary_loss
 from modeling.teacher_preservation import positive_preservation_penalty
 import modeling.multiscale_channel_value_refiner_v1 as model_source
@@ -60,7 +60,7 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--backbone-sha256", required=True)
     p.add_argument("--feature-pipeline-sha256", required=True)
-    p.add_argument("--mode", choices=MultiscaleChannelValueRefinerV1.MODES,
+    p.add_argument("--mode", choices=MultistageFeatureAggregator.MODES,
                    default="foreground_background_asinh")
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--lr", type=float, default=3e-4)
@@ -78,7 +78,7 @@ def main():
         p.error("Refusing to overwrite an existing checkpoint")
     a.output.parent.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(20261118)
-    model = MultiscaleChannelValueRefinerV1(mode=a.mode).to(a.device).train()
+    model = MultistageFeatureAggregator(mode=a.mode).to(a.device).train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=a.lr)
     steps, losses = 0, []
     for epoch in range(a.epochs):

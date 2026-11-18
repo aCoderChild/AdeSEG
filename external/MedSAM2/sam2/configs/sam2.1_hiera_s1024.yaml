@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - sam2.1_hiera_t1024
+  - _self_
+
+# Official SAM 2.1 Hiera-S backbone overrides. All other settings are shared
+# with the verbatim 1024-pixel SAM 2.1 configuration above.
+model:
+  image_encoder:
+    trunk:
+      stages: [1, 2, 11, 2]
+      global_att_blocks: [7, 10, 13]
