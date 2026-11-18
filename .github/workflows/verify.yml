@@ -39,6 +39,7 @@ jobs:
             tests/test_medsam2_checkpoint_identity.py \
             tests/test_medical_highres_contribution.py \
             tests/test_medical_highres_training.py \
+            tests/test_research_block_boundaries.py \
             tests/test_clean_aggregation.py \
             tests/test_positive_teacher_preservation_loss.py \
             tests/test_training_foreground_preservation_v1.py \

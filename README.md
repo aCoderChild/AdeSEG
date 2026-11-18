@@ -3,6 +3,19 @@
 A focused research repository with **two separate proposed model contributions**,
 reproducible comparison baselines, and explicit clinical/proxy-data limitations.
 
+## Scientific block architecture
+
+The codebase is grouped into **six independent blocks**, rather than putting backbones, adapters, losses, and memory controls into one large model class. See [block registry and flow diagrams](modeling/blocks/README.md).
+
+| Block | Scientific purpose |
+|---|---|
+| [MedSAM2 backbone](modeling/blocks/medsam2_backbone/) | Frozen medical Hiera-T/512 model |
+| [High-resolution adapter](modeling/blocks/high_resolution_adapter/) | Learned early/deep decoder-skip fusion |
+| [Teacher-preserving KL](modeling/blocks/teacher_preserving_kl/) | Detached-native-teacher loss **during training only** |
+| [Lean-SAM2 backbone](modeling/blocks/lean_sam2_backbone/) | Pinned Hiera-B+ / spatial RoPE corrected model |
+| [Multi-scale feature aggregation](modeling/blocks/multiscale_feature_aggregation/) | Six-stage Q/K/V aggregation and residual mask prediction |
+| [Temporal memory](modeling/blocks/temporal_memory/) | Optional anchor, memory-position and RoPE ablations |
+
 ## Contributions
 
 ### 1. MedSAM2 high-resolution refinement with native-teacher preservation — primary
@@ -59,7 +72,8 @@ must be matched before method-level interpretation.
 ```text
 AdeSEG/
 ├── modeling/
-│   ├── medical_highres/          # Contribution 1: blocks, adapter, loss, hook
+│   ├── blocks/                   # Six scientific-facing independent block APIs
+│   ├── medical_highres/         # Original medical implementation and hook
 │   ├── aggregation_blocks/       # Contribution 2: Lean six-stage refinement
 │   ├── structured_feature_aggregation.py
 │   ├── medsam2_latest.py        # MedSAM2 pretrained checkpoint identity guard
@@ -116,8 +130,7 @@ from this reconstructed package. Neither candidate advanced to a verified
 **Checkpoint identities:**
 [MedSAM2 Hiera-T/512 vs Lean Hiera-B+](docs/CHECKPOINT_PROVENANCE.md).
 
-**Validation status:** Python CPU smoke tests of the reconstructed medical
-adapter passed locally. GitHub Actions has been failing *before job steps
+**Validation status:** The medical adapter's checkpoint schema and isolated CPU smoke tests were checked during development; the new block-level integration tests and repository-wide test suite still require execution on a working runner. GitHub Actions has been failing *before job steps
 start*, so repository-wide runner verification and full video Dice reproduction
 are still outstanding.
 

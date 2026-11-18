@@ -11,8 +11,8 @@ from pathlib import Path
 
 import torch
 
-from modeling.medical_highres import MedicalHighResolutionAdapter
-from modeling.medsam2_latest import (
+from modeling.blocks.high_resolution_adapter import MedicalHighResolutionAdapter
+from modeling.blocks.medsam2_backbone import (
     MEDSAM2_LATEST_SHA256, build_verified_medsam2_latest,
 )
 from training.medical_highres_training import (
