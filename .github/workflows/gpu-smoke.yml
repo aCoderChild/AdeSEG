@@ -1,0 +1,91 @@
+name: MedSAM2 GPU smoke and parity (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Explicitly enable the self-hosted GPU verification run"
+        required: true
+        type: choice
+        default: DISABLED
+        options:
+          - DISABLED
+          - RUN_GPU
+permissions:
+  contents: read
+jobs:
+  medsam2-short-dev:
+    if: ${{ inputs.confirmation == 'RUN_GPU' }}
+    # Register a trusted, CUDA-capable self-hosted runner with this label.
+    runs-on: [self-hosted, linux, x64, adeseg-gpu]
+    timeout-minutes: 120
+    env:
+      SMOKE_MANIFEST: ${{ vars.ADESEG_MED_SMOKE_MANIFEST }}
+      BACKBONE: ${{ vars.ADESEG_MED_CHECKPOINT }}
+      MODEL_CONFIG: ${{ vars.ADESEG_MED_MODEL_CONFIG || 'sam2.1_hiera_t512.yaml' }}
+      ADAPTER: ${{ vars.ADESEG_MED_ADAPTER }}
+      ADAPTER_SHA256: ${{ vars.ADESEG_MED_ADAPTER_SHA256 }}
+      CUBLAS_WORKSPACE_CONFIG: ":4096:8"
+      PYTHONHASHSEED: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Verify CUDA and installed dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SMOKE_MANIFEST" || { echo "Set ADESEG_MED_SMOKE_MANIFEST in GitHub Actions variables"; exit 2; }
+          test -n "$BACKBONE" || { echo "Set ADESEG_MED_CHECKPOINT in GitHub Actions variables"; exit 2; }
+          python - <<'PY'
+          import torch, numpy, scipy, cv2, hydra, PIL
+          print("PyTorch:", torch.__version__)
+          print("CUDA available:", torch.cuda.is_available())
+          assert torch.cuda.is_available(), "Self-hosted runner must provide working CUDA"
+          PY
+      - name: Validate small DEV manifest and pinned checkpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--manifest "$SMOKE_MANIFEST" --checkpoint "$BACKBONE" --model-config "$MODEL_CONFIG")
+          if [[ -n "$ADAPTER" || -n "$ADAPTER_SHA256" ]]; then
+            test -n "$ADAPTER" && test -n "$ADAPTER_SHA256" || { echo "Both adapter vars are required"; exit 2; }
+            args+=(--adapter-checkpoint "$ADAPTER" --adapter-sha256 "$ADAPTER_SHA256")
+          fi
+          python -m scripts.check_med_gpu_smoke "${args[@]}"
+      - name: Verify CPU-level model and run-comparison contracts
+        run: |
+          python -m pytest -q tests/test_medical_highres_contribution.py tests/test_medical_checkpoint_roundtrip.py tests/test_medical_video_infer.py tests/test_medical_video_evaluation.py tests/test_med_run_comparison.py tests/test_med_gpu_smoke.py
+      - name: Native MedSAM2 inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.infer_med_video --manifest "$SMOKE_MANIFEST" --split dev --checkpoint "$BACKBONE" --model-config "$MODEL_CONFIG" --device cuda --output verification/native
+          python -m scripts.evaluate_med_video --manifest "$SMOKE_MANIFEST" --run verification/native --output verification/eval_native
+      - name: Zero-initialized adapter identity inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.infer_med_video --manifest "$SMOKE_MANIFEST" --split dev --checkpoint "$BACKBONE" --model-config "$MODEL_CONFIG" --device cuda --zero-initialized-adapter --output verification/zero
+          python -m scripts.evaluate_med_video --manifest "$SMOKE_MANIFEST" --run verification/zero --output verification/eval_zero
+          python -m scripts.compare_med_runs --manifest "$SMOKE_MANIFEST" --native verification/native --candidate verification/zero --require-logit-identity --output verification/zero_parity.json
+      - name: Optional trained-adapter full-video comparison
+        if: ${{ env.ADAPTER != '' && env.ADAPTER_SHA256 != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.infer_med_video --manifest "$SMOKE_MANIFEST" --split dev --checkpoint "$BACKBONE" --model-config "$MODEL_CONFIG" --device cuda --adapter-checkpoint "$ADAPTER" --adapter-sha256 "$ADAPTER_SHA256" --output verification/trained
+          python -m scripts.evaluate_med_video --manifest "$SMOKE_MANIFEST" --run verification/trained --output verification/eval_trained
+          python -m scripts.compare_med_runs --manifest "$SMOKE_MANIFEST" --native verification/native --candidate verification/trained --output verification/trained_comparison.json
+      - name: Upload evaluation-only verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: medsam2-gpu-smoke-${{ github.sha }}
+          path: |
+            verification/eval_native/summary.json
+            verification/eval_zero/summary.json
+            verification/eval_trained/summary.json
+            verification/zero_parity.json
+            verification/trained_comparison.json
+          if-no-files-found: warn
+          retention-days: 7

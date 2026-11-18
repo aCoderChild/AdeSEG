@@ -21,7 +21,7 @@ from adeseg.backbones.medsam2 import (
 )
 from datasets.io import load_label_mask
 from datasets.video import load_manifest, stage_frames
-from modeling.medical_highres import attach_medical_highres_adapter
+from modeling.medical_highres import (MedicalHighResolutionAdapter, attach_medical_highres_adapter)
 from modeling.medical_highres.checkpoints import load_reconstructed_medical_adapter
 
 def sha256(path):
@@ -39,7 +39,8 @@ def oracle_first_present(frames, label_id):
             return index, mask
     return None, None
 
-def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None):
+def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None,
+                   allow_untrained_adapter=False):
     prompt, initial = oracle_first_present(frames, label_id)
     if prompt is None:
         return {"status": "unpromptable", "frames": len(frames), "predicted": 0}
@@ -55,7 +56,8 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None):
             state, frame_idx=prompt, obj_id=label_id,
             mask=torch.from_numpy(initial)
         )
-        scope = (attach_medical_highres_adapter(predictor, adapter)
+        scope = (attach_medical_highres_adapter(
+            predictor, adapter, allow_untrained=allow_untrained_adapter)
                  if adapter is not None else nullcontext())
         with scope:
             for index, object_ids, logits in predictor.propagate_in_video(
@@ -83,6 +85,9 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None):
                     "source_gt_sha256": sha256(frames[index].mask_path),
                     "prediction_file": str(path.relative_to(output)),
                     "prediction_sha256": sha256(path),
+                    "logit_sha256": hashlib.sha256(
+                        np.ascontiguousarray(mask.astype(np.float32)).tobytes()
+                    ).hexdigest(),
                 })
         if len(rows) != len(frames) - prompt - 1:
             raise RuntimeError("Prediction coverage incomplete")
@@ -106,9 +111,13 @@ def main(argv=None):
     parser.add_argument("--label-id", type=int, default=1)
     parser.add_argument("--adapter-checkpoint", type=Path)
     parser.add_argument("--adapter-sha256")
+    parser.add_argument("--zero-initialized-adapter", action="store_true",
+                        help="Verification control only: an untrained identity adapter")
     args = parser.parse_args(argv)
     if args.label_id < 1:
         parser.error("--label-id must be a positive annotation label")
+    if args.zero_initialized_adapter and (args.adapter_checkpoint or args.adapter_sha256):
+        parser.error("Zero-adapter control must not use trained weights")
     if bool(args.adapter_checkpoint) != bool(args.adapter_sha256):
         parser.error("Adapter checkpoint and SHA256 must be supplied together")
     if args.output.exists():
@@ -128,18 +137,23 @@ def main(argv=None):
             model_config=args.model_config
         )
         adapter = adapter.to(args.device)
+    elif args.zero_initialized_adapter:
+        adapter = MedicalHighResolutionAdapter().to(args.device).eval()
     args.output.mkdir(parents=True)
     results = {}
     for video_id, frames in sorted(videos.items()):
         results[video_id] = infer_sequence(
             predictor, frames, args.output,
-            label_id=args.label_id, adapter=adapter
+            label_id=args.label_id, adapter=adapter,
+            allow_untrained_adapter=args.zero_initialized_adapter
         )
     record = {
         "protocol": "oracle_first_present_mask_post_prompt_v1",
         "split": args.split, "manifest_sha256": sha256(args.manifest),
         "backbone_sha256": MEDSAM2_LATEST_SHA256, "model_config": args.model_config,
         "adapter_sha256": args.adapter_sha256,
+        "adapter_mode": ("zero_initialized_control" if args.zero_initialized_adapter
+                         else "trained" if adapter is not None else "native"),
         "label_id": args.label_id, "device": args.device,
         "postprocessing": "no_hole_filling",
         "results": results,

@@ -27,3 +27,11 @@ Each run requires the appropriate pretrained checkpoint, manifest, isolated
 model package and input/validation receipts. No command should inherit the
 0.742071 exploratory baseline score without reproducing its exact 21-video
 automatic initialization and corrected MPS state.
+
+| `python -m scripts.compare_med_runs` | Check matched native/zero/trained MedSAM2 full-video run receipts |
+| `python -m scripts.check_med_gpu_smoke` | Fail-closed preflight for one curated DEV CUDA smoke video |
+
+The manual [GPU smoke workflow](../.github/workflows/gpu-smoke.yml) runs
+native inference, zero-adapter parity, and optional trained-adapter comparison.
+It requires a configured self-hosted GPU runner and authorized local assets.
+See [docs/VERIFICATION.md](../docs/VERIFICATION.md).

@@ -136,3 +136,10 @@ python -m scripts.evaluate_med_video --help
 This is a real model-specific execution path, but GPU-backed runs and
 numerical parity remain **unverified**. It must not be described as automatic
 detection or as reproduction of the historical Lean-SAM2 score.
+
+## Verification gates
+
+See [Verification gates](docs/VERIFICATION.md) for the CPU-suite workflow,
+manual CUDA smoke run, zero-adapter numerical parity check, strict paired
+comparison, required self-hosted GPU runner, and unresolved infrastructure
+limits. **Only verified executed runs count as passing.**
