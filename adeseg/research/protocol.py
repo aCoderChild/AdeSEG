@@ -49,7 +49,7 @@ def load_protocol(path):
     if spec["schema_version"] != 1:
         raise ValueError("Unsupported protocol schema_version")
     if (not isinstance(spec["experiment_id"], str) or not spec["experiment_id"].strip()
-            or "/" in spec["experiment_id"] or "\\\\" in spec["experiment_id"]
+            or "/" in spec["experiment_id"] or "\\" in spec["experiment_id"]
             or spec["experiment_id"] in (".", "..")):
         raise ValueError("experiment_id must be nonempty")
     if spec["track"] not in TRACKS:
