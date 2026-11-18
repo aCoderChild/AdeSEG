@@ -1,8 +1,7 @@
 name: Runner availability check
 
+# Manual diagnostic: no repeat failures on ordinary pushes.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
