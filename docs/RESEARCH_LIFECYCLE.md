@@ -1,0 +1,76 @@
+# Reproducible research lifecycle (v1)
+
+Pipeline: **Data → Training → Inference → Evaluation → Ablation → Reproduction**.
+
+The `adeseg.research` package adds a fail-closed **experiment contract and stage executor**, not a replacement for the model-specific runners. Existing baseline and training entrypoints remain intact. Each experiment JSON pins the dataset manifest and backbone checkpoint by SHA256. Stage commands are explicit argv arrays, not shell strings; stage output files are hashed into a receipt.
+
+## Use
+
+1. Produce an immutable JSONL dataset manifest with fields `patient_id`, `video_id`, `frame_index`, `split`, `image`, `mask`. Paths are relative to the JSONL file. Validate it:
+
+   `python -m adeseg.research.data --manifest /path/to/frames.jsonl`
+
+   This checks file existence, duplicate frames, and cross-split patient/video leakage. Patient IDs are trusted metadata; they must be independently audited against source provenance.
+
+2. Copy `configs/research/protocol.example.json` and fill every actual path and SHA256. The example contains placeholders and is **not executable as-is**. Every stage has `command` and `artifacts`. Leave a stage command empty only when unimplemented; this is reported, never silently treated as success. In the command, `{python}`, `{workdir}` and `{protocol_dir}` are substituted without a shell.
+
+3. Validate pinned inputs:
+
+   `python -m scripts.research verify --protocol /path/to/protocol.json`
+
+4. Preview an experiment:
+
+   `python -m scripts.research run --protocol /path/to/protocol.json --stage all --dry-run`
+
+5. Execute actual stage commands:
+
+   `python -m scripts.research run --protocol /path/to/protocol.json --stage inference --workdir runs`
+
+   The output root is `runs/<experiment_id>/`. A stage must return zero and create every declared artifact; otherwise the receipt is incomplete. To keep outputs immutable, existing declared outputs and existing receipts are never overwritten.
+
+6. Paired ablation: export a CSV from each run containing unique `sequence` and a metric column, e.g. `dice`; compare them with
+
+   `python -m scripts.ablate --baseline-protocol base.json --candidate-protocol adapter.json --baseline-csv base.csv --candidate-csv adapter.csv --output comparison.json`
+
+   The comparison requires identical dataset manifest SHA256, split, initialization and prompt budget, same research track and exactly matched sequence sets. It produces paired per-sequence deltas and bootstrap intervals. It does NOT independently prove patient independence.
+
+7. Reproduce: use the same sealed protocol and all-stage execution on a clean environment, compare artifact and receipt hashes against the release record, and document expected nondeterminism.
+
+## Supported integration boundaries
+
+- Existing training commands: `python -m scripts.train_med` and `python -m scripts.train_lean`, with mandatory `--split-file` guards.
+- Existing baseline commands: `python -m scripts.compare_models`, `python -m scripts.evaluate_cmsa`, `python -m scripts.evaluate_lean`.
+- Evaluation implementation: `evaluation/segmentation.py`, `evaluation/temporal.py`, and `evaluation/statistics.py`.
+- The lifecycle wrapper executes **specified real commands**. It does not generate unimplemented raw-video training, model-specific inference or clinical annotation capabilities.
+
+## Schema
+
+```json
+{
+  "schema_version": 1,
+  "experiment_id": "unique-run-id",
+  "track": "medsam2_highres",
+  "dataset": {"name": "PolypGen", "manifest": {"path": "frames.jsonl", "sha256": "<actual sha256>"}},
+  "split": "test",
+  "initialization": {"source": "oracle_mask", "prompt_budget": 1},
+  "checkpoint": {"path": "backbone.pt", "sha256": "<actual sha256>"},
+  "stages": {
+    "data": {"command": [], "artifacts": []},
+    "training": {"command": [], "artifacts": []},
+    "inference": {"command": [], "artifacts": []},
+    "evaluation": {"command": [], "artifacts": []}
+  }
+}
+```
+
+The schema intentionally requires all four stages: missing implementations must be visible. Model-specific stage configuration should state which outputs represent detector-generated versus oracle prompts.
+
+## Not yet implemented
+
+- Universal image preprocessing and clinical adenoid dataset adapters.
+- Raw-video end-to-end training for both contribution tracks.
+- One universal model inference CLI (model-specific runners are retained).
+- Full GPU benchmark CI and independent numerical forward parity for historical adapters.
+- Automatic verification of all six lifecycle phases across the full benchmark.
+
+Until these are addressed the repository has a reproducible *orchestration foundation*, not demonstrated end-to-end scientific reproduction.

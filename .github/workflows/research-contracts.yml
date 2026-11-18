@@ -1,0 +1,29 @@
+name: Research lifecycle contracts
+on:
+  push:
+    branches: [main, feat/research-lifecycle]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install independent contract dependencies
+        run: python -m pip install numpy pytest
+      - name: Compile research lifecycle
+        run: python -m compileall -q adeseg/research scripts/research.py scripts/ablate.py
+      - name: Run hermetic protocol tests
+        run: python -m pytest -q tests/test_research_protocol.py
+      - name: Verify CLI help
+        run: |
+          python -m scripts.research --help
+          python -m scripts.ablate --help
+          python -m adeseg.research.data --help

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "experiment_id": "medsam2-highres-ablation-001",
+  "track": "medsam2_highres",
+  "hypothesis": "High-resolution residual improves boundary quality without degrading correct native predictions.",
+  "seed": 20261118,
+  "dataset": {
+    "name": "PolypGen",
+    "manifest": {
+      "path": "frames.jsonl",
+      "sha256": "REPLACE_WITH_ACTUAL_SHA256"
+    }
+  },
+  "split": "test",
+  "initialization": {
+    "source": "oracle_mask",
+    "prompt_budget": 1
+  },
+  "checkpoint": {
+    "path": "backbone.pt",
+    "sha256": "REPLACE_WITH_ACTUAL_SHA256"
+  },
+  "stages": {
+    "data": {
+      "command": [],
+      "artifacts": []
+    },
+    "training": {
+      "command": [],
+      "artifacts": []
+    },
+    "inference": {
+      "command": [],
+      "artifacts": []
+    },
+    "evaluation": {
+      "command": [],
+      "artifacts": []
+    }
+  }
+}
