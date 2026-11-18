@@ -91,3 +91,12 @@ Until these are addressed the repository has a reproducible *orchestration found
   For paper claims, specify whether frame-weighted or equal-sequence estimates
   are used and whether GT-empty frames are included. Previously published
   results must be reported with their original evaluation version.
+
+## MedSAM2 checkpoint inference
+
+The reconstructed medical adapter has a strict new-run loader:
+`modeling.medical_highres.load_reconstructed_medical_adapter`. It validates
+the serialized checkpoint SHA256, exact backbone identity and config, current
+adapter source hash, positive training step count and the saved residual
+scale. The method **does not** establish historical-forward equivalence.
+Full-video integration and GPU testing remain separate verification gates.

@@ -111,6 +111,10 @@ def main(argv=None):
         "backbone_sha256": a.backbone_sha256, "feature_pipeline_sha256": a.feature_pipeline_sha256,
         "train_manifest_sha256": digest(a.manifest),
         "teacher_weight": a.teacher_weight, "epochs": a.epochs,
+        "seed": 20261118,
+        "split_file_sha256": digest(a.split_file),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "torch_rng_state": torch.get_rng_state(),
     }
     torch.save(payload, a.output)
     print(json.dumps({"checkpoint": str(a.output), "steps": steps,

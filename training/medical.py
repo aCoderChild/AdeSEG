@@ -68,7 +68,7 @@ def main(argv=None):
     p.add_argument("--maximum-delta", type=float, default=0.1,
                    help="New reconstruction hyperparameter, not historical parity")
     a = p.parse_args(argv)
-    if (a.epochs < 1 or a.learning_rate <= 0 or a.learning_rate >= 1
+    if (not 0 < a.maximum_delta <= 1 or a.epochs < 1 or a.learning_rate <= 0 or a.learning_rate >= 1
             or not 0 <= a.teacher_weight <= 10
             or not 0 <= a.positive_weight <= 10):
         p.error("Invalid hyperparameter")
@@ -123,6 +123,10 @@ def main(argv=None):
         "positive_weight": a.positive_weight,
         "maximum_delta": a.maximum_delta,
         "training_steps": len(losses),
+        "seed": 20261118,
+        "split_file_sha256": sha256(a.split_file),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "torch_rng_state": torch.get_rng_state(),
         "state_dict": {
             k: v.detach().cpu() for k, v in adapter.state_dict().items()},
     }
