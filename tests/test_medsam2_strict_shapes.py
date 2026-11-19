@@ -1,9 +1,16 @@
 """Strict checkpoint tensor geometry: fail closed before mutating the model."""
+import sys
+from pathlib import Path
 import torch
 from torch import nn
 import pytest
 
-from external.MedSAM2.sam2.build_sam import _load_checkpoint
+# Mirror the supported factory's vendored SAM2 config/import registration.
+ROOT = Path(__file__).resolve().parents[1]
+SAM2_ROOT = str(ROOT / "external" / "MedSAM2")
+if SAM2_ROOT not in sys.path:
+    sys.path.insert(0, SAM2_ROOT)
+from sam2.build_sam import _load_checkpoint
 
 
 class TinyMedModel(nn.Module):

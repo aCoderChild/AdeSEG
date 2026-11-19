@@ -113,3 +113,40 @@ python -m scripts.infer_med_video --help
 python -m scripts.evaluate_med_video --help
 python -m scripts.compare_med_runs --help
 ```
+
+## Strict shape and implementation-source contracts (2026-11-19)
+
+The vendored MedSAM2 checkpoint loader now **rejects any mismatched tensor
+shape** before modifying the target model. It uses explicit shape
+`assert` statements for auditable invariants, backed by unconditional
+`RuntimeError` checks (so `python -O` cannot disable the protection).
+The sole exception is the unused, zero-sized `maskmem_tpos_enc` tensor
+when `num_maskmem == 0`. State-dict keys must match exactly.
+
+New reconstructed MedSAM2 training checkpoints also include
+`implementation_sha256` over adapter, blocks and decoder integration source.
+New structured Lean-SAM2 training checkpoints include an analogous digest
+covering the aggregation blocks and memory-routing implementation. Loading
+older source-only adapter checkpoints requires an **explicit**
+`allow_legacy_source_only=True` opt-in. This compatibility path is not
+evidence of historical forward parity.
+
+The GPU-smoke preflight now verifies **GT-positive frames after the actual
+first-positive prompt**, one DEV-only short video, safe source IDs, contiguous
+source frame indexes and JPEG frame encoding. The video runner uses the
+same strict continuity and ID checks.
+
+For 0/255 binary or already-indexed anatomical masks, use the new
+non-destructive converter:
+
+```bash
+python -m scripts.build_mask_manifest --manifest /path/to/input.jsonl \
+  --output /path/to/converted --kind binary
+# Or preserve anatomical labels 0=background, 1=adenoid, 2=airway:
+python -m scripts.build_mask_manifest --manifest /path/to/input.jsonl \
+  --output /path/to/converted --kind semantic --labels 0,1,2
+```
+
+RGB color-coded semantic masks are rejected until a reviewed explicit color
+palette is supplied. This tool creates indexed PNGs and a new JSONL manifest;
+it never overwrites the original annotations.
