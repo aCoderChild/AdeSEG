@@ -169,3 +169,20 @@ as the adapter implementation. A synthetic CPU AdamW regression test checks
 that uninterrupted and epoch-restarted parameter values match exactly.
 Arbitrary mid-epoch recovery and cross-device deterministic parity are NOT
 established.
+
+## Sealed evaluation and numerical evidence
+
+`python -m scripts.seal_med_video_study --protocol <protocol.json> --native
+<native_run> --zero <zero_run> --output <new_receipt.json>` re-reads every
+prediction and independently saved float32 logit artifact, demands exact
+native/zero-adapter parity, checks a clean Git revision and hashes critical
+source files. Use `--trained <trained_run>` to include a trained candidate;
+its presence does not imply improvement. The GPU workflow uploads the
+**metrics-only** receipt and summary, never raw private images or logit tensors.
+All three descriptive temporal measures (adjacent mask IoU, relative area
+change and normalized centroid displacement) are reported separately from
+foreground-present Dice and empty-frame false alarms.
+
+`adeseg.research.lifecycle` accepts a new six-stage schema version 2; schema
+version 1 remains compatible with its original four stages. Any missing stage
+is explicitly incomplete and therefore cannot be reported as reproduced.

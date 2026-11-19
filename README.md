@@ -148,3 +148,23 @@ limits. **Only verified executed runs count as passing.**
 **For controlled MedSAM2 results,** prepare one sealed protocol and pass the
 same `--protocol` to inference, evaluation and paired comparison. See
 [training/README.md](training/README.md) for an end-to-end command recipe.
+
+## Current verification and restart status
+
+- The sealed MedSAM2 oracle-video protocol is generated with
+  `scripts.prepare_med_video_protocol`. The native, identity and trained
+  runners, scorer and comparator consume the **same** authenticated protocol.
+- The manual GPU workflow records *decoder-hook invocation counts*, locally
+  saved float32 logits for identity verification, and an authenticated
+  `scripts.seal_med_video_study` receipt with git/source/asset hashes. Raw
+  video and logits are never uploaded by this workflow.
+- `scripts.train_med` and `scripts.train_lean` support authenticated
+  **completed-epoch** snapshots, not mid-batch recovery, via
+  `--save-epoch-snapshots` and `--resume-checkpoint/--resume-sha256`.
+- A six-stage schema v2 research lifecycle is available for explicitly
+  configured data/training/inference/evaluation/ablation/reproduction commands.
+  This is orchestration, **not** a claim that raw video capture generation or
+  full benchmark reproduction already works.
+- The existing GitHub-hosted CI remains blocked before the first step;
+  project code alone cannot fix account/runner provisioning. See
+  [CI troubleshooting](docs/CI_TROUBLESHOOTING.md).

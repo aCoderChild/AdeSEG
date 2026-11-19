@@ -39,3 +39,11 @@ See [docs/VERIFICATION.md](../docs/VERIFICATION.md).
 Research-grade MedSAM2 video execution requires a sealed `--protocol` created
 with `python -m scripts.prepare_med_video_protocol`. Do not mix old
 `--manifest`/`--checkpoint` flags with the controlled inference CLI.
+
+| `python -m scripts.prepare_med_video_protocol` | Generate sealed MedSAM2 oracle prompt-plan and checkpoint protocol |
+| `python -m scripts.seal_med_video_study` | Verify full native/zero/trained evidence, hashes and Git revision; write final study receipt |
+
+For numerical parity, supply `--record-logits` on both native and identity
+inference runs. The evaluator authenticates saved float32 tensors and checks
+their mask threshold agrees with the exported PNG. Keep those source tensors
+local; only metrics are uploaded by the GPU workflow.
