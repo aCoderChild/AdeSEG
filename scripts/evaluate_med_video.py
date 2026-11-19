@@ -18,16 +18,25 @@ from datasets.io import load_label_mask
 from evaluation.segmentation import calculate_scores
 from evaluation.temporal_consistency import adjacent_mask_metrics, undefined_temporal_metrics
 from scripts.infer_med_video import sha256
+from adeseg.research.med_video_contract import (
+    load_med_video_contract, verify_med_run_receipt,
+)
 
-def evaluate_run(manifest, run_root):
+def evaluate_run(manifest, run_root, *, protocol=None):
     manifest, run_root = Path(manifest).resolve(strict=True), Path(run_root).resolve(strict=True)
     record = json.loads((run_root / "run.json").read_text(encoding="utf-8"))
+    if protocol is not None:
+        contract = load_med_video_contract(protocol)
+        if manifest != contract["manifest"]:
+            raise ValueError("Evaluation manifest differs from sealed protocol")
+        verify_med_run_receipt(contract, record)
     if record.get("protocol") != "oracle_first_present_mask_post_prompt_v1":
         raise ValueError("Unsupported MedSAM2 inference evaluation protocol")
     if record.get("manifest_sha256") != sha256(manifest):
         raise ValueError("Dataset manifest changed after inference")
     label_id = record["label_id"]
-    videos = load_manifest(manifest, record["split"])
+    videos = load_manifest(manifest, record["split"], require_contiguous=True,
+                           require_jpeg=True, safe_output_ids=True)
     if videos.keys() != record["results"].keys():
         raise ValueError("Run video population differs from the dataset manifest")
     results, frame_rows, sequence_rows = record["results"], [], []
@@ -132,13 +141,15 @@ def write_csv(path, rows, columns):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--manifest", type=Path, required=True)
+    p.add_argument("--protocol", type=Path, required=True)
     p.add_argument("--run", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args(argv)
     if args.output.exists():
         p.error("Refusing to overwrite evaluation output")
-    result, frame_rows, seq_rows = evaluate_run(args.manifest, args.run)
+    contract = load_med_video_contract(args.protocol)
+    result, frame_rows, seq_rows = evaluate_run(
+        contract["manifest"], args.run, protocol=args.protocol)
     args.output.mkdir(parents=True)
     (args.output / "summary.json").write_text(json.dumps(result, indent=2)+"\n")
     write_csv(args.output / "per_sequence.csv", seq_rows,

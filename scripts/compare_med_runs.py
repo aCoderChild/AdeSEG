@@ -12,16 +12,20 @@ from pathlib import Path
 import numpy as np
 
 from scripts.evaluate_med_video import evaluate_run
+from adeseg.research.med_video_contract import load_med_video_contract
 
 
-def compare_runs(manifest, native_root, candidate_root, *, require_logit_identity=False):
+def compare_runs(manifest, native_root, candidate_root, *, require_logit_identity=False,
+                 protocol=None):
     native_root = Path(native_root).resolve(strict=True)
     candidate_root = Path(candidate_root).resolve(strict=True)
     if native_root == candidate_root:
         raise ValueError("Comparison runs must use independent output directories")
     native = json.loads((native_root / "run.json").read_text(encoding="utf-8"))
     candidate = json.loads((candidate_root / "run.json").read_text(encoding="utf-8"))
-    controlled = ("protocol", "split", "manifest_sha256", "backbone_sha256",
+    controlled = ("protocol", "research_protocol_sha256",
+                  "prompt_manifest_sha256", "evaluation_contract",
+                  "split", "manifest_sha256", "backbone_sha256",
                   "model_config", "label_id", "device", "postprocessing")
     mismatched = [field for field in controlled if native.get(field) != candidate.get(field)]
     if mismatched:
@@ -38,8 +42,10 @@ def compare_runs(manifest, native_root, candidate_root, *, require_logit_identit
     if require_logit_identity and mode != "zero_initialized_control":
         raise ValueError("Exact logit identity is only expected for zero-initialized control")
 
-    left_summary, left_frames, left_sequences = evaluate_run(manifest, native_root)
-    right_summary, right_frames, right_sequences = evaluate_run(manifest, candidate_root)
+    left_summary, left_frames, left_sequences = evaluate_run(
+        manifest, native_root, protocol=protocol)
+    right_summary, right_frames, right_sequences = evaluate_run(
+        manifest, candidate_root, protocol=protocol)
     if native["results"].keys() != candidate["results"].keys():
         raise ValueError("Video populations differ")
     exact_mask, exact_logit = True, True
@@ -115,7 +121,7 @@ def compare_runs(manifest, native_root, candidate_root, *, require_logit_identit
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--manifest", type=Path, required=True)
+    p.add_argument("--protocol", type=Path, required=True)
     p.add_argument("--native", type=Path, required=True)
     p.add_argument("--candidate", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
@@ -123,8 +129,10 @@ def main(argv=None):
     args = p.parse_args(argv)
     if args.output.exists():
         p.error("Refusing to overwrite existing comparison")
-    result = compare_runs(args.manifest, args.native, args.candidate,
-                          require_logit_identity=args.require_logit_identity)
+    contract = load_med_video_contract(args.protocol)
+    result = compare_runs(contract["manifest"], args.native, args.candidate,
+                          require_logit_identity=args.require_logit_identity,
+                          protocol=args.protocol)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
     print(json.dumps(result, indent=2, allow_nan=False))

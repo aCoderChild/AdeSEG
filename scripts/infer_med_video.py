@@ -23,6 +23,7 @@ from datasets.io import load_label_mask
 from datasets.video import load_manifest, stage_frames
 from modeling.medical_highres import (MedicalHighResolutionAdapter, attach_medical_highres_adapter)
 from modeling.medical_highres.checkpoints import load_reconstructed_medical_adapter
+from adeseg.research.med_video_contract import load_med_video_contract
 
 def sha256(path):
     h = hashlib.sha256()
@@ -52,14 +53,15 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None,
         state = predictor.init_state(
             video_path=tmp, offload_video_to_cpu=True, offload_state_to_cpu=False
         )
-        predictor.add_new_mask(
-            state, frame_idx=prompt, obj_id=label_id,
-            mask=torch.from_numpy(initial)
-        )
+        with torch.inference_mode():
+            predictor.add_new_mask(
+                state, frame_idx=prompt, obj_id=label_id,
+                mask=torch.from_numpy(initial)
+            )
         scope = (attach_medical_highres_adapter(
             predictor, adapter, allow_untrained=allow_untrained_adapter)
                  if adapter is not None else nullcontext())
-        with scope:
+        with scope, torch.inference_mode():
             for index, object_ids, logits in predictor.propagate_in_video(
                 state, start_frame_idx=prompt, reverse=False
             ):
@@ -102,42 +104,35 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--split", choices=("dev","test"), required=True)
-    parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--model-config", required=True)
+    parser.add_argument("--protocol", type=Path, required=True,
+                        help="Sealed MedSAM2 evaluation protocol with authenticated prompt manifest")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", choices=("cpu","mps","cuda"), default="cpu")
-    parser.add_argument("--label-id", type=int, default=1)
     parser.add_argument("--adapter-checkpoint", type=Path)
     parser.add_argument("--adapter-sha256")
     parser.add_argument("--zero-initialized-adapter", action="store_true",
                         help="Verification control only: an untrained identity adapter")
     args = parser.parse_args(argv)
-    if args.label_id < 1:
-        parser.error("--label-id must be a positive annotation label")
     if args.zero_initialized_adapter and (args.adapter_checkpoint or args.adapter_sha256):
         parser.error("Zero-adapter control must not use trained weights")
     if bool(args.adapter_checkpoint) != bool(args.adapter_sha256):
         parser.error("Adapter checkpoint and SHA256 must be supplied together")
     if args.output.exists():
         parser.error("Refusing to overwrite existing output")
-    videos = load_manifest(
-        args.manifest.resolve(strict=True), args.split,
-        require_contiguous=True, require_jpeg=True, safe_output_ids=True
-    )
+    contract = load_med_video_contract(args.protocol)
+    videos = contract["videos"]
     # Do not build a video predictor from an unverified or silently changed backbone.
     predictor = build_verified_medsam2_latest(
-        args.checkpoint, model_cfg=args.model_config,
+        contract["checkpoint"], model_cfg=contract["model_config"],
         device=args.device, apply_postprocessing=False
-    ).eval()
+    ).eval().requires_grad_(False)
     predictor.fill_hole_area = 0
     adapter = None
     if args.adapter_checkpoint:
         adapter, _ = load_reconstructed_medical_adapter(
             args.adapter_checkpoint, expected_sha256=args.adapter_sha256,
             backbone_sha256=MEDSAM2_LATEST_SHA256,
-            model_config=args.model_config
+            model_config=contract["model_config"]
         )
         adapter = adapter.to(args.device)
     elif args.zero_initialized_adapter:
@@ -147,17 +142,22 @@ def main(argv=None):
     for video_id, frames in sorted(videos.items()):
         results[video_id] = infer_sequence(
             predictor, frames, args.output,
-            label_id=args.label_id, adapter=adapter,
+            label_id=contract["label_id"], adapter=adapter,
             allow_untrained_adapter=args.zero_initialized_adapter
         )
     record = {
         "protocol": "oracle_first_present_mask_post_prompt_v1",
-        "split": args.split, "manifest_sha256": sha256(args.manifest),
-        "backbone_sha256": MEDSAM2_LATEST_SHA256, "model_config": args.model_config,
+        "split": contract["spec"]["split"],
+        "manifest_sha256": contract["spec"]["dataset"]["manifest"]["sha256"],
+        "research_protocol_sha256": contract["protocol_sha256"],
+        "prompt_manifest_sha256": contract["prompt_manifest_sha256"],
+        "evaluation_contract": contract["spec"]["evaluation"],
+        "backbone_sha256": MEDSAM2_LATEST_SHA256,
+        "model_config": contract["model_config"],
         "adapter_sha256": args.adapter_sha256,
         "adapter_mode": ("zero_initialized_control" if args.zero_initialized_adapter
                          else "trained" if adapter is not None else "native"),
-        "label_id": args.label_id, "device": args.device,
+        "label_id": contract["label_id"], "device": args.device,
         "postprocessing": "no_hole_filling",
         "results": results,
     }

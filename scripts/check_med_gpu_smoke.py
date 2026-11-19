@@ -16,6 +16,7 @@ from datasets.video import load_manifest
 from modeling.medsam2_latest import verify_medsam2_latest
 from modeling.medical_highres.checkpoints import load_reconstructed_medical_adapter
 from adeseg.backbones.medsam2 import MEDSAM2_LATEST_SHA256
+from adeseg.research.med_video_contract import load_med_video_contract
 
 
 def validate_curated_manifest(path, *, max_frames=24, label_id=1):
@@ -56,9 +57,7 @@ def validate_curated_manifest(path, *, max_frames=24, label_id=1):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--manifest", type=Path, required=True)
-    p.add_argument("--checkpoint", type=Path, required=True)
-    p.add_argument("--model-config", default="sam2.1_hiera_t512.yaml")
+    p.add_argument("--protocol", type=Path, required=True)
     p.add_argument("--max-frames", type=int, default=24)
     p.add_argument("--adapter-checkpoint", type=Path)
     p.add_argument("--adapter-sha256")
@@ -67,21 +66,24 @@ def main(argv=None):
         p.error("GPU smoke requires a functioning CUDA runner")
     if bool(args.adapter_checkpoint) != bool(args.adapter_sha256):
         p.error("Adapter checkpoint and expected SHA256 must be supplied together")
+    contract = load_med_video_contract(args.protocol)
     config_file = Path(__file__).resolve().parents[1] / (
-        "external/MedSAM2/sam2/configs") / args.model_config
+        "external/MedSAM2/sam2/configs") / contract["model_config"]
     if not config_file.is_file():
-        p.error(f"Unknown vendored MedSAM2 model configuration: {args.model_config}")
-    info = validate_curated_manifest(args.manifest, max_frames=args.max_frames)
-    verify_medsam2_latest(args.checkpoint)
+        p.error(f"Unknown vendored MedSAM2 model configuration: {contract['model_config']}")
+    info = validate_curated_manifest(contract["manifest"], max_frames=args.max_frames,
+                                     label_id=contract["label_id"])
+    verify_medsam2_latest(contract["checkpoint"])
     if args.adapter_checkpoint:
         load_reconstructed_medical_adapter(
             args.adapter_checkpoint, expected_sha256=args.adapter_sha256,
             backbone_sha256=MEDSAM2_LATEST_SHA256,
-            model_config=args.model_config)
+            model_config=contract["model_config"])
     print(json.dumps({
         "status": "preflight_passed", "gpu": torch.cuda.get_device_name(0),
         "checkpoint_sha256": MEDSAM2_LATEST_SHA256,
-        "adapter_supplied": bool(args.adapter_checkpoint), **info,
+        "adapter_supplied": bool(args.adapter_checkpoint),
+        "research_protocol_sha256": contract["protocol_sha256"], **info,
     }, indent=2))
 
 
