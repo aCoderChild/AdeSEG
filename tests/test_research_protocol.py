@@ -156,3 +156,13 @@ def test_ablation_fails_if_evaluation_unspecified(tmp_path):
     base.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="fully specified evaluation"):
         comparison_key(load_protocol(base)[1])
+
+def test_ablation_rejects_modified_checkpoint_file(tmp_path):
+    base = make_protocol(tmp_path, "baseline")
+    candidate = make_protocol(tmp_path, "candidate")
+    (tmp_path / "base.csv").write_text("sequence,dice\nv1,0.5\n")
+    (tmp_path / "candidate.csv").write_text("sequence,dice\nv1,0.6\n")
+    (tmp_path / "backbone.pt").write_bytes(b"changed after protocol creation")
+    with pytest.raises(ValueError, match="SHA256"):
+        paired_comparison(base, candidate, tmp_path / "base.csv",
+                          tmp_path / "candidate.csv")

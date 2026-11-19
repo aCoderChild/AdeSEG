@@ -5,7 +5,7 @@ import csv
 import json
 from pathlib import Path
 import numpy as np
-from .protocol import load_protocol, comparison_key
+from .protocol import load_protocol, verify_protocol, comparison_key, digest
 
 def _scores(path, metric):
     with Path(path).open(newline="", encoding="utf-8") as handle:
@@ -30,6 +30,10 @@ def paired_comparison(baseline_protocol, candidate_protocol, baseline_csv, candi
         raise ValueError("Protocol mismatch: evaluation, dataset, backbone checkpoint, split or prompt conditions differ")
     if base["track"] != candidate["track"]:
         raise ValueError("Ablations require the same backbone/research track")
+    # Checking only two declared hash strings is insufficient: independently
+    # authenticate the dataset manifest and backbone file bytes before analysis.
+    verify_protocol(baseline_protocol)
+    verify_protocol(candidate_protocol)
     if n_bootstrap < 100:
         raise ValueError("Use at least 100 bootstrap draws")
     left, right = _scores(baseline_csv, metric), _scores(candidate_csv, metric)
@@ -42,6 +46,8 @@ def paired_comparison(baseline_protocol, candidate_protocol, baseline_csv, candi
     means = differences[indices].mean(axis=1)
     return {
         "metric": metric, "sequences": len(names),
+        "baseline_csv_sha256": digest(Path(baseline_csv)),
+        "candidate_csv_sha256": digest(Path(candidate_csv)),
         "baseline_mean": float(np.mean([left[x] for x in names])),
         "candidate_mean": float(np.mean([right[x] for x in names])),
         "paired_mean_difference": float(differences.mean()),

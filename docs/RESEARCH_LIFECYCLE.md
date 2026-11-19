@@ -107,3 +107,8 @@ The evaluator retains top-level frame-weighted metrics for compatibility, and
 adds `summary["sequence_macro"]` for equal-sequence means. These are distinct
 estimands and must never be presented as interchangeable. The paired Wilcoxon
 helper now rejects mismatched sequence sets rather than silently intersecting.
+
+Paired ablations now independently authenticate declared dataset and backbone
+file bytes via `verify_protocol` before reading result CSVs, and include
+SHA256 checksums for the two result CSVs in the output report. Comparing two
+matching declarative hash strings alone does not establish integrity.
