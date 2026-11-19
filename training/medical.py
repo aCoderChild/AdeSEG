@@ -7,10 +7,15 @@ No result from this script is eligible to inherit the old study's Dice score.
 import argparse
 import hashlib
 import json
+import random
+import numpy as np
 from pathlib import Path
 
 from training.split_guard import validate_train_sources
 from modeling.medical_highres.checkpoints import implementation_digest
+from training.restart_state import (
+    capture_rng, restore_rng, save_epoch_snapshot, load_epoch_snapshot,
+)
 
 import torch
 
@@ -66,6 +71,10 @@ def main(argv=None):
     p.add_argument("--learning-rate", type=float, default=1e-4)
     p.add_argument("--teacher-weight", type=float, default=0.1)
     p.add_argument("--positive-weight", type=float, default=0.0)
+    p.add_argument("--resume-checkpoint", type=Path,
+                   help="Authenticated complete-epoch snapshot from a prior run")
+    p.add_argument("--resume-sha256", help="Exact SHA256 of resume checkpoint")
+    p.add_argument("--save-epoch-snapshots", action="store_true")
     p.add_argument("--maximum-delta", type=float, default=0.1,
                    help="New reconstruction hyperparameter, not historical parity")
     a = p.parse_args(argv)
@@ -73,12 +82,16 @@ def main(argv=None):
             or not 0 <= a.teacher_weight <= 10
             or not 0 <= a.positive_weight <= 10):
         p.error("Invalid hyperparameter")
+    if bool(a.resume_checkpoint) != bool(a.resume_sha256):
+        p.error("--resume-checkpoint and --resume-sha256 must be provided together")
     a.manifest = a.manifest.resolve(strict=True)
     validate_train_sources(a.manifest, a.split_file, file_field="file")
     paths = load_train_manifest(a.manifest)
     if a.output.exists():
         p.error("Refusing to overwrite checkpoint")
     torch.manual_seed(20261118)
+    random.seed(20261118)
+    np.random.seed(20261118)
     predictor = build_verified_medsam2_latest(
         a.checkpoint, model_cfg=a.model_config,
         device=a.device, apply_postprocessing=False)
@@ -88,8 +101,44 @@ def main(argv=None):
     adapter = MedicalHighResolutionAdapter(
         maximum_delta=a.maximum_delta).to(a.device).train()
     optimizer = torch.optim.AdamW(adapter.parameters(), lr=a.learning_rate)
-    losses = []
-    for _ in range(a.epochs):
+    fingerprint = {
+        "format": "reconstructed_medsam2_highres_teacher_v1",
+        "backbone_sha256": MEDSAM2_LATEST_SHA256,
+        "source_sha256": sha256(Path(__file__).resolve().parents[1] /
+                                "modeling/medical_highres/adapter.py"),
+        "implementation_sha256": implementation_digest(),
+        "manifest_sha256": sha256(a.manifest),
+        "split_file_sha256": sha256(a.split_file),
+        "model_config": a.model_config,
+        "teacher_weight": a.teacher_weight, "positive_weight": a.positive_weight,
+        "maximum_delta": a.maximum_delta, "learning_rate": a.learning_rate,
+        "seed": 20261118, "device": a.device,
+        "reconstruction_not_historical_forward": True,
+    }
+    losses, start_epoch = [], 0
+    if a.resume_checkpoint:
+        previous = load_epoch_snapshot(
+            a.resume_checkpoint, a.resume_sha256, expected=fingerprint)
+        start_epoch = previous["completed_epochs"]
+        if (start_epoch >= a.epochs or previous["training_steps"] != start_epoch * len(paths)
+                or len(previous["losses"]) != previous["training_steps"]):
+            raise ValueError("Resume epoch/steps incompatible with total epochs or captures")
+        adapter.load_state_dict(previous["state_dict"], strict=True)
+        optimizer.load_state_dict(previous["optimizer_state_dict"])
+        restore_rng(previous["rng_state"])
+        losses = list(previous["losses"])
+
+    def checkpoint_record(completed_epochs):
+        return {
+            **fingerprint, "completed_epochs": completed_epochs,
+            "training_steps": len(losses), "losses": list(losses),
+            "rng_state": capture_rng(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "torch_rng_state": torch.get_rng_state(),
+            "state_dict": {k: v.detach().cpu() for k, v in adapter.state_dict().items()},
+        }
+
+    for epoch in range(start_epoch, a.epochs):
         for filepath in paths:
             capture = torch.load(
                 filepath, map_location="cpu", weights_only=True)
@@ -110,29 +159,11 @@ def main(argv=None):
                 raise FloatingPointError("Nonfinite medical adapter gradients")
             optimizer.step()
             losses.append(float(loss.detach()))
+        if a.save_epoch_snapshots:
+            snapshot_path = a.output.with_name(a.output.name + f".epoch{epoch+1:04d}.pt")
+            save_epoch_snapshot(snapshot_path, checkpoint_record(epoch + 1))
     a.output.parent.mkdir(parents=True, exist_ok=True)
-    record = {
-        "format": "reconstructed_medsam2_highres_teacher_v1",
-        "reconstruction_not_historical_forward": True,
-        "backbone_sha256": MEDSAM2_LATEST_SHA256,
-        "source_sha256": sha256(
-            Path(__file__).resolve().parents[1] /
-            "modeling/medical_highres/adapter.py"),
-        "implementation_sha256": implementation_digest(),
-        "manifest_sha256": sha256(a.manifest),
-        "model_config": a.model_config,
-        "teacher_weight": a.teacher_weight,
-        "positive_weight": a.positive_weight,
-        "maximum_delta": a.maximum_delta,
-        "training_steps": len(losses),
-        "seed": 20261118,
-        "split_file_sha256": sha256(a.split_file),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "torch_rng_state": torch.get_rng_state(),
-        "state_dict": {
-            k: v.detach().cpu() for k, v in adapter.state_dict().items()},
-    }
-    torch.save(record, a.output)
+    save_epoch_snapshot(a.output, checkpoint_record(a.epochs))
     print(json.dumps({
         "checkpoint": str(a.output), "steps": len(losses),
         "last_training_loss": losses[-1],

@@ -46,3 +46,40 @@ def test_incomplete_restart_not_accepted(tmp_path):
                 "state_dict":{},"optimizer_state_dict":{},"losses":[]},path)
     with pytest.raises(ValueError,match="RNG state"):
         load_epoch_snapshot(path,digest(path),expected={"format":"toy"})
+
+def test_epoch_resume_reproduces_contiguous_cpu_adamw_training(tmp_path):
+    def epoch(model, optimizer):
+        for _ in range(3):
+            x = torch.randn(4, 4)
+            y = torch.randn(4, 2)
+            optimizer.zero_grad(set_to_none=True)
+            loss = torch.nn.functional.mse_loss(model(x), y)
+            loss.backward()
+            optimizer.step()
+
+    torch.manual_seed(34)
+    model = torch.nn.Linear(4, 2)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+    epoch(model, optimizer)
+    snap = {
+        "format": "toy", "completed_epochs": 1, "training_steps": 3,
+        "state_dict": {k: v.detach().cpu().clone() for k,v in model.state_dict().items()},
+        "optimizer_state_dict": optimizer.state_dict(),
+        "losses": [0.1, 0.1, 0.1],
+        "rng_state": capture_rng()
+    }
+    path=tmp_path/"epoch1.pt"
+    save_epoch_snapshot(path, snap)
+    epoch(model, optimizer)
+    expected = {k: v.detach().clone() for k, v in model.state_dict().items()}
+
+    torch.manual_seed(987)
+    resumed = torch.nn.Linear(4,2)
+    resumed_optimizer = torch.optim.AdamW(resumed.parameters(), lr=0.001)
+    record = load_epoch_snapshot(path, digest(path), expected={"format":"toy"})
+    resumed.load_state_dict(record["state_dict"])
+    resumed_optimizer.load_state_dict(record["optimizer_state_dict"])
+    restore_rng(record["rng_state"])
+    epoch(resumed, resumed_optimizer)
+    for name, value in resumed.state_dict().items():
+        torch.testing.assert_close(value, expected[name], rtol=0, atol=0)

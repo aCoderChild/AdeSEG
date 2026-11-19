@@ -6,9 +6,14 @@ Not a raw-video trainer or an evaluation pipeline. Labels must be train-only.
 import argparse
 import hashlib
 import json
+import random
+import numpy as np
 from pathlib import Path
 
 from training.split_guard import validate_train_sources
+from training.restart_state import (
+    capture_rng, restore_rng, save_epoch_snapshot, load_epoch_snapshot,
+)
 import sys
 
 import torch
@@ -71,12 +76,17 @@ def main(argv=None):
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--teacher-weight", type=float, default=0.0)
     p.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
+    p.add_argument("--resume-checkpoint", type=Path)
+    p.add_argument("--resume-sha256")
+    p.add_argument("--save-epoch-snapshots", action="store_true")
     a = p.parse_args(argv)
     if a.epochs < 1 or not 0 < a.lr < 1 or not 0 <= a.teacher_weight <= 100:
         p.error("Invalid optimizer or teacher-preservation setting")
     for value in (a.backbone_sha256, a.feature_pipeline_sha256):
         if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
             p.error("Source hashes must be lowercase 64-hex SHA256 digests")
+    if bool(a.resume_checkpoint) != bool(a.resume_sha256):
+        p.error("--resume-checkpoint and --resume-sha256 must be provided together")
     a.manifest = a.manifest.resolve(strict=True)
     validate_train_sources(a.manifest, a.split_file, file_field="tensor_file")
     captures = read_training_manifest(a.manifest)
@@ -84,10 +94,47 @@ def main(argv=None):
         p.error("Refusing to overwrite an existing checkpoint")
     a.output.parent.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(20261118)
+    random.seed(20261118)
+    np.random.seed(20261118)
     model = MultistageFeatureAggregator(mode=a.mode).to(a.device).train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=a.lr)
-    steps, losses = 0, []
-    for epoch in range(a.epochs):
+    fingerprint = {
+        "format": "multiscale_channel_value_refiner_v1", "research_only": True,
+        "source_sha256": digest(model_source.__file__),
+        "implementation_sha256": implementation_digest(),
+        "mode": a.mode, "config": {"early_channels": 32, "deep_channels": 256,
+                                    "hidden": 64, "attention_size": 32},
+        "backbone_sha256": a.backbone_sha256,
+        "feature_pipeline_sha256": a.feature_pipeline_sha256,
+        "train_manifest_sha256": digest(a.manifest),
+        "split_file_sha256": digest(a.split_file),
+        "teacher_weight": a.teacher_weight, "lr": a.lr,
+        "seed": 20261118, "device": a.device,
+    }
+    steps, losses, start_epoch = 0, [], 0
+    if a.resume_checkpoint:
+        previous = load_epoch_snapshot(
+            a.resume_checkpoint, a.resume_sha256, expected=fingerprint)
+        start_epoch = previous["completed_epochs"]
+        if (start_epoch >= a.epochs or previous["training_steps"] != start_epoch * len(captures)
+                or len(previous["losses"]) != previous["training_steps"]):
+            raise ValueError("Resume epoch/steps incompatible with total epochs or captures")
+        model.load_state_dict(previous["state_dict"], strict=True)
+        optimizer.load_state_dict(previous["optimizer_state_dict"])
+        restore_rng(previous["rng_state"])
+        steps, losses = previous["training_steps"], list(previous["losses"])
+
+    def checkpoint_record(completed_epochs):
+        return {
+            **fingerprint, "completed_epochs": completed_epochs,
+            "epochs": completed_epochs, "training_steps": steps,
+            "state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
+            "optimizer_state_dict": optimizer.state_dict(),
+            "torch_rng_state": torch.get_rng_state(),
+            "rng_state": capture_rng(), "losses": list(losses),
+        }
+
+    for epoch in range(start_epoch, a.epochs):
         for path in captures:
             batch = load_training_capture(path, a.device)
             optimizer.zero_grad(set_to_none=True)
@@ -104,21 +151,10 @@ def main(argv=None):
             optimizer.step()
             steps += 1
             losses.append(loss.detach().item())
-    payload = {
-        "format": "multiscale_channel_value_refiner_v1", "research_only": True,
-        "training_steps": steps, "state_dict": {k:v.detach().cpu() for k,v in model.state_dict().items()},
-        "source_sha256": digest(model_source.__file__),
-        "implementation_sha256": implementation_digest(), "mode": a.mode,
-        "config": {"early_channels":32, "deep_channels":256, "hidden":64, "attention_size":32},
-        "backbone_sha256": a.backbone_sha256, "feature_pipeline_sha256": a.feature_pipeline_sha256,
-        "train_manifest_sha256": digest(a.manifest),
-        "teacher_weight": a.teacher_weight, "epochs": a.epochs,
-        "seed": 20261118,
-        "split_file_sha256": digest(a.split_file),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "torch_rng_state": torch.get_rng_state(),
-    }
-    torch.save(payload, a.output)
+        if a.save_epoch_snapshots:
+            snapshot_path = a.output.with_name(a.output.name + f".epoch{epoch+1:04d}.pt")
+            save_epoch_snapshot(snapshot_path, checkpoint_record(epoch + 1))
+    save_epoch_snapshot(a.output, checkpoint_record(a.epochs))
     print(json.dumps({"checkpoint": str(a.output), "steps": steps,
                       "last_training_loss": losses[-1], "training_only": True}, indent=2))
 
