@@ -73,6 +73,15 @@ jobs:
           python -m scripts.infer_med_video --protocol "$PROTOCOL" --device cuda --adapter-checkpoint "$ADAPTER" --adapter-sha256 "$ADAPTER_SHA256" --output verification/trained
           python -m scripts.evaluate_med_video --protocol "$PROTOCOL" --run verification/trained --output verification/eval_trained
           python -m scripts.compare_med_runs --protocol "$PROTOCOL" --native verification/native --candidate verification/trained --output verification/trained_comparison.json
+      - name: Seal matched evidence against pinned source and protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--protocol "$PROTOCOL" --native verification/native --zero verification/zero --output verification/study_receipt.json)
+          if [[ -n "$ADAPTER" && -n "$ADAPTER_SHA256" ]]; then
+            args+=(--trained verification/trained)
+          fi
+          python -m scripts.seal_med_video_study "${args[@]}"
       - name: Upload evaluation-only verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -83,6 +92,7 @@ jobs:
             verification/eval_zero/summary.json
             verification/eval_trained/summary.json
             verification/zero_parity.json
+            verification/study_receipt.json
             verification/trained_comparison.json
           if-no-files-found: warn
           retention-days: 7
