@@ -108,6 +108,16 @@ def compare_runs(manifest, native_root, candidate_root, *, require_logit_identit
         raise ValueError("Zero-adapter parity failed: mask or float32 logit hashes differ")
     deltas = [row["present_dice_delta"] for row in paired.values()
               if row["present_dice_delta"] is not None]
+    # The unit of resampling is an independently verified sequence/source group,
+    # not individual correlated video frames. Here independence is NOT proven.
+    if deltas:
+        import numpy as np
+        values = np.asarray(deltas, dtype=np.float64)
+        rng = np.random.default_rng(0)
+        sampled = values[rng.integers(0, len(values), (10000, len(values)))].mean(1)
+        bootstrap_interval = [float(x) for x in np.quantile(sampled, (0.025, 0.975))]
+    else:
+        bootstrap_interval = None
     return {
         "protocol": native["protocol"],
         "candidate_mode": mode,
@@ -117,10 +127,13 @@ def compare_runs(manifest, native_root, candidate_root, *, require_logit_identit
         "baseline": left_summary,
         "candidate": right_summary,
         "paired_present_dice_mean_delta": float(np.mean(deltas)) if deltas else None,
+        "eligible_paired_present_sequences": len(deltas),
+        "exploratory_sequence_bootstrap_95ci": bootstrap_interval,
         "per_sequence": paired,
         "interpretation": (
             "Exact parity is a numerical/implementation check, not proof of clinical efficacy. "
-            "An exploratory short-video comparison cannot establish generalization."
+            "Sequence-bootstrap uncertainty assumes independent source groups; "
+            "an exploratory short-video comparison cannot establish generalization."
         ),
     }
 

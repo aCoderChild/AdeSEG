@@ -125,8 +125,14 @@ def evaluate_run(manifest, run_root, *, protocol=None):
             sequence_scores.append(item)
         present = [x for x in sequence_scores if x["gt_present"]]
         absent = [x for x in sequence_scores if not x["gt_present"]]
+        def sequence_mean(field):
+            values = [r[field] for r in sequence_scores if np.isfinite(r[field])]
+            return float(np.mean(values)) if values else float("nan")
         sequence_rows.append({
             "sequence": name, "frames": len(sequence_scores),
+            "temporal_iou": sequence_mean("temporal_iou"),
+            "area_change_relative": sequence_mean("area_change_relative"),
+            "centroid_shift_normalized": sequence_mean("centroid_shift_normalized"),
             "present_frames": len(present), "empty_frames": len(absent),
             "dice": float(np.mean([x["dice"] for x in present])) if present else float("nan"),
             "iou": float(np.mean([x["iou"] for x in present])) if present else float("nan"),
@@ -154,6 +160,15 @@ def evaluate_run(manifest, run_root, *, protocol=None):
             float(np.mean([x["temporal_iou"] for x in frame_rows
                            if np.isfinite(x["temporal_iou"])]))
             if any(np.isfinite(x["temporal_iou"]) for x in frame_rows) else None),
+        "area_change_relative_mean": (
+            float(np.mean([x["area_change_relative"] for x in frame_rows
+                           if np.isfinite(x["area_change_relative"])]))
+            if any(np.isfinite(x["area_change_relative"]) for x in frame_rows) else None),
+        "centroid_shift_normalized_mean": (
+            float(np.mean([x["centroid_shift_normalized"] for x in frame_rows
+                           if np.isfinite(x["centroid_shift_normalized"])]))
+            if any(np.isfinite(x["centroid_shift_normalized"]) for x in frame_rows) else None),
+        "eligible_present_sequences": len(valid_sequences),
     }
     return result, frame_rows, sequence_rows
 
@@ -178,7 +193,8 @@ def main(argv=None):
     (args.output / "summary.json").write_text(json.dumps(result, indent=2)+"\n")
     write_csv(args.output / "per_sequence.csv", seq_rows,
               ["sequence", "frames", "present_frames", "empty_frames",
-               "dice", "iou", "empty_false_alarms"])
+               "dice", "iou", "empty_false_alarms", "temporal_iou",
+               "area_change_relative", "centroid_shift_normalized"])
     if frame_rows:
         write_csv(args.output / "per_frame.csv", frame_rows, list(frame_rows[0]))
     print(json.dumps(result, indent=2))
