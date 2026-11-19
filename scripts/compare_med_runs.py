@@ -111,7 +111,6 @@ def compare_runs(manifest, native_root, candidate_root, *, require_logit_identit
     # The unit of resampling is an independently verified sequence/source group,
     # not individual correlated video frames. Here independence is NOT proven.
     if deltas:
-        import numpy as np
         values = np.asarray(deltas, dtype=np.float64)
         rng = np.random.default_rng(0)
         sampled = values[rng.integers(0, len(values), (10000, len(values)))].mean(1)
