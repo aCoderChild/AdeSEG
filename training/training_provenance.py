@@ -10,6 +10,7 @@ FILES = {
         "training/medical.py",
         "training/medical_highres_training.py",
         "training/restart_state.py",
+        "training/training_provenance.py",
         "training/split_guard.py",
         "adeseg/losses/segmentation.py",
         "modeling/medical_highres/teacher_loss.py",
@@ -18,6 +19,7 @@ FILES = {
     "lean": (
         "training/lean.py",
         "training/restart_state.py",
+        "training/training_provenance.py",
         "training/split_guard.py",
         "modeling/cmsa_boundary_training_loss.py",
         "adeseg/losses/foreground_preservation.py",
