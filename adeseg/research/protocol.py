@@ -9,6 +9,12 @@ import json
 from pathlib import Path
 
 STAGES = ("data", "training", "inference", "evaluation")
+STAGES_V2 = STAGES + ("ablation", "reproduction")
+
+
+def stage_names(spec):
+    """Preserve schema-v1 behavior while enabling explicit v2 six-stage runs."""
+    return STAGES_V2 if spec["schema_version"] == 2 else STAGES
 TRACKS = ("medsam2_highres", "lean_sam2_aggregation", "reference_baseline")
 PROMPTS = ("oracle_mask", "oracle_box", "automatic_box", "automatic_mask", "text", "none")
 REQUIRED = {"schema_version", "experiment_id", "track", "dataset", "split",
@@ -46,7 +52,7 @@ def load_protocol(path):
     path = Path(path).resolve(strict=True)
     spec = json.loads(path.read_text(encoding="utf-8"))
     _require_keys(spec, REQUIRED, OPTIONAL, "protocol")
-    if spec["schema_version"] != 1:
+    if type(spec["schema_version"]) is not int or spec["schema_version"] not in (1, 2):
         raise ValueError("Unsupported protocol schema_version")
     if (not isinstance(spec["experiment_id"], str) or not spec["experiment_id"].strip()
             or "/" in spec["experiment_id"] or "\\" in spec["experiment_id"]
@@ -67,8 +73,8 @@ def load_protocol(path):
     if (type(spec["initialization"]["prompt_budget"]) is not int
             or spec["initialization"]["prompt_budget"] < 0):
         raise ValueError("prompt_budget must be a nonnegative integer")
-    if not isinstance(spec["stages"], dict) or set(spec["stages"]) != set(STAGES):
-        raise ValueError("stages must declare exactly data/training/inference/evaluation")
+    if not isinstance(spec["stages"], dict) or set(spec["stages"]) != set(stage_names(spec)):
+        raise ValueError("stages must declare exactly the stages required by schema_version")
     for stage, cfg in spec["stages"].items():
         _require_keys(cfg, {"command", "artifacts"}, label=f"stages.{stage}")
         command = cfg["command"]

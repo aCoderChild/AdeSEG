@@ -166,3 +166,34 @@ def test_ablation_rejects_modified_checkpoint_file(tmp_path):
     with pytest.raises(ValueError, match="SHA256"):
         paired_comparison(base, candidate, tmp_path / "base.csv",
                           tmp_path / "candidate.csv")
+
+def test_schema_v2_supports_six_real_stages_and_source_integrity(tmp_path):
+    from adeseg.research.lifecycle import main as lifecycle_main
+    protocol = make_protocol(tmp_path)
+    cfg = json.loads(protocol.read_text())
+    cfg["schema_version"] = 2
+    all_stages = ("data", "training", "inference", "evaluation", "ablation", "reproduction")
+    for stage in all_stages:
+        cfg["stages"][stage] = {
+            "command": [sys.executable, "-c",
+                        "from pathlib import Path; "
+                        f"p=Path({str(tmp_path / 'run' / 'baseline' / (stage+'.txt'))!r}); "
+                        "p.parent.mkdir(parents=True,exist_ok=True); "
+                        "p.write_text('verified')"],
+            "artifacts": [stage + ".txt"],
+        }
+    protocol.write_text(json.dumps(cfg))
+    assert load_protocol(protocol)[1]["schema_version"] == 2
+    assert lifecycle_main(["run", "--protocol", str(protocol),
+                           "--workdir", str(tmp_path/"run"), "--stage", "all"]) == 0
+    receipt = json.loads((tmp_path/"run"/"baseline"/"receipt_all.json").read_text())
+    assert len(receipt["results"]) == 6
+    assert all(item["status"] == "completed" for item in receipt["results"])
+    assert receipt["status"] == "completed"
+
+def test_schema_v1_rejects_unimplemented_sixth_stage(tmp_path):
+    from adeseg.research.lifecycle import main as lifecycle_main
+    protocol = make_protocol(tmp_path)
+    with pytest.raises(SystemExit):
+        lifecycle_main(["run", "--protocol", str(protocol),
+                        "--workdir", str(tmp_path/"run"), "--stage", "ablation"])

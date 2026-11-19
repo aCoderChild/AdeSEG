@@ -112,3 +112,18 @@ Paired ablations now independently authenticate declared dataset and backbone
 file bytes via `verify_protocol` before reading result CSVs, and include
 SHA256 checksums for the two result CSVs in the output report. Comparing two
 matching declarative hash strings alone does not establish integrity.
+
+## Schema v2: explicit six-stage research execution
+
+Schema v1 remains compatible with the original four stages. **Schema v2**
+requires six declared stages: `data`, `training`, `inference`,
+`evaluation`, `ablation`, `reproduction`. Each stage accepts a Python
+argv array and requires declared output artifacts when executable. Missing
+stages remain visibly `not_implemented`, so an incomplete run never reports
+`completed`. Source checkpoint/manifest hashes are re-verified after every
+successful stage to catch mid-run changes.
+
+The six-stage executor **does not invent model-specific commands, datasets or
+benchmarks**. A valid schema v2 can run all six stages when actual commands and
+authorized inputs are provided. Passing synthetic lifecycle tests establishes
+command/artifact orchestration only, not GPU numerical reproduction.

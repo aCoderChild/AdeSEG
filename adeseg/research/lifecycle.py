@@ -15,7 +15,7 @@ from pathlib import Path
 import subprocess
 import sys
 from datetime import datetime, timezone
-from .protocol import STAGES, verify_protocol, digest
+from .protocol import STAGES_V2, stage_names, verify_protocol, digest
 
 def run_stage(stage, spec, root, workdir, dry_run=False):
     cfg = spec["stages"][stage]
@@ -63,7 +63,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("verify", "run"))
     parser.add_argument("--protocol", type=Path, required=True)
-    parser.add_argument("--stage", choices=(*STAGES, "all"), default="all")
+    parser.add_argument("--stage", choices=(*STAGES_V2, "all"), default="all")
     parser.add_argument("--workdir", type=Path, default=Path("runs"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
@@ -72,14 +72,19 @@ def main(argv=None):
         print(json.dumps({"status": "verified", "experiment_id": spec["experiment_id"],
                           "inputs": checked}, indent=2))
         return 0
+    if args.stage != "all" and args.stage not in stage_names(spec):
+        parser.error(f"Stage {args.stage!r} is not supported by protocol schema_v{spec['schema_version']}")
     workdir = (args.workdir / spec["experiment_id"]).resolve()
-    stages = STAGES if args.stage == "all" else (args.stage,)
+    stages = stage_names(spec) if args.stage == "all" else (args.stage,)
     receipt_path = workdir / f"receipt_{args.stage}.json"
     if not args.dry_run and receipt_path.exists():
         raise FileExistsError("Receipt already exists; select a fresh output root")
     records = []
     for stage in stages:
         result = run_stage(stage, spec, path.parent, workdir, dry_run=args.dry_run)
+        if not args.dry_run and result["status"] == "completed":
+            # Source assets must remain unchanged throughout long pipelines.
+            verify_protocol(path)
         records.append(result)
         if result["status"] not in ("completed", "dry_run"):
             break
