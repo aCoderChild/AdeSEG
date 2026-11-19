@@ -199,49 +199,66 @@ def build_sam2_video_predictor_hf(model_id, **kwargs):
 
 
 def _load_checkpoint(model, ckpt_path):
-    if ckpt_path is not None:
-        sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
-        # A checkpoint trained with memory enabled (num_maskmem>0) carries a
-        # maskmem_tpos_enc sized to that num_maskmem; a model built with
-        # num_maskmem=0 (AdeSEG's no-memory config) has a 0-length version of
-        # the same parameter. It's never read when num_maskmem==0 (memory
-        # fusion is skipped entirely in the forward pass), so skip only keys
-        # whose checkpoint shape doesn't match the current model instead of
-        # failing the whole load.
-        model_sd = model.state_dict()
-        shape_mismatched = [
-            key
-            for key in sd
-            if key in model_sd and sd[key].shape != model_sd[key].shape
-        ]
-        for key in shape_mismatched:
-            del sd[key]
-        # maskmem_tpos_enc is expected to mismatch under num_maskmem=0 (see
-        # comment above) -- log it quietly instead of as a warning. Anything
-        # else mismatching is unexpected and still surfaced loudly.
-        expects_maskmem_tpos_enc_mismatch = model.num_maskmem == 0
-        unexpected_mismatch = [
-            key
-            for key in shape_mismatched
-            if not (key == "maskmem_tpos_enc" and expects_maskmem_tpos_enc_mismatch)
-        ]
-        if "maskmem_tpos_enc" in shape_mismatched and expects_maskmem_tpos_enc_mismatch:
-            logging.info(
-                "Skipping maskmem_tpos_enc (unused at num_maskmem=0): shape "
-                "mismatch against the checkpoint is expected here."
+    """Load pretrained weights without silently accepting incompatible shapes.
+
+    The sole documented exception is ``maskmem_tpos_enc`` when the target
+    explicitly has ``num_maskmem == 0`` and the target tensor is empty.
+    All other state-dict keys, tensor types and tensor shapes must match.
+    """
+    if ckpt_path is None:
+        return
+
+    checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    if not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("model"), dict):
+        raise ValueError("MedSAM2 checkpoint must contain a model state dictionary")
+    loaded = dict(checkpoint["model"])
+    expected = model.state_dict()
+    expected_keys, loaded_keys = set(expected), set(loaded)
+    missing = sorted(expected_keys - loaded_keys)
+    unexpected = sorted(loaded_keys - expected_keys)
+    if missing or unexpected:
+        raise RuntimeError(
+            f"MedSAM2 checkpoint keys differ: missing={missing}, unexpected={unexpected}"
+        )
+
+    if any(not isinstance(tensor, torch.Tensor) for tensor in loaded.values()):
+        raise TypeError("MedSAM2 checkpoint state must contain only tensors")
+
+    mismatched = {
+        name: (tuple(loaded[name].shape), tuple(expected[name].shape))
+        for name in expected
+        if loaded[name].shape != expected[name].shape
+    }
+    # A no-memory model has zero memory temporal positions. This one
+    # unused tensor alone may differ from a checkpoint trained with memory.
+    allowed = set()
+    if (getattr(model, "num_maskmem", None) == 0
+            and "maskmem_tpos_enc" in mismatched
+            and expected["maskmem_tpos_enc"].numel() == 0):
+        allowed.add("maskmem_tpos_enc")
+    incompatible = {name: shapes for name, shapes in mismatched.items() if name not in allowed}
+    if incompatible:
+        raise RuntimeError(
+            "MedSAM2 incompatible checkpoint tensor shapes "
+            f"(checkpoint, model): {incompatible}"
+        )
+
+    # Research assertions: all tensors that WILL load have identical geometry.
+    # Above RuntimeErrors guarantee this even under python -O, which removes asserts.
+    for name in expected:
+        if name not in allowed:
+            assert tuple(loaded[name].shape) == tuple(expected[name].shape), (
+                f"{name}: checkpoint tensor shape differs from model"
             )
-        if unexpected_mismatch:
-            logging.warning(
-                "Skipping checkpoint keys with a shape mismatch against the "
-                "current model config: %s",
-                unexpected_mismatch,
-            )
-        missing_keys, unexpected_keys = model.load_state_dict(sd, strict=False)
-        missing_keys = [key for key in missing_keys if key not in shape_mismatched]
-        if missing_keys:
-            logging.error(missing_keys)
-            raise RuntimeError()
-        if unexpected_keys:
-            logging.error(unexpected_keys)
-            raise RuntimeError()
-        logging.info("Loaded checkpoint sucessfully")
+
+    for name in allowed:
+        logging.info("Skipping unused no-memory checkpoint tensor: %s", name)
+        del loaded[name]
+
+    missing_after_load, unexpected_after_load = model.load_state_dict(loaded, strict=False)
+    if set(missing_after_load) != allowed or unexpected_after_load:
+        raise RuntimeError(
+            "MedSAM2 checkpoint load did not match validated tensor schema: "
+            f"missing={missing_after_load}, unexpected={unexpected_after_load}"
+        )
+    logging.info("Loaded MedSAM2 checkpoint with verified tensor shapes")
