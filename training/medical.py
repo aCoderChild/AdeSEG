@@ -13,6 +13,7 @@ from pathlib import Path
 
 from training.split_guard import validate_train_sources
 from modeling.medical_highres.checkpoints import implementation_digest
+from training.training_provenance import training_source_digest
 from training.restart_state import (
     capture_rng, restore_rng, save_epoch_snapshot, load_epoch_snapshot,
 )
@@ -107,6 +108,7 @@ def main(argv=None):
         "source_sha256": sha256(Path(__file__).resolve().parents[1] /
                                 "modeling/medical_highres/adapter.py"),
         "implementation_sha256": implementation_digest(),
+        "training_pipeline_sha256": training_source_digest("medical"),
         "manifest_sha256": sha256(a.manifest),
         "split_file_sha256": sha256(a.split_file),
         "model_config": a.model_config,

@@ -158,3 +158,14 @@ The contract authenticates original image/mask prompt selections, file SHA256,
 postprocessing, post-prompt present-frame Dice, and equal-sequence averaging.
 These are fixed for the controlled research path, not inferred from CLI flags.
 The legacy generic research lifecycle schema remains available for other tracks.
+
+## Capture-training restart integrity
+
+Both trained adapters can save authenticated **completed-epoch** snapshots
+(`--save-epoch-snapshots`) and resume with `--resume-checkpoint` plus
+`--resume-sha256`. Epoch count means the *total* desired count. Source-file
+fingerprints include the active trainer and its loss implementation, as well
+as the adapter implementation. A synthetic CPU AdamW regression test checks
+that uninterrupted and epoch-restarted parameter values match exactly.
+Arbitrary mid-epoch recovery and cross-device deterministic parity are NOT
+established.

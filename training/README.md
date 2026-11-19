@@ -41,11 +41,31 @@ source implementation, training-step count or residual scale. This returns a
 verified adapter in eval mode for use with
 `attach_medical_highres_adapter(predictor, adapter)`.
 
-Both training files now also include optimizer and CPU RNG state in their
-training checkpoint payloads. **Exact resume remains unimplemented**: an
-optimizer state saved to a file does not by itself reproduce the interrupted
-data order, epoch position, device RNG, libraries, or GPU kernels. Do not
-claim resumable training until a tested resume command is added.
+Both trainers now support **authenticated complete-epoch restart**.
+Provide `--save-epoch-snapshots` on the initial run to write
+`<output>.epoch0001.pt`, etc. Resume with a NEW final output path and
+the exact snapshot SHA256:
+
+```bash
+python -m scripts.train_med --checkpoint /path/to/MedSAM2_latest.pt \
+  --model-config sam2.1_hiera_t512.yaml \
+  --manifest /path/to/med_train_captures.json --split-file /path/to/groups.json \
+  --epochs 3 --resume-checkpoint /path/to/model.pt.epoch0001.pt \
+  --resume-sha256 <exact_sha256> --output /path/to/resumed_model.pt
+```
+
+Use `python -m scripts.train_lean` with its own unchanged model-specific
+flags for a Lean epoch restart. `--epochs` is the TOTAL desired epoch
+count, not the number of additional epochs. Resume fails on mismatched
+trainer/loss implementation, feature or source bytes, split, configuration,
+hyperparameters, model tensors, device, or epoch/capture count.
+Snapshots contain optimizer state plus Python/NumPy/PyTorch CPU and
+available CUDA/MPS RNG states.
+
+**Limitations:** this recovers the last COMPLETE epoch, not the middle of an
+epoch. It does not guarantee bitwise-equivalent results on changed hardware,
+nondeterministic kernels, changed dependency versions, or any unsupported
+training data order. Exact multi-GPU/clinical reproduction remains unverified.
 
 ## Sealed MedSAM2 oracle-video evaluation
 

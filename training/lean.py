@@ -11,6 +11,7 @@ import numpy as np
 from pathlib import Path
 
 from training.split_guard import validate_train_sources
+from training.training_provenance import training_source_digest
 from training.restart_state import (
     capture_rng, restore_rng, save_epoch_snapshot, load_epoch_snapshot,
 )
@@ -102,6 +103,7 @@ def main(argv=None):
         "format": "multiscale_channel_value_refiner_v1", "research_only": True,
         "source_sha256": digest(model_source.__file__),
         "implementation_sha256": implementation_digest(),
+        "training_pipeline_sha256": training_source_digest("lean"),
         "mode": a.mode, "config": {"early_channels": 32, "deep_channels": 256,
                                     "hidden": 64, "attention_size": 32},
         "backbone_sha256": a.backbone_sha256,
