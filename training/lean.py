@@ -19,6 +19,7 @@ from adeseg.adapters.multiscale_channel_attention import MultistageFeatureAggreg
 from modeling.cmsa_boundary_training_loss import cmsa_boundary_loss
 from adeseg.losses.foreground_preservation import positive_preservation_penalty
 import modeling.multiscale_channel_value_refiner_v1 as model_source
+from modeling.lean_implementation_digest import implementation_digest
 
 
 def digest(path):
@@ -106,7 +107,8 @@ def main(argv=None):
     payload = {
         "format": "multiscale_channel_value_refiner_v1", "research_only": True,
         "training_steps": steps, "state_dict": {k:v.detach().cpu() for k,v in model.state_dict().items()},
-        "source_sha256": digest(model_source.__file__), "mode": a.mode,
+        "source_sha256": digest(model_source.__file__),
+        "implementation_sha256": implementation_digest(), "mode": a.mode,
         "config": {"early_channels":32, "deep_channels":256, "hidden":64, "attention_size":32},
         "backbone_sha256": a.backbone_sha256, "feature_pipeline_sha256": a.feature_pipeline_sha256,
         "train_manifest_sha256": digest(a.manifest),

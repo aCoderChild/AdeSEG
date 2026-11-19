@@ -13,6 +13,7 @@ this learned adapter.
 import torch
 
 from modeling.multiscale_channel_value_refiner_v1 import MultiscaleChannelValueRefinerV1
+from modeling.lean_implementation_digest import implementation_digest
 from modeling.aggregation_blocks import (
     FeatureProjectionBlock,
     SpatialContextBlock,
@@ -25,6 +26,30 @@ from modeling.aggregation_blocks import (
 
 class StructuredMultistageFeatureAggregator(MultiscaleChannelValueRefinerV1):
     """Composition of six explicit, independently testable computation blocks."""
+
+    def load_trained_state(self, payload, *, backbone_sha256,
+                           feature_pipeline_sha256, train_manifest_sha256,
+                           allow_legacy_source_only=False):
+        """Authenticate structured computation AND routing source before loading.
+
+        Old source-only checkpoints can only be loaded by explicit opt-in.
+        The inherited v1 state/weight/feature checks remain mandatory.
+        """
+        self._trained_checkpoint_loaded = False
+        declared = payload.get("implementation_sha256") if isinstance(payload, dict) else None
+        if declared is None and allow_legacy_source_only is True:
+            pass
+        elif declared != implementation_digest():
+            raise ValueError(
+                "Lean implementation SHA256 mismatch or missing; "
+                "source-only checkpoints require explicit legacy opt-in"
+            )
+        return super().load_trained_state(
+            payload, backbone_sha256=backbone_sha256,
+            feature_pipeline_sha256=feature_pipeline_sha256,
+            train_manifest_sha256=train_manifest_sha256
+        )
+
 
     def forward(self, early, deep, logits):
         # Same guards as the source-bound historical implementation.
