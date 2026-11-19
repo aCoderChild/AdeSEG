@@ -28,23 +28,20 @@ Workflow: [MedSAM2 GPU smoke and parity](../.github/workflows/gpu-smoke.yml).
 1. A trusted Linux x64 **self-hosted CUDA GPU runner** labeled `adeseg-gpu`
    with Python, PyTorch/CUDA, NumPy, SciPy, Pillow, OpenCV, pytest, Hydra,
    iopath and the vendored MedSAM2 dependencies installed.
-2. The authorized **MedSAM2_latest.pt** checkpoint at an absolute path on
-   that runner. Its SHA256 must equal the pinned MedSAM2 digest in
-   `modeling/medsam2_latest.py`; a filename alone is not sufficient.
-3. A **curated short development manifest**. Exactly one DEV video with
-   2–24 ordered JPEG frames and corresponding indexed 0/1 mask images.
-   Its first GT-positive frame must have later frames, and at least one later
-   frame must also be positive.
-4. GitHub repository **Actions variables** (Settings → Secrets and variables →
-   Actions → Variables), set to absolute paths visible on the GPU runner:
-
+2. The authorized SHA256-pinned MedSAM2 pretrained checkpoint and a curated
+   **one-video DEV-only** JPEG/mask JSONL dataset on the trusted runner.
+3. Generate a sealed contract using
+   `python -m scripts.prepare_med_video_protocol --manifest /path/to/dev.jsonl
+   --checkpoint /path/to/MedSAM2_latest.pt --output /path/to/med_contract
+   --split dev --label-id 1`. It creates an authenticated
+   `protocol.json` and frozen `prompt_frames.jsonl`.
+4. Set GitHub Actions variables (Settings → Secrets and variables → Actions):
+   
    | Variable | Meaning |
    |---|---|
-   | `ADESEG_MED_SMOKE_MANIFEST` | Path to a short, approved DEV JSONL manifest |
-   | `ADESEG_MED_CHECKPOINT` | Path to pinned MedSAM2_latest.pt |
-   | `ADESEG_MED_MODEL_CONFIG` | Optional, defaults to sam2.1_hiera_t512.yaml |
-   | `ADESEG_MED_ADAPTER` | Optional path to **trained** reconstructed adapter checkpoint |
-   | `ADESEG_MED_ADAPTER_SHA256` | Required if adapter is set; full lowercase SHA256 |
+   | `ADESEG_MED_PROTOCOL` | Absolute path to the sealed `protocol.json` on the trusted GPU runner |
+   | `ADESEG_MED_ADAPTER` | Optional path to trained reconstructed adapter |
+   | `ADESEG_MED_ADAPTER_SHA256` | Required if an adapter is set; its exact lowercase SHA256 |
 
 Only enable the job using Actions → "MedSAM2 GPU smoke and parity" →
 Run workflow → select `RUN_GPU`. `DISABLED` is the default.
@@ -150,3 +147,14 @@ python -m scripts.build_mask_manifest --manifest /path/to/input.jsonl \
 RGB color-coded semantic masks are rejected until a reviewed explicit color
 palette is supplied. This tool creates indexed PNGs and a new JSONL manifest;
 it never overwrites the original annotations.
+
+## Source-of-truth rule
+
+The MedSAM2 oracle-video commands `scripts.infer_med_video`,
+`scripts.evaluate_med_video`, `scripts.compare_med_runs`, and
+`scripts.check_med_gpu_smoke` all require **one** `--protocol` file.
+The contract authenticates original image/mask prompt selections, file SHA256,
+512×512 backbone configuration, the 0.5 sigmoid mask threshold, no model
+postprocessing, post-prompt present-frame Dice, and equal-sequence averaging.
+These are fixed for the controlled research path, not inferred from CLI flags.
+The legacy generic research lifecycle schema remains available for other tracks.

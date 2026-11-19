@@ -35,3 +35,7 @@ The manual [GPU smoke workflow](../.github/workflows/gpu-smoke.yml) runs
 native inference, zero-adapter parity, and optional trained-adapter comparison.
 It requires a configured self-hosted GPU runner and authorized local assets.
 See [docs/VERIFICATION.md](../docs/VERIFICATION.md).
+
+Research-grade MedSAM2 video execution requires a sealed `--protocol` created
+with `python -m scripts.prepare_med_video_protocol`. Do not mix old
+`--manifest`/`--checkpoint` flags with the controlled inference CLI.

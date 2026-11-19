@@ -129,6 +129,7 @@ foreground-present frames, false alarms on GT-empty frames, and equal-sequence
 means. See [training/README.md](training/README.md).
 
 ```bash
+python -m scripts.prepare_med_video_protocol --help
 python -m scripts.infer_med_video --help
 python -m scripts.evaluate_med_video --help
 ```
@@ -143,3 +144,7 @@ See [Verification gates](docs/VERIFICATION.md) for the CPU-suite workflow,
 manual CUDA smoke run, zero-adapter numerical parity check, strict paired
 comparison, required self-hosted GPU runner, and unresolved infrastructure
 limits. **Only verified executed runs count as passing.**
+
+**For controlled MedSAM2 results,** prepare one sealed protocol and pass the
+same `--protocol` to inference, evaluation and paired comparison. See
+[training/README.md](training/README.md) for an end-to-end command recipe.

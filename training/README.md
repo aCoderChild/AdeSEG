@@ -47,42 +47,35 @@ optimizer state saved to a file does not by itself reproduce the interrupted
 data order, epoch position, device RNG, libraries, or GPU kernels. Do not
 claim resumable training until a tested resume command is added.
 
-## Native MedSAM2 oracle-initialized video evaluation
+## Sealed MedSAM2 oracle-video evaluation
 
-A model-specific real predictor runner now exists:
+Generate a protocol from a curated manifest and the SHA256-pinned checkpoint:
 
 ```bash
-python -m scripts.infer_med_video \
-  --manifest /path/to/frames.jsonl --split test \
+python -m scripts.prepare_med_video_protocol \
+  --manifest /path/to/frames.jsonl \
   --checkpoint /path/to/MedSAM2_latest.pt \
-  --model-config sam2.1_hiera_t512.yaml \
-  --output /path/to/native_run --device cuda
-
-# Run adapter under the SAME input frames/first-GT-mask prompt:
-python -m scripts.infer_med_video \
-  --manifest /path/to/frames.jsonl --split test \
-  --checkpoint /path/to/MedSAM2_latest.pt \
-  --model-config sam2.1_hiera_t512.yaml \
-  --adapter-checkpoint /path/to/adapter.pt \
-  --adapter-sha256 <exact-file-sha256> \
-  --output /path/to/adapter_run --device cuda
+  --output /path/to/experiment_protocol \
+  --split dev --label-id 1
 ```
 
-`predictions/<video_id>/<image_stem>.png` excludes the oracle prompt;
-`run.json` records the prompt's source frame and image-hash provenance.
-This runner is strictly **GT-mask oracle initialized** (first annotated
-foreground), not automatic; do not conflate it with detector-driven results.
-Actual GPU checkpoint execution remains to be verified in a supported runtime.
+This produces `protocol.json` and `prompt_frames.jsonl` with authenticated
+first-GT-positive oracle prompt positions and original image/mask hashes.
+Every controlled runner must use the **same** sealed protocol:
 
-The matching evaluator for the oracle first-mask protocol is
-`python -m scripts.evaluate_med_video --manifest /path/to/frames.jsonl
---run /path/to/native_run --output /path/to/native_evaluation`.
-Do **not** use the generic all-frames temporal evaluator to score this
-post-prompt-only prediction folder: it would otherwise count the excluded
-oracle frame as missing. Repeat the same command for the adapter run,
-then pair their `per_sequence.csv` reports for analysis.
+```bash
+python -m scripts.infer_med_video --protocol /path/to/experiment_protocol/protocol.json --device cuda --output /path/to/native
+python -m scripts.evaluate_med_video --protocol /path/to/experiment_protocol/protocol.json --run /path/to/native --output /path/to/eval_native
+python -m scripts.infer_med_video --protocol /path/to/experiment_protocol/protocol.json --device cuda --zero-initialized-adapter --output /path/to/zero
+python -m scripts.compare_med_runs --protocol /path/to/experiment_protocol/protocol.json --native /path/to/native --candidate /path/to/zero --require-logit-identity --output /path/to/parity.json
+```
 
-The model-specific runner records SHA256 for each post-prompt input image and
-GT annotation, plus the first oracle prompt image and mask. Its evaluator
-verifies these against the current source files and refuses to re-score runs
-against modified data. The prompt must be the first annotated foreground frame.
+For a trained adapter supply `--adapter-checkpoint` and its
+`--adapter-sha256` instead of `--zero-initialized-adapter`.
+This protocol uses **oracle GT-mask initialization** and scores post-prompt
+frames, with GT-present Dice and GT-empty false alarms distinguished.
+It is not automatic detection and does not reproduce historical Lean scores.
+
+The single-protocol agreement is enforced across inference, evaluation,
+comparison and CUDA preflight. The capture-based **training** process remains
+a separate TRAIN-only protocol and is not yet an end-to-end video trainer.
