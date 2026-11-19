@@ -27,11 +27,12 @@ def test_oracle_video_inference_marks_prompt_and_exports(tmp_path):
         frames.append(ManifestFrame("seq2", i, image, mask))
     out = tmp_path / "out"
     out.mkdir()
-    result = infer_sequence(FakePredictor(), frames, out)
+    result = infer_sequence(FakePredictor(), frames, out, record_logits=True)
     assert result["status"] == "completed"
     assert result["prompt_source"] == "oracle_gt_mask"
     assert result["predicted"] == 1
     assert (out/"predictions"/"seq2"/"1.png").exists()
+    assert (out/"logits"/"seq2"/"1.npy").exists()
 
 def test_no_foreground_is_explicitly_unpromptable(tmp_path):
     mask = tmp_path/"0.png"

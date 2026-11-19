@@ -70,7 +70,9 @@ def test_decoder_hook_scoped_and_second_skip_preserved():
     early, deep, skip = features()
     kwargs = {"image_embeddings": deep, "high_res_features": [skip, early]}
     original = predictor.sam_mask_decoder(**kwargs)
-    with attach_medical_highres_adapter(predictor, adapter, allow_untrained=True):
+    telemetry = {}
+    with attach_medical_highres_adapter(predictor, adapter, allow_untrained=True,
+                                        telemetry=telemetry):
         assert torch.equal(predictor.sam_mask_decoder(**kwargs)[0], original[0])
         with pytest.raises(RuntimeError, match="already installed"):
             with attach_medical_highres_adapter(
@@ -82,6 +84,8 @@ def test_decoder_hook_scoped_and_second_skip_preserved():
         assert not torch.equal(changed[0], original[0])
         assert torch.equal(changed[1], original[1])
     assert torch.equal(predictor.sam_mask_decoder(**kwargs)[0], original[0])
+    assert telemetry["calls"] == 2
+    assert telemetry["nonzero_calls"] == 1
     assert not hasattr(
         predictor.sam_mask_decoder, "_medical_highres_adapter_active")
 

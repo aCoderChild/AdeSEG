@@ -56,13 +56,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m scripts.infer_med_video --protocol "$PROTOCOL" --device cuda --output verification/native
+          python -m scripts.infer_med_video --protocol "$PROTOCOL" --device cuda --record-logits --output verification/native
           python -m scripts.evaluate_med_video --protocol "$PROTOCOL" --run verification/native --output verification/eval_native
       - name: Zero-initialized adapter identity inference
         shell: bash
         run: |
           set -euo pipefail
-          python -m scripts.infer_med_video --protocol "$PROTOCOL" --device cuda --zero-initialized-adapter --output verification/zero
+          python -m scripts.infer_med_video --protocol "$PROTOCOL" --device cuda --zero-initialized-adapter --record-logits --output verification/zero
           python -m scripts.evaluate_med_video --protocol "$PROTOCOL" --run verification/zero --output verification/eval_zero
           python -m scripts.compare_med_runs --protocol "$PROTOCOL" --native verification/native --candidate verification/zero --require-logit-identity --output verification/zero_parity.json
       - name: Optional trained-adapter full-video comparison

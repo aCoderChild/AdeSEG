@@ -44,7 +44,7 @@ def fixture_runs(tmp_path, *, changed=False):
                             ("zero_initialized_control", FixedPredictor(negative=changed))):
         root = tmp_path / mode
         root.mkdir()
-        output = infer_sequence(predictor, frames, root)
+        output = infer_sequence(predictor, frames, root, record_logits=True)
         record = {
             "protocol": "oracle_first_present_mask_post_prompt_v1",
             "adapter_mode": mode,
@@ -85,3 +85,11 @@ def test_comparison_rejects_mismatched_protocol(tmp_path):
     record_path.write_text(json.dumps(record))
     with pytest.raises(ValueError, match="protocol mismatch"):
         compare_runs(manifest, native, zero)
+
+def test_comparison_requires_authenticated_raw_logits(tmp_path):
+    manifest, native, zero = fixture_runs(tmp_path)
+    record = json.loads((zero / "run.json").read_text())
+    del record["results"]["case1"]["predictions"][0]["logit_file"]
+    (zero / "run.json").write_text(json.dumps(record))
+    with pytest.raises(ValueError, match="float32 tensors|missing them"):
+        compare_runs(manifest, native, zero, require_logit_identity=True)

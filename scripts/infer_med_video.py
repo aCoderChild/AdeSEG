@@ -41,13 +41,14 @@ def oracle_first_present(frames, label_id):
     return None, None
 
 def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None,
-                   allow_untrained_adapter=False):
+                   allow_untrained_adapter=False, record_logits=False):
     prompt, initial = oracle_first_present(frames, label_id)
     if prompt is None:
         return {"status": "unpromptable", "frames": len(frames), "predicted": 0}
     destination = output / "predictions" / frames[0].video_id
     destination.mkdir(parents=True, exist_ok=False)
     rows = []
+    hook_telemetry = {}
     with tempfile.TemporaryDirectory(prefix="adeseg_medsam2_") as tmp:
         stage_frames(frames, Path(tmp))
         state = predictor.init_state(
@@ -59,7 +60,8 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None,
                 mask=torch.from_numpy(initial)
             )
         scope = (attach_medical_highres_adapter(
-            predictor, adapter, allow_untrained=allow_untrained_adapter)
+            predictor, adapter, allow_untrained=allow_untrained_adapter,
+            telemetry=hook_telemetry)
                  if adapter is not None else nullcontext())
         with scope, torch.inference_mode():
             for index, object_ids, logits in predictor.propagate_in_video(
@@ -80,6 +82,18 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None,
                 if path.exists():
                     raise FileExistsError(path)
                 Image.fromarray((mask > 0).astype(np.uint8) * 255).save(path)
+                extra = {}
+                if record_logits:
+                    logit_dir = output / "logits" / frames[0].video_id
+                    logit_dir.mkdir(parents=True, exist_ok=True)
+                    logit_path = logit_dir / (frames[index].image_path.stem + ".npy")
+                    if logit_path.exists():
+                        raise FileExistsError(logit_path)
+                    np.save(logit_path, np.ascontiguousarray(mask, dtype=np.float32), allow_pickle=False)
+                    extra = {
+                        "logit_file": str(logit_path.relative_to(output)),
+                        "logit_file_sha256": sha256(logit_path),
+                    }
                 rows.append({
                     "frame_index": frames[index].frame_index,
                     "source_image": str(frames[index].image_path),
@@ -90,11 +104,16 @@ def infer_sequence(predictor, frames, output, *, label_id=1, adapter=None,
                     "logit_sha256": hashlib.sha256(
                         np.ascontiguousarray(mask.astype(np.float32)).tobytes()
                     ).hexdigest(),
+                    **extra,
                 })
         if len(rows) != len(frames) - prompt - 1:
             raise RuntimeError("Prediction coverage incomplete")
+        if adapter is not None and rows and hook_telemetry.get("calls", 0) < len(rows):
+            raise RuntimeError("Medical adapter decoder hook did not execute on every predicted frame")
     return {
         "status": "completed", "frames": len(frames), "predicted": len(rows),
+        "adapter_hook_calls": hook_telemetry.get("calls", 0),
+        "adapter_nonzero_calls": hook_telemetry.get("nonzero_calls", 0),
         "prompt_source_index": frames[prompt].frame_index,
         "prompt_position": prompt, "prompt_source": "oracle_gt_mask",
         "prompt_mask_sha256": sha256(frames[prompt].mask_path),
@@ -110,6 +129,8 @@ def main(argv=None):
     parser.add_argument("--device", choices=("cpu","mps","cuda"), default="cpu")
     parser.add_argument("--adapter-checkpoint", type=Path)
     parser.add_argument("--adapter-sha256")
+    parser.add_argument("--record-logits", action="store_true",
+                        help="Store local float32 .npy tensors for independent numerical parity checks")
     parser.add_argument("--zero-initialized-adapter", action="store_true",
                         help="Verification control only: an untrained identity adapter")
     args = parser.parse_args(argv)
@@ -143,7 +164,8 @@ def main(argv=None):
         results[video_id] = infer_sequence(
             predictor, frames, args.output,
             label_id=contract["label_id"], adapter=adapter,
-            allow_untrained_adapter=args.zero_initialized_adapter
+            allow_untrained_adapter=args.zero_initialized_adapter,
+            record_logits=args.record_logits
         )
     record = {
         "protocol": "oracle_first_present_mask_post_prompt_v1",
@@ -158,6 +180,7 @@ def main(argv=None):
         "adapter_mode": ("zero_initialized_control" if args.zero_initialized_adapter
                          else "trained" if adapter is not None else "native"),
         "label_id": contract["label_id"], "device": args.device,
+        "raw_logits_recorded": bool(args.record_logits),
         "postprocessing": "no_hole_filling",
         "results": results,
     }

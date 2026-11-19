@@ -98,6 +98,12 @@ def compare_runs(manifest, native_root, candidate_root, *, require_logit_identit
             "empty_false_alarm_delta": int(b["empty_false_alarms"] -
                                            a["empty_false_alarms"]),
         }
+    if require_logit_identity:
+        if any(not (p.get("logit_file") and q.get("logit_file"))
+               for key in native["results"] if native["results"][key]["status"] == "completed"
+               for p, q in zip(native["results"][key]["predictions"],
+                               candidate["results"][key]["predictions"])):
+            raise ValueError("Exact logit identity requires independently saved float32 tensors")
     if require_logit_identity and (not exact_mask or not exact_logit):
         raise ValueError("Zero-adapter parity failed: mask or float32 logit hashes differ")
     deltas = [row["present_dice_delta"] for row in paired.values()

@@ -28,12 +28,15 @@ def _decoder_inputs(args, kwargs):
 
 
 @contextmanager
-def attach_medical_highres_adapter(predictor, adapter, *, allow_untrained=False):
+def attach_medical_highres_adapter(predictor, adapter, *, allow_untrained=False,
+                                   telemetry=None):
     """Install adapter for one decoder execution scope; restore original afterward.
 
     A loaded historical checkpoint authenticates *weights*, not the missing
     original forward implementation. See README before efficacy comparisons.
     """
+    if telemetry is not None and (not isinstance(telemetry, dict) or telemetry):
+        raise ValueError("Adapter telemetry must be an empty dict")
     decoder = predictor.sam_mask_decoder
     if not getattr(decoder, "use_high_res_features", False):
         raise ValueError("Medical adapter requires SAM2 high-resolution decoder features")
@@ -47,6 +50,10 @@ def attach_medical_highres_adapter(predictor, adapter, *, allow_untrained=False)
         deep, highres, location = _decoder_inputs(args, kwargs)
         early = highres[0]
         refined = adapter(early, deep, early)
+        if telemetry is not None:
+            telemetry["calls"] = telemetry.get("calls", 0) + 1
+            changed = bool((refined != early).any().item())
+            telemetry["nonzero_calls"] = telemetry.get("nonzero_calls", 0) + int(changed)
         updated = [refined, highres[1]]
         kwargs = dict(kwargs)
         args = tuple(args)

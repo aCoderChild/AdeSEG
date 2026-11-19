@@ -7,6 +7,7 @@ foreground-present Dice separately from empty-frame false alarms.
 from __future__ import annotations
 import argparse
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -84,6 +85,29 @@ def evaluate_run(manifest, run_root, *, protocol=None):
             if sha256(path) != row.get("prediction_sha256"):
                 raise ValueError(f"Prediction SHA256 mismatch: {path}")
             prediction = np.asarray(Image.open(path).convert("L")) >= 128
+            if record.get("raw_logits_recorded") and "logit_file" not in row:
+                raise ValueError("Run declares float32 logits, but a frame is missing them")
+            if "logit_file" in row:
+                logit_relpath = Path(row["logit_file"])
+                expected_logit = Path("logits") / name / (frame.image_path.stem + ".npy")
+                if logit_relpath != expected_logit:
+                    raise ValueError("Logit file path differs from sealed frame ordering")
+                logit_path = (run_root / logit_relpath).resolve()
+                if not logit_path.is_relative_to(run_root) or not logit_path.is_file():
+                    raise FileNotFoundError(logit_path)
+                if sha256(logit_path) != row.get("logit_file_sha256"):
+                    raise ValueError("Saved float32 logit file SHA256 mismatch")
+                logits = np.load(logit_path, allow_pickle=False)
+                if (logits.dtype != np.float32 or logits.shape != prediction.shape
+                        or not np.isfinite(logits).all()):
+                    raise ValueError("Saved float32 logits have incompatible shape/dtype")
+                actual_hash = hashlib.sha256(
+                    np.ascontiguousarray(logits).tobytes()
+                ).hexdigest()
+                if actual_hash != row.get("logit_sha256"):
+                    raise ValueError("Saved float32 logits differ from recorded tensor hash")
+                if not np.array_equal(logits > 0, prediction):
+                    raise ValueError("Logits and exported segmentation PNG disagree")
             ground_truth = load_label_mask(frame.mask_path, [label_id]) == label_id
             if prediction.shape != ground_truth.shape:
                 raise ValueError(f"Prediction/GT shape mismatch: {name}:{frame.frame_index}")
