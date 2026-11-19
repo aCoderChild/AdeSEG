@@ -45,3 +45,33 @@ def test_oversized_smoke_is_rejected(tmp_path):
     manifest=make_manifest(tmp_path)
     with pytest.raises(ValueError,match="2..2"):
         validate_curated_manifest(manifest,max_frames=2)
+
+def test_earlier_foreground_is_not_a_post_prompt_target(tmp_path):
+    manifest = make_manifest(tmp_path, present=(False, True, False))
+    with pytest.raises(ValueError, match="post-prompt GT-present"):
+        validate_curated_manifest(manifest)
+
+def test_nonconsecutive_source_frames_are_rejected(tmp_path):
+    manifest = make_manifest(tmp_path)
+    rows = [json.loads(x) for x in manifest.read_text().splitlines()]
+    rows[-1]["frame_index"] = 8
+    manifest.write_text("\n".join(json.dumps(row) for row in rows))
+    with pytest.raises(ValueError, match="Nonconsecutive"):
+        validate_curated_manifest(manifest)
+
+def test_mixed_dev_test_manifest_is_rejected(tmp_path):
+    manifest = make_manifest(tmp_path)
+    rows = [json.loads(x) for x in manifest.read_text().splitlines()]
+    rows[-1]["split"] = "test"
+    manifest.write_text("\n".join(json.dumps(row) for row in rows))
+    with pytest.raises(ValueError, match="DEV-only"):
+        validate_curated_manifest(manifest)
+
+def test_unsafe_video_identifier_is_rejected(tmp_path):
+    manifest = make_manifest(tmp_path)
+    rows = [json.loads(x) for x in manifest.read_text().splitlines()]
+    for row in rows:
+        row["video_id"] = "../escape"
+    manifest.write_text("\n".join(json.dumps(row) for row in rows))
+    with pytest.raises(ValueError, match="unsafe video_id"):
+        validate_curated_manifest(manifest)

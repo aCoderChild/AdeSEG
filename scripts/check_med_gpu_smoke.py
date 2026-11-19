@@ -21,7 +21,15 @@ from adeseg.backbones.medsam2 import MEDSAM2_LATEST_SHA256
 def validate_curated_manifest(path, *, max_frames=24, label_id=1):
     if not 2 <= max_frames <= 128 or label_id < 1:
         raise ValueError("Invalid smoke length or label id")
-    videos = load_manifest(Path(path).resolve(strict=True), "dev")
+    path = Path(path).resolve(strict=True)
+    # The smoke manifest itself must not contain test/train rows, even if filtered.
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if line.strip():
+            row = json.loads(line)
+            if not isinstance(row, dict) or row.get("split") != "dev":
+                raise ValueError(f"Smoke input must contain DEV-only rows: line {line_number}")
+    videos = load_manifest(path, "dev", require_contiguous=True,
+                           require_jpeg=True, safe_output_ids=True)
     if len(videos) != 1:
         raise ValueError("Smoke manifest must contain exactly one DEV video")
     name, frames = next(iter(videos.items()))
@@ -33,13 +41,17 @@ def validate_curated_manifest(path, *, max_frames=24, label_id=1):
             image.verify()
         mask = load_label_mask(frame.mask_path, [label_id])
         present.append(bool((mask == label_id).any()))
-    if not any(present[:-1]):
-        raise ValueError("A first-present prompt AND a post-prompt frame are required")
-    if not any(present[1:]):
+    if not any(present):
+        raise ValueError("A foreground prompt is required")
+    prompt = present.index(True)
+    if prompt >= len(frames) - 1:
+        raise ValueError("A post-prompt frame is required")
+    post_prompt_present = sum(present[prompt+1:])
+    if post_prompt_present == 0:
         raise ValueError("At least one post-prompt GT-present frame is required for Dice")
     return {"video_id": name, "frames": len(frames),
-            "prompt_position": present.index(True),
-            "post_prompt_present_frames": sum(present[present.index(True)+1:])}
+            "prompt_position": prompt,
+            "post_prompt_present_frames": post_prompt_present}
 
 
 def main(argv=None):

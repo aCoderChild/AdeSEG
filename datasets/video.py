@@ -40,7 +40,8 @@ def _resolve(value: str, manifest: Path) -> Path:
     return path if path.is_absolute() else manifest.parent / path
 
 
-def load_manifest(manifest: Path, split: str) -> dict[str, list[ManifestFrame]]:
+def load_manifest(manifest: Path, split: str, *, require_contiguous=False,
+                  require_jpeg=False, safe_output_ids=False) -> dict[str, list[ManifestFrame]]:
     """Load one split, rejecting malformed rows before training starts."""
     manifest = Path(manifest)
     videos: dict[str, list[ManifestFrame]] = defaultdict(list)
@@ -64,17 +65,32 @@ def load_manifest(manifest: Path, split: str) -> dict[str, list[ManifestFrame]]:
             raise FileNotFoundError(
                 f"{manifest}:{line_number}: image or mask does not exist"
             )
-        videos[str(row["video_id"])].append(
-            ManifestFrame(
-                str(row["video_id"]), int(row["frame_index"]), image_path, mask_path
-            )
-        )
+        video_id, index = row["video_id"], row["frame_index"]
+        if not isinstance(video_id, str) or not video_id:
+            raise ValueError(f"{manifest}:{line_number}: video_id must be nonempty text")
+        if safe_output_ids and (
+            video_id in (".", "..") or any(ch not in
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+            for ch in video_id)
+        ):
+            raise ValueError(f"{manifest}:{line_number}: unsafe video_id for output path")
+        if type(index) is not int or index < 0:
+            raise ValueError(f"{manifest}:{line_number}: invalid nonnegative frame_index")
+        if require_jpeg and image_path.suffix.lower() not in (".jpg", ".jpeg"):
+            raise ValueError(f"{manifest}:{line_number}: image must be a JPEG for SAM2 staging")
+        videos[video_id].append(ManifestFrame(video_id, index, image_path, mask_path))
     if not videos:
         raise ValueError(f"No valid frames for split {split!r} in {manifest}.")
     for video_id, frames in videos.items():
         frames.sort(key=lambda frame: frame.frame_index)
-        if len({frame.frame_index for frame in frames}) != len(frames):
+        indexes = [frame.frame_index for frame in frames]
+        if len(set(indexes)) != len(frames):
             raise ValueError(f"Duplicate frame_index values in video {video_id!r}.")
+        if require_contiguous and any(b != a + 1 for a, b in zip(indexes, indexes[1:])):
+            raise ValueError(
+                f"Nonconsecutive frames in {video_id!r}; reindexed or resampled "
+                "video requires an explicitly documented temporal protocol"
+            )
     return dict(videos)
 
 

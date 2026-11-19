@@ -122,7 +122,10 @@ def main(argv=None):
         parser.error("Adapter checkpoint and SHA256 must be supplied together")
     if args.output.exists():
         parser.error("Refusing to overwrite existing output")
-    videos = load_manifest(args.manifest.resolve(strict=True), args.split)
+    videos = load_manifest(
+        args.manifest.resolve(strict=True), args.split,
+        require_contiguous=True, require_jpeg=True, safe_output_ids=True
+    )
     # Do not build a video predictor from an unverified or silently changed backbone.
     predictor = build_verified_medsam2_latest(
         args.checkpoint, model_cfg=args.model_config,
