@@ -86,7 +86,9 @@ def load_protocol(path):
         evaluation = spec["evaluation"]
         fields = {"resolution_hw", "mask_threshold", "postprocessing",
                   "frame_policy", "aggregation", "prompt_frame_manifest_sha256"}
-        _require_keys(evaluation, fields, label="evaluation")
+        _require_keys(evaluation, fields,
+                      optional={"prompt_frame_manifest_path", "model_config", "label_id"},
+                      label="evaluation")
         size = evaluation["resolution_hw"]
         if (not isinstance(size, list) or len(size) != 2
                 or any(type(v) is not int or v <= 0 for v in size)):
@@ -110,6 +112,15 @@ def verify_protocol(path):
     checked = {"protocol": {"path": str(path), "sha256": digest(path)}}
     checked["dataset_manifest"] = str(_file_record(spec["dataset"]["manifest"], root, "dataset.manifest"))
     checked["checkpoint"] = str(_file_record(spec["checkpoint"], root, "checkpoint"))
+    evaluation = spec.get("evaluation", {})
+    if "prompt_frame_manifest_path" in evaluation:
+        prompt = evaluation["prompt_frame_manifest_path"]
+        if not isinstance(prompt, str) or not prompt:
+            raise ValueError("evaluation.prompt_frame_manifest_path must be nonempty")
+        prompt_path = (root / prompt).resolve(strict=True)
+        if not prompt_path.is_file() or digest(prompt_path) != evaluation["prompt_frame_manifest_sha256"]:
+            raise ValueError("Prompt-frame manifest SHA256 mismatch")
+        checked["prompt_frame_manifest"] = str(prompt_path)
     return path, spec, checked
 
 def comparison_key(spec):
