@@ -11,6 +11,18 @@ import torch
 from .adapter import MedicalHighResolutionAdapter
 
 FORMAT = "reconstructed_medsam2_highres_teacher_v1"
+IMPLEMENTATION_FILES = ("adapter.py", "blocks.py", "integration.py")
+
+
+def implementation_digest():
+    """Pin all local modules that can change adapter forward/inference behavior."""
+    root = Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for name in IMPLEMENTATION_FILES:
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update((root / name).read_bytes())
+    return digest.hexdigest()
 
 def sha256(path):
     h = hashlib.sha256()
@@ -20,7 +32,8 @@ def sha256(path):
     return h.hexdigest()
 
 def load_reconstructed_medical_adapter(checkpoint, *, expected_sha256,
-                                      backbone_sha256, model_config):
+                                      backbone_sha256, model_config,
+                                      allow_legacy_source_only=False):
     checkpoint = Path(checkpoint).expanduser().resolve(strict=True)
     actual = sha256(checkpoint)
     if actual != expected_sha256:
@@ -37,6 +50,15 @@ def load_reconstructed_medical_adapter(checkpoint, *, expected_sha256,
     source = Path(__file__).resolve().with_name("adapter.py")
     if record.get("source_sha256") != sha256(source):
         raise ValueError("Medical adapter source SHA256 mismatch")
+    declared_implementation = record.get("implementation_sha256")
+    if declared_implementation is None and allow_legacy_source_only is True:
+        # Legacy v1 checkpoints pinned adapter.py only; must be explicitly opted in.
+        pass
+    elif declared_implementation != implementation_digest():
+        raise ValueError(
+            "Medical implementation SHA256 mismatch or missing; "
+            "legacy source-only checkpoints require explicit opt-in"
+        )
     if type(record.get("training_steps")) is not int or record["training_steps"] <= 0:
         raise ValueError("No verified adapter training steps")
     delta = record.get("maximum_delta")

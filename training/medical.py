@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from training.split_guard import validate_train_sources
+from modeling.medical_highres.checkpoints import implementation_digest
 
 import torch
 
@@ -117,6 +118,7 @@ def main(argv=None):
         "source_sha256": sha256(
             Path(__file__).resolve().parents[1] /
             "modeling/medical_highres/adapter.py"),
+        "implementation_sha256": implementation_digest(),
         "manifest_sha256": sha256(a.manifest),
         "model_config": a.model_config,
         "teacher_weight": a.teacher_weight,

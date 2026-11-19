@@ -5,7 +5,7 @@ import pytest
 import torch
 from modeling.medical_highres.adapter import MedicalHighResolutionAdapter
 from modeling.medical_highres.checkpoints import (
-    FORMAT, load_reconstructed_medical_adapter, sha256,
+    FORMAT, load_reconstructed_medical_adapter, sha256, implementation_digest,
 )
 
 def save(tmp_path, *, backbone="a"*64, delta=0.2):
@@ -17,6 +17,7 @@ def save(tmp_path, *, backbone="a"*64, delta=0.2):
         "backbone_sha256": backbone, "model_config": "toy-config",
         "source_sha256": sha256(Path(__file__).resolve().parents[1] /
                                 "modeling/medical_highres/adapter.py"),
+        "implementation_sha256": implementation_digest(),
         "training_steps": 3, "maximum_delta": delta,
         "state_dict": adapter.state_dict()
     }
@@ -44,3 +45,24 @@ def test_rejects_wrong_backbone_and_source(tmp_path):
     with pytest.raises(ValueError, match="SHA256"):
         load_reconstructed_medical_adapter(path, expected_sha256="0"*64,
                                            backbone_sha256="a"*64, model_config="toy-config")
+
+def test_implementation_integrity_rejects_tampered_or_missing_digest(tmp_path):
+    path, _ = save(tmp_path)
+    payload = torch.load(path, map_location="cpu", weights_only=True)
+    payload["implementation_sha256"] = "0" * 64
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="implementation SHA256"):
+        load_reconstructed_medical_adapter(
+            path, expected_sha256=sha256(path),
+            backbone_sha256="a" * 64, model_config="toy-config")
+    payload.pop("implementation_sha256")
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="implementation SHA256"):
+        load_reconstructed_medical_adapter(
+            path, expected_sha256=sha256(path),
+            backbone_sha256="a" * 64, model_config="toy-config")
+    model, _ = load_reconstructed_medical_adapter(
+        path, expected_sha256=sha256(path),
+        backbone_sha256="a" * 64, model_config="toy-config",
+        allow_legacy_source_only=True)
+    assert model.checkpoint_sha256 == sha256(path)

@@ -31,7 +31,7 @@ def test_short_dev_sequence_is_eligible(tmp_path):
 
 def test_test_split_is_rejected(tmp_path):
     manifest=make_manifest(tmp_path,split="test")
-    with pytest.raises(ValueError,match="No valid frames"):
+    with pytest.raises(ValueError,match="DEV-only"):
         validate_curated_manifest(manifest)
 
 
