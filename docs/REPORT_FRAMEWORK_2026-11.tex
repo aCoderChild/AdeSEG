@@ -1,0 +1,253 @@
+% AdeSEG methodology supplement, 2026-11-20.
+% Suggested placement: after baseline benchmark description in content/methodology.
+% Evidence labels MUST remain: measured reference vs proposed enhancements.
+% This file is a LaTeX fragment, not a standalone document.
+
+\section{Đề xuất mở rộng Lean-SAM2 cho phân đoạn video nội soi}
+\label{sec:adeseg-proposed-framework}
+
+\subsection{Phạm vi nghiên cứu và phân biệt bằng chứng}
+\label{subsec:adeseg-evidence}
+
+Mục tiêu dài hạn của AdeSEG là phân đoạn riêng biệt mô adenoid và vùng đường
+thở vòm họng trong chuỗi video nội soi. Ở giai đoạn hiện tại, PolypGen
+\cite{ali2021polypgen} được sử dụng làm bộ dữ liệu \textit{proxy} từ nội soi
+đại tràng để kiểm tra các vấn đề về khởi tạo prompt, phân đoạn và lan truyền
+theo thời gian. Các kết quả trên PolypGen chưa phải là bằng chứng lâm sàng
+cho phân đoạn adenoid hoặc đánh giá mức độ phì đại VA.
+
+Một kết quả tham chiếu đã được lưu trữ là biến thể Lean-SAM2 dựa trên
+SAM2.1 Hiera-B+, với bản hiệu chỉnh tương thích indexed spatial RoPE trên
+MPS. Phương pháp lịch sử này sử dụng một mask khởi tạo tự động được lưu
+trữ cho mỗi video, không tiếp tục phát hiện lại ở các frame sau.
+Trên \textbf{21/23 sequence đủ điều kiện khởi tạo}, Dice trung bình đều
+theo sequence trên các frame \emph{có foreground} sau khởi tạo là
+\textbf{0.742071}, trong khi Dice theo trọng số frame là \textbf{0.772495}
+trên 1\,683 frame có foreground. Phương pháp tạo ra \textbf{188 dự đoán
+dương tính sai trên 336 frame ground-truth rỗng}. Seq1 và seq7 không có
+khởi tạo tự động nên không thuộc mẫu số đánh giá phân đoạn. Seq23 có sử
+dụng crop được lựa chọn hồi cứu; các sequence đã từng được xem xét
+trước đó. Do vậy, đây là kết quả thăm dò, không phải kiểm định độc lập
+trên bộ test chưa từng quan sát.
+
+Nguồn đối chiếu trực tiếp:
+\url{https://github.com/aCoderChild/AdeSEG/blob/main/experiments/reference_baselines/modified_lean_742.md}.
+Quan trọng: \textbf{0.742071 không phải kết quả của FGPI, RMFA hay TTMR}.
+Ba thành phần dưới đây là kiến trúc mở rộng được đề xuất hoặc được cài đặt
+thử nghiệm; chưa có thực nghiệm ghép nối trên cùng một backbone Lean-SAM2
+để quy kết mức cải thiện cho từng thành phần.
+
+\subsection{Mô hình hóa bài toán và pipeline}
+\label{subsec:adeseg-pipeline}
+
+Cho chuỗi ảnh đầu vào $\mathbf{X}=\{X_t\}_{t=0}^{T}$, một vùng mục tiêu
+cần phân đoạn được biểu diễn bằng mask nhị phân $Y_t\in\{0,1\}^{H\times W}$.
+Trong quá trình inference, hệ thống không truy cập $Y_t$; mask ground-truth
+chỉ được dùng cho huấn luyện (đúng split) hoặc đánh giá sau khi dự đoán
+đã được cố định. Đầu ra gồm logits $Z_t$ và
+$\widehat{Y}_t=\mathbb{I}[\sigma(Z_t)>0.5]$.
+
+Khung phương pháp nghiên cứu gồm ba bài toán liên tiếp:
+\textbf{(i)} khởi tạo target bằng detector và đặc trưng ảnh;
+\textbf{(ii)} tinh chỉnh biên và phân biệt foreground/background trên
+feature map đã được điều kiện hóa theo memory; và
+\textbf{(iii)} duy trì thông tin target trong bộ nhớ theo thời gian.
+Backbone tham chiếu dự kiến là Lean-SAM2 \footnote{\url{https://arxiv.org/abs/2607.19811}},
+vốn kế thừa mô hình promptable video segmentation SAM2
+\cite{ravi2024sam2}. Các bước mở rộng được phân tách bằng các
+\textit{interface} về prompt, mask logits và memory token.
+
+\paragraph{Giới hạn cài đặt hiện tại.}
+FGPI đang được tích hợp với nhánh thử nghiệm MedSAM2 Hiera-T/512; RMFA
+và bộ lựa chọn TTMR thử nghiệm dựa trên Lean-SAM2/SAM2.1 Hiera-B+.
+Chưa thể mô tả chúng như một mô hình ba module đã chạy đầy đủ trên
+cùng backbone hoặc đã tái lập Dice 0.742071.
+
+\subsection{FGPI: Khởi tạo prompt kết hợp detector và anchor đặc trưng}
+\label{subsec:adeseg-fgpi}
+
+Tại frame khởi tạo $t_0$, bộ phát hiện YOLO dự đoán bounding box
+$b_0=(x_{\min},y_{\min},x_{\max},y_{\max})$. Đặc trưng không gian sớm
+$E_0\in\mathbb{R}^{C\times H'\times W'}$ được trích xuất từ image
+encoder đã cố định. Tập token trong vùng lõi $C(b_0)$ được xác định
+bằng cách thu nhỏ box, còn tập nền $N(b_0)$ được xác định bên ngoài
+biên box có khoảng an toàn. Đây là các nhãn giả định theo hình học,
+\emph{không phải foreground/background ground truth}.
+
+Sau khi chuẩn hóa token $e_p$, xây dựng bộ
+\emph{pseudo-target anchor} $\mathcal{A}_0=\{a_1,\ldots,a_K\}$
+bằng cách ưu tiên token có hỗ trợ ở trung tâm và chọn tiếp các
+anchor khác nhau về đặc trưng trong vùng ứng viên có hỗ trợ.
+Một phiên bản khái quát của tiêu chí chọn anchor tiếp theo là
+\begin{equation}
+a_{k+1}
+=
+\arg\max_{p\in C_s\setminus\mathcal{A}_k}
+\left[
+\alpha\left(1-\max_{a\in\mathcal{A}_k}
+\cos(e_p,a)\right)+(1-\alpha)c(p)
+\right],
+\label{eq:adeseg-anchor-diversity}
+\end{equation}
+trong đó $c(p)$ biểu diễn prior khoảng cách tới tâm box và $C_s$
+là tập ứng viên lõi đã được sàng lọc bằng hỗ trợ không gian.
+Công thức này kế thừa \emph{ý tưởng} anchor đa dạng từ Lean-SAM2,
+nhưng anchor khởi tạo ở đây chưa được xác nhận bằng mask thật.
+
+Điểm tương phản target và nền được mô hình hóa bằng
+\begin{equation}
+s(p)=\max_{a\in\mathcal{A}_0}\cos(e_p,a)
+-\cos(e_p,\mu_{N}),
+\qquad
+\mu_{N}=\operatorname{Normalize}
+\left(\frac{1}{|N|}\sum_{q\in N}e_q\right).
+\label{eq:adeseg-fgpi-score}
+\end{equation}
+Điểm này cùng với làm trơn không gian và ràng buộc khoảng cách
+được dùng để chọn tập positive point $P_0^+$ trong lõi box và
+negative point $P_0^-$ bên ngoài biên an toàn. Prompt tổng hợp là
+\begin{equation}
+\mathcal{P}_0=\{b_0,P_0^+,P_0^-\}.
+\label{eq:adeseg-joint-prompt}
+\end{equation}
+FGPI cung cấp \emph{đồng thời} box và các điểm đặc trưng cho
+prompt encoder. Trong cấu hình đề xuất không áp dụng ngưỡng độ
+tin cậy của feature để loại bỏ các điểm; nếu hình học đầu vào
+không hợp lệ, hệ thống ghi nhận thất bại thay vì ngầm chuyển sang
+chỉ dùng YOLO box. Baseline đối chứng vẫn là \emph{YOLO box only}.
+
+\paragraph{Giả thuyết có thể kiểm chứng.}
+So với cùng box detector và cùng ngân sách prompt, lựa chọn điểm
+dựa trên pseudo-target anchor có thể cải thiện Dice/IoU ở
+\emph{frame khởi tạo}. Điều này cần so với cả box-only,
+box cộng điểm hình học và box cộng điểm ngẫu nhiên; chưa có
+kết quả thực nghiệm chứng minh giả thuyết.
+
+\subsection{RMFA: Tích hợp đặc trưng vùng và tinh chỉnh residual}
+\label{subsec:adeseg-rmfa}
+
+RMFA nhận đặc trưng sớm $E_t$, đặc trưng sâu đã được điều kiện hóa
+bởi memory $H_t$ và logits gốc $Z_t^{(0)}$ từ \emph{cùng}
+backbone/mask decoder. Sau bước chiếu kênh và căn chỉnh kích thước:
+\begin{equation}
+U_t = \operatorname{Concat}
+\big(\operatorname{Up}(W_e E_t),
+     \operatorname{Up}(W_h H_t)\big).
+\label{eq:adeseg-rmfa-project}
+\end{equation}
+Xác suất foreground mềm được lấy từ \emph{dự đoán của mô hình},
+$p_t=\operatorname{Pool}(\sigma(Z_t^{(0)}))$.
+Với $Q_t=W_Q\operatorname{Pool}(U_t)$,
+$K_t=W_K\operatorname{Pool}(U_t)$ và
+$V_t=W_V\operatorname{Pool}(U_t)$, quan hệ giữa các kênh được
+tính riêng cho hai vùng:
+\begin{align}
+R_{\mathrm{fg}} &=
+  \operatorname{Norm}(Q_t\odot p_t)
+  \operatorname{Norm}(K_t\odot p_t)^{\top},\\
+R_{\mathrm{bg}} &=
+  \operatorname{Norm}(Q_t\odot (1-p_t))
+  \operatorname{Norm}(K_t\odot (1-p_t))^{\top},\\
+A_t &= \operatorname{Softmax}_{\mathrm{channel}}
+  (R_{\mathrm{fg}}-R_{\mathrm{bg}}).
+\label{eq:adeseg-rmfa-channel}
+\end{align}
+Tích $A_tV_t$ biểu diễn phép trộn thông tin giữa các kênh
+với điều kiện foreground/background. Một nhánh contrast không gian
+được tạo từ prototype mềm của hai vùng, rồi kết hợp với feature
+fusion và logits gốc để dự đoán correction $\Delta Z_t$:
+\begin{equation}
+Z_t=Z_t^{(0)}+\Delta Z_t,\qquad
+\Delta Z_t =
+g_{\phi}\big(
+ \operatorname{Concat}(
+ U_t+\operatorname{Up}(W_o A_tV_t),
+ C_t,Z_t^{(0)})
+\big).
+\label{eq:adeseg-rmfa-residual}
+\end{equation}
+Trọng số decoder gốc vẫn được giữ nguyên; lớp cuối của nhánh
+residual được khởi tạo bằng không nên tại thời điểm khởi tạo
+$Z_t=Z_t^{(0)}$. Đây là tính chất \emph{identity khi khởi tạo},
+không phải đảm bảo sai số luôn giảm sau huấn luyện.
+
+Ở nhánh thử nghiệm, loss huấn luyện gồm BCE có trọng số theo biên,
+IoU có trọng số và soft Dice; có thể thêm penalty bảo toàn
+dự đoán dương tính từ mô hình gốc. Loss và mask thật chỉ dùng
+trên TRAIN capture được kiểm soát nguồn dữ liệu. Để giảm nguy cơ
+đưa sai số vào memory, phương án nghiên cứu ưu tiên
+\textit{output-only refinement}; dẫn logits đã tinh chỉnh vào
+memory encoder chỉ được xem là một ablation riêng.
+
+\subsection{TTMR: Nghiên cứu lựa chọn memory theo target và thời gian}
+\label{subsec:adeseg-ttmr}
+
+Cần phân biệt TTMR được đề xuất với cơ chế sẵn có của Lean-SAM2:
+TAMP đã chọn token bằng target-anchor, TCIM đã gộp memory lịch sử
+và duy trì insurance memory, còn TARR đã điều khiển sử dụng
+image encoder. TTMR không thể được tuyên bố là đã phát minh
+các nguyên lý đó.
+
+Một mở rộng đang nghiên cứu là xếp hạng các memory token lịch sử
+$m_i$ tại frame $t_i<t$ với điều kiện target anchor khởi tạo
+$\mathcal{A}_0$, điểm sử dụng bộ nhớ gốc $u_i$ và khoảng cách thời gian:
+\begin{equation}
+q_i =
+\lambda_a\max_{a\in\mathcal{A}_0}\cos(m_i,a)
++\lambda_u u_i
++\lambda_r \exp\left(-\frac{t-t_i}{\tau}\right).
+\label{eq:adeseg-ttmr-priority}
+\end{equation}
+Để tránh chọn nhiều token gần như trùng nhau, lựa chọn tham lam
+tiếp theo theo
+\begin{equation}
+i^*=\arg\max_{i\notin S}
+\left[q_i-\lambda_d\max_{j\in S}
+\max(0,\cos(m_i,m_j))\right],
+\quad |S|=B,
+\quad t_i<t.
+\label{eq:adeseg-ttmr-diversity}
+\end{equation}
+Các ràng buộc kèm theo gồm ngân sách token cố định $B$,
+chỉ dùng token quá khứ, chỉ số duy nhất và độ phủ thời gian
+theo frame khi khả thi. Việc so sánh phải giữ \emph{cùng ngân
+sách memory} với Lean-SAM2 gốc. Công thức không chứng minh
+rằng temporal drift giảm hoặc FPS tăng.
+
+Hiện có mã tham chiếu \textit{offline/shadow} cho quy tắc TTMR,
+nhưng chưa có thực nghiệm end-to-end xác nhận việc thay thế
+cơ chế memory sống của Lean-SAM2. Do đó TTMR là thành phần
+\emph{đề xuất cần đánh giá}, không phải nguồn tạo ra Dice 0.742071.
+
+\subsection{Thiết kế kiểm chứng và phạm vi kết luận}
+\label{subsec:adeseg-validity}
+
+Do các mô hình lịch sử và đường cài đặt hiện tại chưa dùng chung
+backbone, prompt và protocol, không thể sử dụng chênh lệch Dice
+giữa chúng để ước lượng hiệu quả nhân quả của ba module. Khi có
+điều kiện chạy thêm, thiết kế ablation tối thiểu gồm:
+(i) cùng Lean-SAM2 với box-only;
+(ii) box cộng các điểm được chọn hình học;
+(iii) box cộng FGPI điểm từ feature;
+(iv) (iii) cộng RMFA output-only đã huấn luyện;
+(v) kiểm tra memory routing; và
+(vi) TTMR với ngân sách memory đúng bằng baseline.
+
+Chỉ số chính của FGPI là Dice/IoU \emph{ngay trên frame khởi tạo}.
+Chỉ số của RMFA gồm Dice, IoU và boundary F trên frame được gán nhãn;
+TTMR cần thêm Dice theo thời gian, false alarm trên frame rỗng và
+chi phí tính toán/bộ nhớ. Cần báo cáo riêng
+\emph{frame-weighted mean} và \emph{equal-sequence mean},
+cùng số sequence không có prompt và tiêu chuẩn loại trừ.
+Độ tin cậy thống kê phải tính theo nhóm nguồn/patient
+được xác thực, không bootstrap độc lập từng frame có tương quan.
+Temporal IoU cao không đồng nghĩa với phân đoạn chính xác
+khi camera di chuyển hoặc mask bị drift ổn định.
+
+\paragraph{Giới hạn cần nêu trong báo cáo.}
+Kết quả Lean-SAM2 0.742071 mang tính thăm dò và có crop hồi
+cứu; FGPI được thử nghiệm ở nhánh MedSAM2 khác backbone;
+RMFA chưa có đánh giá video đầy đủ với adapter học được;
+TTMR mới ở mức selector tham chiếu. Các kết quả đó chưa xác lập
+tính mới được kiểm chứng, sự vượt trội của kiến trúc ba module
+hoặc khả năng ứng dụng lâm sàng trên nội soi vòm họng.
