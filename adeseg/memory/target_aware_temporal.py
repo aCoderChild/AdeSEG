@@ -121,8 +121,9 @@ def rank_temporal_memory(features, anchor_tokens, usage_scores, source_frames,
             adjusted=scores[candidates]-config.redundancy_weight*similarity.clamp(min=0)
         else:
             adjusted=scores[candidates]
-        # Explicitly sort by score then by smallest original token index.
-        return min(candidates.tolist(),key=lambda i:(-float(adjusted[(candidates==i).nonzero()[0,0]]),i))
+        # Linear-time deterministic selection; ties favor the smallest index.
+        ordered = zip(candidates.tolist(), adjusted.tolist())
+        return min(ordered, key=lambda item: (-item[1], item[0]))[0]
 
     used=torch.zeros(count,dtype=torch.bool)
     for frame in groups:
