@@ -77,6 +77,10 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
     roots = {name: value[1] for name, value in receipts.items()}
     runs = {name: value[2] for name, value in receipts.items()}
     reference = runs[baseline]
+    if reference.get("arm") != "native":
+        raise ValueError("The reference run must be native Lean-SAM2")
+    if "identity" in runs and runs["identity"].get("arm") != "identity":
+        raise ValueError("Identity control receipt must be an identity run")
     keys = ("track", "split", "label_id", "manifest_sha256",
             "prompt_manifest_sha256", "backbone_sha256",
             "lean_source_revision")
