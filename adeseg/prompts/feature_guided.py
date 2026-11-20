@@ -46,7 +46,7 @@ def _choose(scores, eligibility, coordinates, n, min_distance):
 
 @torch.no_grad()
 def feature_guided_prompt(features, box_xyxy, image_hw, *,
-                          detector_confidence=1.0, min_detector_confidence=0.25,
+                          detector_confidence=1.0, min_detector_confidence=0.0,
                           mode="fgpi", positives=1, negatives=1):
     """Joint YOLO-box and early-FPN-point prompt without feature gating.
 

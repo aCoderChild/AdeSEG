@@ -63,7 +63,7 @@ def load_detector_records(path, videos):
 
 
 def infer_detector_sequence(predictor, frames, records, output, *,
-                            mode="fgpi", label_id=1, confidence_gate=0.25):
+                            mode="fgpi", label_id=1, confidence_gate=0.0):
     """One detector prompt per sequence; subsequent frames receive NO GT or clicks."""
     valid = [r for r in records if r["confidence"] >= confidence_gate]
     if not valid:
@@ -138,7 +138,7 @@ def infer_detector_sequence(predictor, frames, records, output, *,
 
 def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha256,
                        medsam2_checkpoint, output, *, split="dev", label_id=1,
-                       mode="fgpi", device="cpu", confidence_gate=0.25):
+                       mode="fgpi", device="cpu", confidence_gate=0.0):
     manifest=Path(manifest).resolve(strict=True)
     detections=Path(detections).resolve(strict=True)
     checkpoint=Path(detector_checkpoint).resolve(strict=True)
@@ -190,7 +190,8 @@ def main(argv=None):
     p.add_argument("--mode",choices=("box_only","fgpi"),required=True)
     p.add_argument("--label-id",type=int,default=1)
     p.add_argument("--device",choices=("cpu","mps","cuda"),default="cpu")
-    p.add_argument("--confidence-gate",type=float,default=0.25)
+    p.add_argument("--confidence-gate",type=float,default=0.0,
+                   help="Optional upstream YOLO filtering (default 0: use every provided detection)")
     a=p.parse_args(argv)
     receipt=infer_detector_run(
         a.manifest,a.detections,a.detector_checkpoint,a.detector_sha256,

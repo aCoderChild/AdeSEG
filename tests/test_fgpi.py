@@ -45,7 +45,7 @@ def test_nonfinite_features_and_invalid_detector_box_rejected():
         feature_guided_prompt(feature_grid(),[-1,4,12,12],(16,16))
     with pytest.raises(ValueError,match="confidence"):
         feature_guided_prompt(feature_grid(),[4,4,12,12],(16,16),
-                              detector_confidence=0.1)
+                              detector_confidence=0.1,min_detector_confidence=0.25)
 
 
 def test_sam2_bridge_sends_detector_box_first_and_points_without_gt():
@@ -72,3 +72,9 @@ def test_joint_prompt_bridge_rejects_box_only_fallback():
     prompt["mode"] = "fgpi"
     with pytest.raises(ValueError, match="must always include"):
         apply_fgpi_prompt(Dummy(), "session", 0, 1, prompt)
+
+def test_low_detector_confidence_is_not_gated_by_default():
+    p = feature_guided_prompt(feature_grid(), [4,4,12,12], (16,16),
+                              detector_confidence=0.01)
+    assert p["decision"] == "augmented"
+    assert p["point_labels"] == [1,0]

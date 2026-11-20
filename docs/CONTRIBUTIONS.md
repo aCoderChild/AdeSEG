@@ -31,3 +31,26 @@
 6. Colonoscopy PolypGen is an engineering proxy, not evidence of adenoid clinical generalization.
 
 See `docs/ARCHITECTURE.md` and `docs/CHECKPOINT_PROVENANCE.md`.
+
+## FGPI fixed joint prompting without feature reliability gating
+
+The research **FGPI** arm always combines a YOLO-provided bounding box with
+one foreground and one background point derived from *frozen early FPN features*
+using relative region-prototype similarity. The `box_only` arm is a separate,
+matched ablation and **never** an automatic fallback. No feature contrast,
+margin, uncertainty or learned reliability cutoff controls whether points are
+added. Even an uninformative/uniform feature map produces deterministic points;
+there is no empirical assertion that such prompts help.
+
+Only malformed inputs or genuinely impossible spatial geometry cause a
+fail-closed exception; these are input validity checks, **not confidence
+gating**. The default detector confidence cutoff in
+`scripts.infer_fgpi_video` is **zero**. An optional threshold controls
+*which YOLO detections enter the study*, not whether FGPI feature prompts
+are added to an accepted detection. Keep that optional threshold identical
+between `box_only` and `fgpi` when evaluating.
+
+This FGPI module **does not itself run YOLO detection**. Its input is a frozen
+YOLO detection manifest with source-image hashes. End-to-end benefit requires
+execution with real YOLO detections, a pinned MedSAM2 checkpoint, and
+matched patient-independent test videos. No result has yet demonstrated gain.
