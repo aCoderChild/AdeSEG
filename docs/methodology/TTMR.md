@@ -26,10 +26,60 @@ Selection has a fixed budget \(|S|=B_m\), unique token indices, and source-frame
 
 The original FGPI pseudo-anchors are **image-feature-space** vectors; TTMR anchors must reside in **memory-token space**. A shared target representation therefore needs explicit encoder/projection alignment—channel dimensions are not presumed identical.
 
+## Multiscale scoring without additional memory tokens
+
+The first implementation path uses pooled context to **score existing native
+spatial memory tokens**, not to append coarse-scale vectors to memory. For a
+dense, frame-major memory tensor `[F,C,H,W]`, `score_multiscale_memory`
+computes local anchor cosine similarities and pooled-scale (default 2x/4x)
+similarities. Coarse scores are interpolated to the original `H x W` grid;
+the output contains exactly `F*H*W` scalar scores in native flattening order.
+
+With `multiscale_weight=\rho`, TTMR blends anchor evidence as
+`(1-rho) * local_score + rho * multiscale_score`. The
+`rank_spatial_memory` / `TTMR.select_spatial` reference entrypoint
+passes these scores through the existing causal, fixed-budget selector.
+`multiscale_weight=0` reproduces local-anchor reference ranking.
+
+This remains **offline/shadow selection**. It does not allocate new memory
+tokens, modify RoPE, change the native memory encoder, or establish that
+multiscale scoring improves video segmentation. It also does not yet include
+a validated corruption-reliability estimator; partially corrupted frames
+remain a research hypothesis rather than a demonstrated capability.
+
+The original `modeling/lean_multiscale_anchor.py` installer expects
+`_cache_tarr_affinity_from_new_memory`, which is absent from the pinned
+Lean-SAM2 submodule. It now reports an explicit compatibility error rather
+than silently being treated as a working live hook. A future adapter should
+intervene at Lean's native score-fusion / `pending_keep_idx` selection path
+and preserve paired feature/position indices and per-frame metadata.
+
+### Offline usage example
+
+```python
+from adeseg.modules.ttmr import TTMR, TTMRConfig
+
+selector = TTMR(TTMRConfig(budget=128, multiscale_weight=0.5))
+result = selector.select_spatial(
+    memory_maps,      # [F,C,H,W], native historical spatial memory
+    memory_anchors,   # [A,C], in the SAME memory-token space
+    usage_scores,     # [F*H*W], native attention usage in [0,1]
+    frame_ids,        # [F], strictly earlier than current_frame
+    current_frame=t,
+)
+indices = result["indices"]  # original frame-major, row-major indices
+```
+
+The current CPU reference selector permits at most 4,096 candidates and
+at most 512 selected tokens; these are prototype limits, not claims about
+global Lean-SAM2 memory capacity. For fixed-budget comparisons, match
+actual native retained-token counts and include all protected-memory costs.
+
 ## Research interfaces
 
 - `adeseg/modules/ttmr/__init__.py`: TTMR reference API.
-- `adeseg/modules/ttmr/selection.py`: reproducible candidate-ranking algorithm.
+- `adeseg/modules/ttmr/selection.py`: reproducible candidate-ranking algorithm and spatial wrapper.
+- `adeseg/modules/ttmr/multiscale.py`: stateless contextual scoring of original-resolution tokens.
 - `modeling/lean_multiscale_anchor.py`: multiscale anchor similarity experiments.
 - `adeseg/inference/lean_memory_routing.py`: existing mask/memory-logit routing, **not** the TTMR token hook.
 
