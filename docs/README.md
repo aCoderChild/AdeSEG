@@ -6,4 +6,4 @@
 
 **Technical references:** [Verification](VERIFICATION.md) · [Checkpoint provenance](CHECKPOINT_PROVENANCE.md) · [Research lifecycle](RESEARCH_LIFECYCLE.md) · [CI troubleshooting](CI_TROUBLESHOOTING.md).
 
-The former two-track architecture notes remain supplementary implementation references. Historical benchmark reports and dated methodology drafts are available on the [backup branch](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118/reports).
+Historical benchmark reports and retired architecture drafts are available on the [backup branch](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118/reports).

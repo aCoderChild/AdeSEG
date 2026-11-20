@@ -13,7 +13,7 @@ from modeling.lean_channel_value_routing_v1 import route_channel_value_refinemen
 
 @dataclass(frozen=True)
 class RMFAConfig:
-    mode: str = "foreground_background"
+    mode: str = "foreground_background_asinh"
     early_channels: int = 32
     deep_channels: int = 256
     hidden_channels: int = 64

@@ -39,3 +39,7 @@ Native decoder versus RMFA; global versus foreground/background channel attentio
 The original Lean-SAM2 foundation already supplies memory-conditioned features; RMFA's contribution is the **specific region-conditioned multilevel interaction and residual output**, not the existence of attention or FPNs.
 
 References: [SAM2](https://arxiv.org/abs/2408.00714), [CMSA-Net (MICCAI 2026)](https://papers.miccai.org/miccai-2026/0176-Paper1232.html).
+
+## Default implementation mode
+
+The public `RMFAConfig` defaults to `foreground_background_asinh`, matching `python -m scripts.train_lean`. In this mode foreground/background channel attention and region contrast are applied, while the logits provided to the learned residual head are transformed by `asinh`. This mode name is part of the checkpoint contract; the other attention modes remain available only as separately trained ablations.

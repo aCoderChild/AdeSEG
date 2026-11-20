@@ -46,3 +46,13 @@ def test_ttmr_is_a_fixed_budget_candidate_selector():
 def test_scientific_module_configuration_is_immutable(config):
     with pytest.raises(Exception):
         config.budget = 20
+
+def test_public_rmfa_default_matches_training_mode_and_preserves_identity():
+    # training/lean.py defaults to foreground_background_asinh.
+    from adeseg.modules.rmfa import build_rmfa
+    cfg = RMFAConfig()
+    assert cfg.mode == "foreground_background_asinh"
+    model = build_rmfa(cfg)
+    assert model.mode == cfg.mode
+    e, d, logits = torch.randn(1, 32, 6, 6), torch.randn(1, 256, 3, 3), torch.randn(1, 1, 8, 8)
+    assert torch.equal(model(e, d, logits), logits)
