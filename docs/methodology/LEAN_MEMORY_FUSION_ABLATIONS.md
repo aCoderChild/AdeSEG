@@ -74,14 +74,14 @@ python -m scripts.run_lean_memory_fusion_ablation \
   --arm native --manifest /path/to/videos.jsonl \
   --prompt-manifest /path/to/frozen_automatic_masks.jsonl \
   --checkpoint /path/to/sam2.1_hiera_base_plus.pt \
-  --checkpoint-sha256 "$MODEL_SHA" --device cuda \
+  --checkpoint-sha256 "$MODEL_SHA" --device mps \
   --output outputs/ablation/native
 
 python -m scripts.run_lean_memory_fusion_ablation \
   --arm identity --manifest /path/to/videos.jsonl \
   --prompt-manifest /path/to/frozen_automatic_masks.jsonl \
   --checkpoint /path/to/sam2.1_hiera_base_plus.pt \
-  --checkpoint-sha256 "$MODEL_SHA" --device cuda \
+  --checkpoint-sha256 "$MODEL_SHA" --device mps \
   --output outputs/ablation/identity
 ~~~
 
@@ -119,6 +119,10 @@ Outputs:
 - `per_sequence.csv`: every eligible sequence and arm.
 - `per_frame.jsonl`: per-frame Dice/IoU for GT-present; separate
   false-alarm status for GT-empty frames.
+
+When using Apple Silicon, use `--device mps`; on a supported NVIDIA runner,
+replace it with `--device cuda`. Run native twice on the same machine before
+treating cross-process bitwise-identity differences as adapter regressions.
 
 The scorer fails closed on mismatched prompt receipts, split/model hashes,
 missing videos or frames, stale prediction PNG hashes, out-of-order frames,
