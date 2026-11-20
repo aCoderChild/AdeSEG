@@ -66,8 +66,7 @@ def load_detector_records(path, videos):
 
 def infer_detector_sequence(predictor, frames, records, output, *,
                             mode="fgpi", label_id=1, confidence_gate=0.0,
-                            positives=1, negatives=1, max_anchors=4,
-                       allow_unverified_detections=False):
+                            positives=1, negatives=1, max_anchors=4):
     """One detector prompt per sequence; subsequent frames receive NO GT or clicks."""
     valid = [r for r in records if r["confidence"] >= confidence_gate]
     if not valid:
@@ -168,7 +167,8 @@ def infer_detector_sequence(predictor, frames, records, output, *,
 def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha256,
                        medsam2_checkpoint, output, *, split="dev", label_id=1,
                        mode="fgpi", device="cpu", confidence_gate=0.0,
-                       positives=1, negatives=1, max_anchors=4):
+                       positives=1, negatives=1, max_anchors=4,
+                       allow_unverified_detections=False):
     manifest=Path(manifest).resolve(strict=True)
     detections=Path(detections).resolve(strict=True)
     checkpoint=Path(detector_checkpoint).resolve(strict=True)
@@ -179,6 +179,8 @@ def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha25
         raise ValueError("FGPI requires positive, negative and anchor budgets")
     if output.exists():
         raise FileExistsError("Refusing to overwrite previous experiment")
+    if type(allow_unverified_detections) is not bool:
+        raise ValueError("Unverified detector override must be boolean")
     if sha256(checkpoint) != detector_sha256:
         raise ValueError("Detector checkpoint SHA256 mismatch")
     verify_medsam2_latest(medsam2_checkpoint)
