@@ -19,6 +19,7 @@ class TTMRConfig:
     anchor_weight: float = 0.5
     redundancy_weight: float = 0.15
     recency_weight: float = 0.05
+    multiscale_weight: float = 0.5
     time_constant: float = 5.0
     minimum_per_frame: int = 1
     maximum_per_frame: int | None = None
@@ -32,7 +33,7 @@ class TTMRConfig:
                 type(self.maximum_per_frame) is not int
                 or self.maximum_per_frame < self.minimum_per_frame):
             raise ValueError("TTMR max per frame cannot be below min")
-        for name in ("anchor_weight","redundancy_weight","recency_weight"):
+        for name in ("anchor_weight","redundancy_weight","recency_weight","multiscale_weight"):
             if not 0 <= getattr(self,name) <= 1:
                 raise ValueError(f"TTMR {name} must be between zero and one")
         if not math.isfinite(self.time_constant) or self.time_constant <= 0:
@@ -77,6 +78,7 @@ def rank_temporal_memory(features, anchor_tokens, usage_scores, source_frames,
             or (source_frames<0).any()
             or (source_frames>=current_frame).any()):
         raise ValueError("TTMR uses only historical frame tokens")
+    # Multiscale context changes scores, never the number or shape of stored tokens.
     if multiscale_scores is not None and (
             not isinstance(multiscale_scores,torch.Tensor)
             or tuple(multiscale_scores.shape)!=(count,)
@@ -90,7 +92,8 @@ def rank_temporal_memory(features, anchor_tokens, usage_scores, source_frames,
     frame_ids=source_frames.detach().cpu().long()
     anchor=(vectors @ anchors.T).max(dim=1).values
     if multiscale_scores is not None:
-        anchor=0.5*(anchor+multiscale_scores.detach().cpu().float())
+        multiscale=multiscale_scores.detach().cpu().float()
+        anchor=(1-config.multiscale_weight)*anchor+config.multiscale_weight*multiscale
     use=usage_scores.detach().cpu().float()
     freshness=torch.exp(-(current_frame-frame_ids).float()/config.time_constant)
     base=((1-config.anchor_weight)*use
