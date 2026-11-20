@@ -20,6 +20,7 @@ from evaluation.segmentation import calculate_scores
 from evaluation.temporal_consistency import adjacent_mask_metrics, undefined_temporal_metrics
 from scripts.infer_med_video import sha256
 from scripts.infer_fgpi_video import PROTOCOL, load_detector_records
+from scripts.detection_provenance import verify_detection_export
 from adeseg.prompts.target_anchored import target_anchored_points
 
 
@@ -49,6 +50,13 @@ def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):
     if receipt.get("prompt_selector_source_sha256") != sha256(
             Path(target_anchored_points.__code__.co_filename)):
         raise ValueError("FGPI prompt selector source SHA256 differs")
+    if receipt.get("detector_export_verified") is True:
+        evidence=verify_detection_export(manifest,detections,detector_checkpoint,
+                                         split=receipt["split"])
+        if evidence["metadata_sha256"]!=receipt.get("detector_export_metadata_sha256"):
+            raise ValueError("YOLO exporter lineage changed")
+    elif receipt.get("detector_export_verified") is not False:
+        raise ValueError("FGPI detector export verification status missing")
     label_id=receipt["label_id"]
     videos=load_manifest(manifest,receipt["split"],require_contiguous=True,
                          require_jpeg=True,safe_output_ids=True)
@@ -179,6 +187,7 @@ def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):
     init_empty=[r for r in initialization_rows if not r["gt_present"]]
     summary={
         "method":"FGPI","mode":receipt["mode"],"protocol":PROTOCOL,
+        "detector_export_verified":receipt["detector_export_verified"],
         "all_sequences":len(videos),"prompted_sequences":len(sequences),
         "unprompted_sequences":excluded,
         "post_prompt_frames":len(frames_all),

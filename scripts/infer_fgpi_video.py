@@ -25,6 +25,7 @@ from modeling.medsam2_latest import (
     verify_medsam2_latest, build_verified_medsam2_latest, MEDSAM2_LATEST_SHA256,
 )
 from scripts.infer_med_video import sha256
+from scripts.detection_provenance import verify_detection_export
 
 MODEL_CONFIG = "sam2.1_hiera_t512.yaml"
 PROTOCOL = "detector_first_box_post_prompt_v1"
@@ -65,7 +66,8 @@ def load_detector_records(path, videos):
 
 def infer_detector_sequence(predictor, frames, records, output, *,
                             mode="fgpi", label_id=1, confidence_gate=0.0,
-                            positives=1, negatives=1, max_anchors=4):
+                            positives=1, negatives=1, max_anchors=4,
+                       allow_unverified_detections=False):
     """One detector prompt per sequence; subsequent frames receive NO GT or clicks."""
     valid = [r for r in records if r["confidence"] >= confidence_gate]
     if not valid:
@@ -183,6 +185,13 @@ def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha25
     videos=load_manifest(manifest,split,require_contiguous=True,require_jpeg=True,
                          safe_output_ids=True)
     records=load_detector_records(detections,videos)
+    try:
+        detector_evidence=verify_detection_export(
+            manifest,detections,checkpoint,split=split)
+    except FileNotFoundError:
+        if not allow_unverified_detections:
+            raise
+        detector_evidence=None
     predictor=build_verified_medsam2_latest(
         medsam2_checkpoint,model_cfg=MODEL_CONFIG,device=device,
         apply_postprocessing=False).eval().requires_grad_(False)
@@ -200,6 +209,9 @@ def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha25
         "manifest_sha256":sha256(manifest),
         "detections_sha256":sha256(detections),
         "detector_checkpoint_sha256":detector_sha256,
+        "detector_export_verified": detector_evidence is not None,
+        "detector_export_metadata_sha256": (
+            detector_evidence["metadata_sha256"] if detector_evidence is not None else None),
         "backbone_sha256":MEDSAM2_LATEST_SHA256,
         "model_config":MODEL_CONFIG, "postprocessing":"no_hole_filling",
         "confidence_gate":confidence_gate,
@@ -236,12 +248,15 @@ def main(argv=None):
                    help="Fixed number of FGPI background points (default 1)")
     p.add_argument("--max-anchors",type=int,default=4,
                    help="Maximum diverse box-derived target anchor tokens (default 4)")
+    p.add_argument("--allow-unverified-detections",action="store_true",
+                   help="Exploratory legacy JSONL only; forfeits YOLO exporter provenance")
     a=p.parse_args(argv)
     receipt=infer_detector_run(
         a.manifest,a.detections,a.detector_checkpoint,a.detector_sha256,
         a.checkpoint,a.output,split=a.split,label_id=a.label_id,
         mode=a.mode,device=a.device,confidence_gate=a.confidence_gate,
-        positives=a.positives,negatives=a.negatives,max_anchors=a.max_anchors)
+        positives=a.positives,negatives=a.negatives,max_anchors=a.max_anchors,
+        allow_unverified_detections=a.allow_unverified_detections)
     print(json.dumps({"status":"generated_unverified_model_run","mode":a.mode,
                      "completed":sum(x["status"]=="completed" for x in receipt["results"].values())},indent=2))
 
