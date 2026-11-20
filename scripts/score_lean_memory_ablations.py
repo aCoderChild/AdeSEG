@@ -23,7 +23,7 @@ from datasets.video import load_manifest
 from evaluation.segmentation import calculate_scores
 
 
-FORMAT = "adeseg_lean_memory_fusion_video_v1"
+FORMAT = "adeseg_lean_memory_fusion_video_v2"
 
 
 def sha(path):
@@ -83,7 +83,16 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         raise ValueError("Identity control receipt must be an identity run")
     keys = ("track", "split", "label_id", "manifest_sha256",
             "prompt_manifest_sha256", "backbone_sha256",
-            "lean_source_revision")
+            "lean_source_revision", "runtime_signature")
+    signature_keys = {
+        "adeseg_head", "runner_sha256", "fusion_source_sha256",
+        "torch_version", "python_version", "device", "precision",
+        "lean_config_sha256", "lvos_config_sha256",
+        "sam_config_sha256", "bypass_sha256",
+    }
+    if (not isinstance(reference.get("runtime_signature"), dict)
+            or set(reference["runtime_signature"]) != signature_keys):
+        raise ValueError("Missing or incomplete execution provenance")
     for name, data in runs.items():
         if any(data.get(k) != reference.get(k) for k in keys):
             raise ValueError(f"Run {name} has unmatched backbone, split, dataset or prompts")
@@ -111,6 +120,23 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             continue
         if status != "completed":
             raise ValueError(f"Unexpected run status {status!r} for {video}")
+        # Validate the resident post-pruning snapshot in addition to equal
+        # encoder-output token geometry. TCIM insurance may change dynamically.
+        for name, record in records.items():
+            resident = record.get("resident_memory")
+            resident_keys = {
+                "resident_frame_entries", "resident_spatial_tokens",
+                "compressed_frame_entries", "protected_frame_entries",
+                "insurance_entries", "note",
+            }
+            if not isinstance(resident, dict) or set(resident) != resident_keys:
+                raise ValueError(f"Missing resident memory audit: {video}:{name}")
+            if any(type(resident[k]) is not int or resident[k] < 0
+                   for k in resident_keys - {"note"}):
+                raise ValueError(f"Invalid resident memory audit: {video}:{name}")
+        if "identity" in records and records["identity"]["resident_memory"] != (
+                records[baseline]["resident_memory"]):
+            raise RuntimeError(f"Native/identity retained memory mismatch: {video}")
         prompt_fields = ("prompt_frame_index", "prompt_mask_sha256",
                          "prompt_image_sha256", "prompt_origin")
         if any(any(record.get(k) != records[baseline].get(k) for k in prompt_fields)
@@ -136,6 +162,14 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                 record = records[name]["predictions"][position]
                 if record.get("image_sha256") != image_hash:
                     raise ValueError(f"Source-image mismatch for {video}:{frame.frame_index}")
+                if record.get("annotation_sha256") != sha(frame.mask_path):
+                    raise ValueError(
+                        f"Ground-truth file changed after predictions: {video}:{frame.frame_index}")
+                digest = record.get("logits_sha256")
+                if (not isinstance(digest, str) or len(digest) != 64
+                        or any(c not in "0123456789abcdef" for c in digest)):
+                    raise ValueError(
+                        f"Missing logit checksum: {video}:{frame.frame_index}")
                 prediction = verified_prediction(
                     roots[name], video, frame.frame_index, record
                 )
@@ -152,7 +186,9 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                 scores[name] = item
             if "identity" in runs and reference.get("arm") == "native":
                 if (records[baseline]["predictions"][position]["prediction_sha256"]
-                        != records["identity"]["predictions"][position]["prediction_sha256"]):
+                        != records["identity"]["predictions"][position]["prediction_sha256"]
+                        or records[baseline]["predictions"][position]["logits_sha256"]
+                        != records["identity"]["predictions"][position]["logits_sha256"]):
                     raise RuntimeError(f"Zero-residual identity diverged at {video}:{frame.frame_index}")
             per_frame.append({"video_id": video, "frame_index": frame.frame_index,
                               "present": truth_present, "arms": scores})
@@ -182,7 +218,23 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         ])
         sampled = rng.integers(0, len(paired), size=(bootstrap, len(paired)))
         ci = np.quantile(paired[sampled].mean(axis=1), (0.025, 0.975)).tolist()
+        memory_pairs = [
+            (runs[name]["sequences"][v]["resident_memory"],
+             runs[baseline]["sequences"][v]["resident_memory"])
+            for v in per_video
+        ]
+        memory_budget_matched = all(
+            left["resident_spatial_tokens"] == right["resident_spatial_tokens"]
+            and left["insurance_entries"] == right["insurance_entries"]
+            for left, right in memory_pairs
+        )
         summary[name] = {
+            "resident_spatial_and_insurance_matched": memory_budget_matched,
+            "resident_spatial_token_deltas": {
+                v: (runs[name]["sequences"][v]["resident_memory"]["resident_spatial_tokens"] -
+                    runs[baseline]["sequences"][v]["resident_memory"]["resident_spatial_tokens"])
+                for v in per_video
+            },
             "sequence_macro_present_dice": macro,
             "frame_weighted_present_dice": float(np.mean(frame_dice)),
             "mean_paired_delta_vs_baseline": float(paired.mean()),
@@ -232,6 +284,11 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             f"{item['empty_false_alarms']}/{item['empty_frames']} |"
         )
     lines += [
+        "",
+        "Resident-memory and insurance entries equal to native (by arm): " +
+        ", ".join(f"{name}={summary[name]['resident_spatial_and_insurance_matched']}"
+                  for name in summary),
+        "Resident count matching is NOT proof of equal runtime peak VRAM or attention bytes.",
         "", "All arms use identical backbone weights, split, input manifest, frozen prompts",
         "and exact source-frame IDs. Results score POST-prompt frames only.",
         "Confidence intervals are paired sequence-level bootstrap descriptions, not",

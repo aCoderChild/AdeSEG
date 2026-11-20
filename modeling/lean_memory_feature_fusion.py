@@ -23,7 +23,7 @@ from torch.nn import functional as F
 
 @dataclass(frozen=True)
 class MemoryFeatureFusionConfig:
-    early_channels: tuple[int, ...] = (256, 256)
+    early_channels: tuple[int, ...] = (32, 64)
     memory_channels: int = 64
     hidden_channels: int = 64
     max_relative_residual: float = 0.25
@@ -187,11 +187,14 @@ class EarlyFeatureMemoryFusion(nn.Module):
         if (not isinstance(provided, dict) or set(provided) != set(expected)
                 or any(not isinstance(provided[k], torch.Tensor)
                        or provided[k].shape != expected[k].shape
+                       or provided[k].dtype != expected[k].dtype
                        or not torch.is_floating_point(provided[k])
                        or not bool(torch.isfinite(provided[k]).all().item())
                        for k in expected)):
             raise ValueError('Invalid trained memory fusion tensors')
         self.load_state_dict(provided, strict=True)
+        if any(not bool(torch.isfinite(v).all().item()) for v in self.state_dict().values()):
+            raise ValueError('Loaded memory fusion checkpoint contains nonfinite parameters')
         self._trained_checkpoint_loaded = True
 
 

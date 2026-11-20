@@ -1,0 +1,196 @@
+"""Train early-FPN memory fusion from sealed TRAIN-only memory capture pairs.
+
+This is supervised *same-frame oracle-memory distillation*, not end-to-end
+video BPTT. Oracle masks are used solely to construct frozen TRAIN captures;
+the learned module never takes GT during inference. The resulting checkpoint
+must still pass a real-video paired Dice evaluation.
+"""
+from __future__ import annotations
+
+import argparse
+from dataclasses import asdict
+import hashlib
+import json
+from pathlib import Path
+import random
+
+import torch
+import torch.nn.functional as F
+
+from modeling.lean_memory_feature_fusion import (
+    EarlyFeatureMemoryFusion, MemoryFeatureFusionConfig, implementation_sha256,
+)
+from training.split_guard import sha256, validate_train_sources
+
+
+TRAINING_PROTOCOL = "oracle_mask_memory_distillation_v1"
+
+
+def training_source_sha256():
+    hasher = hashlib.sha256()
+    for source in (Path(__file__).resolve(),
+                   Path(__file__).resolve().parents[1] / "training/split_guard.py"):
+        value = source.read_bytes()
+        hasher.update(source.name.encode() + b"\x00" + value)
+    return hasher.hexdigest()
+
+
+def read_capture(path: Path, config: MemoryFeatureFusionConfig):
+    """Fail closed on untrusted/malformed precomputed captures."""
+    data = torch.load(path, map_location="cpu", weights_only=True)
+    expected = {"early", "native_memory", "teacher_memory",
+                "predicted_mask_logits", "object_score_logits",
+                "video_id", "frame_index"}
+    if not isinstance(data, dict) or set(data) != expected:
+        raise ValueError(f"Invalid memory capture schema: {path}")
+    tensors = [data[k] for k in (
+        "native_memory", "teacher_memory",
+        "predicted_mask_logits", "object_score_logits")]
+    early = data["early"]
+    if not isinstance(early, (tuple, list)) or len(early) != len(config.early_channels):
+        raise ValueError("Capture is missing the configured early feature levels")
+    tensors.extend(early)
+    if any(not isinstance(x, torch.Tensor) or not torch.is_floating_point(x)
+           or x.dtype != torch.float32 or not bool(torch.isfinite(x).all().item())
+           for x in tensors):
+        raise ValueError("Captures must contain only finite float32 tensors")
+    native, teacher, mask, presence = tensors[:4]
+    if not (native.ndim == 4 and native.shape[0:2] == (1, config.memory_channels)
+            and teacher.shape == native.shape
+            and native.shape[-2] >= 1 and native.shape[-1] >= 1
+            and mask.shape[0:2] == (1, 1)
+            and mask.ndim == 4 and mask.shape[-2:] == native.shape[-2:]
+            and presence.numel() == 1):
+        raise ValueError("Capture memory/mask/presence geometry mismatch")
+    for index, feature in enumerate(early):
+        if (feature.ndim != 4 or feature.shape[0:2] !=
+                (1, config.early_channels[index])
+                or feature.shape[-2:] != native.shape[-2:]):
+            raise ValueError(f"Early capture feature geometry mismatch at {index}")
+    if (not isinstance(data["video_id"], str) or not data["video_id"]
+            or type(data["frame_index"]) is not int
+            or data["frame_index"] < 0):
+        raise ValueError("Capture frame provenance missing")
+    return data
+
+
+def train(args):
+    manifest = args.manifest.resolve(strict=True)
+    partition = args.split_file.resolve(strict=True)
+    output = args.output.resolve()
+    if output.exists() or Path(str(output) + ".receipt.json").exists():
+        raise FileExistsError("Refusing to overwrite trained memory fusion checkpoint")
+    if args.epochs < 1 or not 0 < args.lr < 1 or not 0 <= args.preservation_weight <= 10:
+        raise ValueError("Invalid training hyperparameters")
+    if (not isinstance(args.backbone_sha256, str)
+            or len(args.backbone_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in args.backbone_sha256)):
+        raise ValueError("Invalid pinned backbone SHA256")
+    before = validate_train_sources(manifest, partition, file_field="tensor_file")
+    config = MemoryFeatureFusionConfig()
+    rows = json.loads(manifest.read_text("utf8"))
+    captures = []
+    producer_sha = sha256(Path(__file__).resolve().parents[1] / "scripts/capture_lean_memory_train.py")
+    for row in rows:
+        if row.get("capture_source_sha256") != producer_sha:
+            raise ValueError("Training capture producer source hash mismatch")
+        path = (manifest.parent / row["tensor_file"]).resolve(strict=True)
+        obj = read_capture(path, config)
+        if (row.get("video_id") != obj["video_id"]
+                or row.get("frame_index") != obj["frame_index"]):
+            raise ValueError("Manifest frame does not match capture provenance")
+        captures.append(obj)
+    if not captures:
+        raise ValueError("At least one genuine TRAIN capture is required")
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+    model = EarlyFeatureMemoryFusion(config).to(args.device).train()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    losses = []
+    steps = 0
+    for epoch in range(args.epochs):
+        order = list(range(len(captures)))
+        random.Random(args.seed + epoch).shuffle(order)
+        for index in order:
+            c = captures[index]
+            early = [x.to(args.device) for x in c["early"]]
+            native = c["native_memory"].to(args.device)
+            teacher = c["teacher_memory"].to(args.device)
+            mask = c["predicted_mask_logits"].to(args.device)
+            presence = c["object_score_logits"].to(args.device)
+            optimizer.zero_grad(set_to_none=True)
+            predicted = model(early, native, mask, presence)
+            reconstruction = F.smooth_l1_loss(predicted, teacher)
+            preservation = F.smooth_l1_loss(predicted, native)
+            loss = reconstruction + args.preservation_weight * preservation
+            if not bool(torch.isfinite(loss).item()):
+                raise FloatingPointError("Non-finite memory-distillation training loss")
+            loss.backward()
+            if any(param.grad is not None and not bool(torch.isfinite(param.grad).all().item())
+                   for param in model.parameters()):
+                raise FloatingPointError("Non-finite memory-fusion gradients")
+            optimizer.step()
+            steps += 1
+            losses.append(float(loss.detach().cpu()))
+    if model.is_identity_initialized():
+        raise RuntimeError("No learned memory residual: training did not update output projection")
+    after = validate_train_sources(manifest, partition, file_field="tensor_file")
+    if after != before:
+        raise RuntimeError("Training sources changed during optimization")
+    payload = {
+        "format": model.CHECKPOINT_FORMAT,
+        "config": asdict(config),
+        "implementation_sha256": implementation_sha256(),
+        "backbone_sha256": args.backbone_sha256,
+        "train_manifest_sha256": sha256(manifest),
+        "split_file_sha256": sha256(partition),
+        "training_protocol": TRAINING_PROTOCOL,
+        "training_source_sha256": training_source_sha256(),
+        "capture_source_sha256": producer_sha,
+        "training_steps": steps,
+        "epochs": args.epochs,
+        "seed": args.seed,
+        "lr": args.lr,
+        "preservation_weight": args.preservation_weight,
+        "capture_count": len(captures),
+        "source_groups": before["train_source_groups"],
+        "last_train_loss": losses[-1],
+        "model_state_dict": {k: v.detach().float().cpu().clone()
+                             for k, v in model.state_dict().items()},
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, output)
+    receipt = {
+        "checkpoint": str(output), "checkpoint_sha256": sha256(output),
+        "training_protocol": TRAINING_PROTOCOL, "training_steps": steps,
+        "source_groups": before["train_source_groups"],
+        "train_manifest_sha256": sha256(manifest),
+        "split_file_sha256": sha256(partition),
+        "implementation_sha256": payload["implementation_sha256"],
+        "training_source_sha256": payload["training_source_sha256"],
+        "capture_count": len(captures),
+        "last_train_loss": losses[-1],
+        "warning": "TRAIN oracle-memory distillation; no future-frame or TEST Dice measured",
+    }
+    Path(str(output) + ".receipt.json").write_text(
+        json.dumps(receipt, indent=2) + "\n", encoding="utf8")
+    return receipt
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--manifest", type=Path, required=True)
+    p.add_argument("--split-file", type=Path, required=True)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--backbone-sha256", required=True)
+    p.add_argument("--epochs", type=int, default=5)
+    p.add_argument("--lr", type=float, default=1e-4)
+    p.add_argument("--preservation-weight", type=float, default=0.1)
+    p.add_argument("--seed", type=int, default=20261120)
+    p.add_argument("--device", choices=("cpu", "cuda", "mps"), default="cpu")
+    result = train(p.parse_args(argv))
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

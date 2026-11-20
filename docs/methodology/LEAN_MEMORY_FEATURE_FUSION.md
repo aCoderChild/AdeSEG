@@ -87,11 +87,15 @@ the trainable + hook sources, verified backbone SHA256, frozen training
 manifest SHA256 and a positive training-step count. Metadata verification
 is not proof that a model was trained correctly.
 
-**Important unfinished components:** There is no pretrained fusion checkpoint,
-differentiable video training runner, full-video evaluator or completed
-Lean-SAM2 GPU integration test in this patch. Author Lean inference is
-decorated with inference_mode and cannot simply be used as a backpropagating
-video-training loop. Do not report a training or Dice result from these tests.
+**Current training/evaluation tools:** TRAIN-only teacher-memory captures
+(`scripts/capture_lean_memory_train.py`), supervised offline
+oracle-mask memory distillation (`training/lean_memory_fusion.py`),
+matched native/identity/learned video inference and independent Dice
+scoring are implemented. See [training guide](LEAN_MEMORY_TRAINING.md).
+This is NOT differentiable end-to-end video training. There is no trained
+fusion checkpoint, completed real-video smoke, full video Dice result or
+clinical evidence supplied here. Author Lean inference uses inference_mode
+and cannot simply be used as a video-backpropagating training loop.
 
 ## Predeclared ablations
 

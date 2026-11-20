@@ -72,6 +72,33 @@ def make_trained(fusion):
     return payload
 
 
+def test_pinned_lean_hiera_bplus_fpn_channels_and_memory_identity():
+    # SAM2's decoder conv_s0/conv_s1 produce 32/64, memory encoder 64.
+    cfg = MemoryFeatureFusionConfig()
+    assert cfg.early_channels == (32, 64)
+    assert cfg.memory_channels == 64
+    model = EarlyFeatureMemoryFusion(cfg).eval()
+    early = [torch.randn(1, 32, 8, 8), torch.randn(1, 64, 4, 4)]
+    native = torch.randn(1, 64, 2, 2)
+    mask, presence = torch.randn(1, 1, 8, 8), torch.ones(1)
+    assert torch.equal(model(early, native, mask, presence), native)
+    with pytest.raises(ValueError, match='level 0'):
+        model([torch.randn(1, 256, 8, 8), early[1]], native, mask, presence)
+
+
+def test_checkpoint_rejects_dtype_conversion_overflow():
+    model = EarlyFeatureMemoryFusion(CFG)
+    payload = make_trained(EarlyFeatureMemoryFusion(CFG))
+    bad = dict(payload['model_state_dict'])
+    bad['output_projection.bias'] = torch.full(
+        bad['output_projection.bias'].shape, 1e300, dtype=torch.float64)
+    with pytest.raises(ValueError, match='tensors'):
+        model.load_trained_state(
+            dict(payload, model_state_dict=bad),
+            backbone_sha256='a' * 64, train_manifest_sha256='b' * 64)
+    assert not model._trained_checkpoint_loaded
+
+
 def test_zero_residual_identity_and_no_mutation():
     fusion = EarlyFeatureMemoryFusion(CFG).eval()
     early, memory, mask, score = inputs()

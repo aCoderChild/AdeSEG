@@ -14,6 +14,8 @@ import argparse
 from contextlib import nullcontext
 import hashlib
 import json
+import platform
+import subprocess
 from pathlib import Path
 import tempfile
 import time
@@ -30,7 +32,7 @@ from modeling.lean_memory_feature_fusion import (
 )
 
 
-FORMAT = "adeseg_lean_memory_fusion_video_v1"
+FORMAT = "adeseg_lean_memory_fusion_video_v2"
 
 
 def file_sha256(path):
@@ -101,6 +103,18 @@ def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
     payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
     if not isinstance(payload, dict) or not isinstance(payload.get("config"), dict):
         raise ValueError("Malformed memory-fusion checkpoint")
+    from training.lean_memory_fusion import TRAINING_PROTOCOL, training_source_sha256
+    from training.split_guard import sha256 as training_sha256
+    source_capture_sha = training_sha256(
+        Path(__file__).resolve().parents[1] / "scripts/capture_lean_memory_train.py")
+    if (payload.get("training_protocol") != TRAINING_PROTOCOL
+            or payload.get("training_source_sha256") != training_source_sha256()
+            or payload.get("capture_source_sha256") != source_capture_sha
+            or not isinstance(payload.get("split_file_sha256"), str)
+            or len(payload["split_file_sha256"]) != 64
+            or type(payload.get("capture_count")) is not int
+            or payload["capture_count"] < 1):
+        raise ValueError("Unverified memory-fusion training protocol or split receipt")
     config = MemoryFeatureFusionConfig(**payload["config"])
     fusion = EarlyFeatureMemoryFusion(config)
     fusion.load_trained_state(
@@ -108,7 +122,61 @@ def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
         backbone_sha256=backbone_sha256,
         train_manifest_sha256=train_manifest_sha256,
     )
+    if fusion.is_identity_initialized():
+        raise ValueError("Trained-fusion arm has no learned memory residual")
     return fusion.to(device).eval(), file_sha256(checkpoint)
+
+
+def summarize_resident_memory(state):
+    """Observable retained spatial memory, not total attention or VRAM cost.
+
+    Native Lean includes separate pointer/insurance/TCIM storage; these counters
+    characterize the currently resident frame entries only.
+    """
+    objects = state.get("output_dict_per_obj", {})
+    if not isinstance(objects, dict) or len(objects) != 1:
+        raise ValueError("Expected one Lean per-object output dictionary")
+    rows = []
+    for obj in objects.values():
+        for kind in ("cond_frame_outputs", "non_cond_frame_outputs"):
+            bank = obj.get(kind)
+            if not isinstance(bank, dict):
+                raise ValueError("Missing Lean output memory bank")
+            for frame_idx, entry in sorted(bank.items()):
+                if not isinstance(entry, dict):
+                    raise ValueError("Malformed stored memory entry")
+                dense, compact = entry.get("maskmem_features"), entry.get("maskmem_features_seq")
+                if compact is not None:
+                    if not isinstance(compact, torch.Tensor) or compact.ndim != 3:
+                        raise ValueError("Malformed compressed Lean memory")
+                    count = int(compact.shape[0])
+                    reported = entry.get("smr_pruned_token_count")
+                    if reported is not None and count != reported:
+                        raise ValueError("Compressed memory metadata disagrees with real tokens")
+                    storage = "compressed"
+                elif dense is not None:
+                    if not isinstance(dense, torch.Tensor) or dense.ndim != 4:
+                        raise ValueError("Malformed dense Lean memory")
+                    count = int(dense.shape[-2] * dense.shape[-1])
+                    storage = "dense"
+                else:
+                    continue
+                rows.append({
+                    "frame_idx": int(frame_idx), "kind": kind,
+                    "tokens": count, "storage": storage,
+                    "protected": bool(entry.get("smr_protected", False)),
+                })
+    insurance = state.get("insurance_mem_bank", {})
+    if not isinstance(insurance, dict):
+        raise ValueError("Unexpected insurance memory representation")
+    return {
+        "resident_frame_entries": len(rows),
+        "resident_spatial_tokens": sum(x["tokens"] for x in rows),
+        "compressed_frame_entries": sum(x["storage"] == "compressed" for x in rows),
+        "protected_frame_entries": sum(x["protected"] for x in rows),
+        "insurance_entries": sum(len(x) for x in insurance.values()),
+        "note": "Resident snapshot only; does not include transient attention tensors or object pointers",
+    }
 
 
 def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
@@ -116,9 +184,12 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
     from scripts.memory_token_io import synchronize_storage
     frame_to_position = {f.frame_index: i for i, f in enumerate(frames)}
     start = frame_to_position[prompt["frame_index"]]
+    # The pinned author Lean runner assumes the single prompt occupies its
+    # local frame zero. Keep original source indices in the receipt only.
+    staged_frames = frames[start:]
     rows, telemetry = [], []
     with tempfile.TemporaryDirectory(prefix="adeseg_lean_mem_") as temporary:
-        stage_frames(frames, Path(temporary))
+        stage_frames(staged_frames, Path(temporary))
         state = None
         with torch.inference_mode():
             try:
@@ -132,7 +203,9 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
                 if pixels.shape != hw or not np.isin(pixels, (0, 255)).all():
                     raise ValueError("Frozen prompt mask must be binary 0/255 at original resolution")
                 mask = torch.from_numpy((pixels > 0).copy())
-                predictor.add_new_mask(state, frame_idx=start, obj_id=1, mask=mask)
+                if not bool(mask.any().item()):
+                    raise ValueError("Frozen automatic prompt is empty")
+                predictor.add_new_mask(state, frame_idx=0, obj_id=1, mask=mask)
                 context = (nullcontext() if fusion is None else
                            route_memory_feature_fusion(
                                predictor, fusion,
@@ -142,17 +215,19 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
                 beginning = time.perf_counter()
                 with context:
                     for index, obj_ids, logits in predictor.propagate_in_video(
-                        state, start_frame_idx=start, reverse=False
+                        state, start_frame_idx=0, reverse=False
                     ):
                         if list(obj_ids) != [1] or tuple(logits.shape) != (1, 1, *hw):
                             raise RuntimeError("Unexpected Lean object ID or mask geometry")
                         if not bool(torch.isfinite(logits).all().item()):
                             raise FloatingPointError("Non-finite Lean inference logits")
-                        if index == start:
+                        if index == 0:
                             continue
-                        if index != start + len(rows) + 1:
+                        if index != len(rows) + 1:
                             raise RuntimeError("Missing, duplicated, or out-of-order video frames")
-                        source_frame = frames[index]
+                        source_frame = staged_frames[index]
+                        logit_bytes = (logits.detach().float().cpu().contiguous()
+                                       .numpy().tobytes())
                         prediction = (logits[0, 0].detach().float().cpu().numpy() > 0)
                         output_path = folder / f"{source_frame.frame_index:06d}.png"
                         if output_path.exists():
@@ -161,15 +236,20 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
                         rows.append({
                             "frame_index": source_frame.frame_index,
                             "image_sha256": file_sha256(source_frame.image_path),
+                            # Annotation bytes are hashed for provenance only,
+                            # never supplied to the inference model.
+                            "annotation_sha256": file_sha256(source_frame.mask_path),
                             "prediction_file": output_path.name,
                             "prediction_sha256": file_sha256(output_path),
+                            "logits_sha256": hashlib.sha256(logit_bytes).hexdigest(),
                         })
                 synchronize_storage(device)
                 duration = time.perf_counter() - beginning
+                resident = summarize_resident_memory(state)
             finally:
                 if state is not None:
                     predictor.reset_state(state)
-    if len(rows) != len(frames) - start - 1:
+    if len(rows) != len(staged_frames) - 1:
         raise RuntimeError("Incomplete Lean propagation")
     if fusion is not None:
         # A learned fusion that never executes is NOT an evaluated intervention.
@@ -188,6 +268,7 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
         "predictions": rows,
         "memory_writes_checked": len(telemetry),
         "memory_writes_modified": sum(t["changed_elements"] > 0 for t in telemetry),
+        "resident_memory": resident,
         "propagation_seconds": duration,
     }
 
@@ -238,8 +319,29 @@ def run(args):
         )
         print(f"[{args.arm}] {video_id}: {len(sequences[video_id]['predictions'])} propagated frames", flush=True)
         del model, fusion
+    root = Path(__file__).resolve().parents[1]
+    source_head = subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    if subprocess.check_output(
+        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+        text=True).strip():
+        raise RuntimeError("Tracked AdeSEG code changed during a frozen experiment")
+    runtime_signature = {
+        "adeseg_head": source_head,
+        "runner_sha256": file_sha256(Path(__file__).resolve()),
+        "fusion_source_sha256": implementation_sha256(),
+        "torch_version": str(torch.__version__),
+        "python_version": platform.python_version(),
+        "device": args.device,
+        "precision": "native build force_fp32; no autocast",
+        "lean_config_sha256": file_sha256(repo / "configs/lean_sam2/lean_sam2.yaml"),
+        "lvos_config_sha256": file_sha256(repo / "configs/runtime/lvos.yaml"),
+        "sam_config_sha256": file_sha256(repo / "sam2/configs/sam2.1/sam2.1_hiera_b+.yaml"),
+        "bypass_sha256": file_sha256(repo / "checkpoints/bypass_bottleneck_base.pth"),
+    }
     receipt = {
         "format": FORMAT,
+        "runtime_signature": runtime_signature,
         "track": "lean_sam2_hiera_bplus",
         "arm": args.arm,
         "split": args.split,

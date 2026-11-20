@@ -5,6 +5,7 @@
 | **FGPI** | Same YOLO detector box, with versus without early-feature selected positive/negative points | [Method](../docs/methodology/FGPI.md) · [Protocol](../docs/experiments/PLAN.md) |
 | **RMFA** | Same pretrained Lean logits, with versus without learned multistage region-aware residual | [Method](../docs/methodology/RMFA.md) · [Feature aggregation](lean_feature_aggregation/README.md) |
 | **TTMR** | Same prompt, backbone and memory budget; alternate token selection/coverage criterion | [Method](../docs/methodology/TTMR.md) |
+| **Early-memory fusion (new)** | Native 32/64-channel early FPN information enriches 64-channel mask-conditioned Lean temporal memory; offline TRAIN-only teacher-memory distillation and paired native/identity/fusion Dice ablation | [Architecture](../docs/methodology/LEAN_MEMORY_FEATURE_FUSION.md) · [Training and Dice](../docs/methodology/LEAN_MEMORY_TRAINING.md) |
 | **Reference models** | Pinned author SAM2/Lean-SAM2/SAM2Long/SAMURAI and CMSA-Net | [Reference utilities](reference_baselines/README.md) |
 | **Other studies** | MedSAM2 high-resolution skip/teacher research and mechanism controls | [MedSAM2](medsam2_high_resolution/README.md) · [Exploratory ablations](exploratory_ablations/README.md) |
 

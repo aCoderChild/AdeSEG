@@ -90,8 +90,11 @@ above, set `--arm fusion --fusion-checkpoint /path/to/trained.pt`,
 `--fusion-sha256 <exact-file-hash>`, and
 `--train-manifest-sha256 <source-verified-train-manifest-hash>`.
 A fake or zero-initialized checkpoint is NOT a valid learned Dice result.
-The existing repository has no completed video-differentiable training
-runner for this memory module and no trained fusion weights.
+A TRAIN-only memory-capture producer and **same-frame oracle-memory
+distillation** trainer are now implemented (see
+[training and evaluation guide](LEAN_MEMORY_TRAINING.md)).
+This is NOT end-to-end backpropagation through future video frames, and there
+are still no trained weights or new measured video Dice in the repository.
 
 The inference receipts live in `<arm-output>/receipt.json`, and post-prompt
 prediction masks in `<arm-output>/predictions/<sequence>/*.png`.
@@ -125,8 +128,10 @@ replace it with `--device cuda`. Run native twice on the same machine before
 treating cross-process bitwise-identity differences as adapter regressions.
 
 The scorer fails closed on mismatched prompt receipts, split/model hashes,
-missing videos or frames, stale prediction PNG hashes, out-of-order frames,
-wrong mask sizes and any native-vs-identity mask discrepancy. It refuses
+runtime/software/device and config digests, missing videos or frames, stale
+prediction or annotation hashes, out-of-order frames, wrong mask sizes and
+any native-vs-identity **logit or binary-mask** discrepancy. Resident post-prune
+spatial token and insurance-entry mismatches are reported explicitly. It refuses
 partial intersections or reusing an existing score output directory.
 
 ## Scientific and engineering gates
