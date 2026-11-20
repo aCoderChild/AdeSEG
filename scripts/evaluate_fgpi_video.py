@@ -199,6 +199,9 @@ def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):
         "initialization_present_iou":(
             float(np.mean([r["iou"] for r in init_positive])) if init_positive else None),
         "initialization_empty_false_alarms":sum(r["empty_false_alarm"] for r in init_empty),
+        "initialization_empty_false_alarm_rate":(
+            float(np.mean([r["empty_false_alarm"] for r in init_empty]))
+            if init_empty else None),
         "gt_present_frames":len(present_frames),"gt_empty_frames":len(absent_frames),
         "present_frame_weighted_dice":(
             float(np.mean([r["dice"] for r in present_frames])) if present_frames else None),
@@ -207,7 +210,12 @@ def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):
         "empty_false_alarms":sum(r["predicted_present"] for r in absent_frames),
         "empty_false_alarm_rate":(
             float(np.mean([r["predicted_present"] for r in absent_frames])) if absent_frames else None),
-        "warning":"PolypGen is a colonoscopy proxy; no clinical adenoid efficacy inferred",
+        "warning":(
+            "PolypGen is a colonoscopy proxy; no clinical adenoid efficacy inferred. "
+            + ("YOLO exporter metadata was authenticated."
+               if receipt["detector_export_verified"] else
+               "Unverified manually supplied detections: exploratory use only.")
+        ),
     }
     return summary,frames_all,sequences
 

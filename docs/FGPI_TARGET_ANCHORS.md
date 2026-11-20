@@ -190,3 +190,28 @@ pinned real checkpoints; the historical GitHub Actions account billing lock
 prevents hosted CI. Source and synthetic geometry tests cannot establish
 higher segmentation accuracy. Matched geometry-only and random-point
 controls remain necessary to isolate the value of feature-token ranking.
+
+### No known validated accuracy improvement
+
+A 7-test isolated selector suite and a 3-test prompt-bridge suite passed on
+CPU (PyTorch 2.10.0). An additional 300 randomized geometry probes of the
+selector produced valid inside/outside point geometry. These exercises do
+**not** invoke the pretrained MedSAM2 backbone, YOLO inference, or any real
+video scoring. The repository-specific integration tests are committed but
+have not run on GitHub because the account's Actions billing-lock annotation
+prevents starting jobs.
+
+The new exporter `scripts.export_yolo_detections` freezes actual target-class
+YOLO outputs. Its metadata is independently validated by
+`scripts.detection_provenance` before research runs; the only bypass,
+`--allow-unverified-detections`, explicitly marks a run as exploratory.
+The prompt selector source SHA is included in run receipts. The experimental
+pipeline stores both initial prompt-frame and post-prompt predictions, and
+their metrics are reported separately, including the GT-empty false-alarm
+rate and exploratory per-sequence bootstrap intervals.
+
+An initial box can be wrong, undersized, or centered on distractor tissue.
+Box-derived pseudo-anchors do **not** transform such a box into ground-truth
+identity. Thus the proposed algorithm is designed to reduce *heuristic*
+ambiguity, but cannot be described as proven robust until external evaluation
+and matched point-budget baselines are executed.

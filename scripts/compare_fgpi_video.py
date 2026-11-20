@@ -67,6 +67,12 @@ def compare_fgpi(manifest, detections, detector_checkpoint, box_run, fgpi_run):
                      "fgpi_empty_false_alarms":b["empty_false_alarms"]})
     initial_valid=[r["initial_delta"] for r in rows if r["initial_delta"] is not None]
     valid=[r["delta"] for r in rows if r["delta"] is not None]
+    initial_ci=None
+    if initial_valid:
+        rng=np.random.default_rng(20261120)
+        values=np.asarray(initial_valid,dtype=np.float64)
+        samples=values[rng.integers(0,len(values),(10000,len(values)))].mean(1)
+        initial_ci=[float(x) for x in np.quantile(samples,[.025,.975])]
     ci=None
     if valid:
         rng=np.random.default_rng(20261120)
@@ -80,6 +86,7 @@ def compare_fgpi(manifest, detections, detector_checkpoint, box_run, fgpi_run):
         "mean_paired_initialization_dice_delta":(
             float(np.mean(initial_valid)) if initial_valid else None),
         "eligible_initialization_sequences":len(initial_valid),
+        "exploratory_initialization_95ci_sequence_bootstrap":initial_ci,
         "exploratory_95ci_sequence_bootstrap":ci,
         "warning":"Sequence independence unverified; no benefit is established without held-out full-cohort evaluation",
     }
