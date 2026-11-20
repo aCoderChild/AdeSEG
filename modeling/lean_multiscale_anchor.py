@@ -44,7 +44,16 @@ def install_multiscale_anchor(predictor, strength, selection_events=None):
     """Wrap Lean's cache writer; leave its TARR affinity and model weights intact."""
     if not 0 <= strength <= 1:
         raise ValueError('strength must lie in [0, 1]')
-    original = predictor._cache_tarr_affinity_from_new_memory
+    # The upstream Lean-SAM2 submodule pinned on main does not expose this
+    # cache-writing method. Do not silently install a hook that can never run.
+    original = getattr(predictor, '_cache_tarr_affinity_from_new_memory', None)
+    if not callable(original):
+        raise RuntimeError(
+            'This Lean-SAM2 revision has no _cache_tarr_affinity_from_new_memory '
+            'hook. Use adeseg.modules.ttmr.multiscale.score_multiscale_memory '
+            'for offline scoring; live installation requires a separately '
+            'verified native retention hook.'
+        )
     events = []
 
     def cache(self, current_out, output_dict, frame_idx, obj_idx, is_init_cond_frame, run_mem_encoder, reverse):
