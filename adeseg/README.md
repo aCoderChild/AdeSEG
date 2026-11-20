@@ -1,21 +1,20 @@
-# AdeSEG public model API
+# AdeSEG research API
 
-For new code, import `adeseg.*`. Original source-bound implementations
-remain in `modeling/` so model checkpoints retain their expected parameter
-names and source SHA256 checks.
+The proposed method has three concise, stable public interfaces:
 
-| Subpackage | Responsibility |
-|---|---|
-| `backbones/` | MedSAM2 Hiera-T/512 and Lean-SAM2 Hiera-B+ model loaders |
-| `adapters/` | **Added trainable components:** medical decoder skip and Lean channel Q/K/V refiner |
-| `losses/` | **Training-only:** teacher KL, foreground preservation, segmentation |
-| `memory/` | Optional temporal-anchor and position ablations |
-| `inference/` | Reversible MedSAM2 decoder hook and source-bound Lean routing |
-| `evaluation/` | Frame/sequence segmentation and temporal metrics |
+```python
+from adeseg.modules import FGPI, FGPIConfig, RMFA, RMFAConfig, TTMR, TTMRConfig
+from adeseg.modules.rmfa import build_rmfa
+```
 
-[**Architecture with exact block flow**](../docs/ARCHITECTURE.md).
+| Research module | API | Inputs and outputs |
+|---|---|---|
+| **FGPI** | `FGPI().construct(features, box_xyxy, image_hw)` | Frozen early FPN + YOLO box → joint box / positive / negative prompts |
+| **RMFA** | `build_rmfa(RMFAConfig())(early, deep, logits)` | Fine features + memory-conditioned deep features + native logits → refined logits |
+| **TTMR** | `TTMR(TTMRConfig(budget=B)).select(...)` | Prior memory tokens + anchors + usage + source frames → retained indices |
 
-The two backbones and their checkpoints are **not interchangeable**. Teacher
-KL is an objective, not an inference-time attention module. The 0.742071
-result is a separate corrected author Lean baseline, not a score belonging
-to either learned adapter.
+These research modules reuse existing implementations: FGPI in `adeseg/prompts/`, RMFA in `modeling/structured_feature_aggregation.py` (checkpoint-compatible trainable module), TTMR in `adeseg/memory/target_aware_temporal.py` (offline selection reference).
+
+Supporting code is organized under `backbones/`, `inference/`, `adapters/`, `losses/`, `evaluation/`, and `research/`. No second copy of RMFA's trainable model weights is introduced.
+
+The methodological definition is [here](../docs/methodology/OVERVIEW.md).

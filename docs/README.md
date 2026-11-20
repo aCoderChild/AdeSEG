@@ -1,13 +1,11 @@
-# Documentation
+# AdeSEG documentation
 
-1. [**Architecture and contributions**](ARCHITECTURE.md) — start here.
-2. [Checkpoint provenance](CHECKPOINT_PROVENANCE.md) — distinguish
-   MedSAM2 Hiera-T/512, Lean Hiera-B+, and saved experiment results.
-3. [Research evidence](../experiments/README.md) — what has and has not been
-   validated.
-4. [Runner troubleshooting](CI_TROUBLESHOOTING.md) — repository Actions jobs
-   have been failing before the first step.
+**Methodology:** [Overall architecture](methodology/OVERVIEW.md) · [FGPI](methodology/FGPI.md) · [RMFA](methodology/RMFA.md) · [TTMR](methodology/TTMR.md) · [Contributions](methodology/CONTRIBUTIONS.md).
 
-The [full experiment backup](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118)
-contains original `protocols/`, exploratory code and frozen receipts.
-No active research contribution is defined solely by a version-suffixed file.
+**Experiment design:** [Preflight, controls, evaluation](experiments/PLAN.md) · [Experiment tools](../experiments/README.md).
+
+**Thesis:** [Bilingual abstract](thesis/README.md).
+
+**Technical references:** [Verification](VERIFICATION.md) · [Checkpoint provenance](CHECKPOINT_PROVENANCE.md) · [Research lifecycle](RESEARCH_LIFECYCLE.md) · [CI troubleshooting](CI_TROUBLESHOOTING.md).
+
+The former two-track architecture notes remain supplementary implementation references. Historical benchmark reports and dated methodology drafts are available on the [backup branch](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118/reports).

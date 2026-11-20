@@ -1,185 +1,91 @@
 # AdeSEG
 
-**Two experimental extensions for video segmentation**, with separate
-pretrained backbones, trainable adapters, and evaluation procedures.
+**Automatic video polyp segmentation with feature-guided prompting, region-aware refinement, and target-aware temporal memory.**
 
-| Research direction | Pretrained model | What we add | Evidence |
-|---|---|---|---|
-| **1. Medical high-resolution refinement** | MedSAM2 Hiera-T / 512 | Trainable high-resolution decoder-skip adapter + *training-only* native-teacher KL | Reconstructed adapter; four-sequence pilots mixed, **not** a validated 21-sequence improvement |
-| **2. Multi-stage feature aggregation** | Lean-SAM2 / SAM2.1 Hiera-B+ | Region-conditioned channel Q/K/V feature fusion + residual mask prediction | Source-compatible implementation; **no verified 21-sequence learned-adapter gain** |
+AdeSEG studies a modular extension of SAM 2 and Lean-SAM2 for colonoscopy video segmentation. The proposed architecture is organized into **three scientific contributions**:
 
-Teacher KL is a standard distillation objective; its possible contribution
-here is **where and how it is applied**, not the invention of KL divergence.
-These hypotheses still need controlled ablations and independent evaluation.
+| Contribution | Problem addressed | Mechanism |
+|---|---|---|
+| **FGPI — Feature-Guided Prompt Initialization** | Ambiguous initial target localization | YOLO box + early-feature pseudo-target anchors + positive/negative point prompts |
+| **RMFA — Region-Aware Multistage Feature Aggregation** | Weak foreground/background and boundary discrimination | Early/deep feature fusion, region-aware channel attention, residual mask-logit refinement |
+| **TTMR — Target-Aware Temporal Memory Refinement** | Redundant or drifting historical information | Target-conditioned token scoring, diversity penalties, temporal retention under fixed memory budget |
 
-[**Model architecture and novelty**](docs/ARCHITECTURE.md) ·
-[Experiment evidence](experiments/README.md) ·
-[Checkpoint identities](docs/CHECKPOINT_PROVENANCE.md)
+## Architecture
 
-## Active project structure
+```mermaid
+flowchart TD
+    X["Colonoscopy video frame"] --> D["YOLO lesion detection"]
+    X --> E["SAM 2 image features"]
+    D --> F["FGPI: box-conditioned pseudo-target anchors"]
+    E --> F
+    F --> P["SAM 2 joint box + point prompt encoding"]
+    P --> L["Lean-SAM2 temporal propagation"]
+    X --> L
+    L --> N["Native segmentation logits"]
+    E --> R["RMFA: multiscale region-aware features"]
+    L --> R
+    N --> R
+    R --> O["Residual mask refinement"]
+    L --> M["Native Lean-SAM2 memory"]
+    M --> T["TTMR: target-aware token selection"]
+    T -. "live integration proposed" .-> L
+    O --> Y["Video polyp segmentation"]
+```
+
+The diagram specifies the **proposed unified framework**. The existing FGPI video runner uses MedSAM2 Hiera-T, while RMFA and the Lean memory experiments use SAM2.1 Hiera-B+. TTMR currently has an offline reference selector. Those boundaries are explicit in the [methodology](docs/methodology/OVERVIEW.md).
+
+## Repository organization
 
 ```text
 AdeSEG/
 ├── adeseg/
-│   ├── backbones/              # MedSAM2 and Lean-SAM2 (different checkpoints)
-│   ├── adapters/               # high_resolution_skip, multiscale_channel_attention
-│   ├── losses/                 # teacher_kl, foreground_preservation, segmentation
-│   ├── memory/                 # temporal_anchors, spatial_position_encoding
-│   ├── inference/              # decoder hook, Lean memory routing
-│   └── evaluation/             # segmentation and temporal metrics
-├── experiments/
-│   ├── medsam2_high_resolution/
-│   ├── lean_feature_aggregation/
-│   ├── reference_baselines/
-│   └── exploratory_ablations/
-├── training/                   # lean.py, medical.py, split_guard.py
-├── scripts/                    # short train/evaluate/compare/validate commands
-├── tests/
+│   ├── modules/           # FGPI, RMFA, TTMR public research APIs
+│   ├── prompts/           # early-feature pseudo-target prompting
+│   ├── adapters/          # spatial refinement adapters
+│   ├── memory/            # temporal anchor and token selection
+│   ├── backbones/         # Lean-SAM2 / MedSAM2 model interfaces
+│   ├── inference/         # mask and memory routing integrations
+│   ├── losses/            # supervised and preservation objectives
+│   ├── evaluation/        # metric exports
+│   └── research/          # dataset and experiment contracts
 ├── docs/
-├── datasets/
-├── external/                   # pinned author implementations
-└── legacy/                     # historical provenance index
+│   ├── methodology/       # architectural formulation and contributions
+│   ├── experiments/       # protocol and ablation design
+│   └── thesis/            # abstract drafts
+├── datasets/              # frame/annotation manifest loading
+├── evaluation/            # evaluation implementations
+├── training/              # training and checkpoint control
+├── scripts/               # executable experiment commands
+├── modeling/              # original source-bound model implementations
+├── experiments/           # reference model utilities and study tracks
+├── tests/                 # CPU and integration regressions
+└── external/              # pinned author implementations
 ```
 
-The `modeling/` and `evaluation/` roots remain as **implementation
-compatibility modules**, not alternative research contributions. They are
-referenced by source-hash-bound checkpoints and the public `adeseg/` APIs.
-The old `protocols/` directory and experimental-only runners are absent
-from active `main`; exact original files live in the immutable Git backup.
+The implementation files under `modeling/` are intentionally not renamed or duplicated because existing checkpoints, imports, and experiment receipts depend on their original interfaces.
 
-## Quick commands
+## Start here
+
+[**Framework overview**](docs/methodology/OVERVIEW.md) ·
+[FGPI](docs/methodology/FGPI.md) ·
+[RMFA](docs/methodology/RMFA.md) ·
+[TTMR](docs/methodology/TTMR.md) ·
+[Experiment strategy](docs/experiments/PLAN.md) ·
+[English/Vietnamese thesis abstracts](docs/thesis/README.md)
 
 ```bash
 git clone --recurse-submodules https://github.com/aCoderChild/AdeSEG.git
 cd AdeSEG
 python -m pip install -r requirements.txt
 
-python -m scripts.train_med --help
+python -m pytest -q tests
+python -m scripts.export_yolo_detections --help
+python -m scripts.infer_fgpi_video --help
 python -m scripts.train_lean --help
-python -m scripts.compare_models --help
-python -m scripts.evaluate_cmsa --help
-python -m scripts.evaluate_lean --help
-python -m scripts.validate_results --help
-python -m pytest -q tests/
 ```
 
-Training from frozen feature captures requires `--split-file`, a recorded
-`source_group` and a SHA256 for **each** capture. These safeguards validate
-file integrity and declared disjointness; they do not independently prove
-different patient identities. See [training](training/README.md).
+[CLI and reproduction guide](scripts/README.md) · [Validation and infrastructure](docs/VERIFICATION.md)
 
-## Reference benchmark (not a learned-adapter contribution)
+## Research and history
 
-An archived, compatibility-corrected **author Lean-SAM2** run obtained
-**0.742071 patient-macro present-frame Dice** over 21 initialized PolypGen
-sequences with automatically initialized masks, indexed spatial RoPE and an
-MPS pointer-transfer correction. It did **not** contain the two learned
-adapters above. [Original result](https://drive.google.com/file/d/1jjqesyv8RXcUI9JN5gcoVVnvSFn9u7O3/view).
-
-**Clinical limitation:** PolypGen colonoscopy frames are a *proxy*, not a
-nasopharyngoscopy/adenoid validation cohort. Previously inspected sequences
-must not be presented as untouched independent tests.
-
-**Runtime status:** GitHub-hosted runners have failed before any CI steps
-started. Static source checks do not establish successful PyTorch execution,
-checkpoint loading or full-video Dice reproduction.
-
-
-## Reproducible research lifecycle
-
-The active research lifecycle is **Data → Training → Inference → Evaluation →
-Ablation → Reproduction**. The lifecycle contract is implemented under
-[`adeseg/research/`](adeseg/research/), with [the complete usage guide](docs/RESEARCH_LIFECYCLE.md)
-and the [explicit contribution boundaries](docs/CONTRIBUTIONS.md).
-
-```bash
-# Inspect the experiment contract (requires populated real file paths and SHA256)
-python -m scripts.research verify --protocol /path/to/protocol.json
-python -m scripts.research run --protocol /path/to/protocol.json --stage all --dry-run
-
-# Validate a patient-aware JSONL video manifest
-python -m adeseg.research.data --manifest /path/to/frames.jsonl
-
-# Execute a fully configured stage and record verified output hashes
-python -m scripts.research run --protocol /path/to/protocol.json --stage inference
-
-# Compare matched baseline and adapter per-sequence CSV files
-python -m scripts.ablate --baseline-protocol base.json --candidate-protocol adapter.json \
-  --baseline-csv base.csv --candidate-csv adapter.csv --output comparison.json
-
-# Run contract tests
-python -m pytest -q tests/test_research_protocol.py
-```
-
-**Research status:** this is a validated *contract and orchestration layer*, not
-a claim that arbitrary model-specific training or full-video benchmarking is
-already reproducible. The example protocol is intentionally not executable
-until the real dataset/checkpoint hashes and stage commands are supplied.
-Current model-specific CLI implementations and checkpoint-compatible source
-paths are preserved; see [remaining work](docs/RESEARCH_LIFECYCLE.md#not-yet-implemented).
-
-## MedSAM2 controlled video inference (new, requires real checkpoint)
-
-A matched native-versus-adapter **oracle-GT-initialized** video path is
-available through `scripts.infer_med_video`, followed by
-`scripts.evaluate_med_video`. Its initial mask comes from the **first
-foreground GT frame**; the prompt frame is excluded from evaluation and never
-counted as a successful prediction. The evaluator separates Dice on
-foreground-present frames, false alarms on GT-empty frames, and equal-sequence
-means. See [training/README.md](training/README.md).
-
-```bash
-python -m scripts.prepare_med_video_protocol --help
-python -m scripts.infer_med_video --help
-python -m scripts.evaluate_med_video --help
-```
-
-This is a real model-specific execution path, but GPU-backed runs and
-numerical parity remain **unverified**. It must not be described as automatic
-detection or as reproduction of the historical Lean-SAM2 score.
-
-## Verification gates
-
-See [Verification gates](docs/VERIFICATION.md) for the CPU-suite workflow,
-manual CUDA smoke run, zero-adapter numerical parity check, strict paired
-comparison, required self-hosted GPU runner, and unresolved infrastructure
-limits. **Only verified executed runs count as passing.**
-
-**For controlled MedSAM2 results,** prepare one sealed protocol and pass the
-same `--protocol` to inference, evaluation and paired comparison. See
-[training/README.md](training/README.md) for an end-to-end command recipe.
-
-## Current verification and restart status
-
-- The sealed MedSAM2 oracle-video protocol is generated with
-  `scripts.prepare_med_video_protocol`. The native, identity and trained
-  runners, scorer and comparator consume the **same** authenticated protocol.
-- The manual GPU workflow records *decoder-hook invocation counts*, locally
-  saved float32 logits for identity verification, and an authenticated
-  `scripts.seal_med_video_study` receipt with git/source/asset hashes. Raw
-  video and logits are never uploaded by this workflow.
-- `scripts.train_med` and `scripts.train_lean` support authenticated
-  **completed-epoch** snapshots, not mid-batch recovery, via
-  `--save-epoch-snapshots` and `--resume-checkpoint/--resume-sha256`.
-- A six-stage schema v2 research lifecycle is available for explicitly
-  configured data/training/inference/evaluation/ablation/reproduction commands.
-  This is orchestration, **not** a claim that raw video capture generation or
-  full benchmark reproduction already works.
-- The existing GitHub-hosted CI remains blocked before the first step;
-  project code alone cannot fix account/runner provisioning. See
-  [CI troubleshooting](docs/CI_TROUBLESHOOTING.md).
-
-## Automatic YOLO + target-anchor FGPI (experimental)
-
-A new branch of the experiment (not the oracle mask baseline) exports
-**actual YOLO target-class boxes** with `scripts.export_yolo_detections`,
-selects box-derived pseudo-target anchors from frozen early MedSAM2 features,
-and jointly initializes the native SAM2 prompt encoder using **one detector
-box + fixed foreground/background points**. The reference selector avoids
-a feature-reliability fallback and fails closed on impossible geometry.
-
-See [FGPI method, literature review, ablations and instructions]
-(docs/FGPI_TARGET_ANCHORS.md) for the distinction from Lean-SAM2's
-GT-initialized target-memory anchors. The runner and paired comparator record
-**prompt-frame initialization quality** separately from propagated-video
-quality. Real held-out improvements have **not** been demonstrated.
+The primary research task is video **polyp** segmentation. PolypGen colonoscopy data does not alone validate adenoid segmentation. Historical baseline results and early methodology drafts are preserved separately on the [backup branch](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118/reports). Current methodology descriptions are separated from numerical results.
