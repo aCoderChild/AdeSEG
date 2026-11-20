@@ -67,3 +67,14 @@ def test_fgpi_and_box_only_have_same_prompt_position_and_bbox(tmp_path):
     assert a.received["labels"]==[1,0]
     assert b.received["labels"] is None
     assert x["predicted"]==y["predicted"]==2
+
+def test_uniform_early_features_still_use_box_and_points(tmp_path):
+    frames,record,_=make_data(tmp_path)
+    class UniformVideo(FakeVideo):
+        def _get_image_feature(self,state,frame_idx,batch_size):
+            return None,{"backbone_fpn":[torch.ones(1,2,16,16)]},None,None,None
+    predictor=UniformVideo()
+    result=infer_detector_sequence(predictor,frames,[record],tmp_path/"uniform",mode="fgpi")
+    assert result["prompt"]["decision"] == "augmented"
+    assert predictor.received["box"] == [4.,4.,12.,12.]
+    assert predictor.received["labels"] == [1,0]

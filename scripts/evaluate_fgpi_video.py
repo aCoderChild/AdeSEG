@@ -64,10 +64,18 @@ def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):
                 or prompt.get("box_xyxy") != [float(x) for x in first["box_xyxy"]]
                 or prompt.get("mode") != receipt["mode"]
                 or prompt.get("detector_confidence") != first["confidence"]
-                or record.get("prompt_source") != "detector_box_with_optional_feature_points"):
+                or record.get("prompt_source") != (
+                    "detector_box_plus_feature_points" if receipt["mode"] == "fgpi"
+                    else "detector_box_only")):
             raise ValueError("Detector prompt differs from sealed box or frame")
         if receipt["mode"] == "box_only" and (prompt["point_coords"] or prompt["point_labels"]):
             raise ValueError("Box-only arm unexpectedly contains feature points")
+        if receipt["mode"] == "fgpi" and (
+            prompt.get("decision") != "augmented"
+            or prompt["point_labels"].count(1) != 1
+            or prompt["point_labels"].count(0) != 1
+        ):
+            raise ValueError("FGPI run is missing its mandatory foreground/background feature points")
         if (len(prompt["point_coords"]) != len(prompt["point_labels"])
                 or any(x not in (0,1) for x in prompt["point_labels"])):
             raise ValueError("Invalid FGPI point declaration")

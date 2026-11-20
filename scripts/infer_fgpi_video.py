@@ -2,7 +2,9 @@
 
 **No GT is read to choose prompts**. The detector's first eligible box is
 frozen, the MedSAM2 Hiera-T/512 checkpoint supplies image features, and both
-arms use the same propagation code. This is NOT the GT-mask oracle baseline.
+arms use the same propagation code. FGPI always supplies box + positive and
+negative feature points, without a feature-reliability fallback. box_only
+is the matched control. This is NOT the GT-mask oracle baseline.
 """
 from __future__ import annotations
 
@@ -61,8 +63,7 @@ def load_detector_records(path, videos):
 
 
 def infer_detector_sequence(predictor, frames, records, output, *,
-                            mode="fgpi", label_id=1, confidence_gate=0.25,
-                            min_feature_contrast=0.1):
+                            mode="fgpi", label_id=1, confidence_gate=0.25):
     """One detector prompt per sequence; subsequent frames receive NO GT or clicks."""
     valid = [r for r in records if r["confidence"] >= confidence_gate]
     if not valid:
@@ -92,7 +93,6 @@ def infer_detector_sequence(predictor, frames, records, output, *,
                 features, selected["box_xyxy"], hw,
                 detector_confidence=selected["confidence"],
                 min_detector_confidence=confidence_gate, mode=mode,
-                min_feature_contrast=min_feature_contrast,
             )
             apply_fgpi_prompt(predictor,state,prompt_index,label_id,prompt)
             for index, object_ids, logits in predictor.propagate_in_video(
@@ -128,7 +128,8 @@ def infer_detector_sequence(predictor, frames, records, output, *,
         raise RuntimeError("Incomplete detector-prompted propagation")
     return {
         "status":"completed", "frames":len(frames), "predicted":len(rows),
-        "prompt_source":"detector_box_with_optional_feature_points",
+        "prompt_source":("detector_box_plus_feature_points" if mode == "fgpi"
+                         else "detector_box_only"),
         "prompt_position":prompt_index, "prompt_frame_index":selected["frame_index"],
         "prompt_image_sha256":selected["image_sha256"],
         "prompt":prompt, "predictions":rows,
@@ -137,8 +138,7 @@ def infer_detector_sequence(predictor, frames, records, output, *,
 
 def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha256,
                        medsam2_checkpoint, output, *, split="dev", label_id=1,
-                       mode="fgpi", device="cpu", confidence_gate=0.25,
-                       min_feature_contrast=0.1):
+                       mode="fgpi", device="cpu", confidence_gate=0.25):
     manifest=Path(manifest).resolve(strict=True)
     detections=Path(detections).resolve(strict=True)
     checkpoint=Path(detector_checkpoint).resolve(strict=True)
@@ -160,8 +160,7 @@ def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha25
     for name,frames in sorted(videos.items()):
         results[name]=infer_detector_sequence(
             predictor,frames,records.get(name,[]),output,mode=mode,
-            label_id=label_id,confidence_gate=confidence_gate,
-            min_feature_contrast=min_feature_contrast)
+            label_id=label_id,confidence_gate=confidence_gate)
     receipt={
         "protocol":PROTOCOL, "method":"FGPI", "mode":mode,
         "split":split, "label_id":label_id, "device":device,
@@ -171,7 +170,6 @@ def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha25
         "backbone_sha256":MEDSAM2_LATEST_SHA256,
         "model_config":MODEL_CONFIG, "postprocessing":"no_hole_filling",
         "confidence_gate":confidence_gate,
-        "min_feature_contrast":min_feature_contrast,
         "prompt_budget":1,
         "uses_ground_truth_at_prompt_time":False,
         "results":results,
@@ -193,13 +191,11 @@ def main(argv=None):
     p.add_argument("--label-id",type=int,default=1)
     p.add_argument("--device",choices=("cpu","mps","cuda"),default="cpu")
     p.add_argument("--confidence-gate",type=float,default=0.25)
-    p.add_argument("--min-feature-contrast",type=float,default=0.1)
     a=p.parse_args(argv)
     receipt=infer_detector_run(
         a.manifest,a.detections,a.detector_checkpoint,a.detector_sha256,
         a.checkpoint,a.output,split=a.split,label_id=a.label_id,
-        mode=a.mode,device=a.device,confidence_gate=a.confidence_gate,
-        min_feature_contrast=a.min_feature_contrast)
+        mode=a.mode,device=a.device,confidence_gate=a.confidence_gate)
     print(json.dumps({"status":"generated_unverified_model_run","mode":a.mode,
                      "completed":sum(x["status"]=="completed" for x in receipt["results"].values())},indent=2))
 
