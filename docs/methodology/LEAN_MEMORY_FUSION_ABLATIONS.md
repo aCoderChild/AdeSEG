@@ -67,8 +67,7 @@ original Lean-SAM2 source gitlink. The script uses
 upstream Lean source.
 
 ~~~bash
-MODEL_SHA=$(shasum -a 256 checkpoints/bypass_bottleneck_base.pth | cut -d ' ' -f1)
-# The model checkpoint SHA must be the SAM2.1 B+ backbone checkpoint, NOT bypass.
+# The SHA below is for the SAM2.1 Hiera-B+ backbone, NOT Lean bypass weights.
 MODEL_SHA=$(shasum -a 256 /path/to/sam2.1_hiera_base_plus.pt | cut -d ' ' -f1)
 
 python -m scripts.run_lean_memory_fusion_ablation \
