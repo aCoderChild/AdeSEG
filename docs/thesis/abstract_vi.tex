@@ -1,0 +1,67 @@
+% Bản tiếng Việt tương ứng của phần tóm tắt phương pháp.
+% Kết quả định lượng được trình bày riêng trong chương thực nghiệm.
+Phân đoạn polyp trong video (Video Polyp Segmentation -- VPS) là một
+bài toán quan trọng trong lĩnh vực nội soi đại tràng có sự hỗ trợ của
+máy tính. Những tiến bộ gần đây của các mô hình nền tảng cho phân đoạn
+ảnh, đặc biệt là họ mô hình Segment Anything Model (SAM), đã mở ra
+triển vọng trong việc xác định ranh giới tổn thương và lan truyền
+kết quả phân đoạn theo thời gian. Tuy nhiên, việc phân đoạn polyp
+một cách đáng tin cậy vẫn gặp nhiều thách thức do sự biến đổi về
+hình dạng và đặc điểm thị giác của tổn thương, hiện tượng che khuất,
+cũng như sự tương đồng giữa polyp và các mô xung quanh. Bên cạnh đó,
+hiệu quả của các phương pháp phân đoạn dựa trên prompt phụ thuộc
+đáng kể vào độ chính xác của bước khởi tạo đối tượng mục tiêu, trong
+khi các khung bao được sinh tự động bởi bộ phát hiện bên ngoài như
+YOLO có thể thiếu chính xác hoặc gây nhập nhằng về vị trí.
+
+Để giải quyết những thách thức trên, khóa luận đề xuất một khung
+phân đoạn polyp tự động trong video, kết hợp khả năng phát hiện
+tổn thương của YOLO, cơ chế phân đoạn theo prompt của SAM~2 và
+các cơ chế lan truyền theo thời gian với bộ nhớ hiệu quả của
+Lean-SAM2. Khung phương pháp tập trung giải quyết ba vấn đề bổ
+trợ trong phân đoạn video: (1) khởi tạo đối tượng mục tiêu đáng
+tin cậy, (2) học và tổng hợp các biểu diễn không gian có tính
+phân biệt cao, và (3) quản lý bộ nhớ thời gian nhằm duy trì
+tính nhất quán của đối tượng mục tiêu. Trên cơ sở đó, ba mô-đun
+được đề xuất.
+
+Thứ nhất, mô-đun \textbf{Khởi tạo Prompt có Hướng dẫn bởi Đặc trưng
+(Feature-Guided Prompt Initialization -- FGPI)} xây dựng chiến
+lược khởi tạo có nhận biết đối tượng mục tiêu bằng cách kết hợp
+các khung bao do YOLO tạo ra với những biểu diễn thị giác ở
+các tầng đầu của bộ mã hóa ảnh. Trong mỗi vùng được phát hiện,
+FGPI xây dựng tập điểm neo giả định của đối tượng có ràng buộc
+không gian và đa dạng về đặc trưng, đồng thời khai thác sự tương
+phản giữa đặc trưng tiền cảnh và hậu cảnh để lựa chọn các điểm
+prompt dương tính và âm tính giàu thông tin. Những điểm prompt
+được suy ra từ đặc trưng được kết hợp với khung bao ban đầu và
+đưa đồng thời vào bộ mã hóa prompt của SAM~2, hướng tới cải thiện
+khả năng xác định đối tượng trong bước phân đoạn khởi tạo.
+
+Thứ hai, mô-đun \textbf{Tổng hợp Đặc trưng Đa giai đoạn có Nhận biết
+Vùng (Region-Aware Multistage Feature Aggregation -- RMFA)}
+nâng cao chất lượng biểu diễn không gian bằng cách kết hợp các
+đặc trưng có độ phân giải cao từ bộ mã hóa ảnh với những biểu
+diễn mức sâu đã được điều kiện hóa bởi bộ nhớ thời gian. Thông
+qua cơ chế chú ý theo kênh có nhận biết tiền cảnh--hậu cảnh
+và khả năng phân biệt đặc trưng theo từng vùng, RMFA khai
+thác thông tin không gian và ngữ nghĩa bổ trợ giữa nhiều mức
+đặc trưng. Các biểu diễn thu được được sử dụng để dự đoán
+thành phần hiệu chỉnh phần dư cho logits phân đoạn, nhằm tinh
+chỉnh ranh giới polyp và hạn chế sự can nhiễu từ hậu cảnh,
+đồng thời giữ nguyên bộ giải mã phân đoạn đã được huấn luyện
+trước.
+
+Thứ ba, mô-đun \textbf{Tinh chỉnh Bộ nhớ Thời gian có Nhận biết Đối
+tượng Mục tiêu (Target-Aware Temporal Memory Refinement -- TTMR)}
+xây dựng chiến lược lựa chọn bộ nhớ dựa trên đối tượng mục
+tiêu phục vụ quá trình lan truyền phân đoạn trong video. Bằng
+cách kết hợp độ tương đồng với các điểm neo của đối tượng,
+mức độ liên quan của từng token bộ nhớ và tính đa dạng theo
+thời gian, TTMR ưu tiên duy trì các biểu diễn lịch sử có khả
+năng phân biệt cao, đồng thời giảm thông tin dư thừa trong
+giới hạn dung lượng bộ nhớ. Cơ chế này hướng tới bảo toàn
+đặc trưng nhận dạng của đối tượng qua các khung hình liên
+tiếp và hạn chế sự tích lũy sai số phân đoạn khi đối tượng
+thay đổi hình thái, bị che khuất hoặc xuất hiện hiện tượng
+trôi dự đoán trong quá trình lan truyền.
