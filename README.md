@@ -50,8 +50,7 @@ AdeSEG/
 │   └── research/          # dataset and experiment contracts
 ├── docs/
 │   ├── methodology/       # architectural formulation and contributions
-│   ├── experiments/       # protocol and ablation design
-│   └── thesis/            # abstract drafts
+│   └── experiments/       # protocol and ablation design
 ├── datasets/              # frame/annotation manifest loading
 ├── evaluation/            # evaluation implementations
 ├── training/              # training and checkpoint control
@@ -70,8 +69,7 @@ The implementation files under `modeling/` are intentionally not renamed or dupl
 [FGPI](docs/methodology/FGPI.md) ·
 [RMFA](docs/methodology/RMFA.md) ·
 [TTMR](docs/methodology/TTMR.md) ·
-[Experiment strategy](docs/experiments/PLAN.md) ·
-[English/Vietnamese thesis abstracts](docs/thesis/README.md)
+[Experiment strategy](docs/experiments/PLAN.md)
 
 ```bash
 git clone --recurse-submodules https://github.com/aCoderChild/AdeSEG.git
