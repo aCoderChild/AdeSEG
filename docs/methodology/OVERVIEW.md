@@ -12,7 +12,7 @@ The proposed method decomposes into:
 \begin{aligned}
 \mathcal P_0 &= \mathrm{FGPI}(b_0,E_{t_0}),\\
 (H_t,Z_t^{(0)}) &= \mathrm{LeanSAM2}(X_t,\mathcal P_0,M_{t-1}),\\
-Z_t &= Z_t^{(0)}+\Delta Z_t,\quad \Delta Z_t=\mathrm{RMFA}(E_t,H_t,Z_t^{(0)}),\\
+Z_t &= \mathrm{RMFA}(E_t,H_t,Z_t^{(0)})=Z_t^{(0)}+\Delta_\phi(E_t,H_t,Z_t^{(0)}),\\
 M_t &= \mathrm{TTMR}(M_{t-1},H_t,\mathcal A_0;B),\\
 \hat Y_t &= \mathbb 1[\sigma(Z_t)>0.5].
 \end{aligned}

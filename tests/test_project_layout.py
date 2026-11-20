@@ -28,3 +28,26 @@ def test_historical_compatibility_sources_still_present():
                  "medsam2_latest.py"):
         assert (ROOT / "modeling" / name).is_file()
     assert (ROOT / "modeling/medical_highres/adapter.py").is_file()
+
+
+def test_three_module_scientific_structure_and_experiment_docs():
+    for name in ("fgpi", "rmfa", "ttmr"):
+        assert (ROOT / "adeseg" / "modules" / f"{name}.py").is_file()
+        assert (ROOT / "docs" / "methodology" / f"{name.upper()}.md").is_file()
+    assert (ROOT / "adeseg" / "modules" / "__init__.py").is_file()
+    assert (ROOT / "docs" / "methodology" / "OVERVIEW.md").is_file()
+    assert (ROOT / "docs" / "experiments" / "PLAN.md").is_file()
+
+
+def test_public_main_omits_separate_thesis_and_superseded_documents():
+    assert not (ROOT / "docs" / "thesis").exists()
+    for relative in (
+        "docs/ARCHITECTURE.md",
+        "docs/CONTRIBUTIONS.md",
+        "docs/MODEL_ARCHITECTURE.md",
+        "docs/MEDICAL_HIGHRES_ARCHITECTURE.md",
+        "docs/REPORT_FRAMEWORK_2026-11.md",
+        "docs/REPORT_FRAMEWORK_2026-11.tex",
+        "experiments/reference_baselines/modified_lean_742.md",
+    ):
+        assert not (ROOT / relative).exists()
