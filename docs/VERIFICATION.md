@@ -9,7 +9,7 @@ Never mark a gate green until a successful run or receipt exists.
 - Runs `python -m compileall` and `python -m pytest -q tests` under Python 3.11.
 - Exports JUnit XML and checks five pinned reference gitlinks.
 - Contract workflow: [Research lifecycle contracts](../.github/workflows/research-contracts.yml).
-- Independent diagnostic: [Runner availability diagnostic](../.github/workflows/runner-diagnostic.yml).
+- Independent diagnostic: [Runner availability check](../.github/workflows/runner_probe.yml).
 
 **Current blocker (2026-11-19):** recent GitHub Actions jobs finish as failed with
 zero executed steps (no runner assigned). Retrying one CPU job did not resolve
