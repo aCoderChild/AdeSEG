@@ -56,3 +56,22 @@ def test_public_rmfa_default_matches_training_mode_and_preserves_identity():
     assert model.mode == cfg.mode
     e, d, logits = torch.randn(1, 32, 6, 6), torch.randn(1, 256, 3, 3), torch.randn(1, 1, 8, 8)
     assert torch.equal(model(e, d, logits), logits)
+
+def test_canonical_and_compatibility_modules_share_exact_callable_identity():
+    from adeseg.modules.fgpi import feature_guided_prompt, target_anchored_points
+    from adeseg.modules.fgpi.prompts import apply_fgpi_prompt
+    from adeseg.prompts.feature_guided import (
+        feature_guided_prompt as old_fgpi,
+        apply_fgpi_prompt as old_apply,
+    )
+    from adeseg.prompts.target_anchored import target_anchored_points as old_anchors
+    from adeseg.modules.ttmr.selection import rank_temporal_memory
+    from adeseg.memory.target_aware_temporal import (
+        rank_temporal_memory as old_selector,
+        TTMRConfig as old_config,
+    )
+    assert feature_guided_prompt is old_fgpi
+    assert target_anchored_points is old_anchors
+    assert apply_fgpi_prompt is old_apply
+    assert rank_temporal_memory is old_selector
+    assert TTMRConfig is old_config

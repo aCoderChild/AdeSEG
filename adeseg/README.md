@@ -23,6 +23,11 @@ training objectives, and `research/` defines experiment contracts.
 parallel public API. Existing training code may use original `modeling.*`
 imports where necessary for checkpoint provenance.
 
+**Canonical locations:** `adeseg/modules/fgpi/{anchors,prompts}.py`,
+`adeseg/modules/rmfa.py`, and `adeseg/modules/ttmr/selection.py`.
+The older `adeseg/prompts/*` and `adeseg/memory/target_aware_temporal.py`
+paths are small compatibility shims, not duplicate algorithms.
+
 The complete architecture is in
 [docs/methodology/OVERVIEW.md](../docs/methodology/OVERVIEW.md);
 the internal/core boundary is described in [modeling/README.md](../modeling/README.md).

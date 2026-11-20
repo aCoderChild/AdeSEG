@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from adeseg.prompts.feature_guided import (
+from .prompts import (
     apply_fgpi_prompt, feature_guided_prompt,
 )
-from adeseg.prompts.target_anchored import target_anchored_points
+from .anchors import target_anchored_points
 
 
 @dataclass(frozen=True)

@@ -21,7 +21,7 @@ from evaluation.temporal_consistency import adjacent_mask_metrics, undefined_tem
 from scripts.infer_med_video import sha256
 from scripts.infer_fgpi_video import PROTOCOL, load_detector_records
 from scripts.detection_provenance import verify_detection_export
-from adeseg.prompts.target_anchored import target_anchored_points
+from adeseg.modules.fgpi import target_anchored_points
 
 
 def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):

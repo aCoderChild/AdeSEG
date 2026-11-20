@@ -34,9 +34,9 @@ The prompt is \(\mathcal P_0=\{b_0,P_0^+,P_0^-\}\): one unchanged detector box a
 
 ## Software interfaces
 
-- `adeseg/modules/fgpi.py`: FGPI / FGPIConfig.
-- `adeseg/prompts/target_anchored.py`: pseudo-anchor and point scoring.
-- `adeseg/prompts/feature_guided.py`: SAM 2 prompt construction and native prompt API.
+- `adeseg/modules/fgpi/__init__.py`: FGPI / FGPIConfig.
+- `adeseg/modules/fgpi/anchors.py`: pseudo-anchor and point scoring.
+- `adeseg/modules/fgpi/prompts.py`: SAM 2 prompt construction and native prompt API.
 - `scripts/export_yolo_detections.py`: frozen source-hashed YOLO detections.
 - `scripts/infer_fgpi_video.py`: automatic MedSAM2 experimental video runner.
 - `scripts/evaluate_fgpi_video.py`: initial and post-prompt evaluation.

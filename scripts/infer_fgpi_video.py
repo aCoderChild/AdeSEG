@@ -18,9 +18,9 @@ import numpy as np
 from PIL import Image
 import torch
 
-from adeseg.modules.fgpi import FGPI, FGPIConfig
-from adeseg.prompts.feature_guided import feature_guided_prompt
-from adeseg.prompts.target_anchored import target_anchored_points
+from adeseg.modules.fgpi import (
+    FGPI, FGPIConfig, feature_guided_prompt, target_anchored_points,
+)
 from datasets.video import load_manifest, stage_frames
 from modeling.medsam2_latest import (
     verify_medsam2_latest, build_verified_medsam2_latest, MEDSAM2_LATEST_SHA256,

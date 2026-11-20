@@ -28,8 +28,8 @@ The original FGPI pseudo-anchors are **image-feature-space** vectors; TTMR ancho
 
 ## Research interfaces
 
-- `adeseg/modules/ttmr.py`: TTMR reference API.
-- `adeseg/memory/target_aware_temporal.py`: reproducible candidate-ranking algorithm.
+- `adeseg/modules/ttmr/__init__.py`: TTMR reference API.
+- `adeseg/modules/ttmr/selection.py`: reproducible candidate-ranking algorithm.
 - `modeling/lean_multiscale_anchor.py`: multiscale anchor similarity experiments.
 - `adeseg/inference/lean_memory_routing.py`: existing mask/memory-logit routing, **not** the TTMR token hook.
 

@@ -39,10 +39,13 @@ The diagram specifies the **proposed unified framework**. The existing FGPI vide
 ```text
 AdeSEG/
 ├── adeseg/
-│   ├── modules/           # FGPI, RMFA, TTMR public research APIs
-│   ├── prompts/           # early-feature pseudo-target prompting
+│   ├── modules/           # Canonical FGPI, RMFA, TTMR research modules
+│   │   ├── fgpi/          # pseudo-target anchors + joint prompts
+│   │   ├── rmfa.py        # source-compatible learned refinement API
+│   │   └── ttmr/          # causal temporal selection policy
+│   ├── prompts/           # backward-compatible import aliases only
 │   ├── adapters/          # spatial refinement adapters
-│   ├── memory/            # temporal anchor and token selection
+│   ├── memory/            # spatial RoPE, Lean anchors + TTMR compat alias
 │   ├── backbones/         # Lean-SAM2 / MedSAM2 model interfaces
 │   ├── inference/         # mask and memory routing integrations
 │   ├── losses/            # supervised and preservation objectives

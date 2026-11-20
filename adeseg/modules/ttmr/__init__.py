@@ -5,7 +5,7 @@ setting. A live Lean-SAM2 memory adapter requires a separate verified hook.
 """
 from __future__ import annotations
 
-from adeseg.memory.target_aware_temporal import (
+from .selection import (
     TTMRConfig, rank_temporal_memory,
 )
 

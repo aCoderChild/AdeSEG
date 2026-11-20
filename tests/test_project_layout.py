@@ -53,3 +53,19 @@ def test_public_main_omits_separate_thesis_and_superseded_documents():
         "experiments/reference_baselines/modified_lean_742.md",
     ):
         assert not (ROOT / relative).exists()
+
+def test_contribution_algorithms_live_in_canonical_module_packages():
+    for name, required in (
+        ("fgpi", ("__init__.py", "anchors.py", "prompts.py")),
+        ("ttmr", ("__init__.py", "selection.py")),
+    ):
+        directory = ROOT / "adeseg" / "modules" / name
+        for filename in required:
+            assert (directory / filename).is_file()
+        assert not (ROOT / "adeseg" / "modules" / f"{name}.py").exists()
+    # Old public imports remain tiny compatibility shims.
+    for filename in ("feature_guided.py", "target_anchored.py"):
+        source = (ROOT / "adeseg" / "prompts" / filename).read_text()
+        assert "from adeseg.modules.fgpi" in source
+    source = (ROOT / "adeseg" / "memory" / "target_aware_temporal.py").read_text()
+    assert "from adeseg.modules.ttmr.selection" in source
