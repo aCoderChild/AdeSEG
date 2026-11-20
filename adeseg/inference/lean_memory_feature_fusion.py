@@ -1,0 +1,137 @@
+"""Source-compatible scoped integration of early-FPN memory enrichment.
+
+Only native memory tensors are enriched. Native decoder logits, object pointers,
+position encodings, TAMP indices, TCIM and TARR remain owned by Lean-SAM2.
+No patch is installed unless the caller explicitly enters this context.
+"""
+from __future__ import annotations
+
+from contextlib import contextmanager
+import inspect
+from types import MethodType
+
+import torch
+
+from modeling.lean_memory_feature_fusion import EarlyFeatureMemoryFusion
+
+
+@contextmanager
+def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
+                                identity_control: bool = False,
+                                include_conditioning: bool = False,
+                                telemetry: list | None = None):
+    """Temporarily enrich native _encode_new_memory output during track_step.
+
+    Enrichment is applied to non-conditioning frames by default. Direct
+    _run_memory_encoder calls outside track_step retain native behavior,
+    including post-click corrections. This is an explicit one-shot causal
+    ablation interface; simultaneous interaction/routing hooks are rejected.
+    """
+    if not isinstance(fusion, EarlyFeatureMemoryFusion):
+        raise TypeError('Expected the source-bound memory fusion adapter')
+    if (type(identity_control) is not bool or type(include_conditioning) is not bool
+            or (telemetry is not None and not isinstance(telemetry, list))):
+        raise ValueError('Invalid memory fusion routing options')
+    if predictor.training or fusion.training:
+        raise ValueError('Memory fusion inference requires both modules in eval mode')
+    if identity_control:
+        if fusion._trained_checkpoint_loaded or not fusion.is_identity_initialized():
+            raise ValueError('Identity-control routing requires an untrained zero residual')
+    elif not fusion._trained_checkpoint_loaded:
+        raise ValueError('Learned memory fusion requires a validated trained checkpoint')
+
+    # Do not compose with logit-routing wrappers or other hooks at this stage:
+    # both paths alter what is written to future memory and need an explicit
+    # factorial experiment before concurrent installation can be approved.
+    forbidden = ('track_step', '_encode_new_memory', '_run_single_frame_inference',
+                 '_track_step', '_encode_memory_in_output')
+    if any(name in vars(predictor) for name in forbidden):
+        raise RuntimeError('Conflicting predictor hooks are already installed')
+    track = getattr(predictor, 'track_step', None)
+    encode = getattr(predictor, '_encode_new_memory', None)
+    if not callable(track) or not callable(encode):
+        raise TypeError('Predictor lacks the pinned Lean-SAM2 memory API')
+    track_sig = inspect.signature(track)
+    encode_sig = inspect.signature(encode)
+    required = ('frame_idx', 'is_init_cond_frame')
+    encoder_args = ('current_vision_feats', 'feat_sizes', 'pred_masks_high_res',
+                    'object_score_logits')
+    if (any(x not in track_sig.parameters for x in required)
+            or any(x not in encode_sig.parameters for x in encoder_args)):
+        raise RuntimeError('Pinned Lean-SAM2 method signatures have changed')
+
+    context = {'active': False, 'conditioning': False, 'frame': None}
+
+    def wrapped_track(self, *args, **kwargs):
+        if context['active']:
+            raise RuntimeError('Nested or concurrent memory fusion tracking is unsupported')
+        bound = track_sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+        conditional = bound.arguments['is_init_cond_frame']
+        if type(conditional) is not bool:
+            raise ValueError('is_init_cond_frame must be explicitly boolean')
+        context.update(active=True, conditioning=conditional, frame=bound.arguments['frame_idx'])
+        try:
+            return track(*args, **kwargs)
+        finally:
+            context.update(active=False, conditioning=False, frame=None)
+
+    def wrapped_encode(self, *args, **kwargs):
+        # Always let the pretrained memory encoder build its actual
+        # mask-conditioned representation before applying any learnable delta.
+        native, native_position = encode(*args, **kwargs)
+        if not context['active'] or (context['conditioning'] and not include_conditioning):
+            return native, native_position
+        bound = encode_sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+        a = bound.arguments
+        feats, sizes = a['current_vision_feats'], a['feat_sizes']
+        if not isinstance(feats, (tuple, list)) or not isinstance(sizes, (tuple, list)):
+            raise ValueError('Missing native Lean FPN levels')
+        n = len(fusion.config.early_channels)
+        if len(feats) != n + 1 or len(sizes) != len(feats):
+            raise ValueError('Configured early level count disagrees with native FPN')
+        if not isinstance(native, torch.Tensor) or native.ndim != 4:
+            raise ValueError('Native memory encoder did not return spatial memory')
+        batch = native.shape[0]
+        early = []
+        for i in range(n):
+            fmap, hw = feats[i], sizes[i]
+            if (not isinstance(fmap, torch.Tensor) or fmap.ndim != 3
+                    or fmap.shape[1] != batch or len(hw) != 2
+                    or fmap.shape[0] != int(hw[0]) * int(hw[1])):
+                raise ValueError('Native FPN token-to-spatial mapping mismatch')
+            early.append(fmap.permute(1, 2, 0).reshape(batch, fmap.shape[2], *hw))
+        enriched = fusion(early, native, a['pred_masks_high_res'], a['object_score_logits'])
+        if enriched.shape != native.shape or enriched.dtype != native.dtype:
+            raise RuntimeError('Memory fusion changed native token geometry')
+        if telemetry is not None:
+            telemetry.append({
+                'frame_idx': int(context['frame']),
+                'conditioning': bool(context['conditioning']),
+                'native_token_count': int(native.shape[-2] * native.shape[-1]),
+                'enriched_token_count': int(enriched.shape[-2] * enriched.shape[-1]),
+                'changed_elements': int(torch.count_nonzero(enriched != native).item()),
+            })
+        return enriched, native_position
+
+    # The predictor owns its methods again immediately after leaving the scope.
+    try:
+        predictor.track_step = MethodType(wrapped_track, predictor)
+        predictor._encode_new_memory = MethodType(wrapped_encode, predictor)
+        yield
+    finally:
+        altered = (
+            getattr(getattr(predictor, 'track_step', None), '__func__', None) is not wrapped_track
+            or getattr(getattr(predictor, '_encode_new_memory', None), '__func__', None)
+            is not wrapped_encode
+        )
+        if getattr(getattr(predictor, 'track_step', None), '__func__', None) is wrapped_track:
+            delattr(predictor, 'track_step')
+        if getattr(getattr(predictor, '_encode_new_memory', None), '__func__', None) is wrapped_encode:
+            delattr(predictor, '_encode_new_memory')
+        if altered:
+            raise RuntimeError('Predictor methods were unexpectedly replaced during fusion')
+
+
+__all__ = ['route_memory_feature_fusion']
