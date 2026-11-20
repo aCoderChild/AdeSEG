@@ -186,3 +186,34 @@ The archived automatic *mask* initialization used for the 0.742 run is not neces
 3. Include the FGPI, RMFA, TTMR mathematical definitions above, not supposed measured gains.
 4. Provide implementation-to-proposal traceability and a transparent limitations/next-experiments section.
 5. Freeze claims and avoid new checkpoint-affecting architecture changes until after submission.
+
+## 12. Report diagram and safe abstract claim
+
+The flowchart is a **design blueprint**. Dashed arrows denote module integrations that have not been verified together.
+
+~~~mermaid
+flowchart TD
+  X["Video frame x_t"] --> Y["YOLO detector / box b_0"]
+  X --> E["Frozen image encoder / early FPN"]
+  Y --> F["FGPI pseudo-target anchor points"]
+  E --> F
+  F -. "Proposed Lean integration; current implementation uses MedSAM2 Hiera-T" .-> P["Native SAM2/Lean prompt encoder"]
+  X --> B["Lean-SAM2 Hiera-B+ memory-conditioned backbone"]
+  P --> B
+  B --> Z["Native mask logits / z_t^0"]
+  E -. "Backbone-specific feature alignment not validated" .-> R["RMFA region-aware channel aggregation"]
+  Z --> R
+  B --> R
+  R -. "Trained Lean full-video efficacy not measured" .-> O["Output-only residual mask z_t"]
+  O --> M["Native Lean memory encoder / bank"]
+  M --> N["Native TAMP / TCIM / TARR"]
+  N -. "Offline TTMR selector; live integration not measured" .-> T["TTMR fixed-budget causal ranking"]
+  N --> B
+  T -. "Proposed" .-> B
+~~~
+
+**Evidence-safe abstract insert (English):**
+
+> We investigate a modular framework extending promptable video segmentation through detector-conditioned feature-token initialization, region-aware residual refinement, and target-conditioned memory prioritization. A previously archived compatibility-corrected Lean-SAM2 reference run on the PolypGen proxy benchmark yielded a mean GT-present Dice of 0.7421 across 21 eligible sequences, together with 188 false-positive predictions on 336 labeled-empty frames. This result characterizes the baseline and motivates further work; the proposed module integrations remain to be experimentally evaluated and are not responsible for the reported score.
+
+The explicit phrase **previously archived reference** prevents implying that FGPI/RMFA/TTMR generated 0.7421. Use the original study's sequence eligibility, observed crop and previously inspected case caveats whenever this number appears in a formal results section.
