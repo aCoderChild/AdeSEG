@@ -78,3 +78,11 @@ def test_selection_trace_verifies_original_budget_and_spatial_indices():
     assert trace[0]['candidates'] == 16 and trace[0]['kept'] == 4
     with pytest.raises(RuntimeError):
         model._dump_retained_tokens_record(**{**kwargs, 'keep_idx': torch.tensor([2, 5, 7, 16])})
+
+
+def test_install_rejects_pinned_upstream_without_legacy_cache_hook():
+    class PinnedLean:
+        pass
+
+    with pytest.raises(RuntimeError, match="no _cache_tarr_affinity_from_new_memory"):
+        install_multiscale_anchor(PinnedLean(), 0.5)
