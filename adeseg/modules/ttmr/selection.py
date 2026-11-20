@@ -162,3 +162,35 @@ def rank_temporal_memory(features, anchor_tokens, usage_scores, source_frames,
         "active_frame_groups":len([v for v in counts.values() if v]),
         "status":"offline_shadow_selection_only",
     }
+
+
+@torch.no_grad()
+def rank_spatial_memory(memory_maps, anchor_tokens, usage_scores, frame_ids,
+                        *, current_frame, config: TTMRConfig,
+                        scales=(2, 4), context_weight=0.5):
+    """Score original-resolution spatial tokens, then retain a fixed subset.
+
+    `memory_maps` is [F,C,H,W], `frame_ids` is [F], and `usage_scores`
+    is [F*H*W]. The returned indices address the frame-major row-major
+    flattened native tokens; no new multiscale tokens are stored. This is
+    an offline/shadow selector, not a live Lean-SAM2 memory adapter.
+    """
+    from .multiscale import score_multiscale_memory
+
+    scores = score_multiscale_memory(
+        memory_maps, anchor_tokens, scales=scales, context_weight=context_weight
+    )
+    num_frames, channels, height, width = memory_maps.shape
+    if (
+        not isinstance(frame_ids, torch.Tensor)
+        or frame_ids.ndim != 1
+        or frame_ids.shape[0] != num_frames
+        or frame_ids.dtype not in (torch.int16, torch.int32, torch.int64)
+    ):
+        raise ValueError("Expected integer source frame IDs [F]")
+    flattened = memory_maps.permute(0, 2, 3, 1).reshape(-1, channels)
+    sources = frame_ids.repeat_interleave(height * width)
+    return rank_temporal_memory(
+        flattened, anchor_tokens, usage_scores, sources,
+        current_frame=current_frame, config=config, multiscale_scores=scores,
+    )
