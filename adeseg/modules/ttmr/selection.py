@@ -19,10 +19,11 @@ class TTMRConfig:
     anchor_weight: float = 0.5
     redundancy_weight: float = 0.15
     recency_weight: float = 0.05
-    multiscale_weight: float = 0.5
     time_constant: float = 5.0
     minimum_per_frame: int = 1
     maximum_per_frame: int | None = None
+    # Append new parameters: existing positional TTMRConfig calls must not shift.
+    multiscale_weight: float = 0.5
 
     def __post_init__(self):
         if (type(self.budget) is not int or not 1 <= self.budget <= 512
