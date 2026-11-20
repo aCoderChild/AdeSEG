@@ -1,25 +1,13 @@
-# Reference models
+# Reference models and comparison infrastructure
 
-| Comparison | Source | Relevant caution |
-|---|---|---|
-| SAM2, Lean-SAM2, SAM2Long, SAMURAI | Pinned Git submodules | Prompt policies and temporal information access differ |
-| CMSA-Net | Pinned author submodule | Active comparison exports image-only predictions; historical protocol used GT for image sizing |
-| Corrected Lean 0.742071 | [Saved 21-sequence automatic-prompt run](modified_lean_742.md) | **Not** a learned adapter, not MedSAM2 |
+This directory contains source/checkpoint identification and evaluators for **reference** segmentation methods. It does not define FGPI, RMFA or TTMR.
 
-The retained `scripts.compare_models` runner uses
-`experiments/reference_baselines/checkpoint.json` as its B+ checkpoint
-identity setting. This **replaces** the original umbrella research recipe
-and means newly generated source-bound receipts differ from historic runs.
+| Model family | Code provenance |
+|---|---|
+| SAM2, Lean-SAM2, SAM2Long, SAMURAI | Pinned author submodules under `external/` |
+| CMSA-Net | Author implementation under `external/CMSA-Net` |
+| SAM2.1 Hiera-B+ checkpoint | `checkpoint.json` identity for retained author-model comparison |
 
-The original pinned CMSA-Net test loader provided both image and GT arrays.
-The new `scripts.evaluate_cmsa` runner supplies zero labels, avoids opening
-GT mask bytes during inference, and sizes output from its RGB source frames.
-Ground truth is accessed only **after predictions are written** for scoring.
-This is a new comparison method and old Dice values should not be inherited.
+Available research entrypoints include `scripts.compare_models`, `scripts.evaluate_lean`, `scripts.evaluate_cmsa` and `scripts.validate_results`. Prompting and frame-eligibility protocols must be matched before attributing differences to architectural modifications.
 
-**Results:** a historical GT-initialized author Lean baseline scored
-0.73446 mean present Dice over 21 eligible videos. The distinct corrected,
-automatically initialized author Lean run scored **0.742071** patient-macro
-Dice. They are not directly matched experiments.
-
-[Original GT-initialized comparison](https://drive.google.com/drive/folders/1DmkKRrGmEcJQUp0Pb0fp5u5CS0DSo0B5).
+The exploratory historical benchmark summary was moved to the [backup branch reports](https://github.com/aCoderChild/AdeSEG/blob/backup/experiment-full-20261118/reports/modified_lean_742.md) rather than presented as a score for the three proposed modules.

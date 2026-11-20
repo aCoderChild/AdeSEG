@@ -1,18 +1,19 @@
-# Evidence by research question
+# Experiments by research contribution
 
-| Study | Modified part | Verified status |
+| Research line | Controlled intervention | Documentation |
 |---|---|---|
-| [YOLO + feature-token FGPI](../docs/FGPI_TARGET_ANCHORS.md) | Frozen YOLO box + early-FPN pseudo-target anchors and FG/BG points | Algorithm/CPU geometry tests; real-model gain unverified |\n| [MedSAM2 high resolution](medsam2_high_resolution/README.md) | High-res skip adapter and train-only native KL | Reconstructed method; mixed four-sequence historical experiments |
-| [Lean feature aggregation](lean_feature_aggregation/README.md) | Q/K/V channel mixing of early/deep features | Architecture and training capture flow exist; no verified full-cohort gain |
-| [Comparisons](reference_baselines/README.md) | No learned adapter; original/corrected vendor models | Includes the 0.742071 corrected Lean-SAM2 exploratory result |
-| [Exploratory ablations](exploratory_ablations/README.md) | Memory, position, region and loss controls | Historical source in backup; not independent evaluation |
+| **FGPI** | Same YOLO detector box, with versus without early-feature selected positive/negative points | [Method](../docs/methodology/FGPI.md) · [Protocol](../docs/experiments/PLAN.md) |
+| **RMFA** | Same pretrained Lean logits, with versus without learned multistage region-aware residual | [Method](../docs/methodology/RMFA.md) · [Feature aggregation](lean_feature_aggregation/README.md) |
+| **TTMR** | Same prompt, backbone and memory budget; alternate token selection/coverage criterion | [Method](../docs/methodology/TTMR.md) |
+| **Reference models** | Pinned author SAM2/Lean-SAM2/SAM2Long/SAMURAI and CMSA-Net | [Reference utilities](reference_baselines/README.md) |
+| **Other studies** | MedSAM2 high-resolution skip/teacher research and mechanism controls | [MedSAM2](medsam2_high_resolution/README.md) · [Exploratory ablations](exploratory_ablations/README.md) |
 
-Do not compare scores across different pretrained backbones, frame subsets,
-prompt budgets or retrospective preprocessing as an architectural ablation.
-Retain failed gates, empty-mask false alarms, source revisions and checkpoint
-SHA256 values. The current train-split validator checks **declared** group
-disjointness only, not actual patient identity.
+## Experimental strategy
 
-See [architecture and proposed novelty](../docs/ARCHITECTURE.md).
-Original source-specific recipes are preserved in the
-[full experiment backup](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118).
+1. Fix first-detection eligibility, source images and checkpoint identity for the initialization study.
+2. Evaluate **prompt-frame** segmentation before analyzing propagation effects.
+3. Train RMFA on correctly partitioned feature captures; compare *output-only* refinement before routing corrected masks back into memory.
+4. Investigate TTMR against native Lean target-anchored pruning under a matched memory budget.
+5. Apply the same per-video population, mask policy and statistical unit across each controlled comparison.
+
+Do not combine results from the MedSAM2 Hiera-T branch and the Lean Hiera-B+ branch as though they were one matched model. The full design is in [docs/experiments/PLAN.md](../docs/experiments/PLAN.md).

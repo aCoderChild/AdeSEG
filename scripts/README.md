@@ -1,61 +1,45 @@
-# Commands
+# Experiment commands
 
-Only **core, supported research entry points** are kept in active `main`.
-The original exploratory scripts remain in the full Git backup.
+This directory holds executable research entrypoints. The **method** is described under [docs/methodology](../docs/methodology/OVERVIEW.md), while commands, data and checkpoints are deliberately kept independent.
 
-| Run | Meaning |
+## FGPI — automatic initialization
+
+| Step | Command | Output |
+|---|---|---|
+| 1 | `python -m scripts.export_yolo_detections` | Target-class YOLO box JSONL and checkpoint/source hashes |
+| 2 | `python -m scripts.infer_fgpi_video --mode box_only` | Matched detector-box SAM2 control |
+| 3 | `python -m scripts.infer_fgpi_video --mode fgpi` | Joint YOLO-box and feature-derived point initialization |
+| 4 | `python -m scripts.evaluate_fgpi_video` | Prompt-frame and post-prompt metrics |
+| 5 | `python -m scripts.compare_fgpi_video` | Paired initial and propagated comparison |
+
+Run each command with `--help` for exact required arguments. Both inference modes must use the **same frozen detections and pretrained checkpoint**. The current runner targets **MedSAM2 Hiera-T/512**. See [FGPI scientific formulation](../docs/methodology/FGPI.md) and [implementation notes](../docs/methodology/FGPI_IMPLEMENTATION_NOTES.md).
+
+## RMFA — learned spatial refinement
+
+| Command | Purpose |
 |---|---|
-| `python -m scripts.infer_med_video` | Real MedSAM2 oracle-first-mask video propagation, optional verified adapter |
-| `python -m scripts.evaluate_med_video` | Strict post-prompt scorer for the above runner |
-| `python -m scripts.research` | Validated experiment lifecycle execution |
-| `python -m scripts.ablate` | Matched-protocol paired ablation analysis |
-| `python -m scripts.train_med` | Train reconstructed MedSAM2 high-resolution adapter |
-| `python -m scripts.train_lean` | Train Lean feature aggregation adapter |
-| `python -m scripts.compare_models` | Pinned native SAM2, Lean, SAM2Long and SAMURAI |
-| `python -m scripts.evaluate_cmsa` | Image-only CMSA-Net comparison with GT-free prediction export |
-| `python -m scripts.evaluate_lean` | GT-first-mask Lean comparison (NOT the automatic 0.742 run) |
-| `python -m scripts.validate_results` | Independently rescore saved native/Lean masks |
-| `python -m scripts.validate_cmsa` | Independently rescore CMSA predictions |
+| `python -m scripts.train_lean` | Train Lean-SAM2 structured channel-value aggregation on frozen TRAIN captures |
+| `python -m scripts.ablate` | Matched-protocol study of native versus refined predictions |
 
-The `run_...` and `audit_...` modules still present here implement
-the commands; they have been retained as compatibility dependencies.
-Historical experiments using additional memory/region controls and their
-original inputs are available in
-[the full experiment backup](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118).
+RMFA's six computation blocks live under `modeling/aggregation_blocks/`; their trained checkpoint format and source identity checks are deliberately retained. Consult [RMFA](../docs/methodology/RMFA.md) and [training guidance](../training/README.md).
 
-Each run requires the appropriate pretrained checkpoint, manifest, isolated
-model package and input/validation receipts. No command should inherit the
-0.742071 exploratory baseline score without reproducing its exact 21-video
-automatic initialization and corrected MPS state.
+## TTMR — temporal selection
 
-| `python -m scripts.compare_med_runs` | Check matched native/zero/trained MedSAM2 full-video run receipts |
-| `python -m scripts.check_med_gpu_smoke` | Fail-closed preflight for one curated DEV CUDA smoke video |
+`adeseg.modules.TTMR` is an offline reference selector, not yet a full video CLI. Lean native memory functionality and a separate multiscale-anchor experiment remain under `modeling/lean_multiscale_anchor.py`. See [TTMR](../docs/methodology/TTMR.md).
 
-The manual [GPU smoke workflow](../.github/workflows/gpu-smoke.yml) runs
-native inference, zero-adapter parity, and optional trained-adapter comparison.
-It requires a configured self-hosted GPU runner and authorized local assets.
-See [docs/VERIFICATION.md](../docs/VERIFICATION.md).
+## Baseline, reproducibility, and supplementary utilities
 
-Research-grade MedSAM2 video execution requires a sealed `--protocol` created
-with `python -m scripts.prepare_med_video_protocol`. Do not mix old
-`--manifest`/`--checkpoint` flags with the controlled inference CLI.
+| Command | Role |
+|---|---|
+| `python -m scripts.compare_models` | Author SAM2, Lean-SAM2, SAM2Long and SAMURAI comparisons |
+| `python -m scripts.evaluate_lean` | Oracle-GT-initialized author Lean comparison; not automatic FGPI |
+| `python -m scripts.evaluate_cmsa` | CMSA-Net image-only evaluation |
+| `python -m scripts.infer_med_video` | Native/adapter MedSAM2 oracle-first-mask study |
+| `python -m scripts.evaluate_med_video` | Its strict video scorer |
+| `python -m scripts.prepare_med_video_protocol` | Sealed oracle-video protocol |
+| `python -m scripts.compare_med_runs` | Matched native/zero/learned adapter comparison |
+| `python -m scripts.train_med` | MedSAM2 high-resolution skip adapter training |
+| `python -m scripts.research` | Six-stage research workflow and receipt checks |
+| `python -m scripts.validate_results` | Independent saved-prediction scoring |
 
-| `python -m scripts.prepare_med_video_protocol` | Generate sealed MedSAM2 oracle prompt-plan and checkpoint protocol |
-| `python -m scripts.seal_med_video_study` | Verify full native/zero/trained evidence, hashes and Git revision; write final study receipt |
-
-For numerical parity, supply `--record-logits` on both native and identity
-inference runs. The evaluator authenticates saved float32 tensors and checks
-their mask threshold agrees with the exported PNG. Keep those source tensors
-local; only metrics are uploaded by the GPU workflow.
-
-## Experimental automatic detector+feature prompt initialization
-
-Use `python -m scripts.export_yolo_detections` to create a frozen,
-class-filtered detection JSONL and authenticated export metadata.
-Then run `python -m scripts.infer_fgpi_video --mode box_only` and
-`--mode fgpi` with the identical detections and pretrained MedSAM2 checkpoint.
-`--positives`, `--negatives`, and `--max-anchors` freeze the FGPI
-token-selection budget. The evaluator `scripts.evaluate_fgpi_video`
-separately scores the initial prompt frame and subsequent propagation; use
-`scripts.compare_fgpi_video` for paired box-versus-FGPI effects.
-See [exact commands](../docs/FGPI_TARGET_ANCHORS.md).
+The historical experiment details are on the [backup branch](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118/reports). See [experiment preflight and controls](../docs/experiments/PLAN.md).

@@ -1,36 +1,19 @@
-# Why Actions can fail before tests start
+# GitHub Actions runner diagnosis
 
-The repository has repeatedly returned `runner_id: 0`, `steps: []`, and
-`404 BlobNotFound` for job logs. This means the workflow has **not reached**
-checkout, dependency installation or Python testing.
+The user's actual GitHub Actions failure annotation states:
 
-A separate `runner_probe.yml` workflow runs only `echo` on
-`ubuntu-latest` with no checkout. If this minimal job has zero steps as
-well, changing the test suite or Python packages cannot resolve the blocker.
+> The job was not started because your account is locked due to a billing issue.
 
-Owner-only checks:
+This is an **account-level GitHub restriction**, not a Python code or dependency test failure. Recorded jobs had no assigned runner, no executed steps and zero billed execution milliseconds. Repository Actions permissions were enabled, and the visible Free-plan allowance was not exhausted.
 
-1. Repository **Settings > Actions > General** — confirm Actions and
-   GitHub-hosted runners are allowed.
-2. Account **Settings > Billing and licensing > Budgets and alerts** —
-   confirm Actions usage and payment/spending restrictions. Public standard
-   hosted runners are normally free, but account-level billing restrictions
-   can still block jobs.
-3. Open a failing Actions run and inspect the *job annotation* (it is not
-   exposed through the installed repository connector).
-4. If billing and permissions are healthy, send the run URL and
-   `runner_id=0` / no-step evidence to GitHub Support.
+The account owner must resolve the billing/authorization lock with GitHub billing support. Standard hosted runners normally do not require a paid GitHub plan for a public repository.
 
-This repository does not and cannot change the account's billing/Actions
-administration settings through its GitHub connection.
-
-Local fallback while GitHub runner provisioning is blocked:
+For local verification while hosted CI is unavailable:
 
 ```bash
 python -m pip install -r requirements.txt
 python -m compileall -q adeseg datasets evaluation modeling scripts training tests
-python -m pytest -q tests/
+python -m pytest -q tests
 ```
 
-Tests and real-video inference must pass before reporting the cleanup as
-fully verified. Historical checkpoint hashes and backups must be kept.
+A complete CPU test suite and a small DEV model smoke run should precede a long end-to-end experiment. Re-running a blocked CI job cannot prove that new code passes.
