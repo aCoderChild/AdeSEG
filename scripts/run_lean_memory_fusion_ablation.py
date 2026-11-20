@@ -28,8 +28,6 @@ from datasets.video import load_manifest, stage_frames
 from modeling.lean_memory_feature_fusion import (
     EarlyFeatureMemoryFusion, MemoryFeatureFusionConfig, implementation_sha256,
 )
-from scripts.run_author_baseline import build_author_predictor, source_identity
-from scripts.memory_token_io import synchronize_storage
 
 
 FORMAT = "adeseg_lean_memory_fusion_video_v1"
@@ -115,6 +113,7 @@ def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
 
 def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
     """Run causal one-shot propagation, recording masks but never reading GT."""
+    from scripts.memory_token_io import synchronize_storage
     frame_to_position = {f.frame_index: i for i, f in enumerate(frames)}
     start = frame_to_position[prompt["frame_index"]]
     rows, telemetry = [], []
@@ -194,6 +193,8 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
 
 
 def run(args):
+    from scripts.run_author_baseline import build_author_predictor, source_identity
+
     manifest = args.manifest.resolve(strict=True)
     prompt_manifest = args.prompt_manifest.resolve(strict=True)
     checkpoint = args.checkpoint.resolve(strict=True)
