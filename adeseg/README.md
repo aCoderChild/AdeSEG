@@ -1,20 +1,28 @@
-# AdeSEG research API
+# AdeSEG research package
 
-The proposed method has three concise, stable public interfaces:
+`adeseg/` is the **single public scientific namespace**. The canonical
+three research modules are available from `adeseg.modules`:
 
 ```python
 from adeseg.modules import FGPI, FGPIConfig, RMFA, RMFAConfig, TTMR, TTMRConfig
 from adeseg.modules.rmfa import build_rmfa
 ```
 
-| Research module | API | Inputs and outputs |
+| Module | Interface | Computational ownership |
 |---|---|---|
-| **FGPI** | `FGPI().construct(features, box_xyxy, image_hw)` | Frozen early FPN + YOLO box → joint box / positive / negative prompts |
-| **RMFA** | `build_rmfa(RMFAConfig())(early, deep, logits)` | Fine features + memory-conditioned deep features + native logits → refined logits |
-| **TTMR** | `TTMR(TTMRConfig(budget=B)).select(...)` | Prior memory tokens + anchors + usage + source frames → retained indices |
+| **FGPI** | `FGPI().construct(early_features, yolo_box, image_hw)` | Native `adeseg/prompts/` implementation |
+| **RMFA** | `build_rmfa(RMFAConfig())(early, deep, native_logits)` | Checkpoint-compatible trainable core in `modeling/` |
+| **TTMR** | `TTMR(TTMRConfig(budget=N)).select(...)` | Offline/causal selector in `adeseg/memory/` |
 
-These research modules reuse existing implementations: FGPI in `adeseg/prompts/`, RMFA in `modeling/structured_feature_aggregation.py` (checkpoint-compatible trainable module), TTMR in `adeseg/memory/target_aware_temporal.py` (offline selection reference).
+The other subpackages serve the same framework: `backbones/` loads vendor
+models, `inference/` integrates hooks, `losses/` and `adapters/` expose
+training objectives, and `research/` defines experiment contracts.
 
-Supporting code is organized under `backbones/`, `inference/`, `adapters/`, `losses/`, `evaluation/`, and `research/`. No second copy of RMFA's trainable model weights is introduced.
+**Dependency direction:** new research code imports `adeseg.*`. The
+`modeling/` package contains source-bound implementations and is not a
+parallel public API. Existing training code may use original `modeling.*`
+imports where necessary for checkpoint provenance.
 
-The methodological definition is [here](../docs/methodology/OVERVIEW.md).
+The complete architecture is in
+[docs/methodology/OVERVIEW.md](../docs/methodology/OVERVIEW.md);
+the internal/core boundary is described in [modeling/README.md](../modeling/README.md).

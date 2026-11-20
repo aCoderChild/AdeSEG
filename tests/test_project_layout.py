@@ -35,6 +35,8 @@ def test_three_module_scientific_structure_and_experiment_docs():
         assert (ROOT / "adeseg" / "modules" / f"{name}.py").is_file()
         assert (ROOT / "docs" / "methodology" / f"{name.upper()}.md").is_file()
     assert (ROOT / "adeseg" / "modules" / "__init__.py").is_file()
+    assert not (ROOT / "legacy").exists()
+    assert not (ROOT / "archive").exists()
     assert (ROOT / "docs" / "methodology" / "OVERVIEW.md").is_file()
     assert (ROOT / "docs" / "experiments" / "PLAN.md").is_file()
 

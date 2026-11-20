@@ -18,7 +18,8 @@ import numpy as np
 from PIL import Image
 import torch
 
-from adeseg.prompts.feature_guided import feature_guided_prompt, apply_fgpi_prompt
+from adeseg.modules.fgpi import FGPI, FGPIConfig
+from adeseg.prompts.feature_guided import feature_guided_prompt
 from adeseg.prompts.target_anchored import target_anchored_points
 from datasets.video import load_manifest, stage_frames
 from modeling.medsam2_latest import (
@@ -92,13 +93,24 @@ def infer_detector_sequence(predictor, frames, records, output, *,
                 if not isinstance(early,(tuple,list)) or not early:
                     raise RuntimeError("Native MedSAM2 early FPN features unavailable")
                 features=early[0]
-            prompt=feature_guided_prompt(
-                features, selected["box_xyxy"], hw,
-                detector_confidence=selected["confidence"],
-                min_detector_confidence=confidence_gate, mode=mode,
-                positives=positives, negatives=negatives, max_anchors=max_anchors,
-            )
-            init_index, init_ids, init_logits = apply_fgpi_prompt(
+            if mode == "fgpi":
+                prompt = FGPI(FGPIConfig(
+                    positive_points=positives,
+                    negative_points=negatives,
+                    max_pseudo_anchors=max_anchors,
+                )).construct(
+                    features, selected["box_xyxy"], hw,
+                    detector_confidence=selected["confidence"],
+                )
+            elif mode == "box_only":
+                prompt = feature_guided_prompt(
+                    None, selected["box_xyxy"], hw,
+                    detector_confidence=selected["confidence"],
+                    min_detector_confidence=confidence_gate, mode="box_only",
+                )
+            else:
+                raise ValueError("Expected fgpi or box_only prompt mode")
+            init_index, init_ids, init_logits = FGPI.initialize(
                 predictor,state,prompt_index,label_id,prompt)
             if init_index != prompt_index or list(init_ids) != [label_id]:
                 raise RuntimeError("SAM2 initialization returned a different object/frame")
