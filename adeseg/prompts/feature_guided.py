@@ -1,18 +1,15 @@
-"""FGPI: detector-box-conditioned, training-free early-feature point proposals.
+"""FGPI: joint YOLO detection box and target-anchored early-feature prompts.
 
-Uses ONLY frozen image-encoder features and an automatic detector's box. No
-ground truth, predicted masks, teacher logits or future frames enter prompts.
-FGPI *always* combines a valid detector box with early-feature-derived
-foreground and background points. No reliability gate or box-only fallback is
-used in the FGPI arm; box_only is an independent experimental control.
-Missing/invalid geometry raises an explicit error rather than changing arms.
-This is an experimental policy; no clinical benefit is claimed.
+The box_only mode is an independent baseline, NOT a reliability fallback.
+The FGPI branch always adds positive/negative points or raises for invalid
+spatial geometry. A detector box supplies provisional identity, not trusted GT.
 """
 from __future__ import annotations
 
 import math
 import torch
-import torch.nn.functional as F
+
+from adeseg.prompts.target_anchored import target_anchored_points
 
 
 def _validate_box(box_xyxy, image_hw):
@@ -29,105 +26,43 @@ def _validate_box(box_xyxy, image_hw):
     return [x0, y0, x1, y1]
 
 
-def _choose(scores, eligibility, coordinates, n, min_distance):
-    """Stable highest-score selection with spatial suppression."""
-    candidates = torch.where(eligibility)[0].tolist()
-    candidates.sort(key=lambda i: (-float(scores[i]), i))
-    chosen = []
-    for index in candidates:
-        xy = coordinates[index]
-        if all(float(torch.sum((xy - coordinates[old]) ** 2)) >= min_distance ** 2
-               for old in chosen):
-            chosen.append(index)
-        if len(chosen) >= n:
-            break
-    return chosen
-
 
 @torch.no_grad()
 def feature_guided_prompt(features, box_xyxy, image_hw, *,
                           detector_confidence=1.0, min_detector_confidence=0.0,
-                          mode="fgpi", positives=1, negatives=1):
-    """Joint YOLO-box and early-FPN-point prompt without feature gating.
+                          mode="fgpi", positives=1, negatives=1,
+                          max_anchors=4):
+    """Joint detector-box + pseudo-target-anchor points without confidence gating.
 
-    FG/BG prototypes are computed from the inner detector box and an outside
-    annulus. Cosine-contrast scores rank foreground/background points even
-    when contrast is weak or zero. No learned confidence/contrast threshold
-    removes points; insufficient feature geometry raises a ValueError.
-    Image-aligned frozen feature tensor must be [C,Hf,Wf] or [1,C,Hf,Wf].
+    The default detector admission threshold is zero. Nonzero admission
+    thresholds, when specified, apply equally to both experimental arms;
+    they never conditionally remove FGPI feature-derived points.
     """
     box = _validate_box(box_xyxy, image_hw)
     if mode not in ("box_only", "fgpi"):
         raise ValueError("FGPI mode must be box_only or fgpi")
-    if (not 0 <= detector_confidence <= 1 or
-            not 0 <= min_detector_confidence <= 1):
+    if (type(detector_confidence) not in (float, int)
+            or type(min_detector_confidence) not in (float, int)
+            or not 0 <= detector_confidence <= 1
+            or not 0 <= min_detector_confidence <= 1):
         raise ValueError("Invalid detector confidence or gate")
-    if type(positives) is not int or type(negatives) is not int or not (
-            1 <= positives <= 8 and 0 <= negatives <= 8):
-        raise ValueError("Unsupported FGPI point budget")
+    if detector_confidence < min_detector_confidence:
+        raise ValueError("Detector prediction below predeclared confidence threshold")
     result = {
         "box_xyxy": box, "point_coords": [], "point_labels": [],
         "mode": mode, "decision": "box_only", "reason": "control",
         "detector_confidence": float(detector_confidence),
         "feature_contrast": None,
     }
-    if detector_confidence < min_detector_confidence:
-        raise ValueError("Detector prediction below predeclared confidence threshold")
     if mode == "box_only":
         return result
-    if not isinstance(features, torch.Tensor):
-        raise ValueError("FGPI requires an actual frozen image-encoder feature tensor")
-    f = features.detach()
-    if f.ndim == 4 and f.shape[0] == 1:
-        f = f[0]
-    if (f.ndim != 3 or f.shape[0] < 2 or min(f.shape[-2:]) < 4 or
-            not torch.is_floating_point(f) or not torch.isfinite(f).all()):
-        raise ValueError("Early features must be finite float [C,Hf,Wf]")
-    # CPU computation avoids device-dependent unstable equal-score ordering.
-    f = f.float().cpu()
-    _, fh, fw = f.shape
-    height, width = image_hw
-    yy, xx = torch.meshgrid((torch.arange(fh, dtype=torch.float32) + 0.5) *
-                             (height / fh), (torch.arange(fw, dtype=torch.float32) + 0.5) *
-                             (width / fw), indexing="ij")
-    coords = torch.stack((xx.flatten(), yy.flatten()), dim=1)
-    x0, y0, x1, y1 = box
-    bw, bh = x1-x0, y1-y0
-    inside = ((coords[:, 0] >= x0) & (coords[:, 0] <= x1)
-              & (coords[:, 1] >= y0) & (coords[:, 1] <= y1))
-    core = ((coords[:, 0] >= x0 + 0.15*bw) & (coords[:, 0] <= x1 - 0.15*bw)
-            & (coords[:, 1] >= y0 + 0.15*bh)
-            & (coords[:, 1] <= y1 - 0.15*bh))
-    if not core.any():
-        core = inside
-    ring = ((coords[:, 0] >= x0 - 0.5*bw) & (coords[:, 0] <= x1 + 0.5*bw)
-            & (coords[:, 1] >= y0 - 0.5*bh)
-            & (coords[:, 1] <= y1 + 0.5*bh) & ~inside)
-    if not core.any() or not ring.any():
-        raise ValueError(
-            "FGPI cannot derive both feature regions from this detector box and FPN grid"
-        )
-
-    unit = F.normalize(f.flatten(1).T, dim=1, eps=1e-6)
-    fg = F.normalize(unit[core].mean(dim=0), dim=0, eps=1e-6)
-    bg = F.normalize(unit[ring].mean(dim=0), dim=0, eps=1e-6)
-    contrast = (unit @ fg) - (unit @ bg)
-    separation = float(contrast[core].max() - contrast[ring].min())
-    result["feature_contrast"] = separation
-    if not math.isfinite(separation):
-        raise ValueError("Nonfinite foreground/background feature contrast")
-
-    distance = max(2.0, 0.08 * min(bw, bh))
-    foreground = _choose(contrast, core, coords, positives, distance)
-    background = _choose(-contrast, ring, coords, negatives, distance)
-    if len(foreground) != positives or len(background) != negatives:
-        raise ValueError("FGPI cannot place the full predeclared point budget on the feature grid")
-    indices = foreground + background
-    result.update({
-        "point_coords": [[float(v) for v in coords[i]] for i in indices],
-        "point_labels": [1] * len(foreground) + [0] * len(background),
-        "decision": "augmented", "reason": "always_joint_box_and_feature_points",
-    })
+    points = target_anchored_points(
+        features, box, image_hw, positives=positives,
+        negatives=negatives, max_anchors=max_anchors
+    )
+    result.update(points)
+    result["decision"] = "augmented"
+    result["reason"] = "mandatory_target_anchored_feature_points"
     return result
 
 
