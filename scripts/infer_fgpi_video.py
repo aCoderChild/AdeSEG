@@ -97,7 +97,31 @@ def infer_detector_sequence(predictor, frames, records, output, *,
                 min_detector_confidence=confidence_gate, mode=mode,
                 positives=positives, negatives=negatives, max_anchors=max_anchors,
             )
-            apply_fgpi_prompt(predictor,state,prompt_index,label_id,prompt)
+            init_index, init_ids, init_logits = apply_fgpi_prompt(
+                predictor,state,prompt_index,label_id,prompt)
+            if init_index != prompt_index or list(init_ids) != [label_id]:
+                raise RuntimeError("SAM2 initialization returned a different object/frame")
+            if tuple(init_logits.shape) != (1,1,*hw):
+                raise ValueError("SAM2 initialization logit geometry differs")
+            init_values=init_logits[0,0].detach().float().cpu().contiguous().numpy()
+            if not np.isfinite(init_values).all():
+                raise FloatingPointError("Nonfinite SAM2 initialization mask")
+            init_path=output/"initialization"/frames[0].video_id/(
+                f"{selected['frame_index']:06d}.png")
+            init_path.parent.mkdir(parents=True,exist_ok=True)
+            if init_path.exists():
+                raise FileExistsError(init_path)
+            Image.fromarray(np.uint8(init_values>0)*255).save(init_path)
+            initial_record={
+                "frame_index":selected["frame_index"],
+                "source_image_sha256":selected["image_sha256"],
+                "source_gt_sha256":sha256(frames[prompt_index].mask_path),
+                "prediction_file":str(init_path.relative_to(output)),
+                "prediction_sha256":sha256(init_path),
+                "logit_sha256":hashlib.sha256(
+                    np.ascontiguousarray(init_values,dtype=np.float32).tobytes()
+                ).hexdigest(),
+            }
             for index, object_ids, logits in predictor.propagate_in_video(
                 state,start_frame_idx=prompt_index,reverse=False
             ):
@@ -135,7 +159,7 @@ def infer_detector_sequence(predictor, frames, records, output, *,
                          else "detector_box_only"),
         "prompt_position":prompt_index, "prompt_frame_index":selected["frame_index"],
         "prompt_image_sha256":selected["image_sha256"],
-        "prompt":prompt, "predictions":rows,
+        "prompt":prompt, "initialization":initial_record, "predictions":rows,
     }
 
 
@@ -185,6 +209,7 @@ def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha25
         "prompt_selector_source_sha256":sha256(
             Path(target_anchored_points.__code__.co_filename)),
         "uses_ground_truth_at_prompt_time":False,
+        "initialization_prediction_scored":True,
         "results":results,
     }
     (output/"run.json").write_text(json.dumps(receipt,indent=2)+"\n")

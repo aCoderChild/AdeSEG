@@ -21,6 +21,7 @@ class FakeVideo:
         return None,{"backbone_fpn":[f]},None,None,None
     def add_new_points_or_box(self,state,**kwargs):
         self.received=kwargs
+        return kwargs["frame_idx"], [kwargs["obj_id"]], torch.ones(1,1,16,16)
     def propagate_in_video(self,state,start_frame_idx,reverse):
         for i in (0,1,2):
             yield i,[1],torch.ones(1,1,16,16)
@@ -67,6 +68,10 @@ def test_fgpi_and_box_only_have_same_prompt_position_and_bbox(tmp_path):
     assert a.received["labels"]==[1,0]
     assert b.received["labels"] is None
     assert x["predicted"]==y["predicted"]==2
+    assert (fgpi/"initialization"/"seq"/"000000.png").exists()
+    assert (box/"initialization"/"seq"/"000000.png").exists()
+    assert x["initialization"]["source_gt_sha256"]
+    assert y["initialization"]["prediction_sha256"]
 
 def test_uniform_early_features_still_use_box_and_points(tmp_path):
     frames,record,_=make_data(tmp_path)
@@ -88,3 +93,12 @@ def test_joint_token_budget_reaches_native_sam2_prompt_interface(tmp_path):
     assert predictor.received["labels"] == [1,1,0,0]
     assert len(predictor.received["points"]) == 4
     assert len(result["prompt"]["anchor_coords"]) == 3
+
+def test_rejects_invalid_initialization_mask_geometry(tmp_path):
+    frames,record,_=make_data(tmp_path)
+    class BadInit(FakeVideo):
+        def add_new_points_or_box(self,state,**kwargs):
+            self.received=kwargs
+            return kwargs["frame_idx"],[kwargs["obj_id"]],torch.ones(1,1,8,8)
+    with pytest.raises(ValueError,match="initialization logit geometry"):
+        infer_detector_sequence(BadInit(),frames,[record],tmp_path/"bad",mode="fgpi")

@@ -50,11 +50,21 @@ def compare_fgpi(manifest, detections, detector_checkpoint, box_run, fgpi_run):
         if (a["present_frames"]!=b["present_frames"]
                 or a["empty_frames"]!=b["empty_frames"]):
             raise ValueError("FGPI evaluated different GT frame populations")
-        rows.append({"sequence":a["sequence"],"box_dice":a["dice"],
+        rows.append({"sequence":a["sequence"],
+                     "box_initial_dice":a["initial_dice"],
+                     "fgpi_initial_dice":b["initial_dice"],
+                     "initial_delta":(
+                         b["initial_dice"]-a["initial_dice"]
+                         if a["initial_dice"] is not None and b["initial_dice"] is not None
+                         else None),
+                     "box_initial_false_alarm":a["initial_false_alarm"],
+                     "fgpi_initial_false_alarm":b["initial_false_alarm"],
+                     "box_dice":a["dice"],
                      "fgpi_dice":b["dice"],
                      "delta":b["dice"]-a["dice"] if a["dice"] is not None and b["dice"] is not None else None,
                      "box_empty_false_alarms":a["empty_false_alarms"],
                      "fgpi_empty_false_alarms":b["empty_false_alarms"]})
+    initial_valid=[r["initial_delta"] for r in rows if r["initial_delta"] is not None]
     valid=[r["delta"] for r in rows if r["delta"] is not None]
     ci=None
     if valid:
@@ -66,6 +76,9 @@ def compare_fgpi(manifest, detections, detector_checkpoint, box_run, fgpi_run):
         "protocol":PROTOCOL,"control":base,"candidate":candidate,
         "per_sequence":rows, "eligible_sequence_count":len(valid),
         "mean_paired_dice_delta":float(np.mean(valid)) if valid else None,
+        "mean_paired_initialization_dice_delta":(
+            float(np.mean(initial_valid)) if initial_valid else None),
+        "eligible_initialization_sequences":len(initial_valid),
         "exploratory_95ci_sequence_bootstrap":ci,
         "warning":"Sequence independence unverified; no benefit is established without held-out full-cohort evaluation",
     }
