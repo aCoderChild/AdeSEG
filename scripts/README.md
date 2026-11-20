@@ -47,3 +47,15 @@ For numerical parity, supply `--record-logits` on both native and identity
 inference runs. The evaluator authenticates saved float32 tensors and checks
 their mask threshold agrees with the exported PNG. Keep those source tensors
 local; only metrics are uploaded by the GPU workflow.
+
+## Experimental automatic detector+feature prompt initialization
+
+Use `python -m scripts.export_yolo_detections` to create a frozen,
+class-filtered detection JSONL and authenticated export metadata.
+Then run `python -m scripts.infer_fgpi_video --mode box_only` and
+`--mode fgpi` with the identical detections and pretrained MedSAM2 checkpoint.
+`--positives`, `--negatives`, and `--max-anchors` freeze the FGPI
+token-selection budget. The evaluator `scripts.evaluate_fgpi_video`
+separately scores the initial prompt frame and subsequent propagation; use
+`scripts.compare_fgpi_video` for paired box-versus-FGPI effects.
+See [exact commands](../docs/FGPI_TARGET_ANCHORS.md).

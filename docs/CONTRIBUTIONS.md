@@ -34,13 +34,20 @@ See `docs/ARCHITECTURE.md` and `docs/CHECKPOINT_PROVENANCE.md`.
 
 ## FGPI fixed joint prompting without feature reliability gating
 
-The research **FGPI** arm always combines a YOLO-provided bounding box with
-one foreground and one background point derived from *frozen early FPN features*
-using relative region-prototype similarity. The `box_only` arm is a separate,
-matched ablation and **never** an automatic fallback. No feature contrast,
-margin, uncertainty or learned reliability cutoff controls whether points are
-added. Even an uninformative/uniform feature map produces deterministic points;
-there is no empirical assertion that such prompts help.
+The research **FGPI** arm always combines a source-hashed YOLO bounding
+box with foreground and background point prompts selected from *frozen early
+MedSAM2 FPN features*. Candidate pseudo-target anchors are chosen by
+center-supported, greedy cosine diversity inside a conservative detector core;
+the point scores contrast anchor alignment with background features. The
+`box_only` arm is the independent control and **never** an automatic fallback.
+No feature-contrast, uncertainty or learned reliability threshold determines
+whether FGPI points are used. Uniform features still yield the fixed point
+budget; impossible image/box geometry fails explicitly.
+
+The default configuration is 1 positive + 1 negative with 4 provisional
+anchors, not a fitted optimum. Fixed point budgets are controlled by
+`--positives`, `--negatives` and `--max-anchors`; they must be frozen before
+TEST evaluation.
 
 Only malformed inputs or genuinely impossible spatial geometry cause a
 fail-closed exception; these are input validity checks, **not confidence
@@ -50,7 +57,16 @@ gating**. The default detector confidence cutoff in
 are added to an accepted detection. Keep that optional threshold identical
 between `box_only` and `fgpi` when evaluating.
 
-This FGPI module **does not itself run YOLO detection**. Its input is a frozen
-YOLO detection manifest with source-image hashes. End-to-end benefit requires
-execution with real YOLO detections, a pinned MedSAM2 checkpoint, and
-matched patient-independent test videos. No result has yet demonstrated gain.
+`scripts.export_yolo_detections` now generates the frozen, single-target-class
+YOLO detection manifest and corresponding provenance metadata from real images.
+The FGPI video runner authenticates that metadata by default and combines
+each selected box with MedSAM2 FPN features; a manual manifest requires
+`--allow-unverified-detections` and must not be called verified YOLO inference.
+
+The FGPI evaluation now records **initialization-frame Dice/IoU** separately
+from propagation, including GT-empty prompt-frame false alarms. The matched
+comparison reports both initial and post-prompt effects. See
+[FGPI target-anchor protocol](FGPI_TARGET_ANCHORS.md).
+
+These are hypotheses and unexecuted real-checkpoint workflows, **not**
+evidence of improved initialization, long-term tracking or adenoid efficacy.

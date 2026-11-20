@@ -2,7 +2,7 @@
 
 | Study | Modified part | Verified status |
 |---|---|---|
-| [MedSAM2 high resolution](medsam2_high_resolution/README.md) | High-res skip adapter and train-only native KL | Reconstructed method; mixed four-sequence historical experiments |
+| [YOLO + feature-token FGPI](../docs/FGPI_TARGET_ANCHORS.md) | Frozen YOLO box + early-FPN pseudo-target anchors and FG/BG points | Algorithm/CPU geometry tests; real-model gain unverified |\n| [MedSAM2 high resolution](medsam2_high_resolution/README.md) | High-res skip adapter and train-only native KL | Reconstructed method; mixed four-sequence historical experiments |
 | [Lean feature aggregation](lean_feature_aggregation/README.md) | Q/K/V channel mixing of early/deep features | Architecture and training capture flow exist; no verified full-cohort gain |
 | [Comparisons](reference_baselines/README.md) | No learned adapter; original/corrected vendor models | Includes the 0.742071 corrected Lean-SAM2 exploratory result |
 | [Exploratory ablations](exploratory_ablations/README.md) | Memory, position, region and loss controls | Historical source in backup; not independent evaluation |

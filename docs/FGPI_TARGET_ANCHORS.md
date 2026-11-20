@@ -130,3 +130,63 @@ spatially constrained diverse pseudo-target-anchor strategy for fixed-budget
 joint box+point initialization in medical video segmentation. This is a
 **testable engineering hypothesis** until matched held-out experiments
 demonstrate improvements and distinguish it from prior hybrid prompting.
+
+## Reproducible command sequence
+
+```bash
+# 1. Freeze predictions from the actual detector, with SHA256 provenance.
+python -m scripts.export_yolo_detections \
+  --manifest /data/dev.jsonl \
+  --checkpoint /weights/yolo.pt \
+  --target-class 0 --split dev \
+  --output /runs/dev_yolo_detections.jsonl
+
+# 2. Exact same detector manifest, frame eligibility and MedSAM2 checkpoint.
+python -m scripts.infer_fgpi_video \
+  --manifest /data/dev.jsonl --detections /runs/dev_yolo_detections.jsonl \
+  --detector-checkpoint /weights/yolo.pt \
+  --detector-sha256 <SHA256_OF_YOLO_CHECKPOINT> \
+  --checkpoint /weights/MedSAM2_latest.pt \
+  --mode box_only --output /runs/box_only --split dev --device cuda
+
+python -m scripts.infer_fgpi_video \
+  --manifest /data/dev.jsonl --detections /runs/dev_yolo_detections.jsonl \
+  --detector-checkpoint /weights/yolo.pt \
+  --detector-sha256 <SHA256_OF_YOLO_CHECKPOINT> \
+  --checkpoint /weights/MedSAM2_latest.pt \
+  --mode fgpi --positives 1 --negatives 1 --max-anchors 4 \
+  --output /runs/fgpi --split dev --device cuda
+
+# 3. Separately score the prompt-frame and propagated masks.
+python -m scripts.evaluate_fgpi_video \
+  --manifest /data/dev.jsonl --detections /runs/dev_yolo_detections.jsonl \
+  --detector-checkpoint /weights/yolo.pt \
+  --run /runs/fgpi --output /runs/fgpi_scores
+
+# 4. Paired, matched evaluation of initialization and propagation.
+python -m scripts.compare_fgpi_video \
+  --manifest /data/dev.jsonl --detections /runs/dev_yolo_detections.jsonl \
+  --detector-checkpoint /weights/yolo.pt \
+  --box-run /runs/box_only --fgpi-run /runs/fgpi \
+  --output /runs/fgpi_paired.json
+```
+
+Compute the detector checksum with `sha256sum /weights/yolo.pt` on Linux
+or `shasum -a 256 /weights/yolo.pt` on macOS. Install the compatible
+`ultralytics` Python package for the YOLO export stage. Its original
+checkpoint and source-image hashes are mandatory to distinguish actual
+detector predictions from manually crafted boxes.
+
+**Interpretation:** The evaluation now measures the *initial prompted mask*
+(Dice/IoU when GT is present, false alarm when GT is absent) separately from
+later post-prompt masks. The initialization frame's GT is read **only after**
+the automatic prompt and predicted mask have already been frozen. A video
+without a YOLO detection is an explicit exclusion, not a successful empty
+prediction. For full-cohort claims report the detection coverage alongside
+the conditional Dice results.
+
+**Known gaps:** Full YOLO+MedSAM2 integration has not been executed on the
+pinned real checkpoints; the historical GitHub Actions account billing lock
+prevents hosted CI. Source and synthetic geometry tests cannot establish
+higher segmentation accuracy. Matched geometry-only and random-point
+controls remain necessary to isolate the value of feature-token ranking.

@@ -168,3 +168,18 @@ same `--protocol` to inference, evaluation and paired comparison. See
 - The existing GitHub-hosted CI remains blocked before the first step;
   project code alone cannot fix account/runner provisioning. See
   [CI troubleshooting](docs/CI_TROUBLESHOOTING.md).
+
+## Automatic YOLO + target-anchor FGPI (experimental)
+
+A new branch of the experiment (not the oracle mask baseline) exports
+**actual YOLO target-class boxes** with `scripts.export_yolo_detections`,
+selects box-derived pseudo-target anchors from frozen early MedSAM2 features,
+and jointly initializes the native SAM2 prompt encoder using **one detector
+box + fixed foreground/background points**. The reference selector avoids
+a feature-reliability fallback and fails closed on impossible geometry.
+
+See [FGPI method, literature review, ablations and instructions]
+(docs/FGPI_TARGET_ANCHORS.md) for the distinction from Lean-SAM2's
+GT-initialized target-memory anchors. The runner and paired comparator record
+**prompt-frame initialization quality** separately from propagated-video
+quality. Real held-out improvements have **not** been demonstrated.
