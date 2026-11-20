@@ -78,3 +78,13 @@ def test_uniform_early_features_still_use_box_and_points(tmp_path):
     assert result["prompt"]["decision"] == "augmented"
     assert predictor.received["box"] == [4.,4.,12.,12.]
     assert predictor.received["labels"] == [1,0]
+
+def test_joint_token_budget_reaches_native_sam2_prompt_interface(tmp_path):
+    frames,record,_=make_data(tmp_path)
+    predictor=FakeVideo()
+    result=infer_detector_sequence(
+        predictor,frames,[record],tmp_path/"multi",mode="fgpi",
+        positives=2,negatives=2,max_anchors=3)
+    assert predictor.received["labels"] == [1,1,0,0]
+    assert len(predictor.received["points"]) == 4
+    assert len(result["prompt"]["anchor_coords"]) == 3

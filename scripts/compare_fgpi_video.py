@@ -21,7 +21,8 @@ def compare_fgpi(manifest, detections, detector_checkpoint, box_run, fgpi_run):
         raise ValueError("Expected box_only control and fgpi candidate")
     fixed=("protocol","split","label_id","manifest_sha256","detections_sha256",
            "detector_checkpoint_sha256","backbone_sha256","model_config",
-           "confidence_gate","postprocessing","prompt_budget")
+           "confidence_gate","postprocessing","prompt_budget",
+           "point_budget","prompt_selector_source_sha256")
     if any(left.get(key)!=right.get(key) for key in fixed) or left.get("protocol")!=PROTOCOL:
         raise ValueError("Different detector/backbone/evaluation settings")
     if left.get("results",{}).keys()!=right.get("results",{}).keys():

@@ -20,6 +20,7 @@ from evaluation.segmentation import calculate_scores
 from evaluation.temporal_consistency import adjacent_mask_metrics, undefined_temporal_metrics
 from scripts.infer_med_video import sha256
 from scripts.infer_fgpi_video import PROTOCOL, load_detector_records
+from adeseg.prompts.target_anchored import target_anchored_points
 
 
 def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):
@@ -37,6 +38,17 @@ def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):
                         ("detector_checkpoint_sha256",detector_checkpoint)):
         if receipt.get(field) != sha256(path):
             raise ValueError(f"FGPI {field} mismatch")
+    budget=receipt.get("point_budget")
+    if (not isinstance(budget,dict) or set(budget)!=
+            {"positives","negatives","max_anchors"}
+            or any(type(v) is not int for v in budget.values())
+            or not (1 <= budget["positives"] <= 8 and
+                    1 <= budget["negatives"] <= 8 and
+                    1 <= budget["max_anchors"] <= 16)):
+        raise ValueError("FGPI receipt lacks predeclared point/anchor budgets")
+    if receipt.get("prompt_selector_source_sha256") != sha256(
+            Path(target_anchored_points.__code__.co_filename)):
+        raise ValueError("FGPI prompt selector source SHA256 differs")
     label_id=receipt["label_id"]
     videos=load_manifest(manifest,receipt["split"],require_contiguous=True,
                          require_jpeg=True,safe_output_ids=True)
@@ -72,13 +84,26 @@ def evaluate_fgpi_run(manifest, detections, detector_checkpoint, run):
             raise ValueError("Box-only arm unexpectedly contains feature points")
         if receipt["mode"] == "fgpi" and (
             prompt.get("decision") != "augmented"
-            or prompt["point_labels"].count(1) != 1
-            or prompt["point_labels"].count(0) != 1
+            or prompt.get("selection_strategy") !=
+                "box_pseudo_anchor_cosine_bg_contrast_spatial_v1"
+            or prompt.get("reason") != "mandatory_target_anchored_feature_points"
+            or prompt["point_labels"].count(1) != budget["positives"]
+            or prompt["point_labels"].count(0) != budget["negatives"]
+            or type(prompt.get("anchor_count")) is not int
+            or not (1 <= prompt["anchor_count"] <= budget["max_anchors"])
+            or len(prompt.get("anchor_coords", [])) != prompt["anchor_count"]
         ):
-            raise ValueError("FGPI run is missing its mandatory foreground/background feature points")
+            raise ValueError("FGPI run lacks its required target anchors or fixed point budget")
         if (len(prompt["point_coords"]) != len(prompt["point_labels"])
-                or any(x not in (0,1) for x in prompt["point_labels"])):
-            raise ValueError("Invalid FGPI point declaration")
+                or any(x not in (0,1) for x in prompt["point_labels"])
+                or len({tuple(pt) for pt in prompt["point_coords"]}) != len(prompt["point_coords"])):
+            raise ValueError("Invalid or duplicate FGPI point declaration")
+        if receipt["mode"] == "fgpi":
+            x0,y0,x1,y1=prompt["box_xyxy"]
+            for (x,y),label in zip(prompt["point_coords"],prompt["point_labels"]):
+                inside=(x0 <= x <= x1 and y0 <= y <= y1)
+                if (label==1 and not inside) or (label==0 and inside):
+                    raise ValueError("FGPI positive/negative points violate detector box geometry")
         predictions=record["predictions"]
         if len(predictions) != len(frames)-source_idx-1:
             raise ValueError("Incomplete post-prompt frame coverage")

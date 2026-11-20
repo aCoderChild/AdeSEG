@@ -61,7 +61,7 @@ def test_sam2_bridge_sends_detector_box_first_and_points_without_gt():
     assert out["frame_idx"] == 0
 
 def test_missing_feature_regions_raise_instead_of_silent_box_fallback():
-    with pytest.raises(ValueError, match="cannot derive both feature regions"):
+    with pytest.raises(ValueError, match="Insufficient spatially separated"):
         feature_guided_prompt(torch.ones(2,16,16), [0,0,16,16], (16,16))
 
 def test_joint_prompt_bridge_rejects_box_only_fallback():
@@ -78,3 +78,16 @@ def test_low_detector_confidence_is_not_gated_by_default():
                               detector_confidence=0.01)
     assert p["decision"] == "augmented"
     assert p["point_labels"] == [1,0]
+
+def test_diverse_pseudo_anchors_are_used_without_GT():
+    p=feature_guided_prompt(feature_grid(),[4,4,12,12],(16,16),
+                            positives=2,negatives=2,max_anchors=4)
+    assert p["point_labels"] == [1,1,0,0]
+    assert p["selection_strategy"] == "box_pseudo_anchor_cosine_bg_contrast_spatial_v1"
+    assert len(p["anchor_coords"]) == p["anchor_count"] == 4
+    assert len(set(tuple(x) for x in p["point_coords"])) == 4
+
+def test_prompt_point_budget_is_geometry_constrained():
+    with pytest.raises(ValueError, match="Insufficient spatially separated"):
+        feature_guided_prompt(feature_grid(),[7,7,8,8],(16,16),
+                              positives=8,negatives=2)

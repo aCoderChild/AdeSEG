@@ -19,6 +19,7 @@ from PIL import Image
 import torch
 
 from adeseg.prompts.feature_guided import feature_guided_prompt, apply_fgpi_prompt
+from adeseg.prompts.target_anchored import target_anchored_points
 from datasets.video import load_manifest, stage_frames
 from modeling.medsam2_latest import (
     verify_medsam2_latest, build_verified_medsam2_latest, MEDSAM2_LATEST_SHA256,
@@ -63,7 +64,8 @@ def load_detector_records(path, videos):
 
 
 def infer_detector_sequence(predictor, frames, records, output, *,
-                            mode="fgpi", label_id=1, confidence_gate=0.0):
+                            mode="fgpi", label_id=1, confidence_gate=0.0,
+                            positives=1, negatives=1, max_anchors=4):
     """One detector prompt per sequence; subsequent frames receive NO GT or clicks."""
     valid = [r for r in records if r["confidence"] >= confidence_gate]
     if not valid:
@@ -93,6 +95,7 @@ def infer_detector_sequence(predictor, frames, records, output, *,
                 features, selected["box_xyxy"], hw,
                 detector_confidence=selected["confidence"],
                 min_detector_confidence=confidence_gate, mode=mode,
+                positives=positives, negatives=negatives, max_anchors=max_anchors,
             )
             apply_fgpi_prompt(predictor,state,prompt_index,label_id,prompt)
             for index, object_ids, logits in predictor.propagate_in_video(
@@ -138,11 +141,16 @@ def infer_detector_sequence(predictor, frames, records, output, *,
 
 def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha256,
                        medsam2_checkpoint, output, *, split="dev", label_id=1,
-                       mode="fgpi", device="cpu", confidence_gate=0.0):
+                       mode="fgpi", device="cpu", confidence_gate=0.0,
+                       positives=1, negatives=1, max_anchors=4):
     manifest=Path(manifest).resolve(strict=True)
     detections=Path(detections).resolve(strict=True)
     checkpoint=Path(detector_checkpoint).resolve(strict=True)
     output=Path(output).resolve()
+    if (type(positives) is not int or type(negatives) is not int
+            or not (1 <= positives <= 8 and 1 <= negatives <= 8)
+            or type(max_anchors) is not int or not 1 <= max_anchors <= 16):
+        raise ValueError("FGPI requires positive, negative and anchor budgets")
     if output.exists():
         raise FileExistsError("Refusing to overwrite previous experiment")
     if sha256(checkpoint) != detector_sha256:
@@ -160,7 +168,8 @@ def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha25
     for name,frames in sorted(videos.items()):
         results[name]=infer_detector_sequence(
             predictor,frames,records.get(name,[]),output,mode=mode,
-            label_id=label_id,confidence_gate=confidence_gate)
+            label_id=label_id,confidence_gate=confidence_gate,
+            positives=positives,negatives=negatives,max_anchors=max_anchors)
     receipt={
         "protocol":PROTOCOL, "method":"FGPI", "mode":mode,
         "split":split, "label_id":label_id, "device":device,
@@ -171,6 +180,10 @@ def infer_detector_run(manifest, detections, detector_checkpoint, detector_sha25
         "model_config":MODEL_CONFIG, "postprocessing":"no_hole_filling",
         "confidence_gate":confidence_gate,
         "prompt_budget":1,
+        "point_budget":{"positives":positives,"negatives":negatives,
+                        "max_anchors":max_anchors},
+        "prompt_selector_source_sha256":sha256(
+            Path(target_anchored_points.__code__.co_filename)),
         "uses_ground_truth_at_prompt_time":False,
         "results":results,
     }
@@ -192,11 +205,18 @@ def main(argv=None):
     p.add_argument("--device",choices=("cpu","mps","cuda"),default="cpu")
     p.add_argument("--confidence-gate",type=float,default=0.0,
                    help="Optional upstream YOLO filtering (default 0: use every provided detection)")
+    p.add_argument("--positives",type=int,default=1,
+                   help="Fixed number of FGPI positive points (default 1)")
+    p.add_argument("--negatives",type=int,default=1,
+                   help="Fixed number of FGPI background points (default 1)")
+    p.add_argument("--max-anchors",type=int,default=4,
+                   help="Maximum diverse box-derived target anchor tokens (default 4)")
     a=p.parse_args(argv)
     receipt=infer_detector_run(
         a.manifest,a.detections,a.detector_checkpoint,a.detector_sha256,
         a.checkpoint,a.output,split=a.split,label_id=a.label_id,
-        mode=a.mode,device=a.device,confidence_gate=a.confidence_gate)
+        mode=a.mode,device=a.device,confidence_gate=a.confidence_gate,
+        positives=a.positives,negatives=a.negatives,max_anchors=a.max_anchors)
     print(json.dumps({"status":"generated_unverified_model_run","mode":a.mode,
                      "completed":sum(x["status"]=="completed" for x in receipt["results"].values())},indent=2))
 
