@@ -1,8 +1,24 @@
 # AdeSEG
 
-**Automatic video polyp segmentation with feature-guided prompting, region-aware refinement, and target-aware temporal memory.**
+**Research-stage automatic video polyp segmentation using SAM 2 / Lean-SAM2.**
 
-AdeSEG studies a modular extension of SAM 2 and Lean-SAM2 for colonoscopy video segmentation. The proposed architecture is organized into **three scientific contributions**:
+AdeSEG contains two distinct methodological tracks. The **current multiscale
+temporal-memory experiment** enriches the final mask-conditioned SAM2 memory
+representation using two earlier image/FPN feature levels, preserving the
+native memory-grid shape and retaining native Lean-SAM2 TAMP/TCIM/TARR.
+The current experiment starts from *frozen automatic masks* and is **not yet
+an integrated YOLO/FGPI-to-Lean-SAM2 pipeline**. Segmentation improvements
+and clinical adenoid applicability have not been established.
+
+Read the **[current methodology](docs/methodology/OVERVIEW.md)** and
+**[runnable memory experiment](docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md)**
+before interpreting results or adapting existing experiments.
+
+### Historical FGPI / RMFA / TTMR proposal
+
+The following independently developed modules belong to the older proposed
+architecture. They are **not all active together** in the multiscale
+memory-enrichment runner:
 
 | Contribution | Problem addressed | Mechanism |
 |---|---|---|
@@ -10,7 +26,7 @@ AdeSEG studies a modular extension of SAM 2 and Lean-SAM2 for colonoscopy video 
 | **RMFA — Region-Aware Multistage Feature Aggregation** | Weak foreground/background and boundary discrimination | Early/deep feature fusion, region-aware channel attention, residual mask-logit refinement |
 | **TTMR — Target-Aware Temporal Memory Refinement** | Redundant or drifting historical information | Target-conditioned token scoring, diversity penalties, temporal retention under fixed memory budget |
 
-## Architecture
+## Historical proposed architecture (not an end-to-end verified pipeline)
 
 ```mermaid
 flowchart TD
@@ -32,7 +48,12 @@ flowchart TD
     O --> Y["Video polyp segmentation"]
 ```
 
-The diagram specifies the **proposed unified framework**. The existing FGPI video runner uses MedSAM2 Hiera-T, while RMFA and the Lean memory experiments use SAM2.1 Hiera-B+. TTMR currently has an offline reference selector. Those boundaries are explicit in the [methodology](docs/methodology/OVERVIEW.md).
+**The diagram above is an archived research proposal, not the current
+executable pipeline.** FGPI's video runner uses MedSAM2 Hiera-T, while
+memory-fusion inference uses Lean-SAM2 Hiera-B+. RMFA is an output-logit
+refiner and TTMR is an additional proposed selector; neither is silently
+enabled in the active Lean memory-fusion experiment. See the
+[current method and validation status](docs/methodology/OVERVIEW.md).
 
 ## Repository organization
 
@@ -68,7 +89,8 @@ The implementation files under `modeling/` are intentionally not renamed or dupl
 
 ## Start here
 
-[**Framework overview**](docs/methodology/OVERVIEW.md) ·
+[**Current architecture and scope**](docs/methodology/OVERVIEW.md) ·
+[**Memory-fusion experiment commands**](docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md) ·
 [FGPI](docs/methodology/FGPI.md) ·
 [RMFA](docs/methodology/RMFA.md) ·
 [TTMR](docs/methodology/TTMR.md) ·
