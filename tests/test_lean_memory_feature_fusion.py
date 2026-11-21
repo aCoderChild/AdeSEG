@@ -264,6 +264,51 @@ def test_routing_learned_changes_memory_only_without_extra_tokens():
     assert '_encode_new_memory' not in vars(predictor)
 
 
+def test_live_routing_rejects_corrupted_memory_position_and_anchor():
+    class MalformedPositionPredictor(FakePinnedLean):
+        def _encode_new_memory(self, current_vision_feats, feat_sizes,
+                               pred_masks_high_res, object_score_logits,
+                               is_mask_from_pts=False):
+            native = torch.ones(1, 4, 2, 2)
+            return native, [torch.ones(1, 4, 3, 2)]
+
+    levels, sizes, mask, score = fake_inputs()
+    fusion = EarlyFeatureMemoryFusion(CFG).eval()
+    bad_pos = MalformedPositionPredictor()
+    with route_memory_feature_fusion(bad_pos, fusion, identity_control=True):
+        with pytest.raises(ValueError, match="positional-encoding"):
+            bad_pos.track_step(1, False, levels, sizes, mask, score)
+
+    class BadAnchorsPredictor(FakePinnedLean):
+        def track_step(self, frame_idx, is_init_cond_frame, current_vision_feats,
+                       feat_sizes, pred_masks_high_res, object_score_logits,
+                       output_dict):
+            return self._encode_new_memory(
+                current_vision_feats=current_vision_feats,
+                feat_sizes=feat_sizes, pred_masks_high_res=pred_masks_high_res,
+                object_score_logits=object_score_logits,
+            )
+
+    bad_anchor_predictor = BadAnchorsPredictor()
+    with route_memory_feature_fusion(bad_anchor_predictor, fusion,
+                                     identity_control=True):
+        with pytest.raises(ValueError, match="target anchors"):
+            bad_anchor_predictor.track_step(
+                1, False, levels, sizes, mask, score,
+                {"anchor_mgr": {"initialized": True,
+                                "anchor_tokens": torch.randn(2, 8)}})
+
+
+def test_live_routing_rejects_malformed_source_scale_order():
+    predictor = FakePinnedLean()
+    fusion = EarlyFeatureMemoryFusion(CFG).eval()
+    early, _, mask, score = fake_inputs()
+    with route_memory_feature_fusion(predictor, fusion, identity_control=True):
+        with pytest.raises(ValueError, match="scale hierarchy"):
+            predictor.track_step(
+                1, False, early, [(4, 4), (8, 8), (2, 2)], mask, score)
+
+
 def test_small_fp32_residual_can_disappear_after_bf16_storage():
     class ConstantMemoryLean(FakePinnedLean):
         def _encode_new_memory(self, current_vision_feats, feat_sizes,
