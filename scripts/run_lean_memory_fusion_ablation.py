@@ -186,8 +186,46 @@ def summarize_resident_memory(state):
     }
 
 
+def verify_native_tamp_dump(path):
+    """Validate source-emitted TAMP top-K records without touching the selector."""
+    path = Path(path)
+    if not path.exists():
+        return {"records": 0, "sha256": None,
+                "note": "No native TAMP retention events were emitted"}
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("Unsafe TAMP index dump file")
+    records = 0
+    for line in path.read_text("utf8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if (not isinstance(row, dict)
+                or row.get("event") != "ours_retained_latest_memory_tokens"):
+            raise RuntimeError("Unexpected native TAMP record format")
+        total = row.get("num_total_tokens")
+        count = row.get("num_retained_tokens")
+        kept = row.get("retained_token_indices")
+        if (type(total) is not int or total <= 0
+                or type(count) is not int or not 0 <= count <= total
+                or not isinstance(kept, list) or len(kept) != count
+                or any(type(k) is not int or k < 0 or k >= total for k in kept)
+                or len(set(kept)) != len(kept)):
+            raise RuntimeError("Malformed native TAMP retained-token index list")
+        for key in ("main_keep_indices", "usage_only_keep_indices",
+                    "diversity_complement_indices"):
+            values = row.get(key)
+            if values is not None and (
+                    not isinstance(values, list)
+                    or len(set(values)) != len(values)
+                    or any(type(k) is not int or not 0 <= k < total for k in values)):
+                raise RuntimeError("Malformed native TAMP diagnostic index list")
+        records += 1
+    return {"records": records, "sha256": file_sha256(path),
+            "note": "Native source emitted TAMP selections; no GT or segmentation accuracy inferred"}
+
+
 def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
-                   input_mode="full"):
+                   input_mode="full", dump_tamp_indices=False):
     """Run causal one-shot propagation, recording masks but never reading GT."""
     from scripts.memory_token_io import synchronize_storage
     frame_to_position = {f.frame_index: i for i, f in enumerate(frames)}
@@ -196,6 +234,20 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
     # local frame zero. Keep original source indices in the receipt only.
     staged_frames = frames[start:]
     rows, telemetry, frame_memory_snapshots = [], [], []
+    tamp_dump_file = folder / "tamp_indices" / "ours_retained_tokens.jsonl"
+    if dump_tamp_indices:
+        # This is the pinned author's *existing* observer, not a replacement
+        # selection policy. Detailed dumps add I/O overhead and should not
+        # be enabled during inference-latency benchmarks.
+        for attr in ("dump_retained_tokens", "dump_token_dir",
+                     "dump_frames", "dump_video", "dump_method_name"):
+            if not hasattr(predictor, attr):
+                raise RuntimeError("Pinned Lean-SAM2 lacks the native TAMP dump contract")
+        predictor.dump_retained_tokens = True
+        predictor.dump_token_dir = str(tamp_dump_file.parent)
+        predictor.dump_frames = ""
+        predictor.dump_video = ""
+        predictor.dump_method_name = f"adeseg_{arm}_{input_mode}"
     with tempfile.TemporaryDirectory(prefix="adeseg_lean_mem_") as temporary:
         stage_frames(staged_frames, Path(temporary))
         state = None
@@ -280,8 +332,13 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
             raise RuntimeError("Identity control changed the BF16 memory bank")
         # A per-sequence zero is a valid observation (e.g. predicted absence).
         # Abort only when an entire fusion run has no causally effective writes.
+    tamp_audit = (
+        verify_native_tamp_dump(tamp_dump_file) if dump_tamp_indices
+        else {"records": 0, "sha256": None, "note": "TAMP token dump disabled"}
+    )
     return {
         "status": "completed",
+        "tamp_index_dump": tamp_audit,
         "prompt_frame_index": prompt["frame_index"],
         "prompt_mask_sha256": prompt["mask_sha256"],
         "prompt_image_sha256": prompt["image_sha256"],
@@ -385,7 +442,8 @@ def run(args):
         folder.mkdir(parents=True, exist_ok=False)
         sequences[video_id] = infer_sequence(
             model, frames, frozen[video_id], folder, fusion, args.arm,
-            args.device, input_mode=input_mode
+            args.device, input_mode=input_mode,
+            dump_tamp_indices=getattr(args, "dump_tamp_indices", False),
         )
         print(f"[{args.arm}] {video_id}: {len(sequences[video_id]['predictions'])} propagated frames", flush=True)
         del model, fusion
@@ -419,6 +477,7 @@ def run(args):
         "track": "lean_sam2_hiera_bplus",
         "arm": args.arm,
         "fusion_input_mode": input_mode,
+        "dump_tamp_indices": bool(getattr(args, "dump_tamp_indices", False)),
         "split": args.split,
         "label_id": args.label_id,
         "manifest_sha256": file_sha256(manifest),
@@ -442,6 +501,8 @@ def main(argv=None):
                    help="Must match the mode used to train the fusion checkpoint")
     p.add_argument("--require-target-anchors", action="store_true",
                    help="Fail learned fusion when no initialized TAMP anchors are observed")
+    p.add_argument("--dump-tamp-indices", action="store_true",
+                   help="Opt-in native Lean top-K dump; do NOT enable for latency profiling")
     p.add_argument("--manifest", type=Path, required=True)
     p.add_argument("--prompt-manifest", type=Path, required=True)
     p.add_argument("--checkpoint", type=Path, required=True)
