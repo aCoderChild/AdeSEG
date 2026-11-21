@@ -146,7 +146,14 @@ def train(args):
             or any(c not in "0123456789abcdef" for c in args.backbone_sha256)):
         raise ValueError("Invalid pinned backbone SHA256")
     before = validate_train_sources(manifest, partition, file_field="tensor_file")
-    config = MemoryFeatureFusionConfig()
+    allow_absent_fusion = getattr(args, "allow_no_object_memory_fusion", False)
+    if type(allow_absent_fusion) is not bool:
+        raise ValueError("No-object fusion ablation flag must be boolean")
+    # The conservative default preserves native no-object memory exactly.
+    # An explicitly named independently trained ablation may learn updates
+    # on absent-object predictions, including genuine false-negative frames.
+    config = MemoryFeatureFusionConfig(
+        preserve_native_no_object=not allow_absent_fusion)
     rows = json.loads(manifest.read_text("utf8"))
     captures = []
     producer_sha = sha256(Path(__file__).resolve().parents[1] / "scripts/capture_lean_memory_train.py")
@@ -222,6 +229,7 @@ def train(args):
         "split_file_sha256": sha256(partition),
         "training_protocol": TRAINING_PROTOCOL,
         "fusion_input_mode": input_mode,
+        "no_object_fusion_ablation": bool(allow_absent_fusion),
         "training_source_sha256": training_source_sha256(),
         "capture_source_sha256": producer_sha,
         "training_steps": steps,
@@ -243,7 +251,9 @@ def train(args):
     receipt = {
         "checkpoint": str(output), "checkpoint_sha256": sha256(output),
         "training_protocol": TRAINING_PROTOCOL,
-        "fusion_input_mode": input_mode, "training_steps": steps,
+        "fusion_input_mode": input_mode,
+        "no_object_fusion_ablation": bool(allow_absent_fusion),
+        "training_steps": steps,
         "source_groups": before["train_source_groups"],
         "train_manifest_sha256": sha256(manifest),
         "split_file_sha256": sha256(partition),
@@ -270,6 +280,8 @@ def main(argv=None):
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--input-mode", choices=EarlyFeatureMemoryFusion.INPUT_MODES,
                    default="full", help="Train each control separately with a matched architecture")
+    p.add_argument("--allow-no-object-memory-fusion", action="store_true",
+                   help="Separate risk ablation: train memory residuals on predicted-absent frames")
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--preservation-weight", type=float, default=0.1)
     p.add_argument("--seed", type=int, default=20261120)
