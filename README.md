@@ -14,6 +14,37 @@ Read the **[current methodology](docs/methodology/OVERVIEW.md)** and
 **[runnable memory experiment](docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md)**
 before interpreting results or adapting existing experiments.
 
+## Active Lean-SAM2 memory-write pipeline
+
+This is the **implemented memory-fusion experiment**; the detector/FGPI
+initialization step remains **external** and supplies a frozen automatic
+mask prompt.
+
+```mermaid
+flowchart TD
+    I["Current propagation frame t"] --> E["SAM2 image encoder + FPN"]
+    E --> S["Earlier FPN feature maps (32/64 channels)"]
+    E --> D["Deep image feature (256 channels)"]
+    PAST["Historical memory from frames < t"] --> A["Native Lean-SAM2 memory attention"]
+    D --> A
+    A --> DEC["Native mask decoder"]
+    S --> DEC
+    DEC --> MASK["Predicted current-frame mask"]
+    D --> ME["Native mask-conditioned memory encoder"]
+    MASK --> ME
+    ME --> F["Learned same-shape residual memory enrichment"]
+    S --> F
+    MASK --> F
+    F --> B["Enriched memory stored at frame t"]
+    B --> FUT["Read by subsequent frames using native TAMP/TCIM/TARR"]
+```
+
+The adapter changes **future historical memory**, not the already
+predicted current-frame mask. The initial conditioning frame is native
+by default. Its output memory channels and positional encoding are
+unchanged, although subsequent attention and native retention
+decisions can change. See [the method](docs/methodology/OVERVIEW.md).
+
 ### Historical FGPI / RMFA / TTMR proposal
 
 The following independently developed modules belong to the older proposed
