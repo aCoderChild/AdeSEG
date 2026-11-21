@@ -109,6 +109,26 @@ def test_capture_training_produces_valid_authenticated_checkpoint(tmp_path):
     assert not model.is_identity_initialized()
 
 
+def test_separately_trained_control_cannot_be_evaluated_as_full(tmp_path):
+    manifest, split, _ = setup_training(tmp_path)
+    output = tmp_path / "no_early.pt"
+    args = SimpleNamespace(
+        manifest=manifest, split_file=split, output=output,
+        backbone_sha256="a" * 64, epochs=2, lr=1e-2,
+        preservation_weight=0.1, seed=42, device="cpu",
+        input_mode="no_early",
+    )
+    receipt = train(args)
+    assert receipt["fusion_input_mode"] == "no_early"
+    checkpoint, _ = get_fusion(
+        "fusion", output, receipt["checkpoint_sha256"],
+        "a" * 64, sha256(manifest), "cpu", input_mode="no_early")
+    assert checkpoint._trained_checkpoint_loaded
+    with pytest.raises(ValueError, match="training protocol"):
+        get_fusion("fusion", output, receipt["checkpoint_sha256"],
+                   "a" * 64, sha256(manifest), "cpu", input_mode="full")
+
+
 def test_invalid_capture_shape_and_sealed_group_rejected(tmp_path):
     manifest, split, capture = setup_training(tmp_path)
     payload = torch.load(capture, map_location="cpu", weights_only=True)
