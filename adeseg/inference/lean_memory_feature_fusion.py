@@ -106,7 +106,7 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
                 or len(native_position) != 1
                 or not isinstance(native_position[0], torch.Tensor)
                 or native_position[0].ndim != 4
-                or native_position[0].shape[0] != native.shape[0]
+                or native_position[0].shape[:2] != native.shape[:2]
                 or native_position[0].shape[-2:] != native.shape[-2:]
                 or not torch.isfinite(native_position[0]).all()):
             raise ValueError('Native memory positional-encoding contract changed')
