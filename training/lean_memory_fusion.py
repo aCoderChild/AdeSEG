@@ -136,6 +136,9 @@ def train(args):
     output = args.output.resolve()
     if output.exists() or Path(str(output) + ".receipt.json").exists():
         raise FileExistsError("Refusing to overwrite trained memory fusion checkpoint")
+    input_mode = getattr(args, "input_mode", "full")
+    if input_mode not in EarlyFeatureMemoryFusion.INPUT_MODES:
+        raise ValueError("Invalid memory-fusion input mode")
     if args.epochs < 1 or not 0 < args.lr < 1 or not 0 <= args.preservation_weight <= 10:
         raise ValueError("Invalid training hyperparameters")
     if (not isinstance(args.backbone_sha256, str)
@@ -176,7 +179,7 @@ def train(args):
             mask = c["predicted_mask_logits"].to(args.device)
             presence = c["object_score_logits"].to(args.device)
             optimizer.zero_grad(set_to_none=True)
-            predicted = model(early, native, mask, presence)
+            predicted = model(early, native, mask, presence, input_mode=input_mode)
             reconstruction = F.smooth_l1_loss(predicted, teacher)
             preservation = F.smooth_l1_loss(predicted, native)
             loss = reconstruction + args.preservation_weight * preservation
@@ -202,6 +205,7 @@ def train(args):
         "train_manifest_sha256": sha256(manifest),
         "split_file_sha256": sha256(partition),
         "training_protocol": TRAINING_PROTOCOL,
+        "fusion_input_mode": input_mode,
         "training_source_sha256": training_source_sha256(),
         "capture_source_sha256": producer_sha,
         "training_steps": steps,
@@ -220,7 +224,8 @@ def train(args):
     torch.save(payload, output)
     receipt = {
         "checkpoint": str(output), "checkpoint_sha256": sha256(output),
-        "training_protocol": TRAINING_PROTOCOL, "training_steps": steps,
+        "training_protocol": TRAINING_PROTOCOL,
+        "fusion_input_mode": input_mode, "training_steps": steps,
         "source_groups": before["train_source_groups"],
         "train_manifest_sha256": sha256(manifest),
         "split_file_sha256": sha256(partition),
@@ -243,6 +248,8 @@ def main(argv=None):
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--backbone-sha256", required=True)
     p.add_argument("--epochs", type=int, default=5)
+    p.add_argument("--input-mode", choices=EarlyFeatureMemoryFusion.INPUT_MODES,
+                   default="full", help="Train each control separately with a matched architecture")
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--preservation-weight", type=float, default=0.1)
     p.add_argument("--seed", type=int, default=20261120)
