@@ -276,6 +276,34 @@ def test_intermediate_memory_budget_variation_is_visible(tmp_path):
     assert not report["summary"]["fusion"]["all_frame_resident_budgets_matched"]
 
 
+def test_scoring_reports_effective_memory_writes_and_anchor_drift(tmp_path):
+    manifest, prompts, videos = benchmark(tmp_path)
+    native = make_run(tmp_path, manifest, prompts, videos, "native", "native")
+    fusion = make_run(tmp_path, manifest, prompts, videos, "fusion", "fusion")
+    receipt_path = fusion / "receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["fusion_input_mode"] = "early0_only"
+    for video in ("seq2", "seq3"):
+        row = receipt["sequences"][video]
+        row["memory_writes_checked"] = 4
+        row["memory_writes_quantized_changed"] = 3
+        row["anchor_similarity_audit"] = {
+            "eligible_writes": 2, "mean_abs_similarity_shift": 0.2,
+            "note": "Fixed-anchor cosine drift at WRITE; not TAMP Top-K outcomes.",
+        }
+    receipt_path.write_text(json.dumps(receipt))
+    report = score_runs(
+        {"native": native, "fusion": fusion}, manifest,
+        tmp_path / "scored", bootstrap=200)
+    summary = report["summary"]["fusion"]
+    assert summary["fusion_input_mode"] == "early0_only"
+    assert summary["memory_writes_checked"] == 8
+    assert summary["memory_writes_modified_after_bf16"] == 6
+    assert summary["effective_memory_write_fraction"] == 0.75
+    assert summary["anchor_similarity_eligible_writes"] == 4
+    assert summary["mean_abs_anchor_cosine_shift_at_write"] == pytest.approx(0.2)
+
+
 def test_invalid_memory_audit_rejected(tmp_path):
     manifest, prompts, videos = benchmark(tmp_path)
     base = make_run(tmp_path, manifest, prompts, videos, "native", "native")
