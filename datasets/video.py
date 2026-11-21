@@ -26,7 +26,7 @@ class ManifestFrame:
     video_id: str
     frame_index: int
     image_path: Path
-    mask_path: Path
+    mask_path: Path | None
 
 
 def stage_frames(frames: list[ManifestFrame], directory: Path) -> None:
@@ -41,8 +41,14 @@ def _resolve(value: str, manifest: Path) -> Path:
 
 
 def load_manifest(manifest: Path, split: str, *, require_contiguous=False,
-                  require_jpeg=False, safe_output_ids=False) -> dict[str, list[ManifestFrame]]:
-    """Load one split, rejecting malformed rows before training starts."""
+                  require_jpeg=False, safe_output_ids=False,
+                  require_masks=True) -> dict[str, list[ManifestFrame]]:
+    """Load validated video frames.
+
+    Default behavior remains annotation-required. With require_masks=False,
+    accept ONLY image-only rows, actively rejecting any "mask" field so that
+    video inference cannot accidentally receive annotation paths.
+    """
     manifest = Path(manifest)
     videos: dict[str, list[ManifestFrame]] = defaultdict(list)
     for line_number, line in enumerate(
@@ -56,14 +62,27 @@ def load_manifest(manifest: Path, split: str, *, require_contiguous=False,
             raise ValueError(f"{manifest}:{line_number}: invalid JSON") from error
         if row.get("split") != split or not row.get("valid", True):
             continue
-        missing = {"video_id", "frame_index", "image", "mask"} - row.keys()
+        needed = {"video_id", "frame_index", "image"}
+        if require_masks:
+            needed.add("mask")
+        elif "mask" in row:
+            raise ValueError(
+                f"{manifest}:{line_number}: image-only inference manifest must not contain masks"
+            )
+        missing = needed - row.keys()
         if missing:
             raise ValueError(f"{manifest}:{line_number}: missing {sorted(missing)}")
-        image_path = _resolve(str(row["image"]), manifest)
-        mask_path = _resolve(str(row["mask"]), manifest)
-        if not image_path.is_file() or not mask_path.is_file():
+        if not isinstance(row["image"], str) or not row["image"]:
+            raise ValueError(f"{manifest}:{line_number}: invalid image path")
+        image_path = _resolve(row["image"], manifest)
+        mask_path = None
+        if require_masks:
+            if not isinstance(row["mask"], str) or not row["mask"]:
+                raise ValueError(f"{manifest}:{line_number}: invalid mask path")
+            mask_path = _resolve(row["mask"], manifest)
+        if not image_path.is_file() or (mask_path is not None and not mask_path.is_file()):
             raise FileNotFoundError(
-                f"{manifest}:{line_number}: image or mask does not exist"
+                f"{manifest}:{line_number}: required image or mask does not exist"
             )
         video_id, index = row["video_id"], row["frame_index"]
         if not isinstance(video_id, str) or not video_id:

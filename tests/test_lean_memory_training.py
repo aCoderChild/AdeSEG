@@ -12,7 +12,9 @@ from modeling.lean_memory_feature_fusion import (
 )
 from scripts.capture_lean_memory_train import downsample_capture_features
 from scripts.run_lean_memory_fusion_ablation import file_sha256, get_fusion
-from training.lean_memory_fusion import train, read_capture, TRAINING_PROTOCOL
+from training.lean_memory_fusion import (
+    train, read_capture, TRAINING_PROTOCOL, audit_teacher_feasibility,
+)
 from training.split_guard import sha256
 from adeseg.inference.lean_memory_feature_fusion import route_memory_feature_fusion
 
@@ -35,6 +37,26 @@ def real_geometry_capture():
         "object_score_logits": torch.ones(1),
         "video_id": "train_case", "frame_index": 1,
     }
+
+
+def test_oracle_teacher_reachability_audit_distinguishes_bound_and_gate():
+    config = MemoryFeatureFusionConfig()
+    data = real_geometry_capture()
+    data["teacher_memory"] = data["native_memory"].clone()
+    feasible = audit_teacher_feasibility([data], config)
+    assert feasible["mean_fraction_unattainable_elements"] == 0
+    assert feasible["fraction_predicted_absent"] == 0
+
+    data["teacher_memory"] = data["native_memory"] + 1e3
+    infeasible = audit_teacher_feasibility([data], config)
+    assert infeasible["fraction_captures_with_unattainable_target"] == 1
+    assert infeasible["max_required_to_allowed_ratio"] > 1
+
+    data["teacher_memory"] = data["native_memory"] + 0.001
+    data["object_score_logits"] = -torch.ones(1)
+    blocked = audit_teacher_feasibility([data], config)
+    assert blocked["fraction_predicted_absent"] == 1
+    assert blocked["mean_fraction_unattainable_elements"] == 1
 
 
 def test_pinned_feature_alignment_matches_native_grid():

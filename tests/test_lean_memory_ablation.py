@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from datasets.video import ManifestFrame
+from datasets.video import ManifestFrame, load_manifest
 from scripts.run_lean_memory_fusion_ablation import file_sha256, load_frozen_prompts
 from scripts.score_lean_memory_ablations import score_runs, FORMAT
 
@@ -39,6 +39,11 @@ def benchmark(tmp_path):
                              image=str(path), mask=str(label)))
         videos[seq] = frame_list
     manifest.write_text("".join(json.dumps(row)+"\n" for row in rows))
+    image_manifest = tmp_path / "images_only.jsonl"
+    image_manifest.write_text("".join(
+        json.dumps({k:v for k,v in row.items() if k != "mask"}) + "\n"
+        for row in rows
+    ))
     prompt_manifest = tmp_path / "prompts.jsonl"
     prompts = []
     for seq, frames in videos.items():
@@ -72,7 +77,6 @@ def make_run(tmp_path, manifest, prompt_path, videos, name, arm, *, improved=Fal
             records.append({
                 "frame_index": frame.frame_index,
                 "image_sha256": file_sha256(frame.image_path),
-                "annotation_sha256": file_sha256(frame.mask_path),
                 "logits_sha256": ("f" if improved else "d")*64,
                 "prediction_file": p.name,
                 "prediction_sha256": file_sha256(p),
@@ -89,11 +93,21 @@ def make_run(tmp_path, manifest, prompt_path, videos, name, arm, *, improved=Fal
                 "insurance_entries": 0,
                 "note": "Resident snapshot only; does not include transient attention tensors or object pointers",
             },
+            "per_frame_resident_memory": [
+                {"local_frame_index": i, "source_frame_index": frames[i].frame_index,
+                 "memory": {
+                     "resident_frame_entries": 2, "resident_spatial_tokens": 4,
+                     "compressed_frame_entries": 1, "protected_frame_entries": 1,
+                     "insurance_entries": 0,
+                     "note": "Resident snapshot only; does not include transient attention tensors or object pointers",
+                 }}
+                for i in range(3)
+            ],
         }
     receipt = {
         "format": FORMAT, "track": "lean_sam2_hiera_bplus",
         "arm": arm, "split": "dev", "label_id": 1,
-        "manifest_sha256": file_sha256(manifest),
+        "manifest_sha256": file_sha256(manifest.with_name("images_only.jsonl")),
         "prompt_manifest_sha256": file_sha256(prompt_path),
         "backbone_sha256": "a"*64,
         "runtime_signature": {
@@ -182,14 +196,16 @@ def test_resident_budget_changes_are_reported_not_hidden(tmp_path):
     path = fusion / "receipt.json"
     receipt = json.loads(path.read_text())
     receipt["sequences"]["seq2"]["resident_memory"]["resident_spatial_tokens"] = 6
+    receipt["sequences"]["seq2"]["per_frame_resident_memory"][-1]["memory"]["resident_spatial_tokens"] = 6
     path.write_text(json.dumps(receipt))
     report = score_runs({"native": base, "fusion": fusion}, manifest,
                         tmp_path / "report")
     assert not report["summary"]["fusion"]["resident_spatial_and_insurance_matched"]
     assert report["summary"]["fusion"]["resident_spatial_token_deltas"]["seq2"] == 2
+    assert not report["summary"]["fusion"]["all_frame_resident_budgets_matched"]
 
 
-def test_runtime_and_annotation_provenance_fail_closed(tmp_path):
+def test_runtime_and_gt_separation(tmp_path):
     manifest, prompts, videos = benchmark(tmp_path)
     base = make_run(tmp_path, manifest, prompts, videos, "native", "native")
     fusion = make_run(tmp_path, manifest, prompts, videos, "fusion", "fusion", improved=True)
@@ -206,10 +222,19 @@ def test_runtime_and_annotation_provenance_fail_closed(tmp_path):
         score_runs({"native": base, "fusion": fusion}, manifest, tmp_path/"scores")
     receipt["sequences"]["seq2"]["predictions"][0]["logits_sha256"] = "f"*64
     path.write_text(json.dumps(receipt))
-    Image.fromarray(np.full((4, 4), 1, dtype=np.uint8)).save(
+    result = score_runs({"native": base, "fusion": fusion}, manifest, tmp_path/"scores")
+    assert result["provenance"]["evaluation_manifest_sha256"] == file_sha256(manifest)
+    original_gt_digest = result["provenance"]["evaluation_label_files_sha256"]
+    # The independent scorer may work from changed labels, but changes must
+    # always produce a different label-byte provenance digest.
+    Image.fromarray(np.zeros((4, 4), dtype=np.uint8)).save(
         videos["seq2"][1].mask_path)
-    with pytest.raises(ValueError, match="Ground-truth file changed"):
-        score_runs({"native": base, "fusion": fusion}, manifest, tmp_path/"scores")
+    changed = score_runs({"native": base, "fusion": fusion}, manifest,
+                         tmp_path / "rescore_changed_gt", bootstrap=200)
+    assert changed["provenance"]["evaluation_label_files_sha256"] != original_gt_digest
+    assert all("annotation_sha256" not in p
+               for seq in result["per_video"] for p in
+               json.loads((base/"receipt.json").read_text())["sequences"][seq]["predictions"])
 
 
 def test_prompt_authenticates_images_and_rejects_oracle_path(tmp_path):
@@ -221,3 +246,44 @@ def test_prompt_authenticates_images_and_rejects_oracle_path(tmp_path):
     prompts_path.write_text("".join(json.dumps(p)+"\n" for p in rows))
     with pytest.raises(ValueError, match="GT-path"):
         load_frozen_prompts(prompts_path, videos)
+
+
+def test_image_only_inference_manifest_never_references_ground_truth(tmp_path):
+    manifest, prompts_path, videos = benchmark(tmp_path)
+    image_manifest = manifest.with_name("images_only.jsonl")
+    images_only = load_manifest(
+        image_manifest, "dev", require_masks=False,
+        require_contiguous=True, require_jpeg=True, safe_output_ids=True,
+    )
+    assert all(f.mask_path is None for seq in images_only.values() for f in seq)
+    assert set(load_frozen_prompts(prompts_path, images_only)) == {"seq2", "seq3"}
+    with pytest.raises(ValueError, match="image-only inference manifest"):
+        load_manifest(manifest, "dev", require_masks=False)
+
+
+def test_intermediate_memory_budget_variation_is_visible(tmp_path):
+    manifest, prompts, videos = benchmark(tmp_path)
+    base = make_run(tmp_path, manifest, prompts, videos, "native", "native")
+    fusion = make_run(tmp_path, manifest, prompts, videos, "fusion", "fusion", improved=True)
+    path = fusion / "receipt.json"
+    data = json.loads(path.read_text())
+    # Same final memory, different intermediate memory budgets.
+    data["sequences"]["seq2"]["per_frame_resident_memory"][1]["memory"]["insurance_entries"] = 1
+    path.write_text(json.dumps(data))
+    report = score_runs({"native": base, "fusion": fusion}, manifest,
+                        tmp_path / "mid_budget_report")
+    assert report["summary"]["fusion"]["resident_spatial_and_insurance_matched"]
+    assert not report["summary"]["fusion"]["all_frame_resident_budgets_matched"]
+
+
+def test_invalid_memory_audit_rejected(tmp_path):
+    manifest, prompts, videos = benchmark(tmp_path)
+    base = make_run(tmp_path, manifest, prompts, videos, "native", "native")
+    identity = make_run(tmp_path, manifest, prompts, videos, "identity", "identity")
+    path = identity / "receipt.json"
+    data = json.loads(path.read_text())
+    data["sequences"]["seq2"]["per_frame_resident_memory"][1]["local_frame_index"] = 200
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="Frame memory audit"):
+        score_runs({"native": base, "identity": identity}, manifest,
+                   tmp_path / "bad_memory")

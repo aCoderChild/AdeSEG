@@ -23,7 +23,7 @@ from datasets.video import load_manifest
 from evaluation.segmentation import calculate_scores
 
 
-FORMAT = "adeseg_lean_memory_fusion_video_v2"
+FORMAT = "adeseg_lean_memory_fusion_video_v3"
 
 
 def sha(path):
@@ -100,8 +100,10 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             raise ValueError(f"Run {name} omitted sequences")
         if name != baseline and data.get("arm") == "native" and reference.get("arm") == "native":
             raise ValueError("Candidate was not run with a module enabled")
-    if sha(manifest) != reference["manifest_sha256"]:
-        raise ValueError("Dataset manifest checksum does not match frozen inference")
+    # The inference manifest is IMAGE-ONLY by construction and cannot be
+    # byte-identical to the annotation-bearing evaluation manifest. Match
+    # source images and exact frame IDs instead; seal evaluation GT separately.
+    evaluation_manifest_sha256 = sha(manifest)
     videos = load_manifest(
         manifest, reference["split"],
         require_contiguous=True, require_jpeg=True, safe_output_ids=True,
@@ -109,7 +111,13 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
     if set(videos) != set(reference["sequences"]):
         raise ValueError("Scoring manifest sequences differ from completed receipts")
     per_video, per_frame, summary = {}, [], {}
+    gt_hasher = hashlib.sha256()
     for video, frames in sorted(videos.items()):
+        for frame in frames:
+            # Evaluation-only label provenance; never passed to inference.
+            gt_hasher.update(video.encode("utf8") + b"\\0")
+            gt_hasher.update(str(frame.frame_index).encode("ascii") + b"\\0")
+            gt_hasher.update(sha(frame.mask_path).encode("ascii") + b"\\n")
         records = {name: runs[name]["sequences"][video] for name in runs}
         status = reference["sequences"][video].get("status")
         if any(item.get("status") != status for item in records.values()):
@@ -120,8 +128,9 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             continue
         if status != "completed":
             raise ValueError(f"Unexpected run status {status!r} for {video}")
-        # Validate the resident post-pruning snapshot in addition to equal
-        # encoder-output token geometry. TCIM insurance may change dynamically.
+        # Validate entire per-frame temporal-budget history, not only the
+        # final resident snapshot. These are storage counters, not full VRAM.
+        frame_budget = {}
         for name, record in records.items():
             resident = record.get("resident_memory")
             resident_keys = {
@@ -134,6 +143,10 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             if any(type(resident[k]) is not int or resident[k] < 0
                    for k in resident_keys - {"note"}):
                 raise ValueError(f"Invalid resident memory audit: {video}:{name}")
+            snapshots = record.get("per_frame_resident_memory")
+            if not isinstance(snapshots, list):
+                raise ValueError(f"Missing frame-level memory audit: {video}:{name}")
+            frame_budget[name] = snapshots
         if "identity" in records and records["identity"]["resident_memory"] != (
                 records[baseline]["resident_memory"]):
             raise RuntimeError(f"Native/identity retained memory mismatch: {video}")
@@ -151,6 +164,32 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         if any(len(item.get("predictions", [])) != len(target_frames)
                for item in records.values()):
             raise ValueError(f"Propagation coverage mismatch on {video}")
+        for name, snapshots in frame_budget.items():
+            if len(snapshots) != len(target_frames) + 1:
+                raise ValueError(f"Incomplete per-frame memory audit: {video}:{name}")
+            expected_frames = [frames[start-1].frame_index] + [
+                f.frame_index for f in target_frames
+            ]
+            if any(not isinstance(entry, dict)
+                   or entry.get("local_frame_index") != i
+                   or entry.get("source_frame_index") != original
+                   or not isinstance(entry.get("memory"), dict)
+                   or set(entry["memory"]) != resident_keys
+                   or any(type(entry["memory"][k]) is not int
+                          or entry["memory"][k] < 0
+                          for k in resident_keys - {"note"})
+                   for i, (entry, original) in
+                   enumerate(zip(snapshots, expected_frames))):
+                raise ValueError(f"Frame memory audit order/schema invalid: {video}:{name}")
+            if snapshots[-1]["memory"] != records[name]["resident_memory"]:
+                raise ValueError(f"Final resident-memory audit mismatch: {video}:{name}")
+        if "identity" in records and frame_budget["identity"] != frame_budget[baseline]:
+            raise RuntimeError(f"Native/identity temporal-memory mismatch: {video}")
+        # The source frame providing the initial automatic prompt must also
+        # match the labeled evaluation manifest, not only the post-prompt frames.
+        prompt_frame = frames[start - 1]
+        if sha(prompt_frame.image_path) != records[baseline]["prompt_image_sha256"]:
+            raise ValueError(f"Prompt image mismatches labeled cohort: {video}")
         video_metrics = {name: [] for name in runs}
         for position, frame in enumerate(target_frames):
             # Labels are opened here, after every run's predictions are frozen.
@@ -162,9 +201,6 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                 record = records[name]["predictions"][position]
                 if record.get("image_sha256") != image_hash:
                     raise ValueError(f"Source-image mismatch for {video}:{frame.frame_index}")
-                if record.get("annotation_sha256") != sha(frame.mask_path):
-                    raise ValueError(
-                        f"Ground-truth file changed after predictions: {video}:{frame.frame_index}")
                 digest = record.get("logits_sha256")
                 if (not isinstance(digest, str) or len(digest) != 64
                         or any(c not in "0123456789abcdef" for c in digest)):
@@ -190,8 +226,18 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                         or records[baseline]["predictions"][position]["logits_sha256"]
                         != records["identity"]["predictions"][position]["logits_sha256"]):
                     raise RuntimeError(f"Zero-residual identity diverged at {video}:{frame.frame_index}")
-            per_frame.append({"video_id": video, "frame_index": frame.frame_index,
-                              "present": truth_present, "arms": scores})
+            per_frame.append({
+                "video_id": video, "frame_index": frame.frame_index,
+                "present": truth_present, "arms": scores,
+                "resident_spatial_tokens": {
+                    name: frame_budget[name][position+1]["memory"]["resident_spatial_tokens"]
+                    for name in runs
+                },
+                "insurance_entries": {
+                    name: frame_budget[name][position+1]["memory"]["insurance_entries"]
+                    for name in runs
+                },
+            })
         per_video[video] = {}
         for name, observed in video_metrics.items():
             present = [r for r in observed if r["present"]]
@@ -228,7 +274,25 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             and left["insurance_entries"] == right["insurance_entries"]
             for left, right in memory_pairs
         )
+        budget_frames = [
+            (runs[name]["sequences"][v]["per_frame_resident_memory"][i]["memory"],
+             runs[baseline]["sequences"][v]["per_frame_resident_memory"][i]["memory"])
+            for v in per_video
+            for i in range(len(runs[baseline]["sequences"][v]["per_frame_resident_memory"]))
+        ]
+        all_frame_budgets_matched = all(
+            a["resident_spatial_tokens"] == b["resident_spatial_tokens"]
+            and a["insurance_entries"] == b["insurance_entries"]
+            for a, b in budget_frames
+        )
         summary[name] = {
+            "all_frame_resident_budgets_matched": all_frame_budgets_matched,
+            "resident_budget_frame_match_fraction": (
+                sum(a["resident_spatial_tokens"] == b["resident_spatial_tokens"]
+                    and a["insurance_entries"] == b["insurance_entries"]
+                    for a, b in budget_frames) / len(budget_frames)
+                if budget_frames else None
+            ),
             "resident_spatial_and_insurance_matched": memory_budget_matched,
             "resident_spatial_token_deltas": {
                 v: (runs[name]["sequences"][v]["resident_memory"]["resident_spatial_tokens"] -
@@ -249,7 +313,9 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         "format": "adeseg_paired_lean_memory_fusion_dice_v1",
         "baseline": baseline,
         "run_arm_mapping": {name: value["arm"] for name, value in runs.items()},
-        "provenance": {k: reference[k] for k in keys},
+        "provenance": {**{k: reference[k] for k in keys},
+                       "evaluation_manifest_sha256": evaluation_manifest_sha256,
+                       "evaluation_label_files_sha256": gt_hasher.hexdigest()},
         "per_video": per_video,
         "summary": summary,
         "num_scored_frames": len(per_frame),
@@ -288,6 +354,7 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         "Resident-memory and insurance entries equal to native (by arm): " +
         ", ".join(f"{name}={summary[name]['resident_spatial_and_insurance_matched']}"
                   for name in summary),
+        "Per-frame resident storage and insurance matching is reported in results.json.",
         "Resident count matching is NOT proof of equal runtime peak VRAM or attention bytes.",
         "", "All arms use identical backbone weights, split, input manifest, frozen prompts",
         "and exact source-frame IDs. Results score POST-prompt frames only.",

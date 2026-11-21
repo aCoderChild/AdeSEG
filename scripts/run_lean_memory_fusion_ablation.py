@@ -32,7 +32,7 @@ from modeling.lean_memory_feature_fusion import (
 )
 
 
-FORMAT = "adeseg_lean_memory_fusion_video_v2"
+FORMAT = "adeseg_lean_memory_fusion_video_v3"
 
 
 def file_sha256(path):
@@ -73,7 +73,9 @@ def load_frozen_prompts(path, videos):
             raise ValueError("Only externally frozen automatic-mask prompts are supported")
         image = next(f for f in videos[video] if f.frame_index == frame_idx)
         mask_path = (path.parent / str(row["mask_path"])).resolve()
-        if not mask_path.is_file() or mask_path == image.mask_path.resolve():
+        if (not mask_path.is_file()
+            or (image.mask_path is not None and
+                mask_path == image.mask_path.resolve())):
             raise ValueError("Missing prompt mask or GT-path prompt leakage")
         if (file_sha256(image.image_path) != require_digest(row["image_sha256"])
                 or file_sha256(mask_path) != require_digest(row["mask_sha256"])):
@@ -187,7 +189,7 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
     # The pinned author Lean runner assumes the single prompt occupies its
     # local frame zero. Keep original source indices in the receipt only.
     staged_frames = frames[start:]
-    rows, telemetry = [], []
+    rows, telemetry, frame_memory_snapshots = [], [], []
     with tempfile.TemporaryDirectory(prefix="adeseg_lean_mem_") as temporary:
         stage_frames(staged_frames, Path(temporary))
         state = None
@@ -221,6 +223,14 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
                             raise RuntimeError("Unexpected Lean object ID or mask geometry")
                         if not bool(torch.isfinite(logits).all().item()):
                             raise FloatingPointError("Non-finite Lean inference logits")
+                        # Inspect resident memory after each emitted frame. The
+                        # snapshot is a storage audit, NOT the complete attention
+                        # tensor byte count or true peak allocated GPU memory.
+                        frame_memory_snapshots.append({
+                            "local_frame_index": int(index),
+                            "source_frame_index": int(staged_frames[index].frame_index),
+                            "memory": summarize_resident_memory(state),
+                        })
                         if index == 0:
                             continue
                         if index != len(rows) + 1:
@@ -236,10 +246,7 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
                         rows.append({
                             "frame_index": source_frame.frame_index,
                             "image_sha256": file_sha256(source_frame.image_path),
-                            # Annotation bytes are hashed for provenance only,
-                            # never supplied to the inference model.
-                            "annotation_sha256": file_sha256(source_frame.mask_path),
-                            "prediction_file": output_path.name,
+                             "prediction_file": output_path.name,
                             "prediction_sha256": file_sha256(output_path),
                             "logits_sha256": hashlib.sha256(logit_bytes).hexdigest(),
                         })
@@ -269,6 +276,11 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
         "memory_writes_checked": len(telemetry),
         "memory_writes_modified": sum(t["changed_elements"] > 0 for t in telemetry),
         "resident_memory": resident,
+        "per_frame_resident_memory": frame_memory_snapshots,
+        "memory_writes_quantized_changed": sum(
+            t.get("changed_elements_after_bf16", 0) > 0 for t in telemetry
+        ),
+        "memory_write_telemetry": telemetry,
         "propagation_seconds": duration,
     }
 
@@ -289,7 +301,7 @@ def run(args):
     repo, revision = source_identity("lean")
     videos = load_manifest(
         manifest, args.split, require_contiguous=True,
-        require_jpeg=True, safe_output_ids=True,
+        require_jpeg=True, safe_output_ids=True, require_masks=False,
     )
     frozen = load_frozen_prompts(prompt_manifest, videos)
     # Validate all parameters and the source-bound adapter BEFORE creating output.
@@ -353,7 +365,7 @@ def run(args):
         "fusion_checkpoint_sha256": fusion_digest if args.arm == "fusion" else None,
         "fusion_implementation_sha256": implementation_sha256() if args.arm != "native" else None,
         "sequences": sequences,
-        "warning": "Predictions only. No ground truth was read or scored by this inference script.",
+        "warning": "Predictions only. Input manifest must be image-only; no GT paths are accepted or read.",
     }
     (output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf8")
     return receipt

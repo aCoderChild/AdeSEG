@@ -74,6 +74,62 @@ def read_capture(path: Path, config: MemoryFeatureFusionConfig):
     return data
 
 
+def audit_teacher_feasibility(captures, config):
+    """Quantify when an oracle memory lies outside the adapter's reachable set.
+
+    The residual is bounded elementwise by max_relative_residual * per-entry
+    native-memory standard deviation, and is exactly zero for a predicted
+    absent object when preserve_native_no_object is enabled. This diagnostic
+    is descriptive TRAIN evidence; it is not a robustness or accuracy metric.
+    """
+    if not captures:
+        raise ValueError("No captures for feasibility audit")
+    reports = []
+    for capture in captures:
+        native = capture["native_memory"].float()
+        target = capture["teacher_memory"].float()
+        if native.shape != target.shape or native.ndim != 4:
+            raise ValueError("Teacher/native memory shape mismatch")
+        scale = (
+            native.std(dim=(1, 2, 3), unbiased=False, keepdim=True)
+            .clamp_min(1e-6) * config.max_relative_residual
+        )
+        diff = (target - native).abs()
+        ratio = diff / scale
+        hard_absent = (
+            config.preserve_native_no_object
+            and not bool((capture["object_score_logits"].float() > 0).all().item())
+        )
+        unattainable = (diff > scale) | (hard_absent & (diff > 0))
+        reports.append({
+            "video_id": capture["video_id"],
+            "frame_index": capture["frame_index"],
+            "predicted_absent": bool(hard_absent),
+            "max_required_to_allowed_ratio": float(ratio.max().item()),
+            "fraction_unattainable_elements": float(unattainable.float().mean().item()),
+            "fraction_gt_native_memory_elements_changed_after_bf16": float(
+                (target.to(torch.bfloat16) != native.to(torch.bfloat16))
+                .float().mean().item()
+            ),
+        })
+    return {
+        "capture_count": len(reports),
+        "fraction_captures_with_unattainable_target": (
+            sum(x["fraction_unattainable_elements"] > 0 for x in reports) / len(reports)
+        ),
+        "mean_fraction_unattainable_elements": (
+            sum(x["fraction_unattainable_elements"] for x in reports) / len(reports)
+        ),
+        "fraction_predicted_absent": (
+            sum(x["predicted_absent"] for x in reports) / len(reports)
+        ),
+        "max_required_to_allowed_ratio": max(
+            x["max_required_to_allowed_ratio"] for x in reports
+        ),
+        "captures": reports,
+    }
+
+
 def train(args):
     manifest = args.manifest.resolve(strict=True)
     partition = args.split_file.resolve(strict=True)
@@ -102,6 +158,7 @@ def train(args):
         captures.append(obj)
     if not captures:
         raise ValueError("At least one genuine TRAIN capture is required")
+    teacher_feasibility = audit_teacher_feasibility(captures, config)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     model = EarlyFeatureMemoryFusion(config).to(args.device).train()
@@ -155,6 +212,7 @@ def train(args):
         "capture_count": len(captures),
         "source_groups": before["train_source_groups"],
         "last_train_loss": losses[-1],
+        "teacher_feasibility": teacher_feasibility,
         "model_state_dict": {k: v.detach().float().cpu().clone()
                              for k, v in model.state_dict().items()},
     }
@@ -170,6 +228,7 @@ def train(args):
         "training_source_sha256": payload["training_source_sha256"],
         "capture_count": len(captures),
         "last_train_loss": losses[-1],
+        "teacher_feasibility": teacher_feasibility,
         "warning": "TRAIN oracle-memory distillation; no future-frame or TEST Dice measured",
     }
     Path(str(output) + ".receipt.json").write_text(

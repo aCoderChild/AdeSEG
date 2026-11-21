@@ -185,6 +185,9 @@ def test_routing_exact_identity_conditional_bypass_and_restoration():
         mem, _ = predictor._encode_new_memory(levels, sizes, mask, score)
         assert torch.equal(mem, torch.arange(16).reshape(1, 4, 2, 2)/10)
         assert len(history) == 1 and history[0]['changed_elements'] == 0
+        assert history[0]['changed_elements_after_bf16'] == 0
+        assert history[0]['changed_spatial_positions_after_bf16'] == 0
+        assert history[0]['mean_abs_delta_after_bf16'] == 0
         assert history[0]['native_token_count'] == history[0]['enriched_token_count'] == 4
     assert predictor.track_step.__func__ is original_track
     assert predictor._encode_new_memory.__func__ is original_encode
@@ -204,8 +207,33 @@ def test_routing_learned_changes_memory_only_without_extra_tokens():
         assert not torch.equal(memory, cond)
         assert len(pos) == len(cond_pos) == 1
         assert history[0]['changed_elements'] > 0
+        assert history[0]['changed_elements_after_bf16'] > 0
+        assert history[0]['changed_spatial_positions_after_bf16'] > 0
+        assert 0 < history[0]['fraction_spatial_positions_changed_after_bf16'] <= 1
+        assert history[0]['relative_l2_delta_after_bf16'] > 0
+        assert len(history[0]['early_fpn_rms']) == 2
     assert 'track_step' not in vars(predictor)
     assert '_encode_new_memory' not in vars(predictor)
+
+
+def test_small_fp32_residual_can_disappear_after_bf16_storage():
+    class ConstantMemoryLean(FakePinnedLean):
+        def _encode_new_memory(self, current_vision_feats, feat_sizes,
+                               pred_masks_high_res, object_score_logits,
+                               is_mask_from_pts=False):
+            base = torch.ones(1, 4, 2, 2)
+            return base, [torch.zeros_like(base)]
+
+    predictor = ConstantMemoryLean()
+    fusion = EarlyFeatureMemoryFusion(CFG).eval()
+    make_trained(fusion)
+    levels, sizes, mask, score = fake_inputs()
+    history = []
+    with route_memory_feature_fusion(predictor, fusion, telemetry=history):
+        predictor.track_step(1, False, levels, sizes, mask, score)
+    assert history[0]["changed_elements"] > 0
+    assert history[0]["changed_elements_after_bf16"] == 0
+    assert history[0]["fraction_spatial_positions_changed_after_bf16"] == 0.0
 
 
 def test_hook_conflicts_untrained_and_errors():

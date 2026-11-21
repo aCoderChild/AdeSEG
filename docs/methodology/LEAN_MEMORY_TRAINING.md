@@ -102,6 +102,10 @@ TRAIN_SHA=$(shasum -a 256 /absolute/path/train_memory_capture/train_memory_captu
 The checkpoint records exact implementation, training source, capture
 producer, backbone, source groups, split manifest and train manifest hashes,
 seed, optimizer settings, number of steps and the trained parameter values.
+It now also records a TRAIN-only teacher-target reachability diagnostic:
+the fraction of GT-conditioned memory elements outside the bounded residual,
+including samples blocked by the hard no-object gate. This is not a Dice
+score and cannot establish successful denoising.
 The inference entry point refuses a fake checkpoint lacking a matching
 training protocol and producer fingerprints.
 
@@ -110,11 +114,13 @@ training protocol and producer fingerprints.
 See `docs/methodology/LEAN_MEMORY_FUSION_ABLATIONS.md` for the complete
 B0 and B1 commands. Run the learned B2 arm with the same
 `--manifest`, `--prompt-manifest`, `--checkpoint`, `--checkpoint-sha256`
-and `--device` arguments, plus:
+and `--device` arguments, plus. IMPORTANT: inference receives an
+**image-only** manifest (no GT `mask` field); scoring receives the separate
+label-bearing evaluation manifest:
 
 ```bash
 python -m scripts.run_lean_memory_fusion_ablation \
-  --arm fusion --manifest /absolute/path/dev_video_manifest.jsonl \
+  --arm fusion --manifest /absolute/path/dev_image_only_manifest.jsonl \
   --prompt-manifest /absolute/path/dev_frozen_auto_masks.jsonl \
   --checkpoint "$MODEL" --checkpoint-sha256 "$MODEL_SHA" \
   --fusion-checkpoint "$FUSION" --fusion-sha256 "$FUSION_SHA" \
@@ -123,10 +129,11 @@ python -m scripts.run_lean_memory_fusion_ablation \
   --output /absolute/path/ablation/fusion
 ```
 
-Each run emits raw binary prediction PNGs and a v2 receipt with source
-and run-time hashes (code, model, bypass adapter, Lean configs, torch,
-Python, device, precision), logit checksums, GT-file checksums for
-**provenance only**, and observable resident-memory counters.
+Each run emits binary prediction PNGs and a v3 receipt with source/runtime
+hashes (code, model, bypass adapter, Lean configs, torch, Python, device,
+precision), logit checksums, per-frame resident-memory snapshots, and
+**pre-/post-BF16** memory-enrichment diagnostics. No GT file is opened in
+the inference stage. GT is read only by the paired Dice scorer.
 
 The immediate fusion output retains exactly the native memory
 tensor geometry. Resident TAMP/TCIM counts are reported per arm. This is
@@ -137,7 +144,7 @@ the same: the fusion costs temporary computation.
 
 ```bash
 python -m scripts.score_lean_memory_ablations \
-  --manifest /absolute/path/dev_video_manifest.jsonl \
+  --manifest /absolute/path/dev_labeled_manifest.jsonl \
   --run native=/absolute/path/ablation/native \
   --run identity=/absolute/path/ablation/identity \
   --run fusion=/absolute/path/ablation/fusion \
@@ -146,8 +153,9 @@ python -m scripts.score_lean_memory_ablations \
 
 `report.md` reports equal-video macro GT-present Dice, frame-weighted
 GT-present Dice, per-video deltas, and empty-frame false alarms.
-The scorer requires exact protocol, source frame, software/hardware, source
-image and annotation checksum matches. It checks native/identity prediction
+The scorer requires matched protocol, source frames, software/hardware and
+source-image hashes, and separately records the labeled evaluation-manifest
+digest. It checks native/identity prediction
 **and logit** checksums and resident-memory parity; changed resident budgets
 in other arms are separately flagged. Bootstrapping over sequences is
 descriptive unless video/patient independence has been established.
@@ -174,3 +182,18 @@ trusting Dice. GitHub Actions has historically failed without starting job
 steps; this is not a successful test result. The available environment has
 no real Lean-SAM2 checkpoint or PolypGen video dataset, so no new Dice
 score has been generated or verified.
+
+## Remaining distribution-shift limitations
+
+These fixes establish strict image-only inference, per-frame resident storage
+accounting, and BF16-quantized residual visibility. They do **not** establish
+that native TRAIN captures match closed-loop fused rollout distributions.
+The current memory distillation learns from native rollout memories. Before
+claiming improved temporal robustness, measure time-stratified and TARR-route
+feature distributions on real videos, and compare with a separately trained
+closed-loop adaptation arm using TRAIN-only ground truth supervision.
+
+Equal resident-memory entries do not prove equal memory-attention input tokens,
+actual VRAM, or latency. The pinned Lean-SAM2 implementation exposes
+`memory_attention_input_tokens` and `memory_attention_input_bytes` for
+independent live profiling. Inference telemetry itself also adds overhead.

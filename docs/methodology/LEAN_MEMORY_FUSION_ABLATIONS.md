@@ -35,10 +35,20 @@ exploratory.
 
 ## Required input manifest
 
-The existing project video JSONL schema is reused (see
-`datasets/video.py`): each row has
-`split, video_id, frame_index, image, mask`. The model never reads
-`mask` pixels during inference. Frame IDs must be consecutive JPEG sources.
+**Two separate manifests are required.** Video inference accepts an
+**image-only** JSONL manifest with `split, video_id, frame_index, image`
+and deliberately rejects any `mask` field. Example:
+
+~~~json
+{"split":"dev","video_id":"seq2","frame_index":3,"image":"frames/seq2/000003.jpg"}
+~~~
+
+TRAIN capture generation and independent Dice scoring use the existing
+labeled JSONL schema (`split, video_id, frame_index, image, mask`).
+These manifests need not be byte-identical: the scorer matches frame IDs,
+source-image bytes, frozen prompt digests, backbone/config/software hashes
+and per-frame predictions. Frame IDs must be consecutive JPEG sources.
+No GT-mask path is passed to the inference runner.
 
 Provide a separate, **immutable, precomputed automatic initialization mask**
 JSONL. Example (paths relative to prompt manifest, or absolute):
@@ -50,9 +60,10 @@ JSONL. Example (paths relative to prompt manifest, or absolute):
 One mask per eligible video. All absent-prompt videos are explicitly
 recorded `no_initialization`, never silently discarded. The prompt PNG
 must be 0/255 at original frame resolution and **must not be copied from
-ground truth**. The input checker rejects direct GT-mask paths, verifies
-source-image and frozen-mask SHA256 and refuses other prompt modes. It cannot
-establish independent detector provenance merely from a filename.
+ground truth**. The input checker authenticates source-image and frozen-mask SHA256 and
+refuses other prompt modes. An image-only inference manifest has no GT path
+against which to compare a supplied prompt; therefore detector-origin
+metadata must be independently audited to exclude disguised oracle prompts.
 
 This protocol takes a frozen automatically predicted initialization MASK,
 not oracle GT masks and not repeated detector calls. It does not regenerate
@@ -71,14 +82,14 @@ upstream Lean source.
 MODEL_SHA=$(shasum -a 256 /path/to/sam2.1_hiera_base_plus.pt | cut -d ' ' -f1)
 
 python -m scripts.run_lean_memory_fusion_ablation \
-  --arm native --manifest /path/to/videos.jsonl \
+  --arm native --manifest /path/to/images_only.jsonl \
   --prompt-manifest /path/to/frozen_automatic_masks.jsonl \
   --checkpoint /path/to/sam2.1_hiera_base_plus.pt \
   --checkpoint-sha256 "$MODEL_SHA" --device mps \
   --output outputs/ablation/native
 
 python -m scripts.run_lean_memory_fusion_ablation \
-  --arm identity --manifest /path/to/videos.jsonl \
+  --arm identity --manifest /path/to/images_only.jsonl \
   --prompt-manifest /path/to/frozen_automatic_masks.jsonl \
   --checkpoint /path/to/sam2.1_hiera_base_plus.pt \
   --checkpoint-sha256 "$MODEL_SHA" --device mps \
@@ -104,7 +115,7 @@ Each output folder must not pre-exist.
 
 ~~~bash
 python -m scripts.score_lean_memory_ablations \
-  --manifest /path/to/videos.jsonl \
+  --manifest /path/to/labeled_videos.jsonl \
   --run native=outputs/ablation/native \
   --run identity=outputs/ablation/identity \
   --run fusion=outputs/ablation/fusion \
@@ -129,9 +140,11 @@ treating cross-process bitwise-identity differences as adapter regressions.
 
 The scorer fails closed on mismatched prompt receipts, split/model hashes,
 runtime/software/device and config digests, missing videos or frames, stale
-prediction or annotation hashes, out-of-order frames, wrong mask sizes and
-any native-vs-identity **logit or binary-mask** discrepancy. Resident post-prune
-spatial token and insurance-entry mismatches are reported explicitly. It refuses
+prediction PNG hashes, out-of-order frames, wrong mask sizes and
+any native-vs-identity **logit or binary-mask** discrepancy. GT file bytes are
+read ONLY by the independent scorer; evaluation-manifest SHA256 is recorded.
+Resident post-prune spatial token and insurance-entry mismatches are
+reported at **each frame** and at the final state. It refuses
 partial intersections or reusing an existing score output directory.
 
 ## Scientific and engineering gates

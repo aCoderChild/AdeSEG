@@ -42,12 +42,17 @@ All features have the exact same spatial coordinates as native memory.
     delta_t = 0.25 * std(M_t) * tanh(Head(U_t))
     M_t_enriched = M_t + presence_t * delta_t
 
-No ground-truth mask or annotation enters inference. The pretrained decoder,
+The inference runner uses an image-only manifest and does not read ground-truth
+paths or annotation bytes. The separate Dice scorer reads labels. The pretrained decoder,
 object pointers, TAMP/TCIM/TARR selectors, native spatial positional encodings,
 and token dimensions remain unchanged. The runtime hook applies only to
 non-conditioning track_step memory writes by default; directly invoked
 _run_memory_encoder (including corrections) remains native.
 
+Memory-write telemetry now records changes after Lean-SAM2's BF16 storage
+conversion, and the video runner records per-frame resident spatial tokens and
+insurance entries. The TRAIN distillation receipt reports whether GT-conditioned
+teacher targets are reachable within the bounded residual and presence gate.
 The module DOES increase temporary feature computation and activations. Equal
 token count does not establish equal latency, full GPU memory or cost of the
 protected, conditioning and TCIM insurance banks. It does not claim CMSA-Net's
@@ -105,15 +110,15 @@ group splits, seed, and **total measured memory-attention budget**.
 
 | Arm | Memory representation | Token policy | Purpose |
 | --- | --- | --- | --- |
-| B0 | Native | Native | Lean reference |
-| B1 | Zero-initialized fusion | Native | Identity/parity |
-| B2 | Native | Pooled multiscale scoring | Token-ranking-only |
-| B3 | **Trained early-FPN fusion** | Native | **Primary hypothesis** |
-| B4 | Native + RMFA output-only | Native | Historical output-control |
-| B5 | RMFA mask-feedback to native encoder | Native | Historical feedback-control |
-| B6 | Trained early-FPN fusion | Pooled scoring | Interaction, only after B3 |
+| B0 | Native | Native | Lean reference; inference supported |
+| B1 | Zero-initialized fusion | Native | Identity/parity; inference supported |
+| B2 | **Trained early-FPN fusion** | Native | **Primary hypothesis; requires trained checkpoint** |
+| B3 | Native | Pooled multiscale scoring | Token-ranking-only; NOT live integrated |
+| B4 | Trained early-FPN fusion | Pooled scoring | Interaction; NOT live integrated |
+| R0 | Native + RMFA output-only | Native | Historical separate mask-logit control |
+| R1 | RMFA mask-feedback to native encoder | Native | Historical separate mask-feedback control |
 
-Mechanism ablations for B3:
+Mechanism ablations for B2:
 (1) learned native-memory-only mixer, parameter-matched as far as possible;
 (2) first early FPN only, second only, both;
 (3) spatially shuffled early features;
@@ -121,18 +126,18 @@ Mechanism ablations for B3:
 (5) native no-object gate ON vs OFF;
 (6) conditioning memory preserved vs explicitly enriched.
 
-B2 historical fixed-prompt results changed 578/578 retained-index records but
+B3 historical fixed-prompt *scoring-only* results changed 578/578 retained-index records but
 showed essentially no segmentation change (mean Dice ~0.49556 in both arms).
 The historical 4-video RMFA memory-mask-only arm rose from 0.3882 to 0.3979
 patient-macro Dice, with 108/120 rather than 107/120 empty-frame alarms.
 Both records are exploratory, on previously examined sequences. Neither
-is a result for B3; neither proves an improvement from the new module.
+is a result for the trained B2 fusion arm; neither proves an improvement from the new module.
 
 ## Verification and promotion gates
 
 1. Run Python syntax and CPU tests. Prohibit untrained learned evaluation,
    mismatch checkpoints, conflicting hooks, non-finite and wrong-shape inputs.
-2. On a frozen short **DEV** video, check native vs B1 frame-level masks,
+2. On a frozen short **DEV** video, check native B0 vs B1 frame-level masks,
    logits, obj-pointers, spatial memory and positions, TAMP indices,
    TCIM protected bank, retained token counts and output hashes.
    Any discrepancy blocks further testing.
@@ -141,7 +146,7 @@ is a result for B3; neither proves an improvement from the new module.
    teacher-preservation weight before DEV tuning. Do not use GT at inference.
 4. Train at least 3 predetermined seeds, select hyperparameters on a
    group-disjoint DEV set, then freeze weights, prompts and code SHA256.
-5. Evaluate B0, B2, B3, B4, B5 on exactly matched automatic prompts and
+5. Evaluate B0, B1, and trained B2 on exactly matched automatic prompts and
    patient/source groups. Do not compare oracle-initialized baselines with
    automatic variants as if matched. Previously examined PolypGen videos
    are development evidence, not pristine external TEST.

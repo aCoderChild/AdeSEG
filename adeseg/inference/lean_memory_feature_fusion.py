@@ -106,13 +106,35 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
         if enriched.shape != native.shape or enriched.dtype != native.dtype:
             raise RuntimeError('Memory fusion changed native token geometry')
         if telemetry is not None:
-            telemetry.append({
-                'frame_idx': int(context['frame']),
-                'conditioning': bool(context['conditioning']),
-                'native_token_count': int(native.shape[-2] * native.shape[-1]),
-                'enriched_token_count': int(enriched.shape[-2] * enriched.shape[-1]),
-                'changed_elements': int(torch.count_nonzero(enriched != native).item()),
-            })
+            # Lean-SAM2 stores spatial memory as BF16 in the video predictor.
+            # Pre-conversion deltas can round to zero; measure both explicitly.
+            with torch.no_grad():
+                native_stored = native.detach().to(torch.bfloat16)
+                enriched_stored = enriched.detach().to(torch.bfloat16)
+                changed = enriched_stored != native_stored
+                stored_delta = enriched_stored.float() - native_stored.float()
+                changed_spatial = torch.any(changed, dim=1)
+                before_norm = native.detach().float().square().mean().sqrt()
+                telemetry.append({
+                    'frame_idx': int(context['frame']),
+                    'conditioning': bool(context['conditioning']),
+                    'native_token_count': int(native.shape[-2] * native.shape[-1]),
+                    'enriched_token_count': int(enriched.shape[-2] * enriched.shape[-1]),
+                    'changed_elements': int(torch.count_nonzero(enriched != native).item()),
+                    'changed_elements_after_bf16': int(changed.sum().item()),
+                    'changed_spatial_positions_after_bf16': int(changed_spatial.sum().item()),
+                    'fraction_spatial_positions_changed_after_bf16': float(
+                        changed_spatial.float().mean().item()
+                    ),
+                    'mean_abs_delta_after_bf16': float(stored_delta.abs().mean().item()),
+                    'relative_l2_delta_after_bf16': float(
+                        stored_delta.square().mean().sqrt().div(before_norm.clamp_min(1e-6)).item()
+                    ),
+                    'native_memory_rms': float(before_norm.item()),
+                    'early_fpn_rms': [
+                        float(e.detach().float().square().mean().sqrt().item()) for e in early
+                    ],
+                })
         return enriched, native_position
 
     # The predictor owns its methods again immediately after leaving the scope.
