@@ -105,6 +105,22 @@ def test_all_matched_input_modes_preserve_native_memory_contract():
         single(early[:1], native, mask, score, input_mode="early1_only")
 
 
+def test_both_early_scales_have_a_differentiable_path_to_memory():
+    fusion = EarlyFeatureMemoryFusion(CFG).train()
+    # At identity initialization the last projection is zero, so gradients
+    # reach the early branches only after that projection starts learning.
+    with torch.no_grad():
+        fusion.output_projection.weight.fill_(0.02)
+    early, native, mask, presence = inputs()
+    early = [x.detach().requires_grad_(True) for x in early]
+    out = fusion(early, native, mask, presence)
+    out.square().mean().backward()
+    for feature in early:
+        assert feature.grad is not None
+        assert torch.isfinite(feature.grad).all()
+        assert feature.grad.abs().sum() > 0
+
+
 def test_target_anchor_similarity_drift_is_a_separate_diagnostic():
     class AnchorAwarePredictor(FakePinnedLean):
         def track_step(self, frame_idx, is_init_cond_frame, current_vision_feats,
