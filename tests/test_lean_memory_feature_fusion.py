@@ -86,6 +86,54 @@ def test_pinned_lean_hiera_bplus_fpn_channels_and_memory_identity():
         model([torch.randn(1, 256, 8, 8), early[1]], native, mask, presence)
 
 
+def test_all_matched_input_modes_preserve_native_memory_contract():
+    fusion = EarlyFeatureMemoryFusion(CFG).eval()
+    make_trained(fusion)
+    early, native, mask, score = inputs()
+    for mode in fusion.INPUT_MODES:
+        enriched = fusion(early, native, mask, score, input_mode=mode)
+        assert enriched.shape == native.shape
+        assert enriched.dtype == native.dtype
+        assert torch.isfinite(enriched).all()
+    with pytest.raises(ValueError, match="input_mode"):
+        fusion(early, native, mask, score, input_mode="invalid")
+    with pytest.raises(ValueError, match="at least two"):
+        single = EarlyFeatureMemoryFusion(
+            MemoryFeatureFusionConfig(early_channels=(8,),
+                                      memory_channels=4, hidden_channels=8)
+        )
+        single(early[:1], native, mask, score, input_mode="early1_only")
+
+
+def test_target_anchor_similarity_drift_is_a_separate_diagnostic():
+    class AnchorAwarePredictor(FakePinnedLean):
+        def track_step(self, frame_idx, is_init_cond_frame, current_vision_feats,
+                       feat_sizes, pred_masks_high_res, object_score_logits,
+                       output_dict):
+            return self._encode_new_memory(
+                current_vision_feats=current_vision_feats,
+                feat_sizes=feat_sizes, pred_masks_high_res=pred_masks_high_res,
+                object_score_logits=object_score_logits,
+            )
+
+    predictor = AnchorAwarePredictor()
+    fusion = EarlyFeatureMemoryFusion(CFG).eval()
+    make_trained(fusion)
+    early, shapes, mask, scores = fake_inputs()
+    telemetry = []
+    anchors = {"anchor_mgr": {"anchor_tokens": torch.randn(3, 4)}}
+    with route_memory_feature_fusion(
+            predictor, fusion, telemetry=telemetry, input_mode="early0_only"):
+        predictor.track_step(1, False, early, shapes, mask, scores, anchors)
+    assert len(telemetry) == 1
+    row = telemetry[0]
+    assert row["fusion_input_mode"] == "early0_only"
+    assert row["anchor_reference_available"] is True
+    assert -1.0 <= row["anchor_similarity_native_mean"] <= 1.0
+    assert -1.0 <= row["anchor_similarity_enriched_mean"] <= 1.0
+    assert row["anchor_similarity_mean_abs_shift"] >= 0.0
+
+
 def test_checkpoint_rejects_dtype_conversion_overflow():
     model = EarlyFeatureMemoryFusion(CFG)
     payload = make_trained(EarlyFeatureMemoryFusion(CFG))
