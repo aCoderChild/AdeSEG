@@ -321,6 +321,8 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                 for x in valid_anchors) / anchor_count if anchor_count else None)
         summary[name] = {
             "fusion_input_mode": runs[name].get("fusion_input_mode", "full"),
+            "fusion_preserve_native_no_object": runs[name].get(
+                "fusion_preserve_native_no_object"),
             "native_tamp_index_records": sum(
                 int(x.get("tamp_index_dump", {}).get("records", 0))
                 for x in write_audits),
@@ -360,6 +362,10 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         "run_arm_mapping": {name: value["arm"] for name, value in runs.items()},
         "run_input_modes": {
             name: value.get("fusion_input_mode", "full") for name, value in runs.items()
+        },
+        "run_object_presence_gate_modes": {
+            name: value.get("fusion_preserve_native_no_object")
+            for name, value in runs.items()
         },
         "native_tamp_dump_enabled": bool(reference.get("dump_tamp_indices", False)),
         "provenance": {**{k: reference[k] for k in keys},
