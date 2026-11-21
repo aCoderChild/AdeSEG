@@ -94,6 +94,10 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             or set(reference["runtime_signature"]) != signature_keys):
         raise ValueError("Missing or incomplete execution provenance")
     for name, data in runs.items():
+        if bool(data.get("dump_tamp_indices", False)) != bool(
+                reference.get("dump_tamp_indices", False)):
+            raise ValueError(
+                "Mixed TAMP token-dump instrumentation across compared arms")
         if any(data.get(k) != reference.get(k) for k in keys):
             raise ValueError(f"Run {name} has unmatched backbone, split, dataset or prompts")
         if set(data.get("sequences", {})) != set(reference.get("sequences", {})):
@@ -302,6 +306,9 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                 for x in valid_anchors) / anchor_count if anchor_count else None)
         summary[name] = {
             "fusion_input_mode": runs[name].get("fusion_input_mode", "full"),
+            "native_tamp_index_records": sum(
+                int(x.get("tamp_index_dump", {}).get("records", 0))
+                for x in write_audits),
             "memory_writes_checked": writes_checked,
             "memory_writes_modified_after_bf16": writes_modified_after_storage,
             "effective_memory_writes_affecting_future": writes_affecting_future,
@@ -339,6 +346,7 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         "run_input_modes": {
             name: value.get("fusion_input_mode", "full") for name, value in runs.items()
         },
+        "native_tamp_dump_enabled": bool(reference.get("dump_tamp_indices", False)),
         "provenance": {**{k: reference[k] for k in keys},
                        "evaluation_manifest_sha256": evaluation_manifest_sha256,
                        "evaluation_label_files_sha256": gt_hasher.hexdigest()},
