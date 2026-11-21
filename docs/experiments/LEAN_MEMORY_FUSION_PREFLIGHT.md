@@ -74,6 +74,32 @@ The native memory is mask-conditioned in **all** modes, including `no_mask`.
 The mode `no_mask` only removes the **additional** mask input to the adapter.
 A control trained with one mode must never be presented as evidence for another.
 
+### Separately trained no-object-gate ablation
+
+The default memory adapter exactly preserves native memory when Lean-SAM2
+predicts the object absent. This prevents modification of its pretrained
+no-object representation but cannot correct a false-negative *presence
+decision*. An explicitly named alternative is now available **only during
+adapter training**:
+
+```bash
+python -m training.lean_memory_fusion \
+  --manifest "$CAPTURE_MANIFEST" --split-file "$SPLIT_FILE" \
+  --output "$OUT/checkpoints/full_allow_absent.pt" \
+  --backbone-sha256 "$BACKBONE_SHA" \
+  --input-mode full --allow-no-object-memory-fusion \
+  --epochs 5 --lr 1e-4 --preservation-weight 0.1 \
+  --seed 20261120 --device "$DEVICE"
+```
+
+Run this **after** the capture step and environment variables below have
+been established. Evaluate it using the existing `--arm fusion` inference
+runner with the matching new checkpoint SHA; the checkpoint's saved
+`preserve_native_no_object=False` configuration is authenticated and
+written to the run receipt. This is an **experimental risk ablation**, not
+a recommended default. It may create false positives or temporal drift.
+Compare GT-empty false alarms explicitly.
+
 ## Data and environment checks
 
 1. Freeze the repository commit and Lean-SAM2 submodule revision. Use the
@@ -216,7 +242,9 @@ python -m scripts.compare_native_tamp_indices \
 
 The comparison file `tamp_selection_overlap.json` records matched event
 counts, token-count mismatches as hard errors, missing events, and Jaccard
-overlap of **actual retained indices**. A changed top-K is not evidence
+overlap of **actual retained indices**. An **empty or incomplete paired
+event set fails closed** by default; `--allow-incomplete-events` is only
+for explicitly exploratory partial-coverage diagnostics. A changed top-K is not evidence
 that the selected tokens align better with the target; that still requires
 grounded region-level evaluation. Compare paired masks and Dice separately.
 The native Lean writer handles the dump without changing its TAMP policy;
