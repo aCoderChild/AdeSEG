@@ -162,17 +162,33 @@ def train(args):
     if not captures:
         raise ValueError("At least one genuine TRAIN capture is required")
     teacher_feasibility = audit_teacher_feasibility(captures, config)
+    # A hard no-object gate makes the adapter output exactly native memory
+    # for predicted-absent captures. Their teacher loss is independent of
+    # adapter weights, so they cannot supply useful training gradients.
+    trainable_capture_count = sum(
+        bool((c["object_score_logits"].reshape(-1) > 0).all().item())
+        for c in captures
+    ) if config.preserve_native_no_object else len(captures)
+    if not trainable_capture_count:
+        raise ValueError(
+            "No learnable memory captures: every predicted object is absent "
+            "while native no-object preservation is enabled")
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     model = EarlyFeatureMemoryFusion(config).to(args.device).train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     losses = []
     steps = 0
+    skipped_absent_updates = 0
     for epoch in range(args.epochs):
         order = list(range(len(captures)))
         random.Random(args.seed + epoch).shuffle(order)
         for index in order:
             c = captures[index]
+            if (config.preserve_native_no_object
+                    and not bool((c["object_score_logits"].reshape(-1) > 0).all().item())):
+                skipped_absent_updates += 1
+                continue
             early = [x.to(args.device) for x in c["early"]]
             native = c["native_memory"].to(args.device)
             teacher = c["teacher_memory"].to(args.device)
@@ -214,6 +230,8 @@ def train(args):
         "lr": args.lr,
         "preservation_weight": args.preservation_weight,
         "capture_count": len(captures),
+        "trainable_capture_count": trainable_capture_count,
+        "skipped_predicted_absent_updates": skipped_absent_updates,
         "source_groups": before["train_source_groups"],
         "last_train_loss": losses[-1],
         "teacher_feasibility": teacher_feasibility,
@@ -232,6 +250,8 @@ def train(args):
         "implementation_sha256": payload["implementation_sha256"],
         "training_source_sha256": payload["training_source_sha256"],
         "capture_count": len(captures),
+        "trainable_capture_count": trainable_capture_count,
+        "skipped_predicted_absent_updates": skipped_absent_updates,
         "last_train_loss": losses[-1],
         "teacher_feasibility": teacher_feasibility,
         "warning": "TRAIN oracle-memory distillation; no future-frame or TEST Dice measured",
