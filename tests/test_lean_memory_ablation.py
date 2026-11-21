@@ -7,7 +7,9 @@ import pytest
 from PIL import Image
 
 from datasets.video import ManifestFrame, load_manifest
-from scripts.run_lean_memory_fusion_ablation import file_sha256, load_frozen_prompts
+from scripts.run_lean_memory_fusion_ablation import (
+    file_sha256, load_frozen_prompts, verify_learned_causal_effectiveness,
+)
 from scripts.score_lean_memory_ablations import score_runs, FORMAT
 
 
@@ -274,6 +276,23 @@ def test_intermediate_memory_budget_variation_is_visible(tmp_path):
                         tmp_path / "mid_budget_report")
     assert report["summary"]["fusion"]["resident_spatial_and_insurance_matched"]
     assert not report["summary"]["fusion"]["all_frame_resident_budgets_matched"]
+
+
+def test_causal_effectiveness_guard_rejects_final_frame_only_writes():
+    # Frame 2 is the last scored frame: writing memory then does not help it.
+    with pytest.raises(RuntimeError, match="no BF16-visible memory changes"):
+        verify_learned_causal_effectiveness({
+            "seq_a": {"status": "completed", "predictions": [{}, {}],
+                      "effective_memory_writes_affecting_future": 0}
+        })
+    # Videos with absent objects may have no effective writes; other videos
+    # must still be allowed to demonstrate causal interventions.
+    assert verify_learned_causal_effectiveness({
+        "absent": {"status": "completed", "predictions": [{}, {}],
+                   "effective_memory_writes_affecting_future": 0},
+        "present": {"status": "completed", "predictions": [{}, {}, {}],
+                    "effective_memory_writes_affecting_future": 1},
+    }) == 2
 
 
 def test_scoring_reports_effective_memory_writes_and_anchor_drift(tmp_path):
