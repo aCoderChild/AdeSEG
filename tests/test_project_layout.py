@@ -31,8 +31,13 @@ def test_historical_compatibility_sources_still_present():
 
 
 def test_three_module_scientific_structure_and_experiment_docs():
+    # FGPI and TTMR are canonical module packages, not flat *.py files.
+    # This must agree with test_contribution_algorithms_live_in_canonical_module_packages.
+    for name in ("fgpi", "ttmr"):
+        assert (ROOT / "adeseg" / "modules" / name / "__init__.py").is_file()
+        assert not (ROOT / "adeseg" / "modules" / f"{name}.py").exists()
+    assert (ROOT / "adeseg" / "modules" / "rmfa.py").is_file()
     for name in ("fgpi", "rmfa", "ttmr"):
-        assert (ROOT / "adeseg" / "modules" / f"{name}.py").is_file()
         assert (ROOT / "docs" / "methodology" / f"{name.upper()}.md").is_file()
     assert (ROOT / "adeseg" / "modules" / "__init__.py").is_file()
     assert not (ROOT / "legacy").exists()
