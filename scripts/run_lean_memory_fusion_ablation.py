@@ -418,11 +418,19 @@ def run(args):
         require_jpeg=True, safe_output_ids=True, require_masks=False,
     )
     frozen = load_frozen_prompts(prompt_manifest, videos)
-    # Validate all parameters and the source-bound adapter BEFORE creating output.
+    # Validate the source-bound adapter BEFORE creating output. Save its
+    # authenticated identity independently of the per-video loop: sequences
+    # without a frozen initialization must not leave provenance undefined.
+    fusion_digest = None
+    preserve_native_no_object = None
     if args.arm in ("identity", "fusion"):
-        get_fusion(args.arm, args.fusion_checkpoint, args.fusion_sha256,
-                   args.checkpoint_sha256, args.train_manifest_sha256,
-                   "cpu", input_mode=input_mode)
+        preview, fusion_digest = get_fusion(
+            args.arm, args.fusion_checkpoint, args.fusion_sha256,
+            args.checkpoint_sha256, args.train_manifest_sha256,
+            "cpu", input_mode=input_mode)
+        if args.arm == "fusion":
+            preserve_native_no_object = bool(preview.config.preserve_native_no_object)
+        del preview
     output.mkdir(parents=True)
     sequences = {}
     for video_id, frames in sorted(videos.items()):
@@ -433,11 +441,16 @@ def run(args):
             SimpleNamespace(method="lean", checkpoint=checkpoint, device=args.device),
             repo,
         )
-        fusion, fusion_digest = get_fusion(
+        fusion, video_fusion_digest = get_fusion(
             args.arm, args.fusion_checkpoint, args.fusion_sha256,
             args.checkpoint_sha256, args.train_manifest_sha256,
             args.device, input_mode=input_mode,
         )
+        if video_fusion_digest != fusion_digest:
+            raise RuntimeError("Authenticated fusion checkpoint changed during evaluation")
+        if (args.arm == "fusion" and
+                fusion.config.preserve_native_no_object != preserve_native_no_object):
+            raise RuntimeError("Memory presence-gate configuration changed across videos")
         folder = output / "predictions" / video_id
         folder.mkdir(parents=True, exist_ok=False)
         sequences[video_id] = infer_sequence(
@@ -477,6 +490,7 @@ def run(args):
         "track": "lean_sam2_hiera_bplus",
         "arm": args.arm,
         "fusion_input_mode": input_mode,
+        "fusion_preserve_native_no_object": preserve_native_no_object,
         "dump_tamp_indices": bool(getattr(args, "dump_tamp_indices", False)),
         "split": args.split,
         "label_id": args.label_id,
