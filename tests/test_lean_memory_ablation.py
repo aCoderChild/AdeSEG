@@ -9,6 +9,7 @@ from PIL import Image
 from datasets.video import ManifestFrame, load_manifest
 from scripts.run_lean_memory_fusion_ablation import (
     file_sha256, load_frozen_prompts, verify_learned_causal_effectiveness,
+    verify_native_tamp_dump,
 )
 from scripts.score_lean_memory_ablations import score_runs, FORMAT
 
@@ -276,6 +277,31 @@ def test_intermediate_memory_budget_variation_is_visible(tmp_path):
                         tmp_path / "mid_budget_report")
     assert report["summary"]["fusion"]["resident_spatial_and_insurance_matched"]
     assert not report["summary"]["fusion"]["all_frame_resident_budgets_matched"]
+
+
+def test_native_tamp_dump_checks_range_uniqueness_and_checksum(tmp_path):
+    dump = tmp_path / "ours_retained_tokens.jsonl"
+    assert verify_native_tamp_dump(dump)["records"] == 0
+    row = {
+        "event": "ours_retained_latest_memory_tokens",
+        "num_total_tokens": 8, "num_retained_tokens": 3,
+        "retained_token_indices": [0, 2, 7],
+        "main_keep_indices": [0, 2],
+        "usage_only_keep_indices": [2, 3],
+        "diversity_complement_indices": [7],
+    }
+    dump.write_text(json.dumps(row) + "\n", encoding="utf8")
+    valid = verify_native_tamp_dump(dump)
+    assert valid["records"] == 1
+    assert valid["sha256"] == file_sha256(dump)
+    row["retained_token_indices"] = [0, 2, 8]
+    dump.write_text(json.dumps(row) + "\n", encoding="utf8")
+    with pytest.raises(RuntimeError, match="retained-token"):
+        verify_native_tamp_dump(dump)
+    row["retained_token_indices"] = [0, 2, 2]
+    dump.write_text(json.dumps(row) + "\n", encoding="utf8")
+    with pytest.raises(RuntimeError, match="retained-token"):
+        verify_native_tamp_dump(dump)
 
 
 def test_causal_effectiveness_guard_rejects_final_frame_only_writes():
