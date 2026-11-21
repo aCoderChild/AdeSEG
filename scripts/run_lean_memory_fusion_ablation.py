@@ -278,10 +278,8 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
             raise RuntimeError("Zero-residual identity violated")
         if arm == "identity" and effective_future_writes:
             raise RuntimeError("Identity control changed the BF16 memory bank")
-        if arm == "fusion" and len(staged_frames) >= 3 and not effective_future_writes:
-            raise RuntimeError(
-                "No BF16-visible enriched memory was written early enough to "
-                "affect another scored frame; this sequence cannot test propagation")
+        # A per-sequence zero is a valid observation (e.g. predicted absence).
+        # Abort only when an entire fusion run has no causally effective writes.
     return {
         "status": "completed",
         "prompt_frame_index": prompt["frame_index"],
@@ -366,6 +364,17 @@ def run(args):
         )
         print(f"[{args.arm}] {video_id}: {len(sequences[video_id]['predictions'])} propagated frames", flush=True)
         del model, fusion
+    if args.arm == "fusion":
+        eligible = [
+            r for r in sequences.values()
+            if r.get("status") == "completed" and len(r["predictions"]) >= 2
+        ]
+        if eligible and not any(
+                r.get("effective_memory_writes_affecting_future", 0) > 0
+                for r in eligible):
+            raise RuntimeError(
+                "Trained fusion produced no BF16-visible memory changes that "
+                "could influence a later scored frame in the entire cohort")
     root = Path(__file__).resolve().parents[1]
     source_head = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
