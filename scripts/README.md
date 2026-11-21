@@ -2,6 +2,33 @@
 
 This directory holds executable research entrypoints. The **method** is described under [docs/methodology](../docs/methodology/OVERVIEW.md), while commands, data and checkpoints are deliberately kept independent.
 
+## Active Lean-SAM2 multiscale memory-write experiment
+
+This is a **separate experimental path** from the original output-logit
+RMFA refiner or TTMR token selector. It begins from an externally frozen
+automatic **mask** prompt; YOLO/FGPI is not called inline.
+
+| Command | Purpose |
+|---|---|
+| `python -m scripts.capture_lean_memory_train` | TRAIN-only predicted/native versus GT-conditioned teacher-memory pairs; GT never written into inference bank |
+| `python -m training.lean_memory_fusion --input-mode full` | Train bounded residual memory fusion from sealed captures |
+| `python -m scripts.run_lean_memory_fusion_ablation --arm native` | Native Lean baseline from frozen automatic masks |
+| `python -m scripts.run_lean_memory_fusion_ablation --arm identity` | Zero-residual routing parity control |
+| `python -m scripts.run_lean_memory_fusion_ablation --arm fusion` | Trained full or separately trained input-mode controls |
+| `python -m scripts.score_lean_memory_ablations` | Independent paired video-level Dice/IoU, false alarms and memory telemetry |
+| `python -m scripts.compare_native_tamp_indices` | Strict paired native TAMP retained-index overlap from opt-in dumps |
+
+**Run with identical source commit, model checkpoint and frozen prompts.**
+TAMP overlap analysis rejects no matches and incomplete event coverage
+unless `--allow-incomplete-events` explicitly opts into an **exploratory**
+partial comparison. It does not measure segmentation accuracy.
+
+Use the exact commands and provenance requirements in the
+[Lean memory-fusion experiment preflight](../docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md).
+A trained checkpoint is not evidence of improved future-frame Dice.
+
+## Historical / independent modules
+
 ## FGPI — automatic initialization
 
 | Step | Command | Output |
