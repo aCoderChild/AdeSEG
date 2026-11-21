@@ -11,6 +11,7 @@ import inspect
 from types import MethodType
 
 import torch
+import torch.nn.functional as F
 
 from modeling.lean_memory_feature_fusion import EarlyFeatureMemoryFusion
 
@@ -19,7 +20,8 @@ from modeling.lean_memory_feature_fusion import EarlyFeatureMemoryFusion
 def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
                                 identity_control: bool = False,
                                 include_conditioning: bool = False,
-                                telemetry: list | None = None):
+                                telemetry: list | None = None,
+                                input_mode: str = 'full'):
     """Temporarily enrich native _encode_new_memory output during track_step.
 
     Enrichment is applied to non-conditioning frames by default. Direct
@@ -32,6 +34,8 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
     if (type(identity_control) is not bool or type(include_conditioning) is not bool
             or (telemetry is not None and not isinstance(telemetry, list))):
         raise ValueError('Invalid memory fusion routing options')
+    if input_mode not in fusion.INPUT_MODES:
+        raise ValueError('Invalid memory fusion input mode')
     if predictor.training or fusion.training:
         raise ValueError('Memory fusion inference requires both modules in eval mode')
     if identity_control:
@@ -60,7 +64,8 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
             or any(x not in encode_sig.parameters for x in encoder_args)):
         raise RuntimeError('Pinned Lean-SAM2 method signatures have changed')
 
-    context = {'active': False, 'conditioning': False, 'frame': None}
+    context = {'active': False, 'conditioning': False, 'frame': None,
+               'anchor_mgr': None}
 
     def wrapped_track(self, *args, **kwargs):
         if context['active']:
@@ -70,11 +75,15 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
         conditional = bound.arguments['is_init_cond_frame']
         if type(conditional) is not bool:
             raise ValueError('is_init_cond_frame must be explicitly boolean')
-        context.update(active=True, conditioning=conditional, frame=bound.arguments['frame_idx'])
+        output_dict = bound.arguments.get('output_dict')
+        anchor_mgr = output_dict.get('anchor_mgr') if isinstance(output_dict, dict) else None
+        context.update(active=True, conditioning=conditional,
+                       frame=bound.arguments['frame_idx'], anchor_mgr=anchor_mgr)
         try:
             return track(*args, **kwargs)
         finally:
-            context.update(active=False, conditioning=False, frame=None)
+            context.update(active=False, conditioning=False, frame=None,
+                           anchor_mgr=None)
 
     def wrapped_encode(self, *args, **kwargs):
         # Always let the pretrained memory encoder build its actual
@@ -102,7 +111,8 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
                     or fmap.shape[0] != int(hw[0]) * int(hw[1])):
                 raise ValueError('Native FPN token-to-spatial mapping mismatch')
             early.append(fmap.permute(1, 2, 0).reshape(batch, fmap.shape[2], *hw))
-        enriched = fusion(early, native, a['pred_masks_high_res'], a['object_score_logits'])
+        enriched = fusion(early, native, a['pred_masks_high_res'],
+                          a['object_score_logits'], input_mode=input_mode)
         if enriched.shape != native.shape or enriched.dtype != native.dtype:
             raise RuntimeError('Memory fusion changed native token geometry')
         if telemetry is not None:
@@ -115,9 +125,40 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
                 stored_delta = enriched_stored.float() - native_stored.float()
                 changed_spatial = torch.any(changed, dim=1)
                 before_norm = native.detach().float().square().mean().sqrt()
+                # Compare memory-space target similarity using the same fixed
+                # conditioning-frame anchors. This is NOT a TAMP selection
+                # measurement: attention-usage scores arrive on a later read.
+                anchor_stats = {
+                    'anchor_reference_available': False,
+                    'anchor_similarity_native_mean': None,
+                    'anchor_similarity_enriched_mean': None,
+                    'anchor_similarity_mean_abs_shift': None,
+                }
+                mgr = context['anchor_mgr']
+                anchors = mgr.get('anchor_tokens') if isinstance(mgr, dict) else None
+                if (isinstance(anchors, torch.Tensor) and anchors.ndim == 2
+                        and anchors.shape[0] > 0 and native.shape[0] == 1
+                        and anchors.shape[1] == native.shape[1]):
+                    refs = F.normalize(anchors.detach().float().to(native.device),
+                                       dim=1, eps=1e-6)
+                    x0 = F.normalize(native_stored.flatten(2)[0].float().T,
+                                     dim=1, eps=1e-6)
+                    x1 = F.normalize(enriched_stored.flatten(2)[0].float().T,
+                                     dim=1, eps=1e-6)
+                    sim_native = (x0 @ refs.T).amax(dim=1)
+                    sim_enriched = (x1 @ refs.T).amax(dim=1)
+                    anchor_stats = {
+                        'anchor_reference_available': True,
+                        'anchor_similarity_native_mean': float(sim_native.mean().item()),
+                        'anchor_similarity_enriched_mean': float(sim_enriched.mean().item()),
+                        'anchor_similarity_mean_abs_shift': float(
+                            (sim_enriched - sim_native).abs().mean().item()),
+                    }
                 telemetry.append({
                     'frame_idx': int(context['frame']),
                     'conditioning': bool(context['conditioning']),
+                    'fusion_input_mode': input_mode,
+                    **anchor_stats,
                     'native_token_count': int(native.shape[-2] * native.shape[-1]),
                     'enriched_token_count': int(enriched.shape[-2] * enriched.shape[-1]),
                     'changed_elements': int(torch.count_nonzero(enriched != native).item()),
