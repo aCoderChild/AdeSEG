@@ -12,6 +12,7 @@ from scripts.run_lean_memory_fusion_ablation import (
     verify_native_tamp_dump,
 )
 from scripts.score_lean_memory_ablations import score_runs, FORMAT
+from scripts.compare_native_tamp_indices import compare_runs
 
 
 def png(path, array):
@@ -277,6 +278,35 @@ def test_intermediate_memory_budget_variation_is_visible(tmp_path):
                         tmp_path / "mid_budget_report")
     assert report["summary"]["fusion"]["resident_spatial_and_insurance_matched"]
     assert not report["summary"]["fusion"]["all_frame_resident_budgets_matched"]
+
+
+def test_paired_native_tamp_overlap_uses_exact_matched_events(tmp_path):
+    manifest, prompts, videos = benchmark(tmp_path)
+    native = make_run(tmp_path, manifest, prompts, videos, "native", "native")
+    fusion = make_run(tmp_path, manifest, prompts, videos, "fusion", "fusion")
+    for root, indices in ((native, [0, 1]), (fusion, [1, 2])):
+        receipt_file = root / "receipt.json"
+        receipt = json.loads(receipt_file.read_text())
+        receipt["dump_tamp_indices"] = True
+        for video in videos:
+            path = (root / "predictions" / video / "tamp_indices"
+                    / "ours_retained_tokens.jsonl")
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({
+                "event": "ours_retained_latest_memory_tokens",
+                "frame_idx": 2, "memory_frame_idx": 1, "object_id": 1,
+                "num_total_tokens": 4, "num_retained_tokens": 2,
+                "retained_token_indices": indices,
+            }) + "\n", encoding="utf8")
+            receipt["sequences"][video]["tamp_index_dump"] = {
+                "records": 1, "sha256": file_sha256(path),
+            }
+        receipt_file.write_text(json.dumps(receipt))
+    result = compare_runs(native, fusion, tmp_path / "tamp_compare")
+    assert result["matched_events"] == 2
+    assert result["mean_jaccard"] == pytest.approx(1/3)
+    assert result["identical_selection_fraction"] == 0
+    assert (tmp_path / "tamp_compare" / "tamp_selection_overlap.json").is_file()
 
 
 def test_native_tamp_dump_checks_range_uniqueness_and_checksum(tmp_path):
