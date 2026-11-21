@@ -121,6 +121,38 @@ def test_both_early_scales_have_a_differentiable_path_to_memory():
         assert feature.grad.abs().sum() > 0
 
 
+def test_target_anchors_initialized_inside_track_are_visible_to_memory_write():
+    # Reproduce Lean-SAM2's late anchor creation in memory attention:
+    # the output dictionary has no anchors when the track hook enters.
+    class LateAnchorPredictor(FakePinnedLean):
+        def track_step(self, frame_idx, is_init_cond_frame, current_vision_feats,
+                       feat_sizes, pred_masks_high_res, object_score_logits,
+                       output_dict):
+            assert "anchor_mgr" not in output_dict
+            output_dict["anchor_mgr"] = {
+                "initialized": True,
+                "anchor_tokens": torch.randn(3, 4),
+            }
+            return self._encode_new_memory(
+                current_vision_feats=current_vision_feats,
+                feat_sizes=feat_sizes,
+                pred_masks_high_res=pred_masks_high_res,
+                object_score_logits=object_score_logits,
+            )
+
+    fusion = EarlyFeatureMemoryFusion(CFG).eval()
+    make_trained(fusion)
+    predictor = LateAnchorPredictor()
+    levels, sizes, mask, score = fake_inputs()
+    output_dict = {}
+    telemetry = []
+    with route_memory_feature_fusion(predictor, fusion, telemetry=telemetry):
+        predictor.track_step(1, False, levels, sizes, mask, score, output_dict)
+    assert len(telemetry) == 1
+    assert telemetry[0]["anchor_reference_available"] is True
+    assert telemetry[0]["anchor_similarity_mean_abs_shift"] is not None
+
+
 def test_target_anchor_similarity_drift_is_a_separate_diagnostic():
     class AnchorAwarePredictor(FakePinnedLean):
         def track_step(self, frame_idx, is_init_cond_frame, current_vision_feats,
