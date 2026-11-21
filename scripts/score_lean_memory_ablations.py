@@ -136,6 +136,21 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         # final resident snapshot. These are storage counters, not full VRAM.
         frame_budget = {}
         for name, record in records.items():
+            if bool(reference.get("dump_tamp_indices", False)):
+                audit = record.get("tamp_index_dump")
+                if (not isinstance(audit, dict)
+                        or type(audit.get("records")) is not int
+                        or audit["records"] < 0):
+                    raise ValueError(f"Missing native TAMP dump receipt: {video}:{name}")
+                digest = audit.get("sha256")
+                log_path = roots[name] / "predictions" / video / "tamp_indices" / "ours_retained_tokens.jsonl"
+                if digest is None:
+                    if log_path.exists() or audit["records"] != 0:
+                        raise ValueError(f"Unexpected native TAMP log without checksum: {video}:{name}")
+                elif (not isinstance(digest, str) or len(digest) != 64
+                      or log_path.is_symlink() or not log_path.is_file()
+                      or sha(log_path) != digest):
+                    raise ValueError(f"Native TAMP token dump checksum mismatch: {video}:{name}")
             resident = record.get("resident_memory")
             resident_keys = {
                 "resident_frame_entries", "resident_spatial_tokens",
