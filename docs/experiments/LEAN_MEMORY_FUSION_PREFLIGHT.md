@@ -4,6 +4,10 @@
 **not** adenoid-specific clinical validation. This protocol does **not**
 modify native SAM2 image/memory encoders, decoder, TAMP, TCIM or TARR.
 
+See also the [source-level architectural and mathematical audit](../methodology/LEAN_MEMORY_ENRICHMENT_AUDIT.md)
+for the exact FPN feature identity, invariants, theorem assumptions and
+limits of what can be proved without video experiments.
+
 ## Scientific question and integration point
 
 At each non-conditioning frame `t`, the native predictor first segments
@@ -39,9 +43,12 @@ Sources:
   enriched memory on the **memory write**. It is NOT actual TAMP attention usage,
   retention-index overlap, or improved target discrimination.
 - BF16 may eliminate tiny residual corrections. Check
-  `memory_writes_quantized_changed` and
-  `effective_memory_write_fraction`. No effective writes means the adapter
-  is not a meaningful memory intervention, even if its FP32 tensor changed.
+  `memory_writes_quantized_changed`,
+  `effective_memory_writes_affecting_future`, and
+  `effective_memory_write_fraction`. A change written only on the final
+  frame cannot improve a subsequent evaluated mask. A trained run with no
+  BF16-effective future-facing write fails closed when the cohort has
+  at least one eligible multi-frame video.
 - No extra stored memory tokens does **not** imply zero additional compute.
 - Conditioning-frame memory remains native in the default experiment. This
   deliberately keeps the initial target anchors fixed, but can create
@@ -184,6 +191,9 @@ must reference the exact same source images/frame IDs.
   no-object behavior, and unchanged memory-writing geometry.
 - Inspect whether full fusion improves **paired sequence-level** Dice/IoU vs
   native and vs `no_early`; inspect GT-empty false alarms and temporal errors.
+  For a strict TAMP interaction experiment, add `--require-target-anchors`
+  to the fusion inference invocation so missing/disabled target anchors cannot
+  silently pass as an anchor-aware result.
 - Compare `early0_only` and `early1_only` to full for scale complementarity;
   compare `no_mask` to full for redundant/error-amplifying mask guidance.
 - Treat native-anchor cosine shifts as **representation drift**, not proof of
