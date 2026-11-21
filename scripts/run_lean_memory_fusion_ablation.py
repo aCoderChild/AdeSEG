@@ -264,6 +264,10 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
                     predictor.reset_state(state)
     if len(rows) != len(staged_frames) - 1:
         raise RuntimeError("Incomplete Lean propagation")
+    effective_future_writes = sum(
+        t["changed_elements_after_bf16"] > 0 and
+        t["frame_idx"] < len(staged_frames) - 1
+        for t in telemetry)
     if fusion is not None:
         # A learned fusion that never executes is NOT an evaluated intervention.
         if rows and len(telemetry) == 0:
@@ -272,6 +276,12 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
             raise RuntimeError("Memory token budget changed")
         if arm == "identity" and any(t["changed_elements"] for t in telemetry):
             raise RuntimeError("Zero-residual identity violated")
+        if arm == "identity" and effective_future_writes:
+            raise RuntimeError("Identity control changed the BF16 memory bank")
+        if arm == "fusion" and len(staged_frames) >= 3 and not effective_future_writes:
+            raise RuntimeError(
+                "No BF16-visible enriched memory was written early enough to "
+                "affect another scored frame; this sequence cannot test propagation")
     return {
         "status": "completed",
         "prompt_frame_index": prompt["frame_index"],
@@ -281,6 +291,7 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
         "predictions": rows,
         "memory_writes_checked": len(telemetry),
         "memory_writes_modified": sum(t["changed_elements"] > 0 for t in telemetry),
+        "effective_memory_writes_affecting_future": effective_future_writes,
         "resident_memory": resident,
         "per_frame_resident_memory": frame_memory_snapshots,
         "memory_writes_quantized_changed": sum(
