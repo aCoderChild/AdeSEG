@@ -66,6 +66,9 @@ class EarlyFeatureMemoryFusion(nn.Module):
     """
 
     CHECKPOINT_FORMAT = 'adeseg_lean_early_memory_fusion_v1'
+    # Matched, separately trained attribution controls. Removing an input at
+    # inference from a FULL checkpoint is a distribution-shift diagnostic only.
+    INPUT_MODES = ('full', 'no_early', 'early0_only', 'early1_only', 'no_mask')
 
     def __init__(self, config: MemoryFeatureFusionConfig | None = None):
         super().__init__()
@@ -97,7 +100,12 @@ class EarlyFeatureMemoryFusion(nn.Module):
 
     def forward(self, early: Sequence[torch.Tensor], native_memory: torch.Tensor,
                 predicted_mask_logits: torch.Tensor,
-                object_score_logits: torch.Tensor) -> torch.Tensor:
+                object_score_logits: torch.Tensor, *,
+                input_mode: str = 'full') -> torch.Tensor:
+        if input_mode not in self.INPUT_MODES:
+            raise ValueError('Unknown memory-fusion input_mode')
+        if input_mode == 'early1_only' and len(self.early_projections) < 2:
+            raise ValueError('early1_only requires at least two early FPN levels')
         c = self.config
         if (not isinstance(early, (tuple, list))
                 or len(early) != len(self.early_projections)):
@@ -143,10 +151,22 @@ class EarlyFeatureMemoryFusion(nn.Module):
                   .to(dtype=compute_type))
             for layer, feat in zip(self.early_projections, early)
         ]
+        # Keep the exact channel contract in every control. Input modes are
+        # chosen BEFORE training, never silently switched after checkpoint load.
+        if input_mode == 'no_early':
+            projections = [torch.zeros_like(x) for x in projections]
+        elif input_mode == 'early0_only':
+            projections = [x if i == 0 else torch.zeros_like(x)
+                           for i, x in enumerate(projections)]
+        elif input_mode == 'early1_only':
+            projections = [x if i == 1 else torch.zeros_like(x)
+                           for i, x in enumerate(projections)]
         base = native_memory.to(dtype=compute_type)
         projections.append(self.memory_projection(base))
         mask = torch.sigmoid(predicted_mask_logits.float())
         mask = F.interpolate(mask, size=target_hw, mode='area').to(dtype=compute_type)
+        if input_mode == 'no_mask':
+            mask = torch.zeros_like(mask)
         signal = self.mixer(torch.cat((*projections, mask), dim=1))
         residual = self.output_projection(signal)
 
