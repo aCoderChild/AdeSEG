@@ -64,8 +64,11 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
             or any(x not in encode_sig.parameters for x in encoder_args)):
         raise RuntimeError('Pinned Lean-SAM2 method signatures have changed')
 
+    # Retain the mutable per-object output dictionary, not a snapshot of
+    # anchor_mgr. Lean-SAM2 can CREATE anchor_mgr inside memory attention,
+    # after track_step is entered but before _encode_new_memory is called.
     context = {'active': False, 'conditioning': False, 'frame': None,
-               'anchor_mgr': None}
+               'output_dict': None}
 
     def wrapped_track(self, *args, **kwargs):
         if context['active']:
@@ -76,14 +79,16 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
         if type(conditional) is not bool:
             raise ValueError('is_init_cond_frame must be explicitly boolean')
         output_dict = bound.arguments.get('output_dict')
-        anchor_mgr = output_dict.get('anchor_mgr') if isinstance(output_dict, dict) else None
+        if output_dict is not None and not isinstance(output_dict, dict):
+            raise ValueError('Lean-SAM2 output_dict is not a mapping')
         context.update(active=True, conditioning=conditional,
-                       frame=bound.arguments['frame_idx'], anchor_mgr=anchor_mgr)
+                       frame=bound.arguments['frame_idx'],
+                       output_dict=output_dict)
         try:
             return track(*args, **kwargs)
         finally:
             context.update(active=False, conditioning=False, frame=None,
-                           anchor_mgr=None)
+                           output_dict=None)
 
     def wrapped_encode(self, *args, **kwargs):
         # Always let the pretrained memory encoder build its actual
@@ -135,7 +140,10 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
             raise ValueError('Live early-FPN scale hierarchy disagrees with native memory')
         # Fail closed on malformed anchors rather than silently omitting
         # an invalid cosine similarity diagnostic.
-        mgr = context['anchor_mgr']
+        # Read target anchors AFTER native mask decoding and memory attention,
+        # as the pinned Lean-SAM2 path may initialize them mid-track_step.
+        output_dict = context['output_dict']
+        mgr = output_dict.get('anchor_mgr') if isinstance(output_dict, dict) else None
         anchors = mgr.get('anchor_tokens') if isinstance(mgr, dict) else None
         if anchors is not None and (
                 not isinstance(anchors, torch.Tensor) or anchors.ndim != 2
