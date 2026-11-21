@@ -302,7 +302,9 @@ def test_live_routing_rejects_corrupted_memory_position_and_anchor():
 def test_live_routing_rejects_malformed_source_scale_order():
     predictor = FakePinnedLean()
     fusion = EarlyFeatureMemoryFusion(CFG).eval()
-    early, _, mask, score = fake_inputs()
+    _, _, mask, score = fake_inputs()
+    early = [torch.randn(16, 1, 8), torch.randn(64, 1, 8),
+             torch.randn(4, 1, 8)]
     with route_memory_feature_fusion(predictor, fusion, identity_control=True):
         with pytest.raises(ValueError, match="scale hierarchy"):
             predictor.track_step(
