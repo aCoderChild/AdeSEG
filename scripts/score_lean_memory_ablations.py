@@ -289,6 +289,9 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         writes_checked = sum(int(x.get("memory_writes_checked", 0)) for x in write_audits)
         writes_modified_after_storage = sum(
             int(x.get("memory_writes_quantized_changed", 0)) for x in write_audits)
+        writes_affecting_future = sum(
+            int(x.get("effective_memory_writes_affecting_future", 0))
+            for x in write_audits)
         anchor_audits = [x.get("anchor_similarity_audit") for x in write_audits]
         valid_anchors = [x for x in anchor_audits
                          if isinstance(x, dict) and x.get("eligible_writes", 0) > 0
@@ -301,6 +304,7 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             "fusion_input_mode": runs[name].get("fusion_input_mode", "full"),
             "memory_writes_checked": writes_checked,
             "memory_writes_modified_after_bf16": writes_modified_after_storage,
+            "effective_memory_writes_affecting_future": writes_affecting_future,
             "effective_memory_write_fraction": (
                 writes_modified_after_storage / writes_checked if writes_checked else None),
             "anchor_similarity_eligible_writes": anchor_count,
@@ -383,6 +387,7 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             f"- {name}: {summary[name]['fusion_input_mode']}; "
             f"{summary[name]['memory_writes_modified_after_bf16']}/"
             f"{summary[name]['memory_writes_checked']}; "
+            f"future-effective={summary[name]['effective_memory_writes_affecting_future']}; "
             f"{summary[name]['mean_abs_anchor_cosine_shift_at_write']}"
             for name in runs
         ],
