@@ -312,7 +312,7 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
     }
 
 
-def verify_learned_causal_effectiveness(sequences):
+def verify_learned_causal_effectiveness(sequences, require_target_anchors=False):
     """A changed memory written only at the final frame cannot affect scored masks.
 
     Per-video zero-effect cases are valid; only reject an entire cohort whose
@@ -328,6 +328,12 @@ def verify_learned_causal_effectiveness(sequences):
         raise RuntimeError(
             "Trained fusion produced no BF16-visible memory changes that "
             "could influence a later scored frame in the entire cohort")
+    if require_target_anchors and eligible and not any(
+            r.get("anchor_similarity_audit", {}).get("eligible_writes", 0) > 0
+            for r in eligible):
+        raise RuntimeError(
+            "TAMP target anchors were not available during any learned memory "
+            "write; this run cannot support target-anchor interaction claims")
     return len(eligible)
 
 
@@ -384,7 +390,9 @@ def run(args):
         print(f"[{args.arm}] {video_id}: {len(sequences[video_id]['predictions'])} propagated frames", flush=True)
         del model, fusion
     if args.arm == "fusion":
-        verify_learned_causal_effectiveness(sequences)
+        verify_learned_causal_effectiveness(
+            sequences,
+            require_target_anchors=getattr(args, "require_target_anchors", False))
     root = Path(__file__).resolve().parents[1]
     source_head = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
@@ -432,6 +440,8 @@ def main(argv=None):
     p.add_argument("--fusion-input-mode",
                    choices=EarlyFeatureMemoryFusion.INPUT_MODES, default="full",
                    help="Must match the mode used to train the fusion checkpoint")
+    p.add_argument("--require-target-anchors", action="store_true",
+                   help="Fail learned fusion when no initialized TAMP anchors are observed")
     p.add_argument("--manifest", type=Path, required=True)
     p.add_argument("--prompt-manifest", type=Path, required=True)
     p.add_argument("--checkpoint", type=Path, required=True)
