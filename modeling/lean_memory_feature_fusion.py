@@ -147,7 +147,9 @@ class EarlyFeatureMemoryFusion(nn.Module):
         compute_type = self.output_projection.weight.dtype
         target_hw = (height, width)
         projections = [
-            layer(F.interpolate(feat, size=target_hw, mode='area')
+            # Pool in FP32 before adapter casting to match TRAIN captures
+            # and avoid reduced-precision area-pooling roundoff asymmetry.
+            layer(F.interpolate(feat.float(), size=target_hw, mode='area')
                   .to(dtype=compute_type))
             for layer, feat in zip(self.early_projections, early)
         ]
