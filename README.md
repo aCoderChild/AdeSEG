@@ -87,6 +87,17 @@ python -m scripts.train_lean --help
 
 [CLI and reproduction guide](scripts/README.md) · [Validation and infrastructure](docs/VERIFICATION.md)
 
+## Experimental multiscale memory enrichment (separate study track)
+
+The repository also contains an experimental **early-FPN to mask-conditioned
+temporal-memory adapter** for Lean-SAM2. It enriches memory on write, retains
+native memory tensor geometry, and uses native TAMP pruning on later reads.
+This is distinct from the original output-mask RMFA refiner and the offline
+TTMR selection study; improvements have **not** been established.
+
+For reproducible matched ablations, source provenance, and GPU/DEV preflight,
+see [Lean memory-fusion experiment protocol](docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md).
+
 ## Research and history
 
 The primary research task is video **polyp** segmentation. PolypGen colonoscopy data does not alone validate adenoid segmentation. Historical baseline results and early methodology drafts are preserved separately on the [backup branch](https://github.com/aCoderChild/AdeSEG/tree/backup/experiment-full-20261118/reports). Current methodology descriptions are separated from numerical results.
