@@ -49,7 +49,14 @@ def load_events(root: Path, video: str, receipt: dict):
     return result
 
 
-def compare_runs(reference: Path, candidate: Path, output: Path):
+def compare_runs(reference: Path, candidate: Path, output: Path, *,
+                 allow_incomplete_events: bool = False):
+    """Compare native TAMP events; fail closed on coverage loss by default.
+
+    Missing events may indicate a genuine different memory-selection path,
+    but they make a paired overlap statistic incomplete. Exploration can
+    opt in to partial coverage; primary reports must match event cohorts.
+    """
     root_a, a = read_run(Path(reference))
     root_b, b = read_run(Path(candidate))
     if output.exists():
@@ -100,8 +107,20 @@ def compare_runs(reference: Path, candidate: Path, output: Path):
                 "intersection": overlap,
                 "jaccard": overlap / union if union else 1.0,
             })
+    if not pairs:
+        raise ValueError(
+            "No paired TAMP retention events: cannot calculate token-selection "
+            "overlap or make a TAMP-interaction claim")
+    if (missing_a or missing_b) and not allow_incomplete_events:
+        raise ValueError(
+            f"Unmatched native TAMP selection events "
+            f"(missing from reference={len(missing_a)}, "
+            f"missing from candidate={len(missing_b)}). "
+            "Use --allow-incomplete-events only for exploratory diagnostics.")
     report = {
         "format": "adeseg_native_tamp_selection_overlap_v1",
+        "complete_event_coverage": not bool(missing_a or missing_b),
+        "partial_coverage_explicitly_allowed": bool(allow_incomplete_events),
         "reference_arm": a.get("arm"),
         "candidate_arm": b.get("arm"),
         "reference_mode": a.get("fusion_input_mode", "full"),
@@ -129,8 +148,12 @@ def main(argv=None):
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--allow-incomplete-events", action="store_true",
+                        help="Exploratory only: report token overlap over common events")
     args = parser.parse_args(argv)
-    report = compare_runs(args.reference, args.candidate, args.output)
+    report = compare_runs(
+        args.reference, args.candidate, args.output,
+        allow_incomplete_events=args.allow_incomplete_events)
     print(json.dumps({
         "matched_events": report["matched_events"],
         "mean_jaccard": report["mean_jaccard"],
