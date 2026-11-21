@@ -312,6 +312,25 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
     }
 
 
+def verify_learned_causal_effectiveness(sequences):
+    """A changed memory written only at the final frame cannot affect scored masks.
+
+    Per-video zero-effect cases are valid; only reject an entire cohort whose
+    learned writes cannot causally affect any later evaluated frame.
+    """
+    eligible = [
+        r for r in sequences.values()
+        if r.get("status") == "completed" and len(r.get("predictions", [])) >= 2
+    ]
+    if eligible and not any(
+            r.get("effective_memory_writes_affecting_future", 0) > 0
+            for r in eligible):
+        raise RuntimeError(
+            "Trained fusion produced no BF16-visible memory changes that "
+            "could influence a later scored frame in the entire cohort")
+    return len(eligible)
+
+
 def run(args):
     from scripts.run_author_baseline import build_author_predictor, source_identity
 
@@ -365,16 +384,7 @@ def run(args):
         print(f"[{args.arm}] {video_id}: {len(sequences[video_id]['predictions'])} propagated frames", flush=True)
         del model, fusion
     if args.arm == "fusion":
-        eligible = [
-            r for r in sequences.values()
-            if r.get("status") == "completed" and len(r["predictions"]) >= 2
-        ]
-        if eligible and not any(
-                r.get("effective_memory_writes_affecting_future", 0) > 0
-                for r in eligible):
-            raise RuntimeError(
-                "Trained fusion produced no BF16-visible memory changes that "
-                "could influence a later scored frame in the entire cohort")
+        verify_learned_causal_effectiveness(sequences)
     root = Path(__file__).resolve().parents[1]
     source_head = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
