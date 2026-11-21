@@ -285,7 +285,26 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             and a["insurance_entries"] == b["insurance_entries"]
             for a, b in budget_frames
         )
+        write_audits = [runs[name]["sequences"][v] for v in per_video]
+        writes_checked = sum(int(x.get("memory_writes_checked", 0)) for x in write_audits)
+        writes_modified_after_storage = sum(
+            int(x.get("memory_writes_quantized_changed", 0)) for x in write_audits)
+        anchor_audits = [x.get("anchor_similarity_audit") for x in write_audits]
+        valid_anchors = [x for x in anchor_audits
+                         if isinstance(x, dict) and x.get("eligible_writes", 0) > 0
+                         and x.get("mean_abs_similarity_shift") is not None]
+        anchor_count = sum(x["eligible_writes"] for x in valid_anchors)
+        anchor_drift = (
+            sum(x["eligible_writes"] * x["mean_abs_similarity_shift"]
+                for x in valid_anchors) / anchor_count if anchor_count else None)
         summary[name] = {
+            "fusion_input_mode": runs[name].get("fusion_input_mode", "full"),
+            "memory_writes_checked": writes_checked,
+            "memory_writes_modified_after_bf16": writes_modified_after_storage,
+            "effective_memory_write_fraction": (
+                writes_modified_after_storage / writes_checked if writes_checked else None),
+            "anchor_similarity_eligible_writes": anchor_count,
+            "mean_abs_anchor_cosine_shift_at_write": anchor_drift,
             "all_frame_resident_budgets_matched": all_frame_budgets_matched,
             "resident_budget_frame_match_fraction": (
                 sum(a["resident_spatial_tokens"] == b["resident_spatial_tokens"]
@@ -313,6 +332,9 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         "format": "adeseg_paired_lean_memory_fusion_dice_v1",
         "baseline": baseline,
         "run_arm_mapping": {name: value["arm"] for name, value in runs.items()},
+        "run_input_modes": {
+            name: value.get("fusion_input_mode", "full") for name, value in runs.items()
+        },
         "provenance": {**{k: reference[k] for k in keys},
                        "evaluation_manifest_sha256": evaluation_manifest_sha256,
                        "evaluation_label_files_sha256": gt_hasher.hexdigest()},
@@ -356,6 +378,15 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                   for name in summary),
         "Per-frame resident storage and insurance matching is reported in results.json.",
         "Resident count matching is NOT proof of equal runtime peak VRAM or attention bytes.",
+        "", "Memory-write diagnostics (mode, BF16-effective writes, mean anchor cosine shift):",
+        *[
+            f"- {name}: {summary[name]['fusion_input_mode']}; "
+            f"{summary[name]['memory_writes_modified_after_bf16']}/"
+            f"{summary[name]['memory_writes_checked']}; "
+            f"{summary[name]['mean_abs_anchor_cosine_shift_at_write']}"
+            for name in runs
+        ],
+        "Anchor cosine drift at WRITE is diagnostic only, NOT measured TAMP top-K change.",
         "", "All arms use identical backbone weights, split, input manifest, frozen prompts",
         "and exact source-frame IDs. Results score POST-prompt frames only.",
         "Confidence intervals are paired sequence-level bootstrap descriptions, not",
