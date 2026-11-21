@@ -102,6 +102,16 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
             raise ValueError('Configured early level count disagrees with native FPN')
         if not isinstance(native, torch.Tensor) or native.ndim != 4:
             raise ValueError('Native memory encoder did not return spatial memory')
+        if (not isinstance(native_position, (tuple, list))
+                or len(native_position) != 1
+                or not isinstance(native_position[0], torch.Tensor)
+                or native_position[0].ndim != 4
+                or native_position[0].shape[0] != native.shape[0]
+                or native_position[0].shape[-2:] != native.shape[-2:]
+                or not torch.isfinite(native_position[0]).all()):
+            raise ValueError('Native memory positional-encoding contract changed')
+        # Pin the tensor geometry before fusion: the module must never silently
+        # create positions or memory tokens that TAMP cannot index.
         batch = native.shape[0]
         early = []
         for i in range(n):
@@ -111,10 +121,42 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
                     or fmap.shape[0] != int(hw[0]) * int(hw[1])):
                 raise ValueError('Native FPN token-to-spatial mapping mismatch')
             early.append(fmap.permute(1, 2, 0).reshape(batch, fmap.shape[2], *hw))
+        # Validate the actual live FPN hierarchy, not only a synthetic
+        # tensor shape. TRAIN captures are already pooled to the memory grid,
+        # so enforce source scale order here at the runtime entrypoint.
+        source_hw = [(int(s[0]), int(s[1])) for s in sizes]
+        if (any(h <= 0 or w <= 0 for h, w in source_hw)
+                or any(source_hw[i][axis] < source_hw[i + 1][axis]
+                       for i in range(len(source_hw) - 1) for axis in (0, 1))
+                or not any(h > native.shape[-2] or w > native.shape[-1]
+                           for h, w in source_hw[:-1])
+                or source_hw[-1][0] < native.shape[-2]
+                or source_hw[-1][1] < native.shape[-1]):
+            raise ValueError('Live early-FPN scale hierarchy disagrees with native memory')
+        # Fail closed on malformed anchors rather than silently omitting
+        # an invalid cosine similarity diagnostic.
+        mgr = context['anchor_mgr']
+        anchors = mgr.get('anchor_tokens') if isinstance(mgr, dict) else None
+        if anchors is not None and (
+                not isinstance(anchors, torch.Tensor) or anchors.ndim != 2
+                or anchors.shape[0] < 1 or anchors.shape[1] != native.shape[1]
+                or not torch.isfinite(anchors).all()):
+            raise ValueError('Lean-SAM2 target anchors are incompatible with memory channels')
+        if (isinstance(mgr, dict) and mgr.get('initialized', False)
+                and anchors is None):
+            raise ValueError('TAMP reports initialized anchors but exposes no anchor tokens')
         enriched = fusion(early, native, a['pred_masks_high_res'],
                           a['object_score_logits'], input_mode=input_mode)
         if enriched.shape != native.shape or enriched.dtype != native.dtype:
             raise RuntimeError('Memory fusion changed native token geometry')
+        if (fusion.config.preserve_native_no_object
+                and not bool((a['object_score_logits'].reshape(-1) > 0).all())):
+            absent = (a['object_score_logits'].reshape(-1) <= 0)
+            if not torch.equal(enriched[absent], native[absent]):
+                raise RuntimeError('Memory fusion mutated the native no-object embedding')
+        # Explicit assertion documents a key memory-write invariant. Runtime
+        # checks above protect it even under Python -O (assertions disabled).
+        assert enriched.shape[-2:] == native_position[0].shape[-2:]
         if telemetry is not None:
             # Lean-SAM2 stores spatial memory as BF16 in the video predictor.
             # Pre-conversion deltas can round to zero; measure both explicitly.
@@ -134,8 +176,6 @@ def route_memory_feature_fusion(predictor, fusion: EarlyFeatureMemoryFusion, *,
                     'anchor_similarity_enriched_mean': None,
                     'anchor_similarity_mean_abs_shift': None,
                 }
-                mgr = context['anchor_mgr']
-                anchors = mgr.get('anchor_tokens') if isinstance(mgr, dict) else None
                 if (isinstance(anchors, torch.Tensor) and anchors.ndim == 2
                         and anchors.shape[0] > 0 and native.shape[0] == 1
                         and anchors.shape[1] == native.shape[1]):
