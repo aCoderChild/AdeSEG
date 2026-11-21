@@ -181,6 +181,47 @@ AdeSEG commit**. The scorer intentionally rejects mixed source revisions.
 Train and DEV sequences may be different; inference and scoring DEV manifests
 must reference the exact same source images/frame IDs.
 
+## Separate native TAMP selection diagnostic (not timing)
+
+To investigate **actual** Lean-SAM2 token selections, rerun matched native
+and learned `full` arms on the same DEV video subset, this time enabling
+the author's native index dump. This is separate from the normal inference
+runs above; detailed JSONL writes add overhead and should never be used for
+fair runtime comparisons.
+
+```bash
+# Same env variables and authenticated checkpoint as above.
+FUSION_SHA=$(shasum -a 256 "$OUT/checkpoints/full.pt" | awk '{print $1}')
+
+python -m scripts.run_lean_memory_fusion_ablation \
+  --arm native --dump-tamp-indices \
+  --manifest "$DEV_IMAGE_MANIFEST" --prompt-manifest "$DEV_PROMPTS" \
+  --checkpoint "$BACKBONE" --checkpoint-sha256 "$BACKBONE_SHA" \
+  --split dev --device "$DEVICE" --output "$OUT/native_tamp"
+
+python -m scripts.run_lean_memory_fusion_ablation \
+  --arm fusion --fusion-input-mode full --dump-tamp-indices \
+  --require-target-anchors \
+  --fusion-checkpoint "$OUT/checkpoints/full.pt" \
+  --fusion-sha256 "$FUSION_SHA" \
+  --train-manifest-sha256 "$CAPTURE_SHA" \
+  --manifest "$DEV_IMAGE_MANIFEST" --prompt-manifest "$DEV_PROMPTS" \
+  --checkpoint "$BACKBONE" --checkpoint-sha256 "$BACKBONE_SHA" \
+  --split dev --device "$DEVICE" --output "$OUT/full_tamp"
+
+python -m scripts.compare_native_tamp_indices \
+  --reference "$OUT/native_tamp" --candidate "$OUT/full_tamp" \
+  --output "$OUT/tamp_overlap"
+```
+
+The comparison file `tamp_selection_overlap.json` records matched event
+counts, token-count mismatches as hard errors, missing events, and Jaccard
+overlap of **actual retained indices**. A changed top-K is not evidence
+that the selected tokens align better with the target; that still requires
+grounded region-level evaluation. Compare paired masks and Dice separately.
+The native Lean writer handles the dump without changing its TAMP policy;
+its output is checksum-verified before use.
+
 ## Decision gates before TEST
 
 - The native and zero-initialized identity arms must produce **bit-identical
