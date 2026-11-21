@@ -87,7 +87,11 @@ def load_frozen_prompts(path, videos):
 
 
 def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
-               train_manifest_sha256, device):
+               train_manifest_sha256, device, input_mode="full"):
+    if input_mode not in EarlyFeatureMemoryFusion.INPUT_MODES:
+        raise ValueError("Invalid fusion input mode")
+    if arm != "fusion" and input_mode != "full":
+        raise ValueError("Input ablations require a separately trained fusion checkpoint")
     if arm == "native":
         if any(x is not None for x in (checkpoint, checkpoint_sha256, train_manifest_sha256)):
             raise ValueError("Native arm must not receive a fusion checkpoint")
@@ -110,6 +114,7 @@ def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
     source_capture_sha = training_sha256(
         Path(__file__).resolve().parents[1] / "scripts/capture_lean_memory_train.py")
     if (payload.get("training_protocol") != TRAINING_PROTOCOL
+            or payload.get("fusion_input_mode") != input_mode
             or payload.get("training_source_sha256") != training_source_sha256()
             or payload.get("capture_source_sha256") != source_capture_sha
             or not isinstance(payload.get("split_file_sha256"), str)
@@ -181,7 +186,8 @@ def summarize_resident_memory(state):
     }
 
 
-def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
+def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
+                   input_mode="full"):
     """Run causal one-shot propagation, recording masks but never reading GT."""
     from scripts.memory_token_io import synchronize_storage
     frame_to_position = {f.frame_index: i for i, f in enumerate(frames)}
@@ -212,7 +218,7 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
                            route_memory_feature_fusion(
                                predictor, fusion,
                                identity_control=(arm == "identity"),
-                               telemetry=telemetry))
+                               telemetry=telemetry, input_mode=input_mode))
                 synchronize_storage(device)
                 beginning = time.perf_counter()
                 with context:
@@ -280,6 +286,18 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device):
         "memory_writes_quantized_changed": sum(
             t.get("changed_elements_after_bf16", 0) > 0 for t in telemetry
         ),
+        "anchor_similarity_audit": {
+            "eligible_writes": sum(
+                t.get("anchor_reference_available", False) for t in telemetry),
+            "mean_abs_similarity_shift": (
+                sum(t["anchor_similarity_mean_abs_shift"]
+                    for t in telemetry if t.get("anchor_reference_available"))
+                / sum(t.get("anchor_reference_available", False) for t in telemetry)
+                if any(t.get("anchor_reference_available", False) for t in telemetry)
+                else None
+            ),
+            "note": "Fixed-anchor cosine drift at memory WRITE; not TAMP Top-K outcomes.",
+        },
         "memory_write_telemetry": telemetry,
         "propagation_seconds": duration,
     }
@@ -294,6 +312,11 @@ def run(args):
     output = args.output.resolve()
     if output.exists():
         raise FileExistsError("Refusing to overwrite existing ablation output")
+    input_mode = getattr(args, "fusion_input_mode", "full")
+    if input_mode not in EarlyFeatureMemoryFusion.INPUT_MODES:
+        raise ValueError("Invalid fusion input mode")
+    if args.arm != "fusion" and input_mode != "full":
+        raise ValueError("Only the trained fusion arm accepts input ablation modes")
     if args.split not in ("dev", "test") or args.label_id != 1:
         raise ValueError("This PolypGen protocol requires split dev/test and label ID 1")
     if file_sha256(checkpoint) != require_digest(args.checkpoint_sha256):
@@ -308,7 +331,7 @@ def run(args):
     if args.arm in ("identity", "fusion"):
         get_fusion(args.arm, args.fusion_checkpoint, args.fusion_sha256,
                    args.checkpoint_sha256, args.train_manifest_sha256,
-                   "cpu")
+                   "cpu", input_mode=input_mode)
     output.mkdir(parents=True)
     sequences = {}
     for video_id, frames in sorted(videos.items()):
@@ -322,12 +345,13 @@ def run(args):
         fusion, fusion_digest = get_fusion(
             args.arm, args.fusion_checkpoint, args.fusion_sha256,
             args.checkpoint_sha256, args.train_manifest_sha256,
-            args.device,
+            args.device, input_mode=input_mode,
         )
         folder = output / "predictions" / video_id
         folder.mkdir(parents=True, exist_ok=False)
         sequences[video_id] = infer_sequence(
-            model, frames, frozen[video_id], folder, fusion, args.arm, args.device
+            model, frames, frozen[video_id], folder, fusion, args.arm,
+            args.device, input_mode=input_mode
         )
         print(f"[{args.arm}] {video_id}: {len(sequences[video_id]['predictions'])} propagated frames", flush=True)
         del model, fusion
@@ -356,6 +380,7 @@ def run(args):
         "runtime_signature": runtime_signature,
         "track": "lean_sam2_hiera_bplus",
         "arm": args.arm,
+        "fusion_input_mode": input_mode,
         "split": args.split,
         "label_id": args.label_id,
         "manifest_sha256": file_sha256(manifest),
@@ -374,6 +399,9 @@ def run(args):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--arm", choices=("native", "identity", "fusion"), required=True)
+    p.add_argument("--fusion-input-mode",
+                   choices=EarlyFeatureMemoryFusion.INPUT_MODES, default="full",
+                   help="Must match the mode used to train the fusion checkpoint")
     p.add_argument("--manifest", type=Path, required=True)
     p.add_argument("--prompt-manifest", type=Path, required=True)
     p.add_argument("--checkpoint", type=Path, required=True)
