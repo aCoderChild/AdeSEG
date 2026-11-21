@@ -309,6 +309,52 @@ def test_paired_native_tamp_overlap_uses_exact_matched_events(tmp_path):
     assert (tmp_path / "tamp_compare" / "tamp_selection_overlap.json").is_file()
 
 
+def test_tamp_comparison_requires_nonempty_and_complete_paired_events(tmp_path):
+    manifest, prompts, videos = benchmark(tmp_path)
+    native = make_run(tmp_path, manifest, prompts, videos, "native", "native")
+    fusion = make_run(tmp_path, manifest, prompts, videos, "fusion", "fusion")
+    for root in (native, fusion):
+        receipt_path = root / "receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        receipt["dump_tamp_indices"] = True
+        for video in videos:
+            receipt["sequences"][video]["tamp_index_dump"] = {
+                "records": 0, "sha256": None,
+            }
+        receipt_path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="No paired TAMP retention events"):
+        compare_runs(native, fusion, tmp_path / "empty_overlap")
+
+    # Native and fusion each emit one event per video, but one fusion event
+    # identifies a different target memory frame; that is NOT a paired event.
+    for root, event_shift in ((native, 0), (fusion, 1)):
+        receipt_path = root / "receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        for video in videos:
+            path = root / "predictions" / video / "tamp_indices" / "ours_retained_tokens.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shift = event_shift if video == "seq2" else 0
+            path.write_text(json.dumps({
+                "event": "ours_retained_latest_memory_tokens",
+                "frame_idx": 2, "memory_frame_idx": 1 + shift,
+                "object_id": 1, "num_total_tokens": 4,
+                "num_retained_tokens": 2, "retained_token_indices": [0, 1],
+            }) + "\n")
+            receipt["sequences"][video]["tamp_index_dump"] = {
+                "records": 1, "sha256": file_sha256(path),
+            }
+        receipt_path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="Unmatched native TAMP selection events"):
+        compare_runs(native, fusion, tmp_path / "incomplete_overlap")
+    partial = compare_runs(
+        native, fusion, tmp_path / "partial_overlap",
+        allow_incomplete_events=True,
+    )
+    assert partial["matched_events"] == 1
+    assert partial["complete_event_coverage"] is False
+    assert partial["partial_coverage_explicitly_allowed"] is True
+
+
 def test_native_tamp_dump_checks_range_uniqueness_and_checksum(tmp_path):
     dump = tmp_path / "ours_retained_tokens.jsonl"
     assert verify_native_tamp_dump(dump)["records"] == 0
