@@ -96,7 +96,8 @@ This is distinct from the original output-mask RMFA refiner and the offline
 TTMR selection study; improvements have **not** been established.
 
 For reproducible matched ablations, source provenance, and GPU/DEV preflight,
-see [Lean memory-fusion experiment protocol](docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md).
+see [Lean memory-fusion experiment protocol](docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md)
+and [the source-level mathematical audit](docs/methodology/LEAN_MEMORY_ENRICHMENT_AUDIT.md).
 
 ## Research and history
 
