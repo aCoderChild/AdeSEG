@@ -129,6 +129,26 @@ def test_separately_trained_control_cannot_be_evaluated_as_full(tmp_path):
                    "a" * 64, sha256(manifest), "cpu", input_mode="full")
 
 
+def test_hard_no_object_gate_rejects_unlearnable_training_capture(tmp_path):
+    manifest, split, capture = setup_training(tmp_path)
+    data = torch.load(capture, map_location="cpu", weights_only=True)
+    data["object_score_logits"] = -torch.ones_like(data["object_score_logits"])
+    torch.save(data, capture)
+    rows = json.loads(manifest.read_text("utf8"))
+    rows[0]["capture_sha256"] = sha256(capture)
+    manifest.write_text(json.dumps(rows), encoding="utf8")
+    args = SimpleNamespace(
+        manifest=manifest, split_file=split,
+        output=tmp_path / "no_object_checkpoint.pt",
+        backbone_sha256="a" * 64, epochs=2, lr=1e-2,
+        preservation_weight=0.1, seed=42, device="cpu",
+        input_mode="full",
+    )
+    with pytest.raises(ValueError, match="No learnable memory captures"):
+        train(args)
+    assert not args.output.exists()
+
+
 def test_invalid_capture_shape_and_sealed_group_rejected(tmp_path):
     manifest, split, capture = setup_training(tmp_path)
     payload = torch.load(capture, map_location="cpu", weights_only=True)
