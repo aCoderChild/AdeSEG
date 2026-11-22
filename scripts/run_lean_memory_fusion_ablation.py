@@ -462,6 +462,13 @@ def run(args):
     head_before = subprocess.check_output(
         ["git", "-C", str(source_root), "rev-parse", "HEAD"],
         text=True).strip()
+    dirty_before = subprocess.check_output(
+        ["git", "-C", str(source_root), "status", "--porcelain",
+         "--untracked-files=no"], text=True).strip()
+    if dirty_before:
+        raise RuntimeError(
+            "Tracked AdeSEG code is dirty BEFORE inference; "
+            "commit the experiment source before allocating GPU time")
     test_lock_sha256 = None
     if args.split == "test":
         if getattr(args, "test_lock", None) is None:
