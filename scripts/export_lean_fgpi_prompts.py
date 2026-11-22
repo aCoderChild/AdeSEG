@@ -175,10 +175,9 @@ def export_lean_prompts(manifest, detections, detector_checkpoint,
         diagnostics[name] = diagnostic
         if row is not None:
             rows.append(row)
-    if not rows:
-        raise RuntimeError(
-            "No valid automatic initial masks. Record detection/empty-mask "
-            "coverage and do not treat this as a successful experiment.")
+    # A cohort with zero promptable videos is a real detector/initialization
+    # failure. Persist its zero-coverage receipt for independent assessment;
+    # downstream memory inference still refuses an empty prompt manifest.
     prompts_file = output / "frozen_prompts.jsonl"
     with prompts_file.open("x", encoding="utf8") as handle:
         for row in rows:
@@ -204,6 +203,7 @@ def export_lean_prompts(manifest, detections, detector_checkpoint,
         "empty_initial_mask_count": sum(
             x["status"] == "empty_initial_mask" for x in diagnostics.values()),
         "promptable_video_fraction": completed / len(videos),
+        "usable_for_memory_propagation": completed > 0,
         "frozen_prompt_manifest_sha256": file_sha256(prompts_file),
         "per_video": diagnostics,
         "warning": "No inference GT consumed. Frozen masks are automatic, not oracle. "
