@@ -281,3 +281,206 @@ its output is checksum-verified before use.
 the multiscale-feature hypothesis. If `full` beats `no_early` but
 not the best single-scale arm, the claim that *both* early scales are needed
 is not supported. No positive outcome should be assumed in advance.
+
+
+## New safeguards for the full study (F06–F24)
+
+### 0. Audit source groups and exact duplicate frames
+
+The auditor enforces declared TRAIN/DEV/TEST source-group separation and
+checks identical JPEG bytes, even when different file paths or video IDs
+are used. **It cannot prove different patient identity or detect visual
+near-duplicates**: review the dataset's original provenance independently.
+
+```bash
+export TRAIN_IMAGE_MANIFEST=/path/to/train_images_only.jsonl
+export TEST_IMAGE_MANIFEST=/path/to/test_images_only.jsonl
+export GROUP_MAP_ALL=/path/to/all_video_id_to_source_group.json
+export TEST_PROMPTS=/path/to/test_frozen_prompts.jsonl
+python -m scripts.audit_source_partitions \
+  --train-manifest "$TRAIN_MANIFEST" \
+  --dev-image-manifest "$DEV_IMAGE_MANIFEST" \
+  --test-image-manifest "$TEST_IMAGE_MANIFEST" \
+  --split-file "$SPLIT_FILE" --group-map "$GROUP_MAP_ALL" \
+  --output "$OUT/source_partition_audit.json"
+```
+
+The original capture producer uses `$GROUP_MAP` covering TRAIN videos;
+`$GROUP_MAP_ALL` must cover **every** TRAIN/DEV/TEST video. Neither file
+is allowed to assign the same real patient to different declared groups.
+
+### 1. Same-backbone YOLO → FGPI / box-only prompt producer
+
+The formerly missing connection to the active Lean-SAM2 Hiera-B+ backbone
+is now implemented as an independently authenticated stage. It **does not**
+embed YOLO inference into the memory-propagation loop; it exports frozen
+automatic first-frame masks for downstream identical-memory comparisons.
+
+```bash
+export DETECTOR=/path/to/polyp_yolo.pt
+export DETECTOR_SHA=$(shasum -a 256 "$DETECTOR" | awk '{print $1}')
+
+# Export from image-only frames; no mask/annotation field is accepted.
+for SPLIT in train dev test; do
+  case "$SPLIT" in
+    train) IMAGES="$TRAIN_IMAGE_MANIFEST";;
+    dev) IMAGES="$DEV_IMAGE_MANIFEST";;
+    test) IMAGES="$TEST_IMAGE_MANIFEST";;
+  esac
+  python -m scripts.export_yolo_detections \
+    --manifest "$IMAGES" --checkpoint "$DETECTOR" \
+    --target-class 0 --image-only-manifest --split "$SPLIT" \
+    --output "$OUT/yolo_$SPLIT.jsonl"
+  python -m scripts.export_lean_fgpi_prompts \
+    --manifest "$IMAGES" \
+    --detections "$OUT/yolo_$SPLIT.jsonl" \
+    --detector-checkpoint "$DETECTOR" --detector-sha256 "$DETECTOR_SHA" \
+    --checkpoint "$BACKBONE" --checkpoint-sha256 "$BACKBONE_SHA" \
+    --mode fgpi --split "$SPLIT" --device "$DEVICE" \
+    --output "$OUT/lean_prompts_$SPLIT"
+done
+
+export TRAIN_PROMPTS="$OUT/lean_prompts_train/frozen_prompts.jsonl"
+export DEV_PROMPTS="$OUT/lean_prompts_dev/frozen_prompts.jsonl"
+export TEST_PROMPTS="$OUT/lean_prompts_test/frozen_prompts.jsonl"
+```
+
+**Important:** `--target-class 0` above is an **example only**. Use the
+actual detector class ID for polyps, verified from its training schema.
+The exporter verifies original image coordinates, first eligible YOLO box,
+native 32/64/256 projected FPN levels, joint box+points or box-only prompt
+behavior, native initialization-logit geometry and a nonempty binary mask.
+No-detection and empty-initialization videos are explicitly counted in the
+prompt-producer receipt.
+
+For the RQ1 comparison, run a **separate** `--mode box_only` export with
+the same YOLO detections and compare initial-mask coverage and accuracy.
+Do **not** substitute its prompts within a fusion-vs-native ablation;
+those must use the exact same frozen prompt manifest.
+
+For publication-oriented DEV runs, add
+`--require-verified-prompt-producer` to memory-fusion inference.
+TEST runs **always** require a producer receipt matching the current
+Lean checkpoint, images, source revision, prompt bytes and mode.
+Older external masks without that receipt are explicitly **unverified**;
+their SHA alone cannot certify non-oracle generation.
+
+### 2. Feasible teacher targets and independent controls
+
+The default trainer now uses `--teacher-target-policy feasible_clipped`:
+
+```math
+T_t^{\mathrm{feasible}} =
+M_t +
+\operatorname{clip}\left(
+ M_t^{GT}-M_t,
+ -0.95\alpha\sigma(M_t),
+ +0.95\alpha\sigma(M_t)
+\right).
+```
+
+This is the elementwise Euclidean projection of the teacher difference
+into the representable bounded-residual region (a 0.95 margin keeps the
+tanh target away from its asymptotic endpoints). It removes the
+*known impossible-target optimization request*, **not** the fundamental
+limitation that same-frame oracle memory is an imperfect surrogate for
+future-frame segmentation accuracy.
+
+Use `--teacher-target-policy raw_oracle` only for a separately
+named, independently trained optimization control. The saved checkpoint
+binds the policy. Previous v1 memory-fusion checkpoints are not
+compatible and must be retrained.
+
+### 3. Real DEV video/GPU smoke test (mandatory before full cohort)
+
+```bash
+FUSION_SHA=$(shasum -a 256 "$OUT/checkpoints/full.pt" | awk '{print $1}')
+python -m scripts.smoke_lean_memory_fusion \
+  --manifest "$DEV_IMAGE_MANIFEST" --prompt-manifest "$DEV_PROMPTS" \
+  --checkpoint "$BACKBONE" --checkpoint-sha256 "$BACKBONE_SHA" \
+  --fusion-checkpoint "$OUT/checkpoints/full.pt" \
+  --fusion-sha256 "$FUSION_SHA" \
+  --train-manifest-sha256 "$CAPTURE_SHA" \
+  --require-target-anchors --device "$DEVICE" \
+  --output "$OUT/smoke_dev"
+```
+
+This checks actual video propagation on the pinned author code, including
+bitwise native/identity logits, per-frame memory parity, effective
+BF16 changes **before** a future scored frame, anchor observability,
+and CUDA peak allocation when available. The report has **no Dice or
+GT**. If it fails, do not use full-run metrics or report a causal
+benefit. It still does not prove that enhanced memory improved accuracy.
+
+A separate, predeclared
+`--max-anchor-cosine-shift 0.1` (example threshold, **not** a
+literature-supported optimum) may be added to trained fusion inference.
+An exceeding run fails closed; this monitors drift rather than
+certifying correct TAMP retention. Native TAMP top-K selection events
+must be examined separately with the optional dump.
+
+### 4. Freeze one DEV-selected model before held-out TEST
+
+After scoring and selecting a model on DEV, generate the TEST protocol
+lock. Never fit, alter prompts, or choose a model based on TEST labels.
+
+```bash
+python -m scripts.freeze_lean_test_protocol \
+  --dev-score "$OUT/scored_dev/results.json" \
+  --dev-candidate-receipt "$OUT/full/receipt.json" \
+  --test-image-manifest "$TEST_IMAGE_MANIFEST" \
+  --test-prompt-manifest "$TEST_PROMPTS" \
+  --backbone-checkpoint "$BACKBONE" \
+  --fusion-checkpoint "$OUT/checkpoints/full.pt" \
+  --selected-run-name full \
+  --output "$OUT/test_lock.json"
+
+# Re-use the same --test-lock for native, identity and selected fusion.
+python -m scripts.run_lean_memory_fusion_ablation \
+  --arm fusion --fusion-input-mode full \
+  --fusion-checkpoint "$OUT/checkpoints/full.pt" \
+  --fusion-sha256 "$FUSION_SHA" \
+  --train-manifest-sha256 "$CAPTURE_SHA" \
+  --manifest "$TEST_IMAGE_MANIFEST" \
+  --prompt-manifest "$TEST_PROMPTS" \
+  --checkpoint "$BACKBONE" --checkpoint-sha256 "$BACKBONE_SHA" \
+  --split test --test-lock "$OUT/test_lock.json" \
+  --require-verified-prompt-producer \
+  --device "$DEVICE" --output "$OUT/final_test_fusion"
+```
+
+If DEV selects a mode other than `full`, substitute that mode and its
+**separately trained** checkpoint and DEV receipt. The scorer requires
+identical lock hashes across all TEST comparison arms. This creates
+accountable evidence, not an unbreakable barrier against inspecting or
+retesting held-out results.
+
+### 5. No-detection/empty-GT and efficiency reporting
+
+The independent scorer now reports:
+
+- all source videos versus successfully initialized videos, with explicit
+  unpromptable GT-present and GT-empty frame counts;
+- frames before and including initialization separately from post-prompt
+  scored frames (conditional Dice is **not** full-video accuracy);
+- BF16-effective writes available to future frames and target-anchor
+  diagnostics;
+- observed CUDA peak **allocated** bytes and per-video propagation
+  duration; these are not controlled latency/speedup benchmarks.
+
+Do not silently drop no-detection videos, assert that matching write-time
+token shapes implies matching resident memory budgets, or claim that a
+different TAMP top-K means better target retention.
+
+### Outstanding research questions that no assert can solve
+
+The existing adapter area-pools early features to the coarse memory grid;
+this preserves their **scale provenance**, not all original fine boundary
+detail (F10). Native target anchors and enriched non-conditioning memory
+may occupy different feature distributions (F11); their cosine drift and
+actual native TAMP retained indices are measured, not guaranteed to improve.
+Same-frame oracle memory distillation remains **non-temporal** (F08).
+End-to-end accuracy, frame boundary quality, temporal propagation
+benefits, and actual patient-independent generalization all require real
+DEV/TEST data and GPU experiments. Do not change the architectural
+hypothesis after examining TEST.
