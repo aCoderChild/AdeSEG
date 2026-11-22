@@ -16,7 +16,10 @@ from scripts.run_lean_memory_fusion_ablation import file_sha256
 
 def verify_prompt_producer(prompts_file, *, image_manifest,
                            backbone_sha256, lean_source_revision,
-                           require_verified=False):
+                           require_verified=False,
+                           expected_source_videos=None,
+                           expected_prompt_count=None,
+                           split=None):
     prompts_file = Path(prompts_file).resolve(strict=True)
     image_manifest = Path(image_manifest).resolve(strict=True)
     receipt_path = prompts_file.parent / "receipt.json"
@@ -51,7 +54,12 @@ def verify_prompt_producer(prompts_file, *, image_manifest,
             or type(data.get("promptable_video_count")) is not int
             or completed != data["promptable_video_count"]
             or not 0 < completed <= data["source_video_count"]
-            or data.get("mode") not in ("fgpi", "box_only")):
+            or data.get("mode") not in ("fgpi", "box_only")
+            or (split is not None and data.get("split") != split)
+            or (expected_source_videos is not None
+                and data["source_video_count"] != expected_source_videos)
+            or (expected_prompt_count is not None
+                and completed != expected_prompt_count)):
         raise ValueError("Malformed automatic prompt producer coverage receipt")
     return {
         "status": "verified_same_backbone_automatic_mask",
