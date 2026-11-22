@@ -295,8 +295,8 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-captures-per-video", type=int)
     parser.add_argument("--initialization-mode",
-                        choices=("mask_reprompt", "direct_prompt"),
-                        default="mask_reprompt")
+                        choices=("mask_reprompt", "direct_prompt"), required=True,
+                        help="Explicitly choose native box/point prompting or the distinct binary-mask control")
     parser.add_argument("--teacher-presence-mode",
                         choices=("gt_mask", "predicted"), default="gt_mask",
                         help="GT-consistent object presence in TRAIN teacher or legacy predicted presence control")
