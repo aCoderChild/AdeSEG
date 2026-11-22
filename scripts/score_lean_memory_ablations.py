@@ -349,6 +349,17 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             for a, b in budget_frames
         )
         write_audits = [runs[name]["sequences"][v] for v in per_video]
+        cuda_peaks = [
+            int(r["cuda_peak_allocated_bytes"])
+            for r in write_audits
+            if type(r.get("cuda_peak_allocated_bytes")) is int
+            and r["cuda_peak_allocated_bytes"] >= 0
+        ]
+        propagation_times = [
+            float(r["propagation_seconds"]) for r in write_audits
+            if isinstance(r.get("propagation_seconds"), (int, float))
+            and r["propagation_seconds"] > 0
+        ]
         writes_checked = sum(int(x.get("memory_writes_checked", 0)) for x in write_audits)
         writes_modified_after_storage = sum(
             int(x.get("memory_writes_quantized_changed", 0)) for x in write_audits)
@@ -370,6 +381,14 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             "native_tamp_index_records": sum(
                 int(x.get("tamp_index_dump", {}).get("records", 0))
                 for x in write_audits),
+            "max_cuda_allocated_mb_observed": (
+                max(cuda_peaks) / (1024 * 1024) if cuda_peaks else None),
+            "mean_cuda_peak_allocated_mb_observed": (
+                float(np.mean(cuda_peaks)) / (1024 * 1024)
+                if cuda_peaks else None),
+            "mean_single_sequence_propagation_seconds": (
+                float(np.mean(propagation_times))
+                if propagation_times else None),
             "memory_writes_checked": writes_checked,
             "memory_writes_modified_after_bf16": writes_modified_after_storage,
             "effective_memory_writes_affecting_future": writes_affecting_future,
@@ -490,6 +509,8 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                   for name in summary),
         "Per-frame resident storage and insurance matching is reported in results.json.",
         "Resident count matching is NOT proof of equal runtime peak VRAM or attention bytes.",
+        "Uncontrolled one-run CUDA allocated-memory peaks and propagation timing "
+        "are separately recorded in results.json; they do NOT establish speedups.",
         "", "Memory-write diagnostics (mode, BF16-effective writes, mean anchor cosine shift):",
         *[
             f"- {name}: {summary[name]['fusion_input_mode']}; "
