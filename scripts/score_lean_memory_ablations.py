@@ -115,6 +115,11 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
     if set(videos) != set(reference["sequences"]):
         raise ValueError("Scoring manifest sequences differ from completed receipts")
     per_video, per_frame, summary = {}, [], {}
+    # A missing automatic initialization is a measured pipeline failure,
+    # never an silently omitted successful video. These GT counts are
+    # produced in the scorer ONLY, after predictions have been frozen.
+    uncovered_videos = {}
+    excluded_pre_prompt_frames = {}
     gt_hasher = hashlib.sha256()
     for video, frames in sorted(videos.items()):
         for frame in frames:
@@ -129,6 +134,16 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         if status == "no_initialization":
             if any(item.get("predictions") for item in records.values()):
                 raise ValueError(f"Unexpected predictions in unpromptable video {video}")
+            truth_flags = [
+                bool((load_label_mask(frame.mask_path, [reference["label_id"]]) > 0).any())
+                for frame in frames
+            ]
+            uncovered_videos[video] = {
+                "status": "no_initialization",
+                "total_frames": len(frames),
+                "gt_present_frames_without_prediction": sum(truth_flags),
+                "gt_empty_frames_without_prediction": len(frames) - sum(truth_flags),
+            }
             continue
         if status != "completed":
             raise ValueError(f"Unexpected run status {status!r} for {video}")
@@ -179,6 +194,16 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         if prompt not in frame_ids:
             raise ValueError(f"Prompt frame absent from {video}")
         start = frame_ids.index(prompt) + 1
+        skipped_truth = [
+            bool((load_label_mask(frame.mask_path, [reference["label_id"]]) > 0).any())
+            for frame in frames[:start]
+        ]
+        excluded_pre_prompt_frames[video] = {
+            "all_unscored_frames_up_to_prompt": start,
+            "gt_present_unscored": sum(skipped_truth),
+            "gt_empty_unscored": start - sum(skipped_truth),
+            "note": "This post-prompt evaluation deliberately does not score initial/prompt frames",
+        }
         target_frames = frames[start:]
         if any(len(item.get("predictions", [])) != len(target_frames)
                for item in records.values()):
@@ -273,6 +298,17 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
     if not eligible:
         raise ValueError("No labeled-present post-prompt target frames to score")
     rng = np.random.default_rng(seed)
+    all_source_frames = sum(len(v) for v in videos.values())
+    not_initialized_present = sum(
+        x["gt_present_frames_without_prediction"]
+        for x in uncovered_videos.values())
+    not_initialized_empty = sum(
+        x["gt_empty_frames_without_prediction"]
+        for x in uncovered_videos.values())
+    preprompt_present = sum(
+        x["gt_present_unscored"] for x in excluded_pre_prompt_frames.values())
+    preprompt_empty = sum(
+        x["gt_empty_unscored"] for x in excluded_pre_prompt_frames.values())
     for name in runs:
         macro = float(np.mean([per_video[v][name]["mean_present_dice"] for v in eligible]))
         frame_dice = [x["arms"][name]["dice"] for x in per_frame if x["present"]]
@@ -351,6 +387,19 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             "mean_paired_delta_vs_baseline": float(paired.mean()),
             "paired_sequence_bootstrap_95_ci": [float(x) for x in ci],
             "present_sequences": len(eligible),
+            "source_videos": len(videos),
+            "videos_with_initialization": len(per_video),
+            "videos_without_initialization": len(uncovered_videos),
+            "video_initialization_coverage": len(per_video) / len(videos),
+            "gt_present_frames_without_initialization": not_initialized_present,
+            "gt_empty_frames_without_initialization": not_initialized_empty,
+            "gt_present_frames_unscored_at_or_before_prompt": preprompt_present,
+            "gt_empty_frames_unscored_at_or_before_prompt": preprompt_empty,
+            "all_source_frames": all_source_frames,
+            "post_prompt_scored_frames": len(per_frame),
+            "fraction_source_frames_scored_post_prompt":
+                len(per_frame) / all_source_frames,
+            "conditional_dice_only": True,
             "present_frames": len(frame_dice),
             "empty_frames": len(gt_empty),
             "empty_false_alarms": sum(gt_empty),
@@ -368,6 +417,15 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             for name, value in runs.items()
         },
         "native_tamp_dump_enabled": bool(reference.get("dump_tamp_indices", False)),
+        "unpromptable_video_coverage": uncovered_videos,
+        "unscored_frames_through_prompt": excluded_pre_prompt_frames,
+        "coverage_warning": (
+            "Post-prompt Dice is conditional on successful automatic initialization "
+            "and GT-present scored frames. Unpromptable and before/at-prompt "
+            "frames are separately counted, NOT imputed as perfect. "
+            "Do not compare conditional Dice across different prompt cohorts "
+            "without also reporting coverage."),
+
         "provenance": {**{k: reference[k] for k in keys},
                        "evaluation_manifest_sha256": evaluation_manifest_sha256,
                        "evaluation_label_files_sha256": gt_hasher.hexdigest()},
