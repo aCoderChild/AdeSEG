@@ -464,6 +464,18 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         )
     lines += [
         "",
+        "Automatic initialization / evaluation coverage (all arms share the cohort):",
+        f"- Videos initialized: {len(per_video)}/{len(videos)}; "
+        f"without initialization: {len(uncovered_videos)}",
+        f"- GT-present frames without initialization: {not_initialized_present}; "
+        f"GT-empty frames without initialization: {not_initialized_empty}",
+        f"- Before/at-prompt frames not scored: "
+        f"GT-present={preprompt_present}, GT-empty={preprompt_empty}",
+        f"- Post-prompt scored frames: {len(per_frame)}/{all_source_frames} "
+        "(conditional metrics; no missing-video imputation)",
+        "WARNING: compare detector/FGPI prompt coverage separately; conditional "
+        "post-prompt Dice alone cannot measure end-to-end accuracy.",
+        "",
         "Resident-memory and insurance entries equal to native (by arm): " +
         ", ".join(f"{name}={summary[name]['resident_spatial_and_insurance_matched']}"
                   for name in summary),
