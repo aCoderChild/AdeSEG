@@ -10,7 +10,9 @@ import torch
 from modeling.lean_memory_feature_fusion import (
     EarlyFeatureMemoryFusion, MemoryFeatureFusionConfig,
 )
-from scripts.capture_lean_memory_train import downsample_capture_features
+from scripts.capture_lean_memory_train import (
+    downsample_capture_features, oracle_teacher_presence_logits,
+)
 from scripts.run_lean_memory_fusion_ablation import file_sha256, get_fusion
 from training.lean_memory_fusion import (
     train, read_capture, TRAINING_PROTOCOL, audit_teacher_feasibility,
@@ -38,6 +40,21 @@ def real_geometry_capture():
         "object_score_logits": torch.ones(1),
         "video_id": "train_case", "frame_index": 1,
     }
+
+
+def test_oracle_presence_uses_actual_gt_not_false_negative_prediction():
+    predicted_absent = torch.tensor([-7.0])
+    recovered = oracle_teacher_presence_logits(
+        predicted_absent, True, "gt_mask")
+    assert recovered.item() > 0
+    assert oracle_teacher_presence_logits(
+        predicted_absent, True, "predicted").item() < 0
+    predicted_present = torch.tensor([5.0])
+    removed = oracle_teacher_presence_logits(
+        predicted_present, False, "gt_mask")
+    assert removed.item() < 0
+    # The presence policy matters precisely when prediction and GT disagree.
+    assert not torch.equal(recovered, predicted_absent)
 
 
 def test_oracle_teacher_reachability_audit_distinguishes_bound_and_gate():
