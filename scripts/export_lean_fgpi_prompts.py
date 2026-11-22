@@ -186,6 +186,7 @@ def export_lean_prompts(manifest, detections, detector_checkpoint,
     completed = sum(x["status"] == "completed" for x in diagnostics.values())
     receipt = {
         "protocol": PROTOCOL,
+        "producer_source_sha256": file_sha256(Path(__file__).resolve()),
         "mode": mode, "split": split,
         "image_only_manifest_sha256": file_sha256(manifest),
         "detections_sha256": file_sha256(detections),
