@@ -25,6 +25,7 @@ from datasets.video import load_manifest, stage_frames
 from modeling.lean_memory_feature_fusion import MemoryFeatureFusionConfig
 from scripts.run_lean_memory_fusion_ablation import (
     load_frozen_prompts, file_sha256, require_digest,
+    initialize_frozen_lean_prompt,
 )
 from training.split_guard import sha256, validate_train_sources
 
@@ -58,8 +59,11 @@ def downsample_capture_features(features, sizes, native_memory,
 
 
 @contextmanager
-def collect_teacher_memory(predictor, frames, output, group, *, max_captures=None):
+def collect_teacher_memory(predictor, frames, output, group, *,
+                           max_captures=None, teacher_presence_mode="gt_mask"):
     """Capture on non-conditioning track_step writes only, without GT feedback."""
+    if teacher_presence_mode not in ("gt_mask", "predicted"):
+        raise ValueError("Unknown oracle teacher object-presence policy")
     if "track_step" in vars(predictor) or "_encode_new_memory" in vars(predictor):
         raise RuntimeError("Refusing to compose with existing memory hooks")
     original_track = predictor.track_step
@@ -103,11 +107,21 @@ def collect_teacher_memory(predictor, frames, output, group, *, max_captures=Non
             # inference input. Original returned memory is always native.
             gt_logit = torch.where(gt > .5, torch.full_like(gt, 16.0),
                                    torch.full_like(gt, -16.0))
+            # GT-consistent oracle: a GT-present target must not silently
+            # receive the model's no-object spatial embedding. Retain the
+            # predicted-presence teacher only as a separately identified control.
+            gt_present = bool(truth.any())
+            teacher_presence_logits = (
+                torch.full_like(kwargs["object_score_logits"],
+                                10.0 if gt_present else -10.0)
+                if teacher_presence_mode == "gt_mask"
+                else kwargs["object_score_logits"]
+            )
             teacher, _ = original_encode(
                 current_vision_feats=kwargs["current_vision_feats"],
                 feat_sizes=kwargs["feat_sizes"],
                 pred_masks_high_res=gt_logit,
-                object_score_logits=kwargs["object_score_logits"],
+                object_score_logits=teacher_presence_logits,
                 is_mask_from_pts=False,
             )
             extras = downsample_capture_features(
@@ -144,6 +158,11 @@ def collect_teacher_memory(predictor, frames, output, group, *, max_captures=Non
                 "image_sha256": file_sha256(frame.image_path),
                 "annotation_sha256": file_sha256(frame.mask_path),
                 "target_type": "oracle_gt_conditioned_memory_train_only",
+                "teacher_presence_mode": teacher_presence_mode,
+                "ground_truth_object_present": gt_present,
+                "predicted_object_present": bool(
+                    (kwargs["object_score_logits"].float() > 0).all().item()),
+
             })
         return native, position
 
@@ -162,6 +181,12 @@ def build_captures(args):
     from scripts.run_author_baseline import build_author_predictor, source_identity
 
     output = args.output.resolve()
+    initialization_mode = getattr(args, "initialization_mode", "mask_reprompt")
+    teacher_presence_mode = getattr(args, "teacher_presence_mode", "gt_mask")
+    if initialization_mode not in ("mask_reprompt", "direct_prompt"):
+        raise ValueError("Unknown TRAIN prompt initialization mode")
+    if teacher_presence_mode not in ("gt_mask", "predicted"):
+        raise ValueError("Unknown teacher presence mode")
     if output.exists():
         raise FileExistsError("Refusing to overwrite training captures")
     if args.max_captures_per_video is not None and args.max_captures_per_video < 1:
@@ -208,17 +233,14 @@ def build_captures(args):
                                          offload_video_to_cpu=True,
                                          offload_state_to_cpu=False)
             try:
-                with Image.open(prompt["resolved_mask"]) as im:
-                    data = np.asarray(im.convert("L"))
-                if not np.isin(data, (0, 255)).all() or not bool((data > 0).any()):
-                    raise ValueError("Frozen prompt is empty or not binary 0/255")
                 with torch.inference_mode():
-                    predictor.add_new_mask(
-                        state, frame_idx=0, obj_id=1,
-                        mask=torch.from_numpy((data > 0).copy()))
+                    initialize_frozen_lean_prompt(
+                        predictor, state, prompt,
+                        initialization_mode=initialization_mode)
                     with collect_teacher_memory(
                         predictor, staged_frames, output, group_map[video],
                         max_captures=args.max_captures_per_video,
+                        teacher_presence_mode=teacher_presence_mode,
                     ) as captured:
                         for position, object_ids, _ in predictor.propagate_in_video(
                             state, start_frame_idx=0, reverse=False):
@@ -239,6 +261,8 @@ def build_captures(args):
         "backbone_sha256": args.backbone_sha256,
         "source_train_manifest_sha256": sha256(args.manifest),
         "frozen_prompt_sha256": sha256(args.prompt_manifest),
+        "initialization_mode": initialization_mode,
+        "teacher_presence_mode": teacher_presence_mode,
         "source_group_map_sha256": sha256(args.group_map),
         "capture_manifest_sha256": sha256(manifest),
         "capture_count": len(records),
@@ -259,6 +283,12 @@ def main(argv=None):
     parser.add_argument("--backbone-sha256", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-captures-per-video", type=int)
+    parser.add_argument("--initialization-mode",
+                        choices=("mask_reprompt", "direct_prompt"),
+                        default="mask_reprompt")
+    parser.add_argument("--teacher-presence-mode",
+                        choices=("gt_mask", "predicted"), default="gt_mask",
+                        help="GT-consistent object presence in TRAIN teacher or legacy predicted presence control")
     parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
     print(json.dumps(build_captures(parser.parse_args(argv)), indent=2))
 
