@@ -10,6 +10,11 @@ automatic **mask** prompt; YOLO/FGPI is not called inline.
 
 | Command | Purpose |
 |---|---|
+| `python -m scripts.audit_source_partitions` | Audit declared TRAIN/DEV/TEST groups and cross-group duplicate image bytes |
+| `python -m scripts.export_yolo_detections --image-only-manifest` | Freeze YOLO detector boxes from GT-free frames |
+| `python -m scripts.export_lean_fgpi_prompts --mode fgpi` | Generate authenticated same-backbone Lean-SAM2 initial masks |
+| `python -m scripts.smoke_lean_memory_fusion` | Short real-video native/identity/learned propagation contract test |
+| `python -m scripts.freeze_lean_test_protocol` | Bind chosen DEV model to immutable held-out TEST protocol |
 | `python -m scripts.capture_lean_memory_train` | TRAIN-only predicted/native versus GT-conditioned teacher-memory pairs; GT never written into inference bank |
 | `python -m training.lean_memory_fusion --input-mode full` | Train bounded residual memory fusion from sealed captures |
 | `python -m scripts.run_lean_memory_fusion_ablation --arm native` | Native Lean baseline from frozen automatic masks |
@@ -26,6 +31,10 @@ partial comparison. It does not measure segmentation accuracy.
 Use the exact commands and provenance requirements in the
 [Lean memory-fusion experiment preflight](../docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md).
 A trained checkpoint is not evidence of improved future-frame Dice.
+The default oracle-memory trainer now projects teacher corrections into the
+bounded residual range; the raw target remains an explicit control. Real-video
+DEV smoke tests, image-only prompt-source verification, and the TEST lock
+are separate preflight steps, not optional performance results.
 
 ## Historical / independent modules
 
