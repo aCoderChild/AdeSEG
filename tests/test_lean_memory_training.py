@@ -306,3 +306,20 @@ def test_live_scoped_hook_with_32_64_fpn_outputs_preserves_positions_and_tokens(
     assert len(tel) == 1
     assert tel[0]["native_token_count"] == tel[0]["enriched_token_count"] == 4
     assert tel[0]["changed_elements"] == 0
+
+
+def test_train_capture_cli_requires_explicit_initialization_mode():
+    """TRAIN capture must not silently choose mask re-prompting."""
+    from scripts.capture_lean_memory_train import main
+
+    with pytest.raises(SystemExit) as error:
+        main([
+            "--manifest", "missing.jsonl",
+            "--prompt-manifest", "missing_prompts.jsonl",
+            "--group-map", "missing_groups.json",
+            "--split-file", "missing_splits.json",
+            "--checkpoint", "missing.pt",
+            "--backbone-sha256", "0" * 64,
+            "--output", "missing_capture_output",
+        ])
+    assert error.value.code == 2
