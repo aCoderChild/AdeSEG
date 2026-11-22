@@ -399,7 +399,11 @@ def verify_learned_causal_effectiveness(
         r for r in sequences.values()
         if r.get("status") == "completed" and len(r.get("predictions", [])) >= 2
     ]
-    if eligible and not any(
+    if not eligible:
+        raise RuntimeError(
+            "No DEV/TEST sequences with at least two evaluated future frames; "
+            "this cohort cannot test causal learned memory propagation")
+    if not any(
             r.get("effective_memory_writes_affecting_future", 0) > 0
             for r in eligible):
         raise RuntimeError(
