@@ -22,7 +22,7 @@ LOCK_FORMAT = "adeseg_lean_fusion_test_lock_v1"
 
 def verify_test_lock(lock_path, *, image_manifest, prompt_manifest,
                      backbone_sha256, source_head, arm, input_mode,
-                     fusion_sha256=None):
+                     fusion_sha256=None, initialization_mode="mask_reprompt"):
     if arm not in ("native", "identity", "fusion"):
         raise ValueError("Invalid held-out arm")
     lock = json.loads(Path(lock_path).resolve(strict=True).read_text("utf8"))
@@ -32,6 +32,7 @@ def verify_test_lock(lock_path, *, image_manifest, prompt_manifest,
         "test_image_manifest_sha256": file_sha256(image_manifest),
         "test_prompt_manifest_sha256": file_sha256(prompt_manifest),
         "backbone_sha256": require_digest(backbone_sha256),
+        "initialization_mode": initialization_mode,
     }
     if (not isinstance(lock, dict)
             or any(lock.get(k) != v for k, v in required.items())):
@@ -76,6 +77,10 @@ def freeze_test_protocol(*, dev_score, dev_candidate_receipt,
             or candidate.get("format") != "adeseg_lean_memory_fusion_video_v3"):
         raise ValueError("DEV scorer and selected fusion receipt mismatch")
     selected_mode = candidate.get("fusion_input_mode")
+    init_mode = candidate.get("initialization_mode", "mask_reprompt")
+    if (init_mode not in ("direct_prompt", "mask_reprompt")
+            or scores.get("initialization_mode", "mask_reprompt") != init_mode):
+        raise ValueError("DEV initialization mode differs between score and candidate")
     if (scores.get("run_input_modes", {}).get(selected_run_name) != selected_mode
             or not isinstance(selected_mode, str)):
         raise ValueError("Chosen DEV fusion input mode is not in paired score")
@@ -113,6 +118,7 @@ def freeze_test_protocol(*, dev_score, dev_candidate_receipt,
         "lean_source_revision": lean_revision,
         "selected_dev_run_name": selected_run_name,
         "selected_fusion_input_mode": selected_mode,
+        "initialization_mode": init_mode,
         "selected_fusion_checkpoint_sha256": candidate[
             "fusion_checkpoint_sha256"],
         "backbone_sha256": file_sha256(backbone),
