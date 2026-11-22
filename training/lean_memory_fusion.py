@@ -23,7 +23,8 @@ from modeling.lean_memory_feature_fusion import (
 from training.split_guard import sha256, validate_train_sources
 
 
-TRAINING_PROTOCOL = "oracle_mask_memory_distillation_v1"
+TRAINING_PROTOCOL = "oracle_mask_memory_distillation_v2"
+TEACHER_TARGET_POLICIES = ("feasible_clipped", "raw_oracle")
 
 
 def training_source_sha256():
@@ -130,6 +131,32 @@ def audit_teacher_feasibility(captures, config):
     }
 
 
+def feasible_teacher_memory(native, teacher, presence, config, *,
+                            margin=0.95):
+    """Project oracle-memory corrections into the representable residual box.
+
+    This projection is the elementwise Euclidean projection onto
+    [native - margin*alpha*std(native), native + margin*alpha*std(native)].
+    margin<1 avoids asking a tanh residual to reach its unattainable endpoints.
+    No-object entries are fixed points when the native-preservation gate is on.
+    """
+    if not 0.0 < margin < 1.0:
+        raise ValueError("Expected strict 0<margin<1 for finite tanh targets")
+    if (not isinstance(native, torch.Tensor) or teacher.shape != native.shape
+            or native.ndim != 4 or presence.numel() != native.shape[0]):
+        raise ValueError("Invalid teacher projection tensors")
+    limit = native.detach().float().std(
+        dim=(1, 2, 3), unbiased=False, keepdim=True
+    ).clamp_min(1e-6) * (config.max_relative_residual * margin)
+    target = native + (teacher - native).clamp(-limit, limit)
+    if config.preserve_native_no_object:
+        gate = (presence.reshape(-1).float() > 0).reshape(-1, 1, 1, 1)
+        target = torch.where(gate, target, native)
+    if not bool(torch.isfinite(target).all().item()):
+        raise FloatingPointError("Nonfinite projected memory teacher")
+    return target
+
+
 def train(args):
     manifest = args.manifest.resolve(strict=True)
     partition = args.split_file.resolve(strict=True)
@@ -137,6 +164,9 @@ def train(args):
     if output.exists() or Path(str(output) + ".receipt.json").exists():
         raise FileExistsError("Refusing to overwrite trained memory fusion checkpoint")
     input_mode = getattr(args, "input_mode", "full")
+    target_policy = getattr(args, "teacher_target_policy", "feasible_clipped")
+    if target_policy not in TEACHER_TARGET_POLICIES:
+        raise ValueError("Unknown oracle-memory teacher target policy")
     if input_mode not in EarlyFeatureMemoryFusion.INPUT_MODES:
         raise ValueError("Invalid memory-fusion input mode")
     if args.epochs < 1 or not 0 < args.lr < 1 or not 0 <= args.preservation_weight <= 10:
@@ -203,7 +233,9 @@ def train(args):
             presence = c["object_score_logits"].to(args.device)
             optimizer.zero_grad(set_to_none=True)
             predicted = model(early, native, mask, presence, input_mode=input_mode)
-            reconstruction = F.smooth_l1_loss(predicted, teacher)
+            target = (feasible_teacher_memory(native, teacher, presence, config)
+                      if target_policy == "feasible_clipped" else teacher)
+            reconstruction = F.smooth_l1_loss(predicted, target)
             preservation = F.smooth_l1_loss(predicted, native)
             loss = reconstruction + args.preservation_weight * preservation
             if not bool(torch.isfinite(loss).item()):
@@ -228,6 +260,7 @@ def train(args):
         "train_manifest_sha256": sha256(manifest),
         "split_file_sha256": sha256(partition),
         "training_protocol": TRAINING_PROTOCOL,
+        "teacher_target_policy": target_policy,
         "fusion_input_mode": input_mode,
         "no_object_fusion_ablation": bool(allow_absent_fusion),
         "training_source_sha256": training_source_sha256(),
@@ -251,6 +284,7 @@ def train(args):
     receipt = {
         "checkpoint": str(output), "checkpoint_sha256": sha256(output),
         "training_protocol": TRAINING_PROTOCOL,
+        "teacher_target_policy": target_policy,
         "fusion_input_mode": input_mode,
         "no_object_fusion_ablation": bool(allow_absent_fusion),
         "training_steps": steps,
@@ -282,6 +316,10 @@ def main(argv=None):
                    default="full", help="Train each control separately with a matched architecture")
     p.add_argument("--allow-no-object-memory-fusion", action="store_true",
                    help="Separate risk ablation: train memory residuals on predicted-absent frames")
+    p.add_argument("--teacher-target-policy",
+                   choices=TEACHER_TARGET_POLICIES,
+                   default="feasible_clipped",
+                   help="Feasible bounded teacher or separately named raw-oracle control")
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--preservation-weight", type=float, default=0.1)
     p.add_argument("--seed", type=int, default=20261120)
