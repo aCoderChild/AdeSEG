@@ -112,6 +112,11 @@ def produce_sequence(predictor, frames, detections, output, *, mode="fgpi",
         "image_sha256": selected["image_sha256"],
         "mask_sha256": file_sha256(destination),
         "prompt_origin": "automatic_mask",
+        # Preserve the detector box and feature-derived point prompts to
+        # initialize the SAME native Lean-SAM2 decoder state at propagation.
+        # The PNG remains a frozen mask-reprompt control and an integrity
+        # check on deterministic direct-prompt initialization.
+        "direct_prompt": prompt,
     }
     return row, {
         "status": "completed",
