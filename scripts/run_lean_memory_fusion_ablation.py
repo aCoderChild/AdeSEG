@@ -567,6 +567,7 @@ def run(args):
             arm=args.arm,
             input_mode=input_mode,
             fusion_sha256=args.fusion_sha256,
+            initialization_mode=initialization_mode,
         )
         test_lock_sha256 = file_sha256(
             Path(args.test_lock).resolve(strict=True))
