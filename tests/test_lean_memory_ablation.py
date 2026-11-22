@@ -149,6 +149,29 @@ def test_full_paired_dice_and_empty_false_alarms(tmp_path):
     assert (tmp_path/"scores"/"per_sequence.csv").is_file()
 
 
+def test_all_gt_empty_cohort_reports_false_alarms_without_fake_dice(tmp_path):
+    manifest, prompts, videos = benchmark(tmp_path)
+    for frames in videos.values():
+        for frame in frames:
+            Image.fromarray(np.zeros((4, 4), dtype=np.uint8)).save(frame.mask_path)
+    native = make_run(tmp_path, manifest, prompts, videos, "native", "native")
+    fusion = make_run(tmp_path, manifest, prompts, videos, "fusion", "fusion")
+    report = score_runs(
+        {"native": native, "fusion": fusion},
+        manifest, tmp_path / "all_empty_report", bootstrap=200)
+    for arm in ("native", "fusion"):
+        row = report["summary"][arm]
+        assert row["present_sequences"] == 0
+        assert row["sequence_macro_present_dice"] is None
+        assert row["frame_weighted_present_dice"] is None
+        assert row["mean_paired_delta_vs_baseline"] is None
+        assert row["paired_sequence_bootstrap_95_ci"] is None
+        assert row["empty_frames"] == 4
+        assert row["empty_false_alarms"] == 2
+    assert "N/A (no GT-present frames)" in (
+        tmp_path / "all_empty_report" / "report.md").read_text()
+
+
 def test_missing_automatic_initialization_is_reported_not_hidden(tmp_path):
     manifest, prompts, videos = benchmark(tmp_path)
     native = make_run(tmp_path, manifest, prompts, videos, "native", "native")
