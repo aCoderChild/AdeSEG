@@ -246,6 +246,8 @@ def build_captures(args):
                             state, start_frame_idx=0, reverse=False):
                             if list(object_ids) != [1] or position < 0:
                                 raise RuntimeError("Invalid frozen TRAIN propagation")
+                    for capture_record in captured:
+                        capture_record["initialization_mode"] = initialization_mode
                     records.extend(captured)
             finally:
                 predictor.reset_state(state)
