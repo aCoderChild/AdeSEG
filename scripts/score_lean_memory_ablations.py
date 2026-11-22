@@ -93,6 +93,14 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
     if (not isinstance(reference.get("runtime_signature"), dict)
             or set(reference["runtime_signature"]) != signature_keys):
         raise ValueError("Missing or incomplete execution provenance")
+    if reference.get("split") == "test":
+        lock = reference.get("test_lock_sha256")
+        if (not isinstance(lock, str) or len(lock) != 64
+                or any(x not in "0123456789abcdef" for x in lock)):
+            raise ValueError("Held-out TEST scores require a sealed test lock")
+        if any(run.get("test_lock_sha256") != lock
+               for run in runs.values()):
+            raise ValueError("Held-out arms were evaluated under different TEST locks")
     for name, data in runs.items():
         if bool(data.get("dump_tamp_indices", False)) != bool(
                 reference.get("dump_tamp_indices", False)):
@@ -417,6 +425,7 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             for name, value in runs.items()
         },
         "native_tamp_dump_enabled": bool(reference.get("dump_tamp_indices", False)),
+        "test_lock_sha256": reference.get("test_lock_sha256"),
         "unpromptable_video_coverage": uncovered_videos,
         "unscored_frames_through_prompt": excluded_pre_prompt_frames,
         "coverage_warning": (
