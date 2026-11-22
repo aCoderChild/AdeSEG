@@ -58,6 +58,18 @@ def downsample_capture_features(features, sizes, native_memory,
     }
 
 
+def oracle_teacher_presence_logits(predicted_score, gt_present, mode):
+    """TRAIN-only oracle object-presence semantics, never read in inference."""
+    if mode not in ("gt_mask", "predicted") or type(gt_present) is not bool:
+        raise ValueError("Unknown GT/predicted teacher presence policy")
+    if (not isinstance(predicted_score, torch.Tensor)
+            or not torch.is_floating_point(predicted_score)
+            or predicted_score.numel() != 1):
+        raise ValueError("Expected one predicted object-presence score")
+    return (torch.full_like(predicted_score, 10.0 if gt_present else -10.0)
+            if mode == "gt_mask" else predicted_score)
+
+
 @contextmanager
 def collect_teacher_memory(predictor, frames, output, group, *,
                            max_captures=None, teacher_presence_mode="gt_mask"):
@@ -111,12 +123,9 @@ def collect_teacher_memory(predictor, frames, output, group, *,
             # receive the model's no-object spatial embedding. Retain the
             # predicted-presence teacher only as a separately identified control.
             gt_present = bool(truth.any())
-            teacher_presence_logits = (
-                torch.full_like(kwargs["object_score_logits"],
-                                10.0 if gt_present else -10.0)
-                if teacher_presence_mode == "gt_mask"
-                else kwargs["object_score_logits"]
-            )
+            teacher_presence_logits = oracle_teacher_presence_logits(
+                kwargs["object_score_logits"], gt_present,
+                teacher_presence_mode)
             teacher, _ = original_encode(
                 current_vision_feats=kwargs["current_vision_feats"],
                 feat_sizes=kwargs["feat_sizes"],
