@@ -23,7 +23,7 @@ from modeling.lean_memory_feature_fusion import (
 from training.split_guard import sha256, validate_train_sources
 
 
-TRAINING_PROTOCOL = "oracle_mask_memory_distillation_v2"
+TRAINING_PROTOCOL = "oracle_mask_memory_distillation_v3"
 TEACHER_TARGET_POLICIES = ("feasible_clipped", "raw_oracle")
 
 
@@ -185,6 +185,19 @@ def train(args):
     config = MemoryFeatureFusionConfig(
         preserve_native_no_object=not allow_absent_fusion)
     rows = json.loads(manifest.read_text("utf8"))
+    modes = {row.get("teacher_presence_mode") for row in rows}
+    if modes not in ({"gt_mask"}, {"predicted"}):
+        raise ValueError(
+            "TRAIN captures mix or omit explicit GT-versus-predicted "
+            "teacher object-presence policy")
+    teacher_presence_mode = next(iter(modes))
+    capture_init_modes = {
+        row.get("initialization_mode", "mask_reprompt") for row in rows
+    }
+    if len(capture_init_modes) != 1 or not capture_init_modes <= {
+            "direct_prompt", "mask_reprompt"}:
+        raise ValueError("Training captures disagree on prompt initialization")
+    capture_initialization_mode = next(iter(capture_init_modes))
     captures = []
     producer_sha = sha256(Path(__file__).resolve().parents[1] / "scripts/capture_lean_memory_train.py")
     for row in rows:
@@ -261,6 +274,8 @@ def train(args):
         "split_file_sha256": sha256(partition),
         "training_protocol": TRAINING_PROTOCOL,
         "teacher_target_policy": target_policy,
+        "teacher_presence_mode": teacher_presence_mode,
+        "capture_initialization_mode": capture_initialization_mode,
         "fusion_input_mode": input_mode,
         "no_object_fusion_ablation": bool(allow_absent_fusion),
         "training_source_sha256": training_source_sha256(),
@@ -285,6 +300,8 @@ def train(args):
         "checkpoint": str(output), "checkpoint_sha256": sha256(output),
         "training_protocol": TRAINING_PROTOCOL,
         "teacher_target_policy": target_policy,
+        "teacher_presence_mode": teacher_presence_mode,
+        "capture_initialization_mode": capture_initialization_mode,
         "fusion_input_mode": input_mode,
         "no_object_fusion_ablation": bool(allow_absent_fusion),
         "training_steps": steps,
