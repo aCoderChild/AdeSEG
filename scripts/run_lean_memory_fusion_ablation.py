@@ -486,6 +486,17 @@ def run(args):
         require_jpeg=True, safe_output_ids=True, require_masks=False,
     )
     frozen = load_frozen_prompts(prompt_manifest, videos)
+    from scripts.verify_lean_prompt_provenance import verify_prompt_producer
+    producer = verify_prompt_producer(
+        prompt_manifest, image_manifest=manifest,
+        backbone_sha256=args.checkpoint_sha256,
+        lean_source_revision=revision,
+        require_verified=(args.split == "test" or
+                          getattr(args, "require_verified_prompt_producer", False)),
+        expected_source_videos=len(videos),
+        expected_prompt_count=len(frozen),
+        split=args.split,
+    )
     # Validate the source-bound adapter BEFORE creating output. Save its
     # authenticated identity independently of the per-video loop: sequences
     # without a frozen initialization must not leave provenance undefined.
@@ -575,6 +586,7 @@ def run(args):
         "label_id": args.label_id,
         "manifest_sha256": file_sha256(manifest),
         "prompt_manifest_sha256": file_sha256(prompt_manifest),
+        "automatic_prompt_producer": producer,
         "backbone_sha256": file_sha256(checkpoint),
         "lean_source_revision": revision,
         "fusion_checkpoint_sha256": fusion_digest if args.arm == "fusion" else None,
@@ -600,6 +612,8 @@ def main(argv=None):
                    help="Opt-in native Lean top-K dump; do NOT enable for latency profiling")
     p.add_argument("--manifest", type=Path, required=True)
     p.add_argument("--prompt-manifest", type=Path, required=True)
+    p.add_argument("--require-verified-prompt-producer", action="store_true",
+                   help="Require authenticated GT-free Lean prompt export; always required on TEST")
     p.add_argument("--checkpoint", type=Path, required=True)
     p.add_argument("--checkpoint-sha256", required=True)
     p.add_argument("--output", type=Path, required=True)
