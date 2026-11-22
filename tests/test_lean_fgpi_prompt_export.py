@@ -9,6 +9,9 @@ import torch
 
 from datasets.video import ManifestFrame
 from scripts.export_lean_fgpi_prompts import produce_sequence
+from scripts.run_lean_memory_fusion_ablation import (
+    initialize_frozen_lean_prompt, validate_direct_prompt,
+)
 from scripts.export_yolo_detections import export_detections
 from scripts.detection_provenance import verify_detection_export
 
@@ -71,6 +74,37 @@ def test_lean_fgpi_and_box_produce_compatible_frozen_mask_rows(tmp_path):
     assert (tmp_path / "fgpi" / r1["mask_path"]).is_file()
     assert (tmp_path / "box" / r2["mask_path"]).is_file()
     assert r1["mask_sha256"] == r2["mask_sha256"]
+
+
+def test_frozen_fgpi_points_reinitialize_native_sam_decoder_not_binary_mask(tmp_path):
+    frames, detection = video(tmp_path)
+    producer = FakeLeanPromptPredictor()
+    prompt_row, _ = produce_sequence(
+        producer, frames, [detection], tmp_path / "producer", mode="fgpi")
+    assert prompt_row["direct_prompt"]["mode"] == "fgpi"
+    assert validate_direct_prompt(
+        prompt_row["direct_prompt"], frames[1].image_path)
+    frozen = {
+        **prompt_row,
+        "resolved_mask": str(tmp_path / "producer" / prompt_row["mask_path"]),
+    }
+    direct = FakeLeanPromptPredictor()
+    assert initialize_frozen_lean_prompt(
+        direct, direct.init_state(), frozen,
+        initialization_mode="direct_prompt") == "direct_prompt"
+    assert direct.received["box"] == prompt_row["direct_prompt"]["box_xyxy"]
+    assert direct.received["labels"] == [1, 0]
+    bad = dict(frozen)
+    bad["direct_prompt"] = {
+        **frozen["direct_prompt"], "point_coords": [[9999, 0]],
+    }
+    with pytest.raises(ValueError, match="outside"):
+        validate_direct_prompt(bad["direct_prompt"], frames[1].image_path)
+    mismatched = FakeLeanPromptPredictor(empty=True)
+    with pytest.raises(RuntimeError, match="no longer reproduces"):
+        initialize_frozen_lean_prompt(
+            mismatched, mismatched.init_state(), frozen,
+            initialization_mode="direct_prompt")
 
 
 def test_lean_fgpi_explicit_missing_and_empty_initialization(tmp_path):
