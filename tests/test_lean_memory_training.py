@@ -167,6 +167,29 @@ def test_separately_trained_control_cannot_be_evaluated_as_full(tmp_path):
                    "a" * 64, sha256(manifest), "cpu", input_mode="full")
 
 
+def test_direct_prompt_checkpoint_cannot_be_used_under_mask_reprompt(tmp_path):
+    manifest, split, _ = setup_training(tmp_path)
+    records = json.loads(manifest.read_text("utf8"))
+    records[0]["initialization_mode"] = "direct_prompt"
+    manifest.write_text(json.dumps(records))
+    args = SimpleNamespace(
+        manifest=manifest, split_file=split, output=tmp_path / "direct.pt",
+        backbone_sha256="a" * 64, epochs=2, lr=1e-2,
+        preservation_weight=0.1, seed=42, device="cpu",
+    )
+    receipt = train(args)
+    with pytest.raises(ValueError, match="training protocol"):
+        get_fusion(
+            "fusion", args.output, receipt["checkpoint_sha256"],
+            "a" * 64, sha256(manifest), "cpu",
+            initialization_mode="mask_reprompt")
+    model, _ = get_fusion(
+        "fusion", args.output, receipt["checkpoint_sha256"],
+        "a" * 64, sha256(manifest), "cpu",
+        initialization_mode="direct_prompt")
+    assert model._trained_checkpoint_loaded
+
+
 def test_hard_no_object_gate_rejects_unlearnable_training_capture(tmp_path):
     manifest, split, capture = setup_training(tmp_path)
     data = torch.load(capture, map_location="cpu", weights_only=True)
