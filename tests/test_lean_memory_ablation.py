@@ -149,6 +149,34 @@ def test_full_paired_dice_and_empty_false_alarms(tmp_path):
     assert (tmp_path/"scores"/"per_sequence.csv").is_file()
 
 
+def test_missing_automatic_initialization_is_reported_not_hidden(tmp_path):
+    manifest, prompts, videos = benchmark(tmp_path)
+    native = make_run(tmp_path, manifest, prompts, videos, "native", "native")
+    fusion = make_run(tmp_path, manifest, prompts, videos, "fusion", "fusion",
+                      improved=True)
+    for root in (native, fusion):
+        receipt_file = root / "receipt.json"
+        receipt = json.loads(receipt_file.read_text())
+        receipt["sequences"]["seq3"] = {
+            "status": "no_initialization", "predictions": [],
+        }
+        receipt_file.write_text(json.dumps(receipt))
+    report = score_runs(
+        {"native": native, "fusion": fusion},
+        manifest, tmp_path / "coverage_scores", bootstrap=200)
+    row = report["summary"]["native"]
+    assert row["source_videos"] == 2
+    assert row["videos_with_initialization"] == 1
+    assert row["videos_without_initialization"] == 1
+    assert row["gt_present_frames_without_initialization"] == 1
+    assert row["gt_empty_frames_without_initialization"] == 2
+    assert row["post_prompt_scored_frames"] == 2
+    assert row["fraction_source_frames_scored_post_prompt"] == pytest.approx(2/6)
+    assert report["unpromptable_video_coverage"]["seq3"]["gt_present_frames_without_prediction"] == 1
+    assert "Videos initialized: 1/2" in (
+        tmp_path / "coverage_scores" / "report.md").read_text()
+
+
 def test_mismatched_prompt_protocol_and_frame_coverage_rejected(tmp_path):
     manifest, prompts, videos = benchmark(tmp_path)
     base = make_run(tmp_path, manifest, prompts, videos, "native", "native")
