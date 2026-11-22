@@ -241,6 +241,10 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
     # local frame zero. Keep original source indices in the receipt only.
     staged_frames = frames[start:]
     rows, telemetry, frame_memory_snapshots = [], [], []
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("Requested CUDA memory audit without CUDA availability")
+        torch.cuda.reset_peak_memory_stats()
     tamp_dump_file = folder / "tamp_indices" / "ours_retained_tokens.jsonl"
     if dump_tamp_indices:
         # This is the pinned author's *existing* observer, not a replacement
@@ -321,6 +325,9 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
             finally:
                 if state is not None:
                     predictor.reset_state(state)
+    cuda_peak = (
+        int(torch.cuda.max_memory_allocated()) if device == "cuda" else None
+    )
     if len(rows) != len(staged_frames) - 1:
         raise RuntimeError("Incomplete Lean propagation")
     effective_future_writes = sum(
@@ -373,10 +380,16 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
         },
         "memory_write_telemetry": telemetry,
         "propagation_seconds": duration,
+        "cuda_peak_allocated_bytes": cuda_peak,
+        "resource_measurement_note": (
+            "CUDA peak allocated bytes is a single-run observation including "
+            "resident model and temporary inference tensors; not equivalent "
+            "to peak reserved VRAM or a matched wall-clock runtime benchmark"),
     }
 
 
-def verify_learned_causal_effectiveness(sequences, require_target_anchors=False):
+def verify_learned_causal_effectiveness(
+        sequences, require_target_anchors=False, max_anchor_cosine_shift=None):
     """A changed memory written only at the final frame cannot affect scored masks.
 
     Per-video zero-effect cases are valid; only reject an entire cohort whose
@@ -392,6 +405,27 @@ def verify_learned_causal_effectiveness(sequences, require_target_anchors=False)
         raise RuntimeError(
             "Trained fusion produced no BF16-visible memory changes that "
             "could influence a later scored frame in the entire cohort")
+    if max_anchor_cosine_shift is not None:
+        if not isinstance(max_anchor_cosine_shift, (int, float)) or not (
+                0 <= max_anchor_cosine_shift <= 2):
+            raise ValueError("Anchor cosine shift threshold must be in [0,2]")
+        anchored = [
+            r.get("anchor_similarity_audit", {})
+            for r in eligible
+            if r.get("anchor_similarity_audit", {}).get("eligible_writes", 0) > 0
+        ]
+        if not anchored:
+            raise RuntimeError(
+                "Cannot enforce a TAMP anchor-drift limit without initialized anchors")
+        # Mean absolute per-token max-anchor cosine shift is in [0,2].
+        # A predeclared bound controls detected representation drift, not TAMP
+        # correctness or segmentation quality.
+        if any(a.get("mean_abs_similarity_shift") is None
+               or a["mean_abs_similarity_shift"] > max_anchor_cosine_shift
+               for a in anchored):
+            raise RuntimeError(
+                "Enriched memory exceeded predeclared mean target-anchor "
+                "cosine-shift threshold")
     if require_target_anchors and eligible and not any(
             r.get("anchor_similarity_audit", {}).get("eligible_writes", 0) > 0
             for r in eligible):
@@ -500,7 +534,8 @@ def run(args):
     if args.arm == "fusion":
         verify_learned_causal_effectiveness(
             sequences,
-            require_target_anchors=getattr(args, "require_target_anchors", False))
+            require_target_anchors=getattr(args, "require_target_anchors", False),
+            max_anchor_cosine_shift=getattr(args, "max_anchor_cosine_shift", None))
     root = Path(__file__).resolve().parents[1]
     source_head = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
@@ -529,6 +564,7 @@ def run(args):
         "fusion_input_mode": input_mode,
         "fusion_preserve_native_no_object": preserve_native_no_object,
         "teacher_target_policy": teacher_target_policy,
+        "max_anchor_cosine_shift": getattr(args, "max_anchor_cosine_shift", None),
         "dump_tamp_indices": bool(getattr(args, "dump_tamp_indices", False)),
         "split": args.split,
         "test_lock_sha256": test_lock_sha256,
@@ -554,6 +590,8 @@ def main(argv=None):
                    help="Must match the mode used to train the fusion checkpoint")
     p.add_argument("--require-target-anchors", action="store_true",
                    help="Fail learned fusion when no initialized TAMP anchors are observed")
+    p.add_argument("--max-anchor-cosine-shift", type=float,
+                   help="Optional PREDECLARED max mean absolute write-time anchor cosine shift; not a TAMP accuracy proxy")
     p.add_argument("--dump-tamp-indices", action="store_true",
                    help="Opt-in native Lean top-K dump; do NOT enable for latency profiling")
     p.add_argument("--manifest", type=Path, required=True)
