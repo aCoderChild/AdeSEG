@@ -132,6 +132,19 @@ def make_run(tmp_path, manifest, prompt_path, videos, name, arm, *, improved=Fal
     return root
 
 
+def test_mixed_direct_and_binary_mask_initialization_rejected(tmp_path):
+    manifest, prompts, videos = benchmark(tmp_path)
+    base = make_run(tmp_path, manifest, prompts, videos, "native", "native")
+    fusion = make_run(tmp_path, manifest, prompts, videos, "fusion", "fusion")
+    receipt_file = fusion / "receipt.json"
+    receipt = json.loads(receipt_file.read_text())
+    receipt["initialization_mode"] = "direct_prompt"
+    receipt_file.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="unmatched backbone"):
+        score_runs({"native": base, "fusion": fusion},
+                   manifest, tmp_path / "mixed_init_report")
+
+
 def test_full_paired_dice_and_empty_false_alarms(tmp_path):
     manifest, prompts, videos = benchmark(tmp_path)
     base = make_run(tmp_path, manifest, prompts, videos, "native", "native")
