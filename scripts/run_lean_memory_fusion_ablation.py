@@ -109,11 +109,14 @@ def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
     payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
     if not isinstance(payload, dict) or not isinstance(payload.get("config"), dict):
         raise ValueError("Malformed memory-fusion checkpoint")
-    from training.lean_memory_fusion import TRAINING_PROTOCOL, training_source_sha256
+    from training.lean_memory_fusion import (
+        TRAINING_PROTOCOL, TEACHER_TARGET_POLICIES, training_source_sha256,
+    )
     from training.split_guard import sha256 as training_sha256
     source_capture_sha = training_sha256(
         Path(__file__).resolve().parents[1] / "scripts/capture_lean_memory_train.py")
     if (payload.get("training_protocol") != TRAINING_PROTOCOL
+            or payload.get("teacher_target_policy") not in TEACHER_TARGET_POLICIES
             or payload.get("fusion_input_mode") != input_mode
             or payload.get("training_source_sha256") != training_source_sha256()
             or payload.get("capture_source_sha256") != source_capture_sha
@@ -123,6 +126,10 @@ def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
             or payload["capture_count"] < 1):
         raise ValueError("Unverified memory-fusion training protocol or split receipt")
     config = MemoryFeatureFusionConfig(**payload["config"])
+    if payload.get("no_object_fusion_ablation") is not (
+            not config.preserve_native_no_object):
+        raise ValueError(
+            "Trained checkpoint presence-gate provenance disagrees with model config")
     fusion = EarlyFeatureMemoryFusion(config)
     fusion.load_trained_state(
         payload,
@@ -423,6 +430,7 @@ def run(args):
     # without a frozen initialization must not leave provenance undefined.
     fusion_digest = None
     preserve_native_no_object = None
+    teacher_target_policy = None
     if args.arm in ("identity", "fusion"):
         preview, fusion_digest = get_fusion(
             args.arm, args.fusion_checkpoint, args.fusion_sha256,
@@ -430,6 +438,12 @@ def run(args):
             "cpu", input_mode=input_mode)
         if args.arm == "fusion":
             preserve_native_no_object = bool(preview.config.preserve_native_no_object)
+            # The payload was authenticated in get_fusion. Keep the objective
+            # visible in inference receipts to avoid mixing raw/oracle variants.
+            raw_payload = torch.load(
+                Path(args.fusion_checkpoint).resolve(strict=True),
+                map_location="cpu", weights_only=True)
+            teacher_target_policy = raw_payload["teacher_target_policy"]
         del preview
     output.mkdir(parents=True)
     sequences = {}
@@ -491,6 +505,7 @@ def run(args):
         "arm": args.arm,
         "fusion_input_mode": input_mode,
         "fusion_preserve_native_no_object": preserve_native_no_object,
+        "teacher_target_policy": teacher_target_policy,
         "dump_tamp_indices": bool(getattr(args, "dump_tamp_indices", False)),
         "split": args.split,
         "label_id": args.label_id,
