@@ -303,8 +303,9 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
             }
 
     eligible = [v for v in per_video if per_video[v][baseline]["n_present"] > 0]
-    if not eligible:
-        raise ValueError("No labeled-present post-prompt target frames to score")
+    # Entirely GT-empty cohorts are legitimate negative-control evaluations:
+    # report false alarm rates, with positive Dice explicitly undefined.
+    # Never convert a GT-empty frame into a perfect Dice=1 surrogate.
     rng = np.random.default_rng(seed)
     all_source_frames = sum(len(v) for v in videos.values())
     not_initialized_present = sum(
@@ -318,15 +319,20 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
     preprompt_empty = sum(
         x["gt_empty_unscored"] for x in excluded_pre_prompt_frames.values())
     for name in runs:
-        macro = float(np.mean([per_video[v][name]["mean_present_dice"] for v in eligible]))
+        macro = (float(np.mean(
+            [per_video[v][name]["mean_present_dice"] for v in eligible]))
+            if eligible else None)
         frame_dice = [x["arms"][name]["dice"] for x in per_frame if x["present"]]
         gt_empty = [x["arms"][name]["false_alarm"] for x in per_frame if not x["present"]]
         paired = np.array([
             per_video[v][name]["mean_present_dice"] -
             per_video[v][baseline]["mean_present_dice"] for v in eligible
         ])
-        sampled = rng.integers(0, len(paired), size=(bootstrap, len(paired)))
-        ci = np.quantile(paired[sampled].mean(axis=1), (0.025, 0.975)).tolist()
+        ci = None
+        if len(paired):
+            sampled = rng.integers(0, len(paired), size=(bootstrap, len(paired)))
+            ci = np.quantile(
+                paired[sampled].mean(axis=1), (0.025, 0.975)).tolist()
         memory_pairs = [
             (runs[name]["sequences"][v]["resident_memory"],
              runs[baseline]["sequences"][v]["resident_memory"])
@@ -410,9 +416,12 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                 for v in per_video
             },
             "sequence_macro_present_dice": macro,
-            "frame_weighted_present_dice": float(np.mean(frame_dice)),
-            "mean_paired_delta_vs_baseline": float(paired.mean()),
-            "paired_sequence_bootstrap_95_ci": [float(x) for x in ci],
+            "frame_weighted_present_dice": (
+                float(np.mean(frame_dice)) if frame_dice else None),
+            "mean_paired_delta_vs_baseline": (
+                float(paired.mean()) if len(paired) else None),
+            "paired_sequence_bootstrap_95_ci": (
+                [float(x) for x in ci] if ci is not None else None),
             "present_sequences": len(eligible),
             "source_videos": len(videos),
             "videos_with_initialization": len(per_video),
@@ -484,10 +493,14 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         "|---|---:|---:|---:|---:|",
     ]
     for name, item in summary.items():
+        def _decimal(value, sign=False):
+            return (f"{value:+.5f}" if sign else f"{value:.5f}") \
+                if value is not None else "N/A (no GT-present frames)"
         lines.append(
-            f"| {name} ({runs[name]['arm']}) | {item['sequence_macro_present_dice']:.5f} | "
-            f"{item['mean_paired_delta_vs_baseline']:+.5f} | "
-            f"{item['frame_weighted_present_dice']:.5f} | "
+            f"| {name} ({runs[name]['arm']}) | "
+            f"{_decimal(item['sequence_macro_present_dice'])} | "
+            f"{_decimal(item['mean_paired_delta_vs_baseline'], sign=True)} | "
+            f"{_decimal(item['frame_weighted_present_dice'])} | "
             f"{item['empty_false_alarms']}/{item['empty_frames']} |"
         )
     lines += [
