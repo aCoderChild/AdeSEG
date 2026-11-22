@@ -90,7 +90,9 @@ def make_run(tmp_path, manifest, prompt_path, videos, name, arm, *, improved=Fal
             "status": "completed", "prompt_frame_index": 0,
             "prompt_mask_sha256": prompt["mask_sha256"],
             "prompt_image_sha256": prompt["image_sha256"],
-            "prompt_origin": "automatic_mask", "predictions": records,
+            "prompt_origin": "automatic_mask",
+            "initialization_mode": "mask_reprompt",
+            "predictions": records,
             "resident_memory": {
                 "resident_frame_entries": 2, "resident_spatial_tokens": 4,
                 "compressed_frame_entries": 1, "protected_frame_entries": 1,
@@ -111,6 +113,7 @@ def make_run(tmp_path, manifest, prompt_path, videos, name, arm, *, improved=Fal
     receipt = {
         "format": FORMAT, "track": "lean_sam2_hiera_bplus",
         "arm": arm, "split": "dev", "label_id": 1,
+        "initialization_mode": "mask_reprompt",
         "manifest_sha256": file_sha256(manifest.with_name("images_only.jsonl")),
         "prompt_manifest_sha256": file_sha256(prompt_path),
         "backbone_sha256": "a"*64,
