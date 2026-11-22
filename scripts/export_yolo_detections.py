@@ -107,7 +107,7 @@ def main(argv=None):
     p.add_argument("--manifest",type=Path,required=True)
     p.add_argument("--checkpoint",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True)
-    p.add_argument("--split",choices=("dev","test"),default="dev")
+    p.add_argument("--split",choices=("train","dev","test"),default="dev")
     p.add_argument("--target-class",type=int,required=True,
                    help="Class ID for the target lesion in the YOLO detector")
     p.add_argument("--yolo-conf",type=float,default=0.01)
