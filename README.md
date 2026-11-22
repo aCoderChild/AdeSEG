@@ -19,7 +19,7 @@ and clinical adenoid applicability have not been established.
 
 **Source-grounded corrections:** See the
 [literature-guided review and equations](docs/methodology/LITERATURE_GUIDED_CORRECTIONS.md)
-for SAM 2, Lean-SAM2, CMSA-Net, Cutie and XMem references,
+for SAM 2, Lean-SAM2, and relevant memory-design literature,
 GT-consistent teacher presence, direct prompting, and a separate clean
 CUDA profiling protocol.
 
