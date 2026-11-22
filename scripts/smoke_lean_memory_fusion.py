@@ -89,6 +89,7 @@ def smoke(args):
         raise ValueError("Need a DEV video with a frozen prompt and >=2 later frames")
     video, frames = possible[0]
     repo, revision = source_identity("lean")
+    initialization_mode = getattr(args, "initialization_mode", "mask_reprompt")
     arms = ("native", "identity", "fusion") if args.fusion_checkpoint else (
         "native", "identity")
     output.mkdir(parents=True)
@@ -103,7 +104,7 @@ def smoke(args):
             args.fusion_sha256 if arm == "fusion" else None,
             args.checkpoint_sha256,
             args.train_manifest_sha256 if arm == "fusion" else None,
-            args.device)
+            args.device, initialization_mode=initialization_mode)
         folder = output / arm / "predictions" / video
         folder.mkdir(parents=True, exist_ok=False)
         if args.device == "cuda":
@@ -111,7 +112,7 @@ def smoke(args):
         try:
             results[arm] = infer_sequence(
                 predictor, frames, prompts[video], folder, adapter,
-                arm, args.device)
+                arm, args.device, initialization_mode=initialization_mode)
             if args.device == "cuda":
                 torch.cuda.synchronize()
                 resource[arm] = {"max_memory_allocated_bytes":
@@ -129,6 +130,7 @@ def smoke(args):
         "manifest_sha256": file_sha256(manifest),
         "prompt_sha256": file_sha256(prompt_manifest),
         "device": args.device, "results": checks, "resources": resource,
+        "initialization_mode": initialization_mode,
         "warning": (
             "One-video video-propagation contract test only. "
             "No GT was read, and no accuracy, clinical, or runtime "
@@ -146,6 +148,9 @@ def main(argv=None):
     p.add_argument("--checkpoint", type=Path, required=True)
     p.add_argument("--checkpoint-sha256", required=True)
     p.add_argument("--fusion-checkpoint", type=Path)
+    p.add_argument("--initialization-mode",
+                   choices=("direct_prompt", "mask_reprompt"),
+                   default="mask_reprompt")
     p.add_argument("--fusion-sha256")
     p.add_argument("--train-manifest-sha256")
     p.add_argument("--require-target-anchors", action="store_true")
