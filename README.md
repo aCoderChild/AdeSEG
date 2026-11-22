@@ -6,9 +6,19 @@ AdeSEG contains two distinct methodological tracks. The **current multiscale
 temporal-memory experiment** enriches the final mask-conditioned SAM2 memory
 representation using two earlier image/FPN feature levels, preserving the
 native memory-grid shape and retaining native Lean-SAM2 TAMP/TCIM/TARR.
-The current experiment starts from *frozen automatic masks* and is **not yet
-an integrated YOLO/FGPI-to-Lean-SAM2 pipeline**. Segmentation improvements
+The current experiment starts from *frozen automatic masks*. A separate
+[Lean YOLO/FGPI prompt-export stage](scripts/export_lean_fgpi_prompts.py)
+now constructs those masks using the **same pinned Lean-SAM2 backbone**,
+with image-only inputs and authenticated producer receipts. This is a
+two-stage reproducible code path, **not yet real-GPU-validated end-to-end
+performance**. Segmentation improvements
 and clinical adenoid applicability have not been established.
+
+The experiment suite now also includes a
+[source/patient-group leakage audit](scripts/audit_source_partitions.py),
+[real-video smoke runner](scripts/smoke_lean_memory_fusion.py), and
+[frozen held-out TEST protocol](scripts/freeze_lean_test_protocol.py).
+These are research safeguards, not empirical performance results.
 
 Read the **[current methodology](docs/methodology/OVERVIEW.md)** and
 **[runnable memory experiment](docs/experiments/LEAN_MEMORY_FUSION_PREFLIGHT.md)**
