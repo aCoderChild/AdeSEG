@@ -50,6 +50,82 @@ def require_digest(value):
     return value
 
 
+def validate_direct_prompt(prompt, image_path):
+    """Validate frozen YOLO/FGPI coordinates against the actual source image.
+
+    Do not reconstruct learned feature-guided points or consult GT during
+    propagation. The immutable, original-resolution coordinates are used
+    directly by the pinned SAM2 prompt encoder.
+    """
+    from adeseg.modules.fgpi.prompts import _validate_box
+    if (not isinstance(prompt, dict)
+            or prompt.get("mode") not in ("box_only", "fgpi")
+            or not isinstance(prompt.get("point_coords"), list)
+            or not isinstance(prompt.get("point_labels"), list)
+            or len(prompt["point_coords"]) != len(prompt["point_labels"])):
+        raise ValueError("Malformed frozen direct Lean prompt")
+    with Image.open(image_path) as im:
+        width, height = im.size
+    _validate_box(prompt.get("box_xyxy"), (height, width))
+    points, labels = prompt["point_coords"], prompt["point_labels"]
+    if any(not isinstance(p, list) or len(p) != 2
+           or any(type(x) not in (float, int) or not np.isfinite(x)
+                  for x in p)
+           or not (0 <= p[0] < width and 0 <= p[1] < height)
+           for p in points):
+        raise ValueError("Direct FGPI points are outside original image")
+    if any(type(x) is not int or x not in (0, 1) for x in labels):
+        raise ValueError("Direct FGPI point labels must be integer 0/1")
+    if prompt["mode"] == "fgpi":
+        if (prompt.get("decision") != "augmented"
+                or 1 not in labels or 0 not in labels):
+            raise ValueError("FGPI requires foreground and background points")
+    elif points or labels:
+        raise ValueError("Box-only direct prompt contains unexpected points")
+    return True
+
+
+def initialize_frozen_lean_prompt(
+        predictor, state, prompt, *, initialization_mode="mask_reprompt"):
+    """Initialize a native video session without any ground-truth feedback.
+
+    Direct mode preserves the original box/point SAM prompt and decoder
+    semantics; the binary PNG is used only to check export consistency.
+    """
+    if initialization_mode not in ("mask_reprompt", "direct_prompt"):
+        raise ValueError("Unknown Lean initialization mode")
+    with Image.open(prompt["resolved_mask"]) as image:
+        pixels = np.asarray(image.convert("L"))
+    hw = (int(state["video_height"]), int(state["video_width"]))
+    if pixels.shape != hw or not np.isin(pixels, (0, 255)).all():
+        raise ValueError("Frozen initial mask must be binary 0/255 at original resolution")
+    mask = (pixels > 0)
+    if not bool(mask.any()):
+        raise ValueError("Frozen initial mask is empty")
+    if initialization_mode == "direct_prompt":
+        if "direct_prompt" not in prompt:
+            raise ValueError("Direct mode requires exported YOLO box/FGPI point metadata")
+        from adeseg.modules.fgpi.prompts import apply_fgpi_prompt
+        # Metadata was checked against the real source frame at manifest load.
+        _, ids, init_logits = apply_fgpi_prompt(
+            predictor, state, 0, 1, prompt["direct_prompt"])
+        if (list(ids) != [1]
+                or not isinstance(init_logits, torch.Tensor)
+                or tuple(init_logits.shape) != (1, 1, *hw)
+                or not bool(torch.isfinite(init_logits).all().item())):
+            raise RuntimeError("Native direct-prompt initialization geometry changed")
+        binary = init_logits[0, 0].detach().float().cpu().numpy() > 0
+        if not np.array_equal(binary, mask):
+            raise RuntimeError(
+                "Direct Lean prompt no longer reproduces the frozen exported "
+                "initial mask; checkpoint, preprocessing or prompt semantics differ")
+    else:
+        predictor.add_new_mask(
+            state, frame_idx=0, obj_id=1,
+            mask=torch.from_numpy(mask.copy()))
+    return initialization_mode
+
+
 def load_frozen_prompts(path, videos):
     """One immutable prompt per eligible video; missing videos are explicit skips."""
     path = Path(path).resolve(strict=True)
@@ -63,7 +139,8 @@ def load_frozen_prompts(path, videos):
             raise ValueError(f"Bad prompt JSON line {lineno}") from exc
         expected = {"video_id", "frame_index", "mask_path", "image_sha256",
                     "mask_sha256", "prompt_origin"}
-        if not isinstance(row, dict) or set(row) != expected:
+        if (not isinstance(row, dict)
+                or set(row) not in (expected, expected | {"direct_prompt"})):
             raise ValueError(f"Unexpected prompt fields on line {lineno}")
         video, frame_idx = row["video_id"], row["frame_index"]
         if (video not in videos or video in prompts or type(frame_idx) is not int
@@ -80,6 +157,8 @@ def load_frozen_prompts(path, videos):
         if (file_sha256(image.image_path) != require_digest(row["image_sha256"])
                 or file_sha256(mask_path) != require_digest(row["mask_sha256"])):
             raise ValueError("Frozen prompt checksum mismatch")
+        if "direct_prompt" in row:
+            validate_direct_prompt(row["direct_prompt"], image.image_path)
         prompts[video] = dict(row, resolved_mask=str(mask_path))
     if not prompts:
         raise ValueError("No frozen automatic prompts supplied")
@@ -232,7 +311,8 @@ def verify_native_tamp_dump(path):
 
 
 def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
-                   input_mode="full", dump_tamp_indices=False):
+                   input_mode="full", dump_tamp_indices=False,
+                   initialization_mode="mask_reprompt"):
     """Run causal one-shot propagation, recording masks but never reading GT."""
     from scripts.memory_token_io import synchronize_storage
     frame_to_position = {f.frame_index: i for i, f in enumerate(frames)}
@@ -268,15 +348,10 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
                     video_path=temporary, offload_video_to_cpu=True,
                     offload_state_to_cpu=False,
                 )
-                with Image.open(prompt["resolved_mask"]) as image:
-                    pixels = np.asarray(image.convert("L"))
                 hw = (int(state["video_height"]), int(state["video_width"]))
-                if pixels.shape != hw or not np.isin(pixels, (0, 255)).all():
-                    raise ValueError("Frozen prompt mask must be binary 0/255 at original resolution")
-                mask = torch.from_numpy((pixels > 0).copy())
-                if not bool(mask.any().item()):
-                    raise ValueError("Frozen automatic prompt is empty")
-                predictor.add_new_mask(state, frame_idx=0, obj_id=1, mask=mask)
+                initialize_frozen_lean_prompt(
+                    predictor, state, prompt,
+                    initialization_mode=initialization_mode)
                 context = (nullcontext() if fusion is None else
                            route_memory_feature_fusion(
                                predictor, fusion,
@@ -357,6 +432,7 @@ def infer_sequence(predictor, frames, prompt, folder, fusion, arm, device,
         "prompt_mask_sha256": prompt["mask_sha256"],
         "prompt_image_sha256": prompt["image_sha256"],
         "prompt_origin": prompt["prompt_origin"],
+        "initialization_mode": initialization_mode,
         "predictions": rows,
         "memory_writes_checked": len(telemetry),
         "memory_writes_modified": sum(t["changed_elements"] > 0 for t in telemetry),
@@ -449,6 +525,9 @@ def run(args):
     if output.exists():
         raise FileExistsError("Refusing to overwrite existing ablation output")
     input_mode = getattr(args, "fusion_input_mode", "full")
+    initialization_mode = getattr(args, "initialization_mode", "mask_reprompt")
+    if initialization_mode not in ("mask_reprompt", "direct_prompt"):
+        raise ValueError("Unknown frozen Lean initial prompt mode")
     if input_mode not in EarlyFeatureMemoryFusion.INPUT_MODES:
         raise ValueError("Invalid fusion input mode")
     if args.arm != "fusion" and input_mode != "full":
@@ -550,6 +629,7 @@ def run(args):
             model, frames, frozen[video_id], folder, fusion, args.arm,
             args.device, input_mode=input_mode,
             dump_tamp_indices=getattr(args, "dump_tamp_indices", False),
+            initialization_mode=initialization_mode,
         )
         print(f"[{args.arm}] {video_id}: {len(sequences[video_id]['predictions'])} propagated frames", flush=True)
         del model, fusion
@@ -584,6 +664,7 @@ def run(args):
         "track": "lean_sam2_hiera_bplus",
         "arm": args.arm,
         "fusion_input_mode": input_mode,
+        "initialization_mode": initialization_mode,
         "fusion_preserve_native_no_object": preserve_native_no_object,
         "teacher_target_policy": teacher_target_policy,
         "max_anchor_cosine_shift": getattr(args, "max_anchor_cosine_shift", None),
@@ -608,6 +689,10 @@ def run(args):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--arm", choices=("native", "identity", "fusion"), required=True)
+    p.add_argument("--initialization-mode",
+                   choices=("mask_reprompt", "direct_prompt"),
+                   default="mask_reprompt",
+                   help="Use native YOLO box/FGPI points or frozen binary-mask re-prompt control")
     p.add_argument("--fusion-input-mode",
                    choices=EarlyFeatureMemoryFusion.INPUT_MODES, default="full",
                    help="Must match the mode used to train the fusion checkpoint")
