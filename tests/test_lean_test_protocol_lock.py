@@ -23,6 +23,7 @@ def setup_lock(tmp_path):
         "test_prompt_manifest_sha256": file_sha256(prompts),
         "backbone_sha256": "c" * 64,
         "selected_fusion_input_mode": "full",
+        "initialization_mode": "mask_reprompt",
         "selected_fusion_checkpoint_sha256": "d" * 64,
         "dev_score_sha256": "e" * 64,
         "dev_candidate_receipt_sha256": "f" * 64,
