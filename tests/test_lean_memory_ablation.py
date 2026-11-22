@@ -526,3 +526,18 @@ def test_invalid_memory_audit_rejected(tmp_path):
     with pytest.raises(ValueError, match="Frame memory audit"):
         score_runs({"native": base, "identity": identity}, manifest,
                    tmp_path / "bad_memory")
+
+
+def test_video_runner_requires_explicit_initialization_mode():
+    """Prevent an implicit binary-mask re-prompt in the main experiment."""
+    from scripts.run_lean_memory_fusion_ablation import main
+
+    # Parsing must fail before reading files or constructing a model.
+    with pytest.raises(SystemExit) as error:
+        main([
+            "--arm", "native", "--manifest", "missing.jsonl",
+            "--prompt-manifest", "missing_prompts.jsonl",
+            "--checkpoint", "missing.pt", "--checkpoint-sha256", "0" * 64,
+            "--output", "missing_output",
+        ])
+    assert error.value.code == 2
