@@ -425,6 +425,29 @@ def test_causal_effectiveness_guard_rejects_final_frame_only_writes():
     }) == 2
 
 
+def test_optional_anchor_drift_guard_requires_real_anchor_evidence():
+    cases = {
+        "good": {
+            "status": "completed", "predictions": [{}, {}, {}],
+            "effective_memory_writes_affecting_future": 1,
+            "anchor_similarity_audit": {
+                "eligible_writes": 3, "mean_abs_similarity_shift": 0.04,
+            },
+        }
+    }
+    assert verify_learned_causal_effectiveness(
+        cases, max_anchor_cosine_shift=0.05) == 1
+    with pytest.raises(RuntimeError, match="exceeded predeclared"):
+        verify_learned_causal_effectiveness(
+            cases, max_anchor_cosine_shift=0.01)
+    cases["good"]["anchor_similarity_audit"] = {
+        "eligible_writes": 0, "mean_abs_similarity_shift": None,
+    }
+    with pytest.raises(RuntimeError, match="without initialized anchors"):
+        verify_learned_causal_effectiveness(
+            cases, max_anchor_cosine_shift=0.05)
+
+
 def test_scoring_reports_effective_memory_writes_and_anchor_drift(tmp_path):
     manifest, prompts, videos = benchmark(tmp_path)
     native = make_run(tmp_path, manifest, prompts, videos, "native", "native")
