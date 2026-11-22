@@ -37,6 +37,21 @@ def test_export_metadata_is_authenticated(tmp_path):
     assert out["detected_frames"]==1
     assert len(out["metadata_sha256"])==64
 
+def test_legacy_annotation_metadata_missing_new_flag_stays_compatible(tmp_path):
+    manifest, checkpoint, detections = fixtures(tmp_path)
+    metadata = detections.with_name(detections.name + ".metadata.json")
+    data = json.loads(metadata.read_text())
+    del data["image_only_manifest"]
+    metadata.write_text(json.dumps(data))
+    result = verify_detection_export(
+        manifest, detections, checkpoint, split="dev")
+    assert result["detected_frames"] == 1
+    with pytest.raises(ValueError, match="image-only mode"):
+        verify_detection_export(
+            manifest, detections, checkpoint, split="dev",
+            image_only_manifest=True)
+
+
 def test_mutated_detections_cannot_reuse_old_metadata(tmp_path):
     manifest,checkpoint,detections=fixtures(tmp_path)
     detections.write_text(detections.read_text()+"\n")
