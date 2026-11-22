@@ -14,6 +14,7 @@ from scripts.capture_lean_memory_train import downsample_capture_features
 from scripts.run_lean_memory_fusion_ablation import file_sha256, get_fusion
 from training.lean_memory_fusion import (
     train, read_capture, TRAINING_PROTOCOL, audit_teacher_feasibility,
+    feasible_teacher_memory,
 )
 from training.split_guard import sha256
 from adeseg.inference.lean_memory_feature_fusion import route_memory_feature_fusion
@@ -59,6 +60,23 @@ def test_oracle_teacher_reachability_audit_distinguishes_bound_and_gate():
     assert blocked["mean_fraction_unattainable_elements"] == 1
 
 
+def test_feasible_teacher_projection_satisfies_adapter_elementwise_bound():
+    config = MemoryFeatureFusionConfig()
+    example = real_geometry_capture()
+    native = example["native_memory"]
+    oracle = native + 100.0
+    teacher = feasible_teacher_memory(
+        native, oracle, torch.ones(1), config)
+    std = native.std(dim=(1, 2, 3), unbiased=False, keepdim=True)
+    limit = std.clamp_min(1e-6) * config.max_relative_residual * 0.95
+    assert torch.all((teacher - native).abs() <= limit + 1e-6)
+    assert torch.all(teacher < oracle)
+    # Under the conservative gate, absent-object targets remain exactly native.
+    absent = feasible_teacher_memory(
+        native, oracle, -torch.ones(1), config)
+    assert torch.equal(absent, native)
+
+
 def test_pinned_feature_alignment_matches_native_grid():
     record = real_geometry_capture()
     assert [x.shape for x in record["early"]] == [(1, 32, 2, 2), (1, 64, 2, 2)]
@@ -101,6 +119,7 @@ def test_capture_training_produces_valid_authenticated_checkpoint(tmp_path):
     receipt = train(args)
     assert receipt["training_steps"] == 2
     assert receipt["training_protocol"] == TRAINING_PROTOCOL
+    assert receipt["teacher_target_policy"] == "feasible_clipped"
     assert file_sha256(output) == receipt["checkpoint_sha256"]
     model, _ = get_fusion(
         "fusion", output, receipt["checkpoint_sha256"],
