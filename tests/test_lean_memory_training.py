@@ -98,6 +98,8 @@ def setup_training(tmp_path):
         "capture_source_sha256": sha256(
             Path(__file__).resolve().parents[1] / "scripts/capture_lean_memory_train.py"),
         "video_id": "train_case", "frame_index": 1,
+        "teacher_presence_mode": "gt_mask",
+        "initialization_mode": "mask_reprompt",
     }]))
     split = tmp_path / "groups.json"
     split.write_text(json.dumps({
