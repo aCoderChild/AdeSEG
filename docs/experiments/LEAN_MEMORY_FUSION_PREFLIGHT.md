@@ -4,6 +4,10 @@
 **not** adenoid-specific clinical validation. This protocol does **not**
 modify native SAM2 image/memory encoders, decoder, TAMP, TCIM or TARR.
 
+See also [literature-guided architecture corrections](../methodology/LITERATURE_GUIDED_CORRECTIONS.md)
+for the verified native box/FGPI prompt path, GT-consistent teacher
+object-presence, and separate synchronized timing benchmark.
+
 See also the [source-level architectural and mathematical audit](../methodology/LEAN_MEMORY_ENRICHMENT_AUDIT.md)
 for the exact FPN feature identity, invariants, theorem assumptions and
 limits of what can be proved without video experiments.
@@ -154,6 +158,7 @@ python -m scripts.capture_lean_memory_train \
   --manifest "$TRAIN_MANIFEST" --prompt-manifest "$TRAIN_PROMPTS" \
   --group-map "$GROUP_MAP" --split-file "$SPLIT_FILE" \
   --checkpoint "$BACKBONE" --backbone-sha256 "$BACKBONE_SHA" \
+  --initialization-mode direct_prompt --teacher-presence-mode gt_mask \
   --device "$DEVICE" --output "$OUT/captures"
 
 export CAPTURE_MANIFEST="$OUT/captures/train_memory_captures.json"
@@ -173,7 +178,8 @@ done
 # 3. Freeze native/identity evaluation using identical automatic prompts.
 for ARM in native identity; do
   python -m scripts.run_lean_memory_fusion_ablation \
-    --arm "$ARM" --manifest "$DEV_IMAGE_MANIFEST" \
+    --arm "$ARM" --initialization-mode direct_prompt \
+    --manifest "$DEV_IMAGE_MANIFEST" \
     --prompt-manifest "$DEV_PROMPTS" \
     --checkpoint "$BACKBONE" --checkpoint-sha256 "$BACKBONE_SHA" \
     --split dev --device "$DEVICE" --output "$OUT/$ARM"
@@ -184,6 +190,7 @@ for MODE in full no_early early0_only early1_only no_mask; do
   FUSION_SHA=$(shasum -a 256 "$OUT/checkpoints/$MODE.pt" | awk '{print $1}')
   python -m scripts.run_lean_memory_fusion_ablation \
     --arm fusion --fusion-input-mode "$MODE" \
+    --initialization-mode direct_prompt \
     --fusion-checkpoint "$OUT/checkpoints/$MODE.pt" \
     --fusion-sha256 "$FUSION_SHA" \
     --train-manifest-sha256 "$CAPTURE_SHA" \
@@ -220,13 +227,14 @@ fair runtime comparisons.
 FUSION_SHA=$(shasum -a 256 "$OUT/checkpoints/full.pt" | awk '{print $1}')
 
 python -m scripts.run_lean_memory_fusion_ablation \
-  --arm native --dump-tamp-indices \
+  --arm native --initialization-mode direct_prompt --dump-tamp-indices \
   --manifest "$DEV_IMAGE_MANIFEST" --prompt-manifest "$DEV_PROMPTS" \
   --checkpoint "$BACKBONE" --checkpoint-sha256 "$BACKBONE_SHA" \
   --split dev --device "$DEVICE" --output "$OUT/native_tamp"
 
 python -m scripts.run_lean_memory_fusion_ablation \
   --arm fusion --fusion-input-mode full --dump-tamp-indices \
+  --initialization-mode direct_prompt \
   --require-target-anchors \
   --fusion-checkpoint "$OUT/checkpoints/full.pt" \
   --fusion-sha256 "$FUSION_SHA" \
@@ -388,14 +396,17 @@ future-frame segmentation accuracy.
 
 Use `--teacher-target-policy raw_oracle` only for a separately
 named, independently trained optimization control. The saved checkpoint
-binds the policy. Previous v1 memory-fusion checkpoints are not
-compatible and must be retrained.
+binds the policy. Previous v1/v2 memory-fusion checkpoints and teacher captures are not
+compatible with the current v3 GT-presence/provenance protocol and must
+be regenerated. Separate `predicted` teacher-presence controls are
+supported, but their trained checkpoint must record that policy.
 
 ### 3. Real DEV video/GPU smoke test (mandatory before full cohort)
 
 ```bash
 FUSION_SHA=$(shasum -a 256 "$OUT/checkpoints/full.pt" | awk '{print $1}')
 python -m scripts.smoke_lean_memory_fusion \
+  --initialization-mode direct_prompt \
   --manifest "$DEV_IMAGE_MANIFEST" --prompt-manifest "$DEV_PROMPTS" \
   --checkpoint "$BACKBONE" --checkpoint-sha256 "$BACKBONE_SHA" \
   --fusion-checkpoint "$OUT/checkpoints/full.pt" \
@@ -438,6 +449,7 @@ python -m scripts.freeze_lean_test_protocol \
 # Re-use the same --test-lock for native, identity and selected fusion.
 python -m scripts.run_lean_memory_fusion_ablation \
   --arm fusion --fusion-input-mode full \
+  --initialization-mode direct_prompt \
   --fusion-checkpoint "$OUT/checkpoints/full.pt" \
   --fusion-sha256 "$FUSION_SHA" \
   --train-manifest-sha256 "$CAPTURE_SHA" \
