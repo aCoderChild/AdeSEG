@@ -82,7 +82,7 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
     if "identity" in runs and runs["identity"].get("arm") != "identity":
         raise ValueError("Identity control receipt must be an identity run")
     keys = ("track", "split", "label_id", "manifest_sha256",
-            "prompt_manifest_sha256", "backbone_sha256",
+            "initialization_mode", "prompt_manifest_sha256", "backbone_sha256",
             "lean_source_revision", "runtime_signature")
     signature_keys = {
         "adeseg_head", "runner_sha256", "fusion_source_sha256",
@@ -193,7 +193,8 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
                 records[baseline]["resident_memory"]):
             raise RuntimeError(f"Native/identity retained memory mismatch: {video}")
         prompt_fields = ("prompt_frame_index", "prompt_mask_sha256",
-                         "prompt_image_sha256", "prompt_origin")
+                         "prompt_image_sha256", "prompt_origin",
+                         "initialization_mode")
         if any(any(record.get(k) != records[baseline].get(k) for k in prompt_fields)
                for record in records.values()):
             raise ValueError(f"Prompt mismatch on {video}")
@@ -448,6 +449,7 @@ def score_runs(arms, manifest, output, *, baseline="native", bootstrap=10000, se
         "run_input_modes": {
             name: value.get("fusion_input_mode", "full") for name, value in runs.items()
         },
+        "initialization_mode": reference.get("initialization_mode", "mask_reprompt"),
         "run_object_presence_gate_modes": {
             name: value.get("fusion_preserve_native_no_object")
             for name, value in runs.items()
