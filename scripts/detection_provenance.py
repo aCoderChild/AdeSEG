@@ -30,11 +30,16 @@ def verify_detection_export(manifest, detections, detector_checkpoint, *,
         "detector_checkpoint_sha256":sha256(checkpoint),
         "split":split,
         "ground_truth_used_in_detection":False,
-        "image_only_manifest": bool(image_only_manifest),
         "policy":"top-confidence target-class YOLO detection per frame",
     }
     if not isinstance(row,dict) or any(row.get(k)!=v for k,v in required.items()):
         raise ValueError("YOLO export metadata does not match authenticated study inputs")
+    # Legacy annotation-bearing exports did not include this flag. Treat the
+    # absence as False ONLY; image-only exports must explicitly authenticate
+    # True so the new GT-free path cannot accept a legacy artifact by mistake.
+    mode = row.get("image_only_manifest", False)
+    if type(mode) is not bool or mode != image_only_manifest:
+        raise ValueError("YOLO export metadata image-only mode mismatch")
     if (type(row.get("target_class")) is not int or row["target_class"]<0
             or type(row.get("detected_frames")) is not int
             or type(row.get("total_frames")) is not int
