@@ -102,15 +102,22 @@ risks, see [the memory-enrichment architecture audit](LEAN_MEMORY_ENRICHMENT_AUD
 
 - **Training:** same-frame TRAIN-only oracle-memory distillation
   (\(\widetilde M_t\) approximates memory obtained from a TRAIN GT mask),
-  plus native-memory preservation. This is **not** temporal backpropagation,
-  a short-horizon segmentation loss, or direct optimization of TAMP.
+  plus native-memory preservation. By default, the oracle correction is
+  **projected into the bounded residual's feasible range**; the original
+  raw oracle objective is an explicit separate control. This is **not**
+  temporal backpropagation, a short-horizon segmentation loss, or direct
+  optimization of TAMP.
 - **Inference:** video runner begins from a **precomputed frozen automatic
   mask prompt**. During propagation it reads image features and predicted
   masks only. It does not use video labels.
 - **Evaluation:** independent offline post-prompt Dice/IoU scoring from
   frozen PNGs, plus GT-empty false-alarm reporting, paired video-level
   comparisons, memory-write telemetry, storage counts and optional
-  native TAMP retained-index overlap.
+  native TAMP retained-index overlap. Unpromptable videos and GT-positive
+  frames without predictions are explicitly counted, and all-negative
+  cohorts report false alarms with positive Dice marked **undefined**.
+  Source-split auditing, real DEV GPU smoke and frozen TEST selection
+  are separate, mandatory validation stages before paper claims.
 - **Attribution:** controls \`full\`, \`no_early\`, \`early0_only\`,
   \`early1_only\`, \`no_mask\` are trained **separately** and evaluated
   with identical backbones and frozen prompts.
