@@ -8,10 +8,13 @@ from datasets.video import load_manifest
 from scripts.infer_med_video import sha256
 
 
-def verify_detection_export(manifest, detections, detector_checkpoint, *, split):
+def verify_detection_export(manifest, detections, detector_checkpoint, *,
+                            split, image_only_manifest=False):
     manifest=Path(manifest).resolve(strict=True)
     detections=Path(detections).resolve(strict=True)
     checkpoint=Path(detector_checkpoint).resolve(strict=True)
+    if type(image_only_manifest) is not bool:
+        raise ValueError("image_only_manifest must be boolean")
     metadata=detections.with_name(detections.name+".metadata.json")
     if not metadata.is_file():
         raise FileNotFoundError(
@@ -27,6 +30,7 @@ def verify_detection_export(manifest, detections, detector_checkpoint, *, split)
         "detector_checkpoint_sha256":sha256(checkpoint),
         "split":split,
         "ground_truth_used_in_detection":False,
+        "image_only_manifest": bool(image_only_manifest),
         "policy":"top-confidence target-class YOLO detection per frame",
     }
     if not isinstance(row,dict) or any(row.get(k)!=v for k,v in required.items()):
@@ -39,7 +43,8 @@ def verify_detection_export(manifest, detections, detector_checkpoint, *, split)
             or not 0<row.get("iou",0)<=1):
         raise ValueError("Invalid frozen YOLO method parameters")
     videos=load_manifest(manifest,split,require_contiguous=True,
-                         require_jpeg=True,safe_output_ids=True)
+                         require_jpeg=True,safe_output_ids=True,
+                         require_masks=not image_only_manifest)
     expected_total=sum(len(frames) for frames in videos.values())
     lines=[r for r in detections.read_text(encoding="utf-8").splitlines() if r.strip()]
     if row["total_frames"]!=expected_total or row["detected_frames"]!=len(lines):
