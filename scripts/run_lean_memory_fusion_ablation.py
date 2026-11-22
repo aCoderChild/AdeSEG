@@ -420,6 +420,29 @@ def run(args):
     if file_sha256(checkpoint) != require_digest(args.checkpoint_sha256):
         raise ValueError("Lean backbone checkpoint SHA256 mismatch")
     repo, revision = source_identity("lean")
+    source_root = Path(__file__).resolve().parents[1]
+    head_before = subprocess.check_output(
+        ["git", "-C", str(source_root), "rev-parse", "HEAD"],
+        text=True).strip()
+    test_lock_sha256 = None
+    if args.split == "test":
+        if getattr(args, "test_lock", None) is None:
+            raise ValueError(
+                "Held-out TEST inference requires the frozen DEV selection "
+                "and input hashes in --test-lock")
+        from scripts.freeze_lean_test_protocol import verify_test_lock
+        verify_test_lock(
+            args.test_lock,
+            image_manifest=manifest,
+            prompt_manifest=prompt_manifest,
+            backbone_sha256=args.checkpoint_sha256,
+            source_head=head_before,
+            arm=args.arm,
+            input_mode=input_mode,
+            fusion_sha256=args.fusion_sha256,
+        )
+        test_lock_sha256 = file_sha256(
+            Path(args.test_lock).resolve(strict=True))
     videos = load_manifest(
         manifest, args.split, require_contiguous=True,
         require_jpeg=True, safe_output_ids=True, require_masks=False,
@@ -508,6 +531,7 @@ def run(args):
         "teacher_target_policy": teacher_target_policy,
         "dump_tamp_indices": bool(getattr(args, "dump_tamp_indices", False)),
         "split": args.split,
+        "test_lock_sha256": test_lock_sha256,
         "label_id": args.label_id,
         "manifest_sha256": file_sha256(manifest),
         "prompt_manifest_sha256": file_sha256(prompt_manifest),
@@ -538,6 +562,8 @@ def main(argv=None):
     p.add_argument("--checkpoint-sha256", required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--split", choices=("dev", "test"), default="dev")
+    p.add_argument("--test-lock", type=Path,
+                   help="Required for held-out TEST; freezes DEV choice and test input hashes")
     p.add_argument("--label-id", type=int, default=1)
     p.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cuda")
     p.add_argument("--fusion-checkpoint", type=Path)
