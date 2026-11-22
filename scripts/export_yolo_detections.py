@@ -18,7 +18,8 @@ from scripts.infer_med_video import sha256
 
 def export_detections(manifest, model, detector_checkpoint, output, *,
                       split="dev", target_class=0, yolo_conf=0.01,
-                      image_size=640, iou=0.7, device="cpu"):
+                      image_size=640, iou=0.7, device="cpu",
+                      image_only_manifest=False):
     manifest=Path(manifest).resolve(strict=True)
     checkpoint=Path(detector_checkpoint).resolve(strict=True)
     output=Path(output).resolve()
@@ -29,8 +30,11 @@ def export_detections(manifest, model, detector_checkpoint, output, *,
             or type(image_size) is not int or image_size < 64
             or not 0 <= yolo_conf <= 1 or not 0 < iou <= 1):
         raise ValueError("Invalid YOLO class, inference image size, confidence or NMS IoU")
+    if type(image_only_manifest) is not bool:
+        raise ValueError("image_only_manifest must be boolean")
     videos=load_manifest(manifest,split,require_contiguous=True,
-                         require_jpeg=True,safe_output_ids=True)
+                         require_jpeg=True,safe_output_ids=True,
+                         require_masks=not image_only_manifest)
     rows=[]
     detected=0
     for name,frames in sorted(videos.items()):
@@ -92,6 +96,7 @@ def export_detections(manifest, model, detector_checkpoint, output, *,
         "total_frames":sum(len(frames) for frames in videos.values()),
         "policy":"top-confidence target-class YOLO detection per frame",
         "ground_truth_used_in_detection":False,
+        "image_only_manifest": bool(image_only_manifest),
     }
     metadata.write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
     return report
@@ -109,6 +114,8 @@ def main(argv=None):
     p.add_argument("--imgsz",type=int,default=640)
     p.add_argument("--iou",type=float,default=0.7)
     p.add_argument("--device",default="cpu")
+    p.add_argument("--image-only-manifest", action="store_true",
+                   help="Accept only a manifest with no GT mask fields")
     a=p.parse_args(argv)
     try:
         from ultralytics import YOLO
@@ -118,7 +125,8 @@ def main(argv=None):
     print(json.dumps(export_detections(
         a.manifest,model,a.checkpoint,a.output,split=a.split,
         target_class=a.target_class,yolo_conf=a.yolo_conf,
-        image_size=a.imgsz,iou=a.iou,device=a.device),indent=2))
+        image_size=a.imgsz,iou=a.iou,device=a.device,
+        image_only_manifest=a.image_only_manifest),indent=2))
 
 
 if __name__=="__main__":
