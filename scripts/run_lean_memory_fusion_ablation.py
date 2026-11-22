@@ -166,7 +166,8 @@ def load_frozen_prompts(path, videos):
 
 
 def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
-               train_manifest_sha256, device, input_mode="full"):
+               train_manifest_sha256, device, input_mode="full",
+               initialization_mode="mask_reprompt"):
     if input_mode not in EarlyFeatureMemoryFusion.INPUT_MODES:
         raise ValueError("Invalid fusion input mode")
     if arm != "fusion" and input_mode != "full":
@@ -196,6 +197,8 @@ def get_fusion(arm, checkpoint, checkpoint_sha256, backbone_sha256,
         Path(__file__).resolve().parents[1] / "scripts/capture_lean_memory_train.py")
     if (payload.get("training_protocol") != TRAINING_PROTOCOL
             or payload.get("teacher_target_policy") not in TEACHER_TARGET_POLICIES
+            or payload.get("teacher_presence_mode") not in ("gt_mask", "predicted")
+            or payload.get("capture_initialization_mode") != initialization_mode
             or payload.get("fusion_input_mode") != input_mode
             or payload.get("training_source_sha256") != training_source_sha256()
             or payload.get("capture_source_sha256") != source_capture_sha
@@ -589,11 +592,13 @@ def run(args):
     fusion_digest = None
     preserve_native_no_object = None
     teacher_target_policy = None
+    teacher_presence_mode = None
     if args.arm in ("identity", "fusion"):
         preview, fusion_digest = get_fusion(
             args.arm, args.fusion_checkpoint, args.fusion_sha256,
             args.checkpoint_sha256, args.train_manifest_sha256,
-            "cpu", input_mode=input_mode)
+            "cpu", input_mode=input_mode,
+            initialization_mode=initialization_mode)
         if args.arm == "fusion":
             preserve_native_no_object = bool(preview.config.preserve_native_no_object)
             # The payload was authenticated in get_fusion. Keep the objective
@@ -602,6 +607,7 @@ def run(args):
                 Path(args.fusion_checkpoint).resolve(strict=True),
                 map_location="cpu", weights_only=True)
             teacher_target_policy = raw_payload["teacher_target_policy"]
+            teacher_presence_mode = raw_payload["teacher_presence_mode"]
         del preview
     output.mkdir(parents=True)
     sequences = {}
@@ -617,7 +623,7 @@ def run(args):
             args.arm, args.fusion_checkpoint, args.fusion_sha256,
             args.checkpoint_sha256, args.train_manifest_sha256,
             args.device, input_mode=input_mode,
-        )
+            initialization_mode=initialization_mode)
         if video_fusion_digest != fusion_digest:
             raise RuntimeError("Authenticated fusion checkpoint changed during evaluation")
         if (args.arm == "fusion" and
@@ -667,6 +673,7 @@ def run(args):
         "initialization_mode": initialization_mode,
         "fusion_preserve_native_no_object": preserve_native_no_object,
         "teacher_target_policy": teacher_target_policy,
+        "teacher_presence_mode": teacher_presence_mode,
         "max_anchor_cosine_shift": getattr(args, "max_anchor_cosine_shift", None),
         "dump_tamp_indices": bool(getattr(args, "dump_tamp_indices", False)),
         "split": args.split,
