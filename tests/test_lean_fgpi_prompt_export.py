@@ -96,7 +96,7 @@ def test_frozen_fgpi_points_reinitialize_native_sam_decoder_not_binary_mask(tmp_
     assert direct.received["labels"] == [1, 0]
     bad = dict(frozen)
     bad["direct_prompt"] = {
-        **frozen["direct_prompt"], "point_coords": [[9999, 0]],
+        **frozen["direct_prompt"], "point_coords": [[9999, 0], [8, 8]],
     }
     with pytest.raises(ValueError, match="outside"):
         validate_direct_prompt(bad["direct_prompt"], frames[1].image_path)
