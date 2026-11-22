@@ -6,13 +6,22 @@ AdeSEG contains two distinct methodological tracks. The **current multiscale
 temporal-memory experiment** enriches the final mask-conditioned SAM2 memory
 representation using two earlier image/FPN feature levels, preserving the
 native memory-grid shape and retaining native Lean-SAM2 TAMP/TCIM/TARR.
-The current experiment starts from *frozen automatic masks*. A separate
-[Lean YOLO/FGPI prompt-export stage](scripts/export_lean_fgpi_prompts.py)
-now constructs those masks using the **same pinned Lean-SAM2 backbone**,
-with image-only inputs and authenticated producer receipts. This is a
-two-stage reproducible code path, **not yet real-GPU-validated end-to-end
-performance**. Segmentation improvements
+The current experiment starts from GT-free **frozen YOLO/FGPI prompts**.
+The [same-backbone Lean YOLO/FGPI exporter](scripts/export_lean_fgpi_prompts.py)
+now freezes both the original detector box plus feature-guided points
+**and** the binary first-frame mask. The primary recommended mode
+`--initialization-mode direct_prompt` replays the actual original box/point
+decoder path into a fresh video session; `mask_reprompt` remains a
+separate representation-changing control. TRAIN capture and evaluation
+must use the same mode. This is a staged code path, **not yet GPU-validated
+end-to-end performance**. Segmentation improvements
 and clinical adenoid applicability have not been established.
+
+**Source-grounded corrections:** See the
+[literature-guided review and equations](docs/methodology/LITERATURE_GUIDED_CORRECTIONS.md)
+for SAM 2, Lean-SAM2, CMSA-Net, Cutie and XMem references,
+GT-consistent teacher presence, direct prompting, and a separate clean
+CUDA profiling protocol.
 
 The experiment suite now also includes a
 [source/patient-group leakage audit](scripts/audit_source_partitions.py),
