@@ -698,8 +698,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--arm", choices=("native", "identity", "fusion"), required=True)
     p.add_argument("--initialization-mode",
-                   choices=("mask_reprompt", "direct_prompt"),
-                   default="mask_reprompt",
+                   choices=("mask_reprompt", "direct_prompt"), required=True,
                    help="Use native YOLO box/FGPI points or frozen binary-mask re-prompt control")
     p.add_argument("--fusion-input-mode",
                    choices=EarlyFeatureMemoryFusion.INPUT_MODES, default="full",
